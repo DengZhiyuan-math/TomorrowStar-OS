@@ -100,53 +100,53 @@ Explicit exclusions from the current project or from the TomorrowStar OS product
 
 ## Traceability
 
-Roadmap creation will map every v1 requirement to exactly one phase.
+Every v1 requirement maps to exactly one roadmap phase. Deferred v2 requirements are intentionally not mapped.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| VAL-01 | TBD | Pending |
-| VAL-02 | TBD | Pending |
-| OSS-01 | TBD | Pending |
-| MOD-01 | TBD | Pending |
-| MOD-02 | TBD | Pending |
-| MOD-03 | TBD | Pending |
-| MOD-04 | TBD | Pending |
-| MOD-05 | TBD | Pending |
-| MOD-06 | TBD | Pending |
-| MOD-07 | TBD | Pending |
-| FIX-01 | TBD | Pending |
-| FIX-02 | TBD | Pending |
-| AUD-01 | TBD | Pending |
-| AUD-02 | TBD | Pending |
-| AUD-03 | TBD | Pending |
-| AUD-04 | TBD | Pending |
-| AUD-05 | TBD | Pending |
-| ASS-01 | TBD | Pending |
-| ASS-02 | TBD | Pending |
-| ASS-03 | TBD | Pending |
-| ASS-04 | TBD | Pending |
-| AGG-01 | TBD | Pending |
-| AGG-02 | TBD | Pending |
-| AGG-03 | TBD | Pending |
-| AGG-04 | TBD | Pending |
-| JD-01 | TBD | Pending |
-| JD-02 | TBD | Pending |
-| JD-03 | TBD | Pending |
-| JD-04 | TBD | Pending |
-| EVAL-01 | TBD | Pending |
-| EVAL-02 | TBD | Pending |
-| EVAL-03 | TBD | Pending |
-| EVAL-04 | TBD | Pending |
-| EVAL-05 | TBD | Pending |
-| EVAL-06 | TBD | Pending |
-| DEC-01 | TBD | Pending |
-| DEC-02 | TBD | Pending |
+| VAL-01 | Phase 1 | Pending |
+| VAL-02 | Phase 1 | Pending |
+| OSS-01 | Phase 1 | Pending |
+| MOD-01 | Phase 2 | Pending |
+| MOD-02 | Phase 2 | Pending |
+| MOD-03 | Phase 2 | Pending |
+| MOD-04 | Phase 2 | Pending |
+| MOD-05 | Phase 2 | Pending |
+| MOD-06 | Phase 2 | Pending |
+| MOD-07 | Phase 2 | Pending |
+| FIX-01 | Phase 2 | Pending |
+| FIX-02 | Phase 2 | Pending |
+| AUD-01 | Phase 3 | Pending |
+| AUD-02 | Phase 3 | Pending |
+| AUD-03 | Phase 3 | Pending |
+| AUD-04 | Phase 3 | Pending |
+| AUD-05 | Phase 3 | Pending |
+| ASS-01 | Phase 4 | Pending |
+| ASS-02 | Phase 4 | Pending |
+| ASS-03 | Phase 4 | Pending |
+| ASS-04 | Phase 4 | Pending |
+| AGG-01 | Phase 4 | Pending |
+| AGG-02 | Phase 4 | Pending |
+| AGG-03 | Phase 4 | Pending |
+| AGG-04 | Phase 4 | Pending |
+| JD-01 | Phase 5 | Pending |
+| JD-02 | Phase 5 | Pending |
+| JD-03 | Phase 5 | Pending |
+| JD-04 | Phase 5 | Pending |
+| EVAL-01 | Phase 5 | Pending |
+| EVAL-02 | Phase 5 | Pending |
+| EVAL-03 | Phase 5 | Pending |
+| EVAL-04 | Phase 5 | Pending |
+| EVAL-05 | Phase 5 | Pending |
+| EVAL-06 | Phase 6 | Pending |
+| DEC-01 | Phase 6 | Pending |
+| DEC-02 | Phase 6 | Pending |
 
 **Coverage:**
 - v1 requirements: 37 total
-- Mapped to phases: 0
-- Unmapped: 37 ⚠️
+- Mapped to phases: 37
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-07-30*
-*Last updated: 2026-07-30 after v1 scope confirmation*
+*Last updated: 2026-07-30 after roadmap traceability mapping*

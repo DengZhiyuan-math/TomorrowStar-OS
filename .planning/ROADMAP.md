@@ -1,0 +1,108 @@
+# Roadmap: Career Evidence Graph — Core Hypothesis Validation
+
+## Overview
+
+This milestone delivers six vertical validation capabilities in dependency order: freeze a falsifiable validation contract and provenance boundary, establish Contribution-grounded domain truth, run an artifact-aware Grill-Me audit, calibrate traceable Skill assessment and aggregation, test JD usefulness against baselines and adversarial cases, and make an evidence-backed expansion decision. The graph is an internal representation serving career decisions, not the product goal. Dynamic JD-tailored résumé generation remains a core downstream product capability and is deliberately deferred until this validation establishes that its source assessments are truthful and useful.
+
+## Phases
+
+**Phase Numbering:**
+
+- Integer phases (1, 2, 3): Planned milestone work
+- Decimal phases (2.1, 2.2): Urgent insertions, marked as INSERTED
+
+- [ ] **Phase 1: Validation Charter, Provenance, and Technical Decision Gate** - Evaluators can begin a falsifiable, reproducible study with explicit upstream and implementation boundaries.
+- [ ] **Phase 2: Domain Contracts, STOA Fixture, and Deterministic Invariants** - Users and evaluators can represent Contribution-grounded career evidence and reject invalid assessment states.
+- [ ] **Phase 3: Artifact-Aware Grill-Me and Attribution Workflow** - A user can complete and resume a focused Contribution audit with inspectable ownership and conclusions.
+- [ ] **Phase 4: Contribution–Skill Assessment and Aggregation Calibration** - Reviewers can calibrate traceable Skill judgments and replaceable aggregation policies without score inflation.
+- [ ] **Phase 5: JD Usefulness and Adversarial Evaluation** - Users can compare a stable Skill graph with contrasting JDs, and evaluators can test whether the results are truthful and more useful than baselines.
+- [ ] **Phase 6: Replication and Core-Hypothesis Decision** - Evaluators can test held-out behavior, state generalization limits, and decide whether downstream product expansion is justified.
+
+## Phase Details
+
+### Phase 1: Validation Charter, Provenance, and Technical Decision Gate
+**Goal:** Evaluators can start a falsifiable and reproducible validation study whose success rules, trust boundaries, and upstream reuse decisions are fixed before results are tuned.
+**Mode:** mvp
+**Depends on:** Nothing (first phase)
+**Requirements:** VAL-01, VAL-02, OSS-01
+**Success Criteria** (what must be TRUE):
+  1. An evaluator can apply a versioned charter that identifies baselines, development and sealed-holdout cases, acceptance and failure rules, and the meanings of supported, partially supported, and rejected outcomes before final results exist.
+  2. An evaluator can reproduce a recorded validation run from its versioned fixture, artifacts, prompt, model, configuration, policy, and reviewer inputs without altering the original run.
+  3. A maintainer can trace every reused or adapted seam to its pinned repository revision, source path, license, classification, attribution, and local divergence, while confirming that the upstream repositories remain reference inputs rather than wholesale runtime dependencies.
+**Plans:** TBD
+
+### Phase 2: Domain Contracts, STOA Fixture, and Deterministic Invariants
+**Goal:** Users and evaluators can record representative career evidence in a strict Contribution-grounded model and observe invalid or unsupported assessment states being rejected.
+**Mode:** mvp
+**Depends on:** Phase 1
+**Requirements:** MOD-01, MOD-02, MOD-03, MOD-04, MOD-05, MOD-06, MOD-07, FIX-01, FIX-02
+**Success Criteria** (what must be TRUE):
+  1. A user can represent each supported career-history type as an Experience containing distinguishable Contributions and can attach provenance-bearing Evidence to the Contribution it supports.
+  2. Attempts to derive mastery directly from an Experience, credential, title, repository, résumé skill list, or ontology relationship are rejected, and responsibility remains distinguishable as user, team, other-person, non-responsibility, Codex-assisted, or third-party work.
+  3. A reviewer can inspect a Contribution–Skill assessment with independently valid 0–100 mastery, centrality, and confidence values plus context, duration, and an explicit assessment basis; incomplete or out-of-range records are rejected.
+  4. A user can inspect one stable mastery value for a specific Skill while confidence, verified duration, recency, context, and JD match remain separate, and changing aliases or ontology adjacency does not create or increase mastery.
+  5. An evaluator can exercise a human-reviewed STOA fixture and known-good and known-bad variants that span the required score, attribution, assistance, context, duration, and evidence-quality cases, with every assessment tracing to a Contribution.
+**Plans:** TBD
+
+### Phase 3: Artifact-Aware Grill-Me and Attribution Workflow
+**Goal:** A user can complete a resumable, artifact-aware audit of a selected Contribution and explicitly confirm what capability and responsibility the evidence establishes.
+**Mode:** mvp
+**Depends on:** Phase 2
+**Requirements:** AUD-01, AUD-02, AUD-03, AUD-04, AUD-05
+**Success Criteria** (what must be TRUE):
+  1. Before questioning begins, the user can inspect a record of the supplied artifacts, what each established, and why every remaining question is necessary.
+  2. The user receives no more than one focused, decision-bearing question per turn; pausing and resuming preserves answers, extracted facts, coverage, contradictions, and unresolved questions without introducing repeated, multi-part, leading, or artifact-answerable prompts.
+  3. Ambiguous responsibility or assistance is challenged until user-owned, team-owned, other-owned, Codex-assisted, and third-party work is separated or explicitly left unresolved.
+  4. For each audited Contribution, the user can edit, confirm, or reject a conclusion that identifies the strongest established capability, the next-higher capability not established, its supporting basis, and every provisional or unresolved point.
+**Plans:** TBD
+
+### Phase 4: Contribution–Skill Assessment and Aggregation Calibration
+**Goal:** Reviewers can turn confirmed Contribution audits into traceable Skill assessments and calibrate stable user-level mastery without collapsing distinct signals or rewarding evidence volume.
+**Mode:** mvp
+**Depends on:** Phase 3
+**Requirements:** ASS-01, ASS-02, ASS-03, ASS-04, AGG-01, AGG-02, AGG-03, AGG-04
+**Success Criteria** (what must be TRUE):
+  1. A reviewer receives specific Skill proposals only from audited Contributions and can trace each proposal through its Evidence, answers, attribution, and assessment basis.
+  2. Reviewers can independently assign and inspect mastery, centrality, and confidence, including high-centrality/low-mastery, low-centrality/high-mastery, and high-mastery/low-confidence cases.
+  3. Every mastery judgment identifies the observable capability anchor it satisfies; unsupported higher-band claims are rejected, while high-mastery/low-confidence claims remain provisional until human confirmation.
+  4. A user can inspect one aggregated mastery score per specific Skill, its admitted Contribution assessments, and its policy version; duplicate Evidence, duplicate Contributions, and numerous incidental uses do not mechanically promote the Skill.
+  5. Evaluators can compare replaceable aggregation and confidence-admission policies on the fixtures, allowing cross-Contribution promotion only when the combined credible behavior satisfies the higher anchor and preserving variance, reviewer disagreement, calibration decisions, and regressions.
+**Plans:** TBD
+
+### Phase 5: JD Usefulness and Adversarial Evaluation
+**Goal:** Users can obtain evidence-bearing comparisons against contrasting JDs while evaluators can determine whether the complete validation loop is stable, truthful, and more decision-useful than preregistered baselines.
+**Mode:** mvp
+**Depends on:** Phase 4
+**Requirements:** JD-01, JD-02, JD-03, JD-04, EVAL-01, EVAL-02, EVAL-03, EVAL-04, EVAL-05
+**Success Criteria** (what must be TRUE):
+  1. An evaluator can represent at least three contrasting JDs as structured requirements with source spans, Skills, required/preferred status, strength or responsibility, context, seniority, duration, and experience expectations where supplied.
+  2. A user can inspect supported, partially supported, unsupported, and uncertain judgments for each JD requirement, with positive or partial judgments tracing to Contribution–Skill assessments and missing capability, missing evidence, context mismatch, and uncertainty reported separately.
+  3. Changing the target JD changes only relevance, selected Contributions, gaps, and match judgments—not the user's underlying mastery—and JD wording or résumé keywords never create an unsupported capability claim.
+  4. An evaluator can run schema, lineage, interval, duplication, split/merge, ontology-non-propagation, JD-isolation, known-good/known-bad, responsibility, assistance, evidence-inflation, dimension-confusion, stale-state, hidden-text, and prompt-injection cases at least three times under one recorded configuration; supported mastery bands remain stable and material variance is reported rather than averaged away.
+  5. Independent human reviewers can preserve and adjudicate disagreement across attribution, Skill specificity, anchor fit, centrality, confidence, aggregation, and JD usefulness, then blindly compare graph-based results with the preregistered baseline under fixed criteria with zero critical fabricated capability claims.
+**Plans:** TBD
+
+### Phase 6: Replication and Core-Hypothesis Decision
+**Goal:** Evaluators can determine how far the validation result generalizes and make an evidence-backed decision about whether to build the downstream résumé product loop.
+**Mode:** mvp
+**Depends on:** Phase 5
+**Requirements:** EVAL-06, DEC-01, DEC-02
+**Success Criteria** (what must be TRUE):
+  1. An evaluator can inspect sealed-holdout, leave-one-Contribution-out, leave-one-JD-out, and—where feasible—one minimal non-STOA replication result together with explicit limits on any generalization claim.
+  2. An evaluator can apply the frozen validation rules to produce exactly one supported, partially supported, or rejected-for-expansion decision and identify every blocking failure behind it.
+  3. If expansion is justified, the user receives a scoped next-milestone recommendation and a provenance contract for dynamic JD-tailored résumé selection and rewriting; no résumé implementation or polished demonstration is treated as evidence for this milestone's conclusion.
+**Plans:** TBD
+
+## Progress
+
+**Execution Order:**
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 1. Validation Charter, Provenance, and Technical Decision Gate | 0/TBD | Not started | - |
+| 2. Domain Contracts, STOA Fixture, and Deterministic Invariants | 0/TBD | Not started | - |
+| 3. Artifact-Aware Grill-Me and Attribution Workflow | 0/TBD | Not started | - |
+| 4. Contribution–Skill Assessment and Aggregation Calibration | 0/TBD | Not started | - |
+| 5. JD Usefulness and Adversarial Evaluation | 0/TBD | Not started | - |
+| 6. Replication and Core-Hypothesis Decision | 0/TBD | Not started | - |
