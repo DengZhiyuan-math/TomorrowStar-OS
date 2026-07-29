@@ -1,0 +1,152 @@
+# Requirements: TomorrowStar OS — Core Hypothesis Validation
+
+**Defined:** 2026-07-30
+**Core Value:** Accurately determine what the user can genuinely do within specific contributions and convert that understanding into skill scores and graph relationships that are useful for JD-relevant career decisions.
+
+## v1 Requirements
+
+Requirements for the first validation milestone. Each requirement maps to exactly one roadmap phase.
+
+### Validation Contract and Open-Source Provenance
+
+- [ ] **VAL-01**: An evaluator can apply a versioned validation charter that fixes the acceptance gates, comparison baselines, holdouts, failure rules, and `supported` / `partially supported` / `rejected` decision meanings before final results are reviewed.
+- [ ] **VAL-02**: An evaluator can reproduce an assessment run from its recorded fixture, artifact, prompt, model, configuration, policy, and reviewer versions without overwriting earlier runs.
+- [ ] **OSS-01**: A maintainer can trace every reused or adapted upstream seam to its repository, pinned revision, source path, license, reuse classification, attribution, and documented local divergence.
+
+### Domain Model and Validation Fixtures
+
+- [ ] **MOD-01**: A user can represent employment, projects, research, publications, education, teaching, open-source work, internships, and related history as typed `Experience` records containing distinguishable `Contribution` records.
+- [ ] **MOD-02**: The system treats `Contribution` as the smallest auditable unit and rejects any attempt to create a user Skill assessment directly from an `Experience`, credential, title, repository, or résumé skill list.
+- [ ] **MOD-03**: A user can attach typed, provenance-bearing `Evidence` to the `Contribution` it supports while Evidence remains supporting information rather than a separate audit hierarchy.
+- [ ] **MOD-04**: Each `ContributionSkillAssessment` records a Contribution, a specific Skill, `demonstrated_mastery`, `skill_centrality`, `evidence_confidence`, context, duration, and an explicit assessment basis, with all three scores independently constrained to 0–100.
+- [ ] **MOD-05**: Assessment records distinguish the user's own work from team work, another person's work, non-responsibilities, Codex-assisted work, and third-party work wherever attribution affects mastery.
+- [ ] **MOD-06**: Each specific user Skill has one relatively stable 0–100 mastery value while evidence confidence, verified duration, recency, context, and JD-specific match remain separately inspectable.
+- [ ] **MOD-07**: A maintainer can normalize Skill names and ontology relationships without ontology adjacency, aliases, dependencies, or `implies knowledge` relations creating or increasing user mastery.
+- [ ] **FIX-01**: An evaluator can use a human-reviewed STOA fixture decomposed into selected Contributions, supporting Evidence, responsibility boundaries, and Contribution–Skill relationships.
+- [ ] **FIX-02**: The fixture set contains known-good and known-bad variants spanning different mastery, centrality, confidence, context, duration, attribution, assistance, and evidence-quality cases.
+
+### Contribution-Level Grill-Me Audit
+
+- [ ] **AUD-01**: The audit inspects supplied artifacts before questioning and records what was inspected, what was established from it, and why each remaining question is necessary.
+- [ ] **AUD-02**: A user receives at most one focused, decision-bearing question per turn and can pause and resume an audit without losing answers, extracted facts, coverage state, contradictions, or unresolved questions.
+- [ ] **AUD-03**: The audit rejects repeated, multi-part, leading, or artifact-answerable questions and instead probes what the user can explain, implement, reproduce, defend, debug, or operate for the selected Contribution.
+- [ ] **AUD-04**: The audit challenges ambiguous responsibility and assistance claims until user-owned, team-owned, other-owned, Codex-assisted, and third-party work are explicitly separated or marked unresolved.
+- [ ] **AUD-05**: For each audited Contribution, the user can review, edit, confirm, or reject a conclusion that states the strongest capability established, the next-higher capability not established, the supporting basis, and any provisional or unresolved points.
+
+### Contribution–Skill Assessment and User Skill Aggregation
+
+- [ ] **ASS-01**: The system proposes a specific Skill only from an audited Contribution and preserves the Contribution, Evidence, audit answers, attribution, and assessment basis supporting that proposal.
+- [ ] **ASS-02**: Reviewers can assign and inspect `demonstrated_mastery`, `skill_centrality`, and `evidence_confidence` as separate judgments, including high-centrality/low-mastery, low-centrality/high-mastery, and high-mastery/low-confidence cases.
+- [ ] **ASS-03**: Every demonstrated-mastery judgment identifies the observable 0–100 anchor it satisfies, and no judgment enters a higher band without evidence of that band's capability conditions.
+- [ ] **ASS-04**: A high demonstrated-mastery proposal with insufficient evidence confidence remains explicitly provisional and requires human confirmation rather than being silently accepted or converted into a different capability score.
+- [ ] **AGG-01**: A user can inspect one aggregated mastery score per specific Skill and trace it back to the admitted Contribution–Skill assessments and aggregation-policy version.
+- [ ] **AGG-02**: Duplicate Evidence, duplicated Contributions, and numerous incidental or low-centrality uses cannot mechanically raise a user Skill into a higher mastery band.
+- [ ] **AGG-03**: Multiple Contributions can justify a user score above the strongest single Contribution only when their combined, credible behavior observably satisfies the higher anchor, such as repeated advanced responsibility across real contexts.
+- [ ] **AGG-04**: Evaluators can compare replaceable aggregation and confidence-admission policies while preserving run-to-run variance, reviewer disagreement, calibration decisions, and regressions instead of hiding them in one opaque score.
+
+### Structured JD Comparison
+
+- [ ] **JD-01**: An evaluator can represent at least three contrasting JDs as structured requirements containing the source span, Skill, required or preferred status, stated strength or responsibility, context, seniority, duration, and experience expectations where present.
+- [ ] **JD-02**: A user can view each JD requirement as `supported`, `partially supported`, `unsupported`, or `uncertain`, with every positive or partial judgment citing the relevant Contribution–Skill assessments and their limitations.
+- [ ] **JD-03**: Comparing the same user graph with a different JD can change relevance, selected Contributions, gaps, and match judgments but cannot mutate the user's underlying Skill mastery.
+- [ ] **JD-04**: A comparison identifies missing capability, missing evidence, context mismatch, and uncertainty separately and never turns JD wording or résumé keywords into an unsupported capability claim.
+
+### Evaluation, Replication, and Decision
+
+- [ ] **EVAL-01**: An evaluator can run deterministic schema, lineage, interval, duplication, split/merge, ontology-non-propagation, JD-isolation, and known-good/known-bad golden tests against the complete validation loop.
+- [ ] **EVAL-02**: An evaluator can run adversarial and counterfactual cases covering borrowed responsibility, Codex or team attribution, evidence-volume inflation, centrality/confidence confusion, ontology inference, stale state, hidden text, and prompt injection.
+- [ ] **EVAL-03**: Each critical golden and adversarial case can be run at least three times under the same versioned configuration, with the supported mastery band remaining stable and material variance reported rather than averaged away.
+- [ ] **EVAL-04**: Human reviewers can independently judge attribution, Skill specificity, mastery-anchor fit, centrality, evidence confidence, aggregation validity, and JD usefulness, with disagreement preserved and adjudication recorded.
+- [ ] **EVAL-05**: A blinded reviewer can compare graph-based JD results with a preregistered flat résumé or keyword baseline using fixed relevance, truthfulness, decision-usefulness, and traceability criteria, with zero critical fabricated capability claims required for acceptance.
+- [ ] **EVAL-06**: An evaluator can run sealed-holdout and leave-one-Contribution/JD-out checks plus one minimal non-STOA replication where feasible, and the resulting report states the limits of any generalization claim.
+- [ ] **DEC-01**: The milestone produces an evidence-backed `supported`, `partially supported`, or `rejected for expansion` decision by applying the frozen validation rules and identifying every blocking failure.
+- [ ] **DEC-02**: If expansion is justified, the milestone produces a scoped next-milestone recommendation and a provenance contract for dynamic résumé selection and rewriting; it does not treat a polished demo as proof.
+
+## v2 Requirements
+
+Deferred product capabilities. These remain central to TomorrowStar OS but are not part of the first validation roadmap.
+
+### Dynamic JD-Tailored Résumé
+
+- **RES-01**: A user can parse a target JD into a reusable requirement graph and inspect or correct its interpretation.
+- **RES-02**: A user can dynamically select the most relevant Experiences and Contributions and generate a truthful, role-specific résumé rather than keyword-editing a fixed résumé.
+- **RES-03**: A user can trace every generated résumé claim to confirmed Contributions and Evidence and review, edit, accept, or reject proposed wording.
+- **RES-04**: A user can compare revisions and export an approved tailored résumé in practical document formats.
+
+### Evidence-Producing Gap Closure
+
+- **GAP-01**: A user targeting a weakly matched but reachable role can receive a one-week project or open-source contribution plan tied to specific missing Skills and evidence goals.
+- **GAP-02**: A user can feed completed gap-closing work back through Grill-Me and update Contributions, Evidence, assessments, and user Skill mastery without losing history.
+
+### Broader Career Workspace
+
+- **CAR-01**: A user can ingest and maintain a broader set of employment, project, research, publication, education, teaching, internship, and open-source Experiences.
+- **CAR-02**: A user can review longitudinal changes to Skills, evidence confidence, contexts, JDs, generated résumés, gap work, and reassessments.
+
+## Out of Scope
+
+Explicit exclusions from the current project or from the TomorrowStar OS product direction.
+
+| Feature | Reason |
+|---------|--------|
+| Automated job applications or job-site automation | Unrelated to validating assessment accuracy and risks broadening the product into application automation. |
+| Recruiter, employer, or applicant-ranking tooling | The current product evaluates and assists its user; it is not a hiring decision system. |
+| Keyword-match percentage as the success metric | Text overlap does not measure mastery, responsibility, evidence quality, or truthful JD usefulness. |
+| Experience-, credential-, repository-, or ontology-derived mastery | Association cannot substitute for an audited Contribution and explicit assessment basis. |
+| One composite number mixing mastery, confidence, duration, recency, context, and JD fit | These signals have different meanings and would make user mastery unstable and target-dependent. |
+| Graph database, vector database, event-driven infrastructure, or large ontology ingestion in v1 | Infrastructure scale is premature until the internal model and validation cases prove useful. |
+| Multi-user SaaS, authentication, billing, or a complex web interface in v1 | These capabilities do not test the current hypothesis and can follow a validated workflow. |
+| Résumé layout polish as evidence of assessment quality | Attractive output cannot retrospectively prove that the underlying capability assessment is truthful or calibrated. |
+
+## Traceability
+
+Roadmap creation will map every v1 requirement to exactly one phase.
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| VAL-01 | TBD | Pending |
+| VAL-02 | TBD | Pending |
+| OSS-01 | TBD | Pending |
+| MOD-01 | TBD | Pending |
+| MOD-02 | TBD | Pending |
+| MOD-03 | TBD | Pending |
+| MOD-04 | TBD | Pending |
+| MOD-05 | TBD | Pending |
+| MOD-06 | TBD | Pending |
+| MOD-07 | TBD | Pending |
+| FIX-01 | TBD | Pending |
+| FIX-02 | TBD | Pending |
+| AUD-01 | TBD | Pending |
+| AUD-02 | TBD | Pending |
+| AUD-03 | TBD | Pending |
+| AUD-04 | TBD | Pending |
+| AUD-05 | TBD | Pending |
+| ASS-01 | TBD | Pending |
+| ASS-02 | TBD | Pending |
+| ASS-03 | TBD | Pending |
+| ASS-04 | TBD | Pending |
+| AGG-01 | TBD | Pending |
+| AGG-02 | TBD | Pending |
+| AGG-03 | TBD | Pending |
+| AGG-04 | TBD | Pending |
+| JD-01 | TBD | Pending |
+| JD-02 | TBD | Pending |
+| JD-03 | TBD | Pending |
+| JD-04 | TBD | Pending |
+| EVAL-01 | TBD | Pending |
+| EVAL-02 | TBD | Pending |
+| EVAL-03 | TBD | Pending |
+| EVAL-04 | TBD | Pending |
+| EVAL-05 | TBD | Pending |
+| EVAL-06 | TBD | Pending |
+| DEC-01 | TBD | Pending |
+| DEC-02 | TBD | Pending |
+
+**Coverage:**
+- v1 requirements: 37 total
+- Mapped to phases: 0
+- Unmapped: 37 ⚠️
+
+---
+*Requirements defined: 2026-07-30*
+*Last updated: 2026-07-30 after v1 scope confirmation*
