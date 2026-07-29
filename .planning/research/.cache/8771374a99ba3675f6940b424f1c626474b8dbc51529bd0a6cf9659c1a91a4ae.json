@@ -1,0 +1,1 @@
+{"content":"Official uv releases list uv 0.12.0 released July 28 2026. Official docs state uv creates and automatically maintains a cross-platform uv.lock beside pyproject.toml; the lockfile should be committed and uv run --locked can enforce it.","source":"web","provider":"websearch","confidence":"MEDIUM","fetched_at":"2026-07-29T22:58:36.964Z","ttl":86400000,"kind":"docs"}
