@@ -28,6 +28,7 @@ Accurately determine what the user can genuinely do within specific contribution
 - [ ] Build and audit a representative STOA Experience with distinguishable Contributions, Evidence, Skills, responsibility attribution, and Contribution–Skill assessments.
 - [ ] Parse a small number of representative JDs into structured skill expectations and test whether the resulting user skill graph supports meaningful comparison and relevant experience selection.
 - [ ] Evaluate the hypothesis with reproducible fixtures, golden cases, human review, and documented calibration findings before expanding into the complete résumé and gap-planning pipeline.
+- [ ] Establish a version-pinned open-source reference baseline before original implementation, with explicit reuse, adaptation, rejection, attribution, and license boundaries for each upstream project.
 
 ### Out of Scope
 
@@ -96,6 +97,17 @@ The eventual user-level aggregation should use demonstrated mastery as the capab
 
 STOA is the initial validation Experience. It may contain Contributions such as teacher-handoff workflow design, structured AI output definition, product requirements and roadmap ownership, backend participation, and deployment configuration. These Contributions may demonstrate different Skills with different mastery, centrality, confidence, contexts, and responsibility attribution.
 
+The project starts from a pinned open-source reference baseline rather than designing every subsystem from scratch:
+
+- **Tabiya Compass** for experience exploration, responsibility separation, interview state, and conversation/extraction/transition boundaries.
+- **Matt Pocock Skills** for one-question-at-a-time grilling, artifact inspection, and domain-language clarification.
+- **MIND Tech Ontology** for skill normalization and ontology relations, without propagating implied knowledge into user mastery.
+- **CV Market Learning Planner** for versioned career workspaces, analysis history, deterministic helpers, and gap/learning artifacts.
+- **Hiring Agent** for structured résumé extraction, Pydantic contracts, staged caching, role-specific evaluation, and adversarial lessons.
+- **Resume Matcher** for later résumé-tailoring interaction and export patterns, not as the source-of-truth model.
+
+These repositories are pinned under `references/upstream/`; `references/README.md` records the reuse matrix and license boundaries. They are reference inputs rather than runtime dependencies. Any copied or adapted code must retain required attribution and be justified against this project’s distinct Experience → Contribution → Skill assessment model.
+
 ## Constraints
 
 - **Validation scope**: Prove the Grill-Me → Contribution–Skill assessment → user Skill graph → JD usefulness hypothesis with STOA and a small JD set before implementing the full product pipeline.
@@ -105,6 +117,7 @@ STOA is the initial validation Experience. It may contain Contributions such as 
 - **Anchor integrity**: Higher mastery bands require observable higher-order capability; they cannot be reached through mechanical accumulation of weaker evidence.
 - **Truthfulness**: User, team, other-person, Codex-assisted, and third-party work must remain distinguishable wherever responsibility affects assessment.
 - **Decision timing**: Formula details, confidence gates, calibration rules, and implementation boundaries are phase-level decisions to validate with fixtures rather than assumptions to freeze during initialization.
+- **Open-source provenance**: Reused or adapted code and patterns must identify their upstream repository, pinned revision, license, and local divergence.
 
 ## Key Decisions
 
@@ -120,6 +133,8 @@ STOA is the initial validation Experience. It may contain Contributions such as 
 | Allow combined Contributions to justify a higher mastery band only when they satisfy that band’s observable conditions | Supports repeated cross-context evidence without permitting mathematical score inflation | — Pending |
 | Defer the exact aggregation formula and calibration rules | Concrete fixtures and human-reviewed cases are required before those details can be trusted | — Pending |
 | Treat local-first, deterministic scoring, and provenance mechanisms as implementation choices or constraints to validate—not as the product definition | The product is defined by its agentic assessment, skill model, JD adaptation, résumé generation, and gap-closing loop | — Pending |
+| Integrate pinned upstream references before implementation | Existing open-source projects contain relevant interview, ontology, workspace, parsing, and résumé-output patterns that should be evaluated before building substitutes | — Pending |
+| Keep upstreams as licensed submodules with a local reuse matrix | Preserves exact source and attribution while preventing wholesale architecture copying | — Pending |
 
 ## Evolution
 
@@ -139,4 +154,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-30 after initialization*
+*Last updated: 2026-07-30 after open-source reference integration*

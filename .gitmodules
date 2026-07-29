@@ -1,0 +1,24 @@
+[submodule "tabiya-compass"]
+	path = references/upstream/tabiya-compass
+	url = https://github.com/tabiya-tech/compass.git
+	shallow = true
+[submodule "mattpocock-skills"]
+	path = references/upstream/mattpocock-skills
+	url = https://github.com/mattpocock/skills.git
+	shallow = true
+[submodule "mind-tech-ontology"]
+	path = references/upstream/mind-tech-ontology
+	url = https://github.com/MIND-TechAI/MIND-tech-ontology.git
+	shallow = true
+[submodule "cv-market-learning-planner"]
+	path = references/upstream/cv-market-learning-planner
+	url = https://github.com/sangowu/cv-market-learning-planner.git
+	shallow = true
+[submodule "hiring-agent"]
+	path = references/upstream/hiring-agent
+	url = https://github.com/interviewstreet/hiring-agent.git
+	shallow = true
+[submodule "resume-matcher"]
+	path = references/upstream/resume-matcher
+	url = https://github.com/srbhr/Resume-Matcher.git
+	shallow = true
