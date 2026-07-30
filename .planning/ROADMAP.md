@@ -55,7 +55,28 @@ This milestone delivers six vertical validation capabilities in dependency order
   4. A user can inspect one stable mastery value for a specific Skill while confidence, verified duration, recency, context, and JD match remain separate, and changing aliases or ontology adjacency does not create or increase mastery.
   5. An evaluator can exercise a human-reviewed STOA fixture and known-good and known-bad variants that span the required score, attribution, assistance, context, duration, and evidence-quality cases, with every assessment tracing to a Contribution.
 
-**Plans:** TBD
+**Plans:** 6 plans
+
+**Wave 1**
+
+- [ ] 02-01-PLAN.md — Prove the Contribution-grounded JSON-to-domain-to-CLI tracer and strict record contracts.
+
+**Wave 2** *(after Wave 1; plans run in parallel)*
+
+- [ ] 02-02-PLAN.md — Enforce direct-source, user-Skill separation, and ontology non-propagation invariants.
+- [ ] 02-03-PLAN.md — Verify the pinned document-only STOA source boundary and produce the unsealed candidate packet.
+
+**Wave 3** *(after 02-03)*
+
+- [ ] 02-04-PLAN.md — Conduct the blocking item-by-item human STOA review.
+
+**Wave 4** *(after 02-02 and 02-04)*
+
+- [ ] 02-05-PLAN.md — Record corrections and seal the immutable known-good STOA fixture.
+
+**Wave 5** *(after 02-05)*
+
+- [ ] 02-06-PLAN.md — Validate single-fault known-bad variants and close the offline phase gate.
 
 ### Phase 3: Artifact-Aware Grill-Me and Attribution Workflow
 
