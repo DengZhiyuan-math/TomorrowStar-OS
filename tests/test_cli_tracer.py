@@ -138,3 +138,116 @@ def test_cli_verifies_machine_and_human_provenance_registry():
 
     assert verified.returncode == 0, verified.stderr
     assert json.loads(verified.stdout) == {"record_count": 4, "valid": True}
+
+
+def _domain_fixture(*, contribution_id: str = "contribution.delivery") -> dict[str, object]:
+    """Return a synthetic, non-calibrated record for the Phase 2 CLI tracer."""
+    return {
+        "schema_version": "career-evidence-fixture/v1",
+        "fixture_notice": "Synthetic contract exercise; not calibrated mastery.",
+        "experiences": [
+            {
+                "id": "experience.synthetic",
+                "experience_type": "project",
+                "title": "Synthetic validation tracer",
+                "contribution_ids": ["contribution.delivery"],
+            }
+        ],
+        "contributions": [
+            {
+                "id": "contribution.delivery",
+                "experience_id": "experience.synthetic",
+                "summary": "A synthetic auditable outcome.",
+                "claim_ids": ["claim.delivery"],
+            }
+        ],
+        "claims": [
+            {
+                "id": "claim.delivery",
+                "contribution_id": "contribution.delivery",
+                "statement": "A synthetic claim with explicit limits.",
+                "responsibility": "user",
+                "assistance": "none",
+                "confirmation_status": "confirmed",
+                "completion_status": "delivered",
+                "limitations": ["Synthetic fixture only."],
+            }
+        ],
+        "evidence": [
+            {
+                "id": "evidence.synthetic",
+                "kind": "acceptance_record",
+                "proof_limit": "recorded_delivery",
+                "repository": "synthetic/repository",
+                "pinned_commit": "a" * 40,
+                "tracked_path": "docs/acceptance.md",
+                "section_locator": "# synthetic-result",
+                "content_hash": "sha256:" + "b" * 64,
+            }
+        ],
+        "claim_evidence_links": [
+            {
+                "claim_id": "claim.delivery",
+                "evidence_id": "evidence.synthetic",
+                "section_locator": "# synthetic-result",
+            }
+        ],
+        "skills": [{"id": "skill.validation", "name": "Validation"}],
+        "assessments": [
+            {
+                "id": "assessment.validation",
+                "skill_id": "skill.validation",
+                "contribution_id": contribution_id,
+                "lineage": {"source_kind": "contribution", "contribution_id": contribution_id},
+                "demonstrated_mastery": 0,
+                "skill_centrality": 100,
+                "evidence_confidence": 37,
+                "context": "Synthetic contract fixture.",
+                "duration": {"state": "not_verified"},
+                "basis_claim_ids": ["claim.delivery"],
+                "assessment_status": "partial",
+            }
+        ],
+        "user_skill_views": [
+            {
+                "skill_id": "skill.validation",
+                "assessment_ids": ["assessment.validation"],
+                "fixture_notice": "Non-calibrated test view.",
+            }
+        ],
+    }
+
+
+def test_domain_fixture_validate_tracer_is_offline_and_deterministic(tmp_path):
+    fixture_path = tmp_path / "fixture.json"
+    _write_json(fixture_path, _domain_fixture())
+
+    result = _run("fixture", "validate", str(fixture_path))
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {
+        "assessment_count": 1,
+        "contribution_count": 1,
+        "experience_count": 1,
+        "fixture_hash": "sha256:PLACEHOLDER",
+        "user_skill_count": 1,
+        "valid": True,
+    }
+
+
+def test_domain_fixture_rejects_missing_assessment_contribution(tmp_path):
+    fixture_path = tmp_path / "invalid-fixture.json"
+    _write_json(fixture_path, _domain_fixture(contribution_id="contribution.missing"))
+
+    result = _run("fixture", "validate", str(fixture_path))
+
+    assert result.returncode == 2
+    assert json.loads(result.stderr) == {
+        "valid": False,
+        "violations": [
+            {
+                "code": "assessment.contribution_missing",
+                "path": "assessments.assessment.validation.contribution_id",
+            }
+        ],
+    }
