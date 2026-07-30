@@ -55,7 +55,7 @@ This milestone delivers six vertical validation capabilities in dependency order
   4. A user can inspect one stable mastery value for a specific Skill while confidence, verified duration, recency, context, and JD match remain separate, and changing aliases or ontology adjacency does not create or increase mastery.
   5. An evaluator can exercise a human-reviewed STOA fixture and known-good and known-bad variants that span the required score, attribution, assistance, context, duration, and evidence-quality cases, with every assessment tracing to a Contribution.
 
-**Plans:** 3/6 plans executed
+**Plans:** 4/6 plans executed
 
 **Wave 1**
 
@@ -68,7 +68,7 @@ This milestone delivers six vertical validation capabilities in dependency order
 
 **Wave 3** *(after 02-03)*
 
-- [ ] 02-04-PLAN.md — Conduct the blocking item-by-item human STOA review.
+- [x] 02-04-PLAN.md — Conduct the blocking item-by-item human STOA review.
 
 **Wave 4** *(after 02-02 and 02-04)*
 
@@ -147,7 +147,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Validation Charter, Provenance, and Technical Decision Gate | 2/2 | Complete    | 2026-07-30 |
-| 2. Domain Contracts, STOA Fixture, and Deterministic Invariants | 3/6 | In Progress|  |
+| 2. Domain Contracts, STOA Fixture, and Deterministic Invariants | 4/6 | In Progress|  |
 | 3. Artifact-Aware Grill-Me and Attribution Workflow | 0/TBD | Not started | - |
 | 4. Contribution–Skill Assessment and Aggregation Calibration | 0/TBD | Not started | - |
 | 5. JD Usefulness and Adversarial Evaluation | 0/TBD | Not started | - |
