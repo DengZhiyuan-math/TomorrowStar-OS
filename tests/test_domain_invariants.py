@@ -11,9 +11,16 @@ import pytest
 from career_evidence_graph.domain.invariants import (
     FixtureValidationError,
     collect_invariant_violations,
+    mastery_snapshot_bytes,
+    normalize_skill_metadata,
     validate_career_evidence_fixture,
 )
-from career_evidence_graph.domain.models import CareerEvidenceFixture
+from career_evidence_graph.domain.models import (
+    CareerEvidenceFixture,
+    OntologyRelation,
+    Skill,
+    SkillAlias,
+)
 from career_evidence_graph.validation.hashing import canonical_json_bytes
 
 
@@ -178,3 +185,97 @@ def test_validate_wrapper_reports_all_ordered_invariant_violations():
     assert [(item.code, item.path) for item in error.value.violations] == sorted(
         (item.code, item.path) for item in error.value.violations
     )
+
+
+def _skills() -> tuple[Skill, ...]:
+    return (
+        Skill(id="skill.python", name="Python"),
+        Skill(id="skill.pydata", name="Python data tools"),
+    )
+
+
+def _alias(alias: str, skill_id: str = "skill.python") -> SkillAlias:
+    return SkillAlias(
+        alias=alias,
+        skill_id=skill_id,
+        ontology_source_id="mind-tech-ontology",
+        pinned_revision="a" * 40,
+    )
+
+
+def _relation(
+    relation_kind: str = "dependency", target_skill_id: str = "skill.pydata"
+) -> OntologyRelation:
+    return OntologyRelation(
+        source_skill_id="skill.python",
+        target_skill_id=target_skill_id,
+        relation_kind=relation_kind,  # type: ignore[arg-type]
+        ontology_source_id="mind-tech-ontology",
+        pinned_revision="a" * 40,
+    )
+
+
+def test_ontology_empty_metadata_and_fixture_mastery_are_noops():
+    fixture = _fixture(_payload())
+    before = mastery_snapshot_bytes(fixture)
+
+    assert normalize_skill_metadata(_skills()) == ()
+    assert before == mastery_snapshot_bytes(fixture)
+
+
+def test_ontology_alias_normalization_is_unicode_case_whitespace_stable_and_reviewable():
+    aliases = (_alias("  P\u00fdTHON  "), _alias("py\u0301thon"))
+
+    records = normalize_skill_metadata(_skills(), aliases=aliases)
+
+    assert len(records) == 1
+    assert records[0].original_text == "  P\u00fdTHON  "
+    assert records[0].normalized_text == "p\u00fdthon"
+    assert records[0].matched_alias == "  P\u00fdTHON  "
+    assert records[0].candidate_skill_ids == ("skill.python",)
+    assert records[0].ontology_source_id == "mind-tech-ontology"
+    assert records[0].pinned_revision == "a" * 40
+    assert records[0].review_status == "matched"
+    assert canonical_json_bytes(records) == canonical_json_bytes(
+        normalize_skill_metadata(_skills(), aliases=tuple(reversed(aliases)))
+    )
+
+
+def test_ontology_ambiguous_aliases_are_sorted_and_require_review_without_mastery():
+    aliases = (_alias("py", "skill.pydata"), _alias("PY", "skill.python"))
+    fixture = _fixture(_payload())
+    before = mastery_snapshot_bytes(fixture)
+
+    records = normalize_skill_metadata(_skills(), aliases=aliases)
+
+    assert records[0].candidate_skill_ids == ("skill.pydata", "skill.python")
+    assert records[0].review_status == "review-required"
+    assert mastery_snapshot_bytes(fixture) == before
+
+
+@pytest.mark.parametrize(
+    "relations",
+    (
+        (_relation(),),
+        (_relation("implies_knowledge"),),
+        (_relation(), _relation()),
+        (_relation("implies_knowledge"), _relation()),
+    ),
+)
+def test_ontology_relations_are_descriptive_metadata_and_cannot_change_mastery(relations):
+    fixture = _fixture(_payload())
+    before = mastery_snapshot_bytes(fixture)
+
+    records = normalize_skill_metadata(_skills(), ontology_relations=relations)
+
+    assert records
+    assert all(record.review_status == "descriptive-only" for record in records)
+    assert mastery_snapshot_bytes(fixture) == before
+
+
+def test_ontology_normalizer_has_no_fixture_or_score_parameters():
+    parameters = normalize_skill_metadata.__code__.co_varnames[
+        : normalize_skill_metadata.__code__.co_argcount
+    ]
+
+    assert set(parameters) == {"skills", "aliases", "ontology_relations"}
