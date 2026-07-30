@@ -26,6 +26,7 @@ def test_offline_cli_crosses_real_storage_and_replay_boundaries(tmp_path, charte
     raw_response = inputs / "raw.json"
     proposal = inputs / "proposal.json"
     expected = inputs / "expected.json"
+    lineage = inputs / "lineage.json"
     result = {
         "trace_kind": "synthetic-plumbing-only",
         "functional_chain_connected": True,
@@ -33,6 +34,18 @@ def test_offline_cli_crosses_real_storage_and_replay_boundaries(tmp_path, charte
     _write_json(raw_response, {"provider_called": False, "result": result})
     _write_json(proposal, {"proposed": result})
     _write_json(expected, result)
+    _write_json(
+        lineage,
+        {
+            "fixture": {"kind": "synthetic-plumbing-only"},
+            "artifacts": [],
+            "prompt": {"version": "none"},
+            "model": {"provider": "none"},
+            "configuration": {"network": False},
+            "policy": {"charter": "1.0.0"},
+            "reviewer": {"kind": "test-confirmed"},
+        },
+    )
 
     validated = _run("validate-charter", str(charter_path))
     assert validated.returncode == 0, validated.stderr
@@ -50,8 +63,10 @@ def test_offline_cli_crosses_real_storage_and_replay_boundaries(tmp_path, charte
         str(raw_response),
         "--proposal",
         str(proposal),
-        "--expected-result",
+        "--confirmed-result",
         str(expected),
+        "--lineage",
+        str(lineage),
     )
     assert created.returncode == 0, created.stderr
     assert (workspace / "formal-runs" / "tracer-001" / "manifest.json").is_file()
@@ -69,6 +84,19 @@ def test_duplicate_run_is_rejected_without_overwrite(tmp_path, charter_path):
     _write_json(value_path, {"result": {"ok": True}})
     expected_path = tmp_path / "expected.json"
     _write_json(expected_path, {"ok": True})
+    lineage_path = tmp_path / "lineage.json"
+    _write_json(
+        lineage_path,
+        {
+            "fixture": {},
+            "artifacts": [],
+            "prompt": {},
+            "model": {},
+            "configuration": {},
+            "policy": {},
+            "reviewer": {},
+        },
+    )
     base = (
         "run",
         "create",
@@ -82,8 +110,10 @@ def test_duplicate_run_is_rejected_without_overwrite(tmp_path, charter_path):
         str(value_path),
         "--proposal",
         str(expected_path),
-        "--expected-result",
+        "--confirmed-result",
         str(expected_path),
+        "--lineage",
+        str(lineage_path),
     )
     assert _run(*base).returncode == 0
     manifest_path = tmp_path / "workspace/formal-runs/same-run/manifest.json"

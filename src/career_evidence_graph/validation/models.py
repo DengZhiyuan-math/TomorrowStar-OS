@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -107,12 +107,46 @@ class ValidationCharter(StrictModel):
 class FormalRunManifest(StrictModel):
     schema_version: Literal["formal-run/v1"]
     run_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
-    run_kind: Literal["synthetic-offline-tracer"]
+    run_kind: Literal["formal"]
+    execution_mode: Literal["recorded-response", "live-reexecution"]
     created_at: datetime
     charter_version: str
     input_hashes: dict[str, str]
     content_manifest: dict[str, str]
+    parent_run_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+    change_reason: str | None = None
+    limitations: list[str]
     replay_mode: Literal["exact-recorded-response"]
+
+    @model_validator(mode="after")
+    def validate_lineage(self) -> FormalRunManifest:
+        required_inputs = {
+            "fixture",
+            "artifacts",
+            "prompt",
+            "model",
+            "configuration",
+            "policy",
+            "reviewer",
+        }
+        if set(self.input_hashes) != required_inputs:
+            raise ValueError("formal run must declare every reproducibility input hash")
+        if (self.parent_run_id is None) != (self.change_reason is None):
+            raise ValueError("parent_run_id and change_reason must appear together")
+        if self.change_reason is not None and not self.change_reason.strip():
+            raise ValueError("change_reason cannot be blank")
+        return self
+
+
+class CorrectionRecord(StrictModel):
+    schema_version: Literal["correction-record/v1"]
+    correction_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+    created_at: datetime
+    original_proposal: Any
+    original_proposal_hash: str
+    correction: Any
+    reviewer_id: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
 
 
 class ReplayResult(StrictModel):

@@ -39,7 +39,8 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("--run-id", required=True)
     create.add_argument("--raw-response", required=True)
     create.add_argument("--proposal", required=True)
-    create.add_argument("--expected-result", required=True)
+    create.add_argument("--confirmed-result", required=True)
+    create.add_argument("--lineage", required=True)
     verify = run_commands.add_parser("verify")
     verify.add_argument("--workspace", required=True)
     verify.add_argument("--run-id", required=True)
@@ -63,7 +64,8 @@ def main(argv: list[str] | None = None) -> int:
                 charter=charter,
                 raw_response=_json_file(args.raw_response),
                 proposal=_json_file(args.proposal),
-                expected_result=_json_file(args.expected_result),
+                confirmed_result=_json_file(args.confirmed_result),
+                lineage_inputs=_json_file(args.lineage),
             )
             _emit(manifest)
         elif args.command == "run" and args.run_command == "verify":

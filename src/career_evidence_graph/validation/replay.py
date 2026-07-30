@@ -10,7 +10,7 @@ from .store import FormalRunStorageError, FormalRunStore
 def replay_recorded_response(store: FormalRunStore, run_id: str) -> ReplayResult:
     """Compare the stored response result with the stored confirmed expectation."""
     raw_response = store.payload(run_id, "raw_response.json")
-    expected = store.payload(run_id, "expected_result.json")
+    expected = store.payload(run_id, "confirmed_result.json")
     if not isinstance(raw_response, dict) or "result" not in raw_response:
         raise FormalRunStorageError("recorded raw response has no structured result")
     actual = raw_response["result"]

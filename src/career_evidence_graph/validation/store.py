@@ -13,10 +13,24 @@ from typing import Any
 from pydantic import ValidationError
 
 from .hashing import canonical_json_bytes, sha256_digest
-from .models import FormalRunManifest, ValidationCharter
+from .models import CorrectionRecord, FormalRunManifest, ValidationCharter
 
 RUN_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
-PAYLOAD_FILES = ("raw_response.json", "proposal.json", "expected_result.json")
+REQUIRED_INPUTS = (
+    "fixture",
+    "artifacts",
+    "prompt",
+    "model",
+    "configuration",
+    "policy",
+    "reviewer",
+)
+BASE_PAYLOAD_FILES = (
+    "raw_response.json",
+    "original_proposal.json",
+    "corrections.json",
+    "confirmed_result.json",
+)
 
 
 class FormalRunStorageError(RuntimeError):
@@ -48,8 +62,8 @@ class FormalRunStore:
     def _run_path(self, run_id: str) -> Path:
         if not RUN_ID_PATTERN.fullmatch(run_id):
             raise FormalRunStorageError("run_id contains unsafe path characters")
-        candidate = (self.runs_root / run_id).resolve()
-        if candidate.parent != self.runs_root.resolve():
+        candidate = self.runs_root / run_id
+        if candidate.parent.resolve() != self.runs_root.resolve():
             raise FormalRunStorageError("run destination escapes the formal-runs root")
         return candidate
 
@@ -75,21 +89,56 @@ class FormalRunStore:
         charter: ValidationCharter,
         raw_response: Any,
         proposal: Any,
-        expected_result: Any,
+        confirmed_result: Any,
+        lineage_inputs: dict[str, Any],
+        corrections: list[CorrectionRecord] | None = None,
+        execution_mode: str = "recorded-response",
+        limitations: list[str] | None = None,
+        parent_run_id: str | None = None,
+        change_reason: str | None = None,
+        diff: Any | None = None,
     ) -> FormalRunManifest:
-        """Atomically publish a new immutable offline tracer bundle."""
+        """Atomically publish a new immutable formal bundle."""
         destination = self._run_path(run_id)
         self.runs_root.mkdir(parents=True, exist_ok=True)
         if destination.exists():
             raise FormalRunStorageError(f"formal run already exists: {run_id}")
+        if set(lineage_inputs) != set(REQUIRED_INPUTS):
+            raise FormalRunStorageError("lineage inputs must contain the exact required keys")
+        if parent_run_id is not None:
+            self.verify(parent_run_id)
+            if not change_reason or not change_reason.strip():
+                raise FormalRunStorageError("linked rerun requires a non-empty change reason")
+            if diff is None:
+                raise FormalRunStorageError("linked rerun requires an explicit diff")
+        elif change_reason is not None or diff is not None:
+            raise FormalRunStorageError("change reason and diff require a parent run")
 
         temporary = Path(tempfile.mkdtemp(dir=self.runs_root, prefix=f".{run_id}."))
         try:
+            correction_values = corrections or []
+            proposal_hash = sha256_digest(canonical_json_bytes(proposal))
+            for correction in correction_values:
+                if correction.original_proposal_hash != proposal_hash:
+                    raise FormalRunStorageError(
+                        "correction does not reference the immutable original proposal"
+                    )
+                if canonical_json_bytes(correction.original_proposal) != canonical_json_bytes(
+                    proposal
+                ):
+                    raise FormalRunStorageError(
+                        "correction must retain the complete original proposal"
+                    )
             values = {
                 "raw_response.json": raw_response,
-                "proposal.json": proposal,
-                "expected_result.json": expected_result,
+                "original_proposal.json": proposal,
+                "corrections.json": [
+                    correction.model_dump(mode="json") for correction in correction_values
+                ],
+                "confirmed_result.json": confirmed_result,
             }
+            if diff is not None:
+                values["diff.json"] = diff
             manifest_hashes: dict[str, str] = {}
             for filename, value in values.items():
                 self._write_json(temporary / filename, value)
@@ -97,13 +146,18 @@ class FormalRunStore:
             manifest = FormalRunManifest(
                 schema_version="formal-run/v1",
                 run_id=run_id,
-                run_kind="synthetic-offline-tracer",
+                run_kind="formal",
+                execution_mode=execution_mode,
                 created_at=datetime.now(UTC),
                 charter_version=charter.charter_version,
                 input_hashes={
-                    "charter": sha256_digest(canonical_json_bytes(charter)),
+                    key: sha256_digest(canonical_json_bytes(value))
+                    for key, value in lineage_inputs.items()
                 },
                 content_manifest=manifest_hashes,
+                parent_run_id=parent_run_id,
+                change_reason=change_reason,
+                limitations=limitations or [],
                 replay_mode="exact-recorded-response",
             )
             self._write_json(temporary / "manifest.json", manifest)
@@ -118,25 +172,83 @@ class FormalRunStore:
                     child.unlink()
                 temporary.rmdir()
 
+    def create_linked_rerun(
+        self,
+        *,
+        parent_run_id: str,
+        run_id: str,
+        change_reason: str,
+        diff: Any,
+        charter: ValidationCharter,
+        raw_response: Any,
+        proposal: Any,
+        confirmed_result: Any,
+        lineage_inputs: dict[str, Any],
+        corrections: list[CorrectionRecord] | None = None,
+        execution_mode: str = "recorded-response",
+        limitations: list[str] | None = None,
+    ) -> FormalRunManifest:
+        """Create a new bundle linked to a verified, untouched parent."""
+        return self.create(
+            run_id=run_id,
+            charter=charter,
+            raw_response=raw_response,
+            proposal=proposal,
+            confirmed_result=confirmed_result,
+            lineage_inputs=lineage_inputs,
+            corrections=corrections,
+            execution_mode=execution_mode,
+            limitations=limitations,
+            parent_run_id=parent_run_id,
+            change_reason=change_reason,
+            diff=diff,
+        )
+
     def verify(self, run_id: str) -> FormalRunManifest:
         """Fail closed unless all declared bundle bytes match their manifest."""
         run_path = self._run_path(run_id)
-        if not run_path.is_dir() or run_path.is_symlink():
+        if run_path.is_symlink() or not run_path.is_dir():
             raise FormalRunStorageError(f"formal run does not exist safely: {run_id}")
+        resolved_run_path = run_path.resolve()
+        if resolved_run_path.parent != self.runs_root.resolve():
+            raise FormalRunStorageError("formal run resolves outside its workspace")
         try:
             manifest = FormalRunManifest.model_validate(_load_json(run_path / "manifest.json"))
         except ValidationError as exc:
             raise FormalRunStorageError("formal run manifest is invalid") from exc
         if manifest.run_id != run_id:
             raise FormalRunStorageError("manifest run_id does not match its directory")
-        if set(manifest.content_manifest) != set(PAYLOAD_FILES):
+        expected_files = set(BASE_PAYLOAD_FILES)
+        if manifest.parent_run_id is not None:
+            expected_files.add("diff.json")
+        if set(manifest.content_manifest) != expected_files:
             raise FormalRunStorageError("manifest does not declare the exact payload set")
         for filename, expected_hash in manifest.content_manifest.items():
-            payload_path = (run_path / filename).resolve(strict=True)
-            if payload_path.parent != run_path.resolve() or payload_path.is_symlink():
+            source_path = run_path / filename
+            if source_path.is_symlink():
+                raise FormalRunStorageError("payload path escapes or aliases the run directory")
+            try:
+                payload_path = source_path.resolve(strict=True)
+            except OSError as exc:
+                raise FormalRunStorageError(f"declared payload is missing: {filename}") from exc
+            if payload_path.parent != resolved_run_path:
                 raise FormalRunStorageError("payload path escapes or aliases the run directory")
             if sha256_digest(payload_path.read_bytes()) != expected_hash:
                 raise FormalRunStorageError(f"payload hash mismatch: {filename}")
+        try:
+            corrections = [
+                CorrectionRecord.model_validate(value)
+                for value in _load_json(run_path / "corrections.json")
+            ]
+        except (TypeError, ValidationError) as exc:
+            raise FormalRunStorageError("correction history is invalid") from exc
+        proposal = _load_json(run_path / "original_proposal.json")
+        proposal_hash = sha256_digest(canonical_json_bytes(proposal))
+        for correction in corrections:
+            if correction.original_proposal_hash != proposal_hash:
+                raise FormalRunStorageError("correction proposal hash does not match")
+            if canonical_json_bytes(correction.original_proposal) != canonical_json_bytes(proposal):
+                raise FormalRunStorageError("correction does not preserve the original proposal")
         return manifest
 
     def payload(self, run_id: str, filename: str) -> Any:
