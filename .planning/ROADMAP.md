@@ -43,7 +43,7 @@ This milestone delivers six vertical validation capabilities in dependency order
 
 ### Phase 2: Domain Contracts, STOA Fixture, and Deterministic Invariants
 
-**Goal:** Users and evaluators can record representative career evidence in a strict Contribution-grounded model and observe invalid or unsupported assessment states being rejected.
+**Goal:** As a user or evaluator, I want to record representative career evidence in a strict Contribution-grounded model, so that invalid or unsupported assessment states are rejected.
 **Mode:** mvp
 **Depends on:** Phase 1
 **Requirements:** MOD-01, MOD-02, MOD-03, MOD-04, MOD-05, MOD-06, MOD-07, FIX-01, FIX-02
