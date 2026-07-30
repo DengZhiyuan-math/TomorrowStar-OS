@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from career_evidence_graph.domain.fixtures import (
+    CandidateReviewRecord,
     SourceScopeError,
     evaluate_review_status,
     load_candidate_packet,
@@ -194,6 +195,42 @@ def test_review_materialization_preserves_human_corrections_and_unresolved_value
     assert all(
         view.expectation_status == "fixture-test-expectation" for view in fixture.user_skill_views
     )
+    confirmed_result = json.loads(
+        (
+            ROOT / "validation/fixtures/stoa/v1/formal-runs/stoa-known-good/confirmed_result.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert fixture.model_dump(mode="json") == confirmed_result
+
+
+def test_rejected_fact_is_omitted_but_unresolved_fact_cannot_be_sealed() -> None:
+    candidates, review = load_candidate_packet(CANDIDATES, REVIEW)
+    payload = review.model_dump(mode="json")
+    payload["items"][0]["fact"]["status"] = "rejected"
+    rejected = CandidateReviewRecord.model_validate(payload)
+    _, fixture = materialize_review_decisions(
+        candidates,
+        rejected,
+        (
+            ROOT
+            / ".planning/phases/02-domain-contracts-stoa-fixture-and-deterministic-invariants"
+            / "02-04-SUMMARY.md"
+        ).read_bytes(),
+    )
+    assert rejected.items[0].candidate_id not in {claim.id for claim in fixture.claims}
+
+    payload["items"][0]["fact"]["status"] = "unresolved"
+    unresolved = CandidateReviewRecord.model_validate(payload)
+    assert evaluate_review_status(candidates, unresolved).sealable is False
+
+
+def test_materialization_rejects_tampered_correction_authority() -> None:
+    candidates, review = load_candidate_packet(CANDIDATES, REVIEW)
+    payload = review.model_dump(mode="json")
+    payload["corrections"][0]["reviewer_id"] = "someone-else"
+    tampered = CandidateReviewRecord.model_validate(payload)
+
+    assert evaluate_review_status(candidates, tampered).sealable is False
 
 
 def test_seal_publishes_verified_bundle_and_provider_free_replay(tmp_path: Path) -> None:
