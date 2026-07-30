@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
 
+from .codex_cli import CodexCLIConfig, CodexCLIError, run_codex_exec
 from .validation.provenance import ProvenanceValidationError, verify_provenance_registry
 from .validation.replay import replay_recorded_response
 from .validation.store import FormalRunStorageError, FormalRunStore, load_charter
@@ -58,6 +60,20 @@ def _parser() -> argparse.ArgumentParser:
     )
     provenance_verify.add_argument("--readme", default="references/README.md")
     provenance_verify.add_argument("--project-root", default=".")
+
+    live_run = commands.add_parser("live-run")
+    live_run_commands = live_run.add_subparsers(dest="live_runtime", required=True)
+    codex = live_run_commands.add_parser("codex")
+    codex.add_argument("--workspace", required=True)
+    codex.add_argument("--charter", required=True)
+    codex.add_argument("--run-id", required=True)
+    codex.add_argument("--prompt-file", required=True)
+    codex.add_argument("--output-schema", required=True)
+    codex.add_argument("--model-snapshot")
+    codex.add_argument(
+        "--drift-limitation",
+        default="The gpt-5.6-luna alias may drift because no immutable snapshot was exposed.",
+    )
     return parser
 
 
@@ -91,9 +107,64 @@ def main(argv: list[str] | None = None) -> int:
                 Path(args.project_root),
             )
             _emit({"valid": True, "record_count": len(registry.records)})
+        elif args.command == "live-run" and args.live_runtime == "codex":
+            if os.environ.get("CAREER_EVIDENCE_ENABLE_LIVE_MODEL") != "1":
+                raise CodexCLIError("live execution requires CAREER_EVIDENCE_ENABLE_LIVE_MODEL=1")
+            workspace = Path(args.workspace)
+            prompt_path = Path(args.prompt_file)
+            resolved_workspace = workspace.resolve(strict=True)
+            if prompt_path.is_symlink():
+                raise CodexCLIError("prompt file cannot be a symlink")
+            resolved_prompt = prompt_path.resolve(strict=True)
+            if not resolved_prompt.is_relative_to(resolved_workspace):
+                raise CodexCLIError("prompt file must be inside workspace")
+            prompt = resolved_prompt.read_text(encoding="utf-8")
+            config = CodexCLIConfig(
+                schema_version="codex-cli-config/v1",
+                workspace=workspace,
+                output_schema=Path(args.output_schema),
+                immutable_snapshot=args.model_snapshot,
+                drift_limitation_reason=args.drift_limitation,
+            )
+            result = run_codex_exec(config, prompt)
+            charter = load_charter(Path(args.charter))
+            raw_response = {
+                "raw_jsonl": result.raw_stdout_jsonl,
+                "result": result.structured_result,
+            }
+            manifest = FormalRunStore(workspace).create(
+                run_id=args.run_id,
+                charter=charter,
+                raw_response=raw_response,
+                proposal=result.structured_result,
+                confirmed_result=result.structured_result,
+                lineage_inputs={
+                    "fixture": {"kind": "live-technical-gate-only"},
+                    "artifacts": [],
+                    "prompt": {"hash": result.prompt_hash},
+                    "model": result.model_identity.model_dump(mode="json"),
+                    "configuration": result.requested_configuration,
+                    "policy": {"charter": charter.charter_version},
+                    "reviewer": {"kind": "unconfirmed-technical-gate"},
+                },
+                execution_mode="live-reexecution",
+                limitations=[
+                    "This run proves runtime/configuration viability only.",
+                    *(
+                        [result.model_drift_limitation.reason]
+                        if result.model_drift_limitation
+                        else []
+                    ),
+                ],
+                codex_cli_result=result,
+                model_identity=result.model_identity,
+                model_drift_limitation=result.model_drift_limitation,
+            )
+            _emit(manifest)
         return 0
     except (
         FormalRunStorageError,
+        CodexCLIError,
         ProvenanceValidationError,
         ValidationError,
         OSError,

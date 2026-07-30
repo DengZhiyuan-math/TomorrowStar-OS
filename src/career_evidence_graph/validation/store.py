@@ -13,7 +13,14 @@ from typing import Any
 from pydantic import ValidationError
 
 from .hashing import canonical_json_bytes, sha256_digest
-from .models import CorrectionRecord, FormalRunManifest, ValidationCharter
+from .models import (
+    CodexCLIResult,
+    CorrectionRecord,
+    FormalRunManifest,
+    ModelDriftLimitation,
+    ModelIdentity,
+    ValidationCharter,
+)
 
 RUN_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 REQUIRED_INPUTS = (
@@ -97,6 +104,9 @@ class FormalRunStore:
         parent_run_id: str | None = None,
         change_reason: str | None = None,
         diff: Any | None = None,
+        codex_cli_result: CodexCLIResult | None = None,
+        model_identity: ModelIdentity | None = None,
+        model_drift_limitation: ModelDriftLimitation | None = None,
     ) -> FormalRunManifest:
         """Atomically publish a new immutable formal bundle."""
         destination = self._run_path(run_id)
@@ -113,6 +123,37 @@ class FormalRunStore:
                 raise FormalRunStorageError("linked rerun requires an explicit diff")
         elif change_reason is not None or diff is not None:
             raise FormalRunStorageError("change reason and diff require a parent run")
+        if execution_mode == "live-reexecution":
+            if codex_cli_result is None or model_identity is None:
+                raise FormalRunStorageError(
+                    "live formal runs require successful Codex metadata and model identity"
+                )
+            if codex_cli_result.exit_code != 0 or codex_cli_result.structured_result is None:
+                raise FormalRunStorageError("unsuccessful Codex result cannot become formal")
+            if not codex_cli_result.raw_stdout_jsonl:
+                raise FormalRunStorageError("live formal runs must retain raw JSONL")
+            if codex_cli_result.model_identity != model_identity:
+                raise FormalRunStorageError("Codex and manifest model identities disagree")
+            if codex_cli_result.model_drift_limitation != model_drift_limitation:
+                raise FormalRunStorageError("Codex and manifest drift limitations disagree")
+            if not isinstance(raw_response, dict):
+                raise FormalRunStorageError("live raw response must be a structured envelope")
+            if raw_response.get("raw_jsonl") != codex_cli_result.raw_stdout_jsonl:
+                raise FormalRunStorageError("live raw JSONL does not match Codex metadata")
+            if canonical_json_bytes(raw_response.get("result")) != canonical_json_bytes(
+                codex_cli_result.structured_result
+            ):
+                raise FormalRunStorageError("live structured result does not match Codex metadata")
+            if model_identity.resolved_snapshot is None and model_drift_limitation is None:
+                raise FormalRunStorageError(
+                    "alias-based live formal runs require a drift limitation"
+                )
+        elif (
+            codex_cli_result is not None
+            or model_identity is not None
+            or model_drift_limitation is not None
+        ):
+            raise FormalRunStorageError("recorded-response runs cannot include live Codex metadata")
 
         temporary = Path(tempfile.mkdtemp(dir=self.runs_root, prefix=f".{run_id}."))
         try:
@@ -139,6 +180,8 @@ class FormalRunStore:
             }
             if diff is not None:
                 values["diff.json"] = diff
+            if codex_cli_result is not None:
+                values["codex_cli_result.json"] = codex_cli_result.model_dump(mode="json")
             manifest_hashes: dict[str, str] = {}
             for filename, value in values.items():
                 self._write_json(temporary / filename, value)
@@ -158,6 +201,8 @@ class FormalRunStore:
                 parent_run_id=parent_run_id,
                 change_reason=change_reason,
                 limitations=limitations or [],
+                model_identity=model_identity,
+                model_drift_limitation=model_drift_limitation,
                 replay_mode="exact-recorded-response",
             )
             self._write_json(temporary / "manifest.json", manifest)
@@ -221,6 +266,8 @@ class FormalRunStore:
         expected_files = set(BASE_PAYLOAD_FILES)
         if manifest.parent_run_id is not None:
             expected_files.add("diff.json")
+        if manifest.execution_mode == "live-reexecution":
+            expected_files.add("codex_cli_result.json")
         if set(manifest.content_manifest) != expected_files:
             raise FormalRunStorageError("manifest does not declare the exact payload set")
         for filename, expected_hash in manifest.content_manifest.items():
@@ -249,6 +296,25 @@ class FormalRunStore:
                 raise FormalRunStorageError("correction proposal hash does not match")
             if canonical_json_bytes(correction.original_proposal) != canonical_json_bytes(proposal):
                 raise FormalRunStorageError("correction does not preserve the original proposal")
+        if manifest.execution_mode == "live-reexecution":
+            try:
+                codex_result = CodexCLIResult.model_validate(
+                    _load_json(run_path / "codex_cli_result.json")
+                )
+            except ValidationError as exc:
+                raise FormalRunStorageError("stored Codex metadata is invalid") from exc
+            if codex_result.model_identity != manifest.model_identity:
+                raise FormalRunStorageError("stored Codex model identity does not match manifest")
+            if codex_result.model_drift_limitation != manifest.model_drift_limitation:
+                raise FormalRunStorageError("stored Codex drift limitation does not match manifest")
+            raw_response = _load_json(run_path / "raw_response.json")
+            if (
+                not isinstance(raw_response, dict)
+                or raw_response.get("raw_jsonl") != codex_result.raw_stdout_jsonl
+                or canonical_json_bytes(raw_response.get("result"))
+                != canonical_json_bytes(codex_result.structured_result)
+            ):
+                raise FormalRunStorageError("stored Codex raw response does not match metadata")
         return manifest
 
     def payload(self, run_id: str, filename: str) -> Any:

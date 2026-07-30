@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -126,6 +127,84 @@ class ValidationCharter(StrictModel):
         return self
 
 
+class ModelIdentity(StrictModel):
+    schema_version: Literal["model-identity/v1"]
+    model_alias: Literal["gpt-5.6-luna"]
+    resolved_snapshot: str | None = None
+
+    @model_validator(mode="after")
+    def validate_snapshot(self) -> ModelIdentity:
+        if self.resolved_snapshot is not None:
+            if not self.resolved_snapshot.strip():
+                raise ValueError("resolved snapshot cannot be blank")
+            if self.resolved_snapshot == self.model_alias:
+                raise ValueError("an alias is not an immutable snapshot")
+        return self
+
+
+class ModelDriftLimitation(StrictModel):
+    schema_version: Literal["model-drift-limitation/v1"]
+    reason: str = Field(min_length=1)
+    raw_response_retained: Literal[True]
+
+
+class CodexCLIConfig(StrictModel):
+    schema_version: Literal["codex-cli-config/v1"]
+    executable: Literal["codex"] = "codex"
+    requested_model: Literal["gpt-5.6-luna"] = "gpt-5.6-luna"
+    reasoning_effort: Literal["medium"] = "medium"
+    sandbox: Literal["read-only"] = "read-only"
+    workspace: Path
+    output_schema: Path
+    immutable_snapshot: str | None = None
+    drift_limitation_reason: str | None = None
+
+    @model_validator(mode="after")
+    def validate_model_policy(self) -> CodexCLIConfig:
+        if self.immutable_snapshot is None:
+            if not self.drift_limitation_reason or not self.drift_limitation_reason.strip():
+                raise ValueError("model alias use requires a non-empty drift limitation")
+        elif self.immutable_snapshot == self.requested_model:
+            raise ValueError("immutable snapshot must not be the model alias")
+        return self
+
+
+class CodexCLIResult(StrictModel):
+    schema_version: Literal["codex-cli-result/v1"]
+    started_at: datetime
+    completed_at: datetime
+    cli_version: str = Field(min_length=1)
+    sanitized_argv: list[str]
+    exit_code: int
+    raw_stdout_jsonl: str
+    redacted_stderr: str
+    structured_result: Any | None
+    requested_configuration: dict[str, str]
+    model_identity: ModelIdentity
+    model_drift_limitation: ModelDriftLimitation | None
+    prompt_hash: str
+    output_schema_hash: str
+
+    @model_validator(mode="after")
+    def validate_success_metadata(self) -> CodexCLIResult:
+        if self.exit_code != 0:
+            raise ValueError("formal Codex result must have exit code zero")
+        if not self.raw_stdout_jsonl or self.structured_result is None:
+            raise ValueError("formal Codex result requires raw JSONL and structured output")
+        if self.requested_configuration != {
+            "model": "gpt-5.6-luna",
+            "reasoning_effort": "medium",
+            "sandbox": "read-only",
+        }:
+            raise ValueError("Codex requested configuration is not the locked profile")
+        if self.model_identity.resolved_snapshot is None:
+            if self.model_drift_limitation is None:
+                raise ValueError("alias-based Codex results require a drift limitation")
+        elif self.model_drift_limitation is not None:
+            raise ValueError("snapshot-based Codex results cannot claim alias drift")
+        return self
+
+
 class FormalRunManifest(StrictModel):
     schema_version: Literal["formal-run/v1"]
     run_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -138,6 +217,8 @@ class FormalRunManifest(StrictModel):
     parent_run_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
     change_reason: str | None = None
     limitations: list[str]
+    model_identity: ModelIdentity | None = None
+    model_drift_limitation: ModelDriftLimitation | None = None
     replay_mode: Literal["exact-recorded-response"]
 
     @model_validator(mode="after")
@@ -157,6 +238,21 @@ class FormalRunManifest(StrictModel):
             raise ValueError("parent_run_id and change_reason must appear together")
         if self.change_reason is not None and not self.change_reason.strip():
             raise ValueError("change_reason cannot be blank")
+        if self.execution_mode == "live-reexecution":
+            if self.model_identity is None:
+                raise ValueError("live runs require model identity")
+            if (
+                self.model_identity.resolved_snapshot is None
+                and self.model_drift_limitation is None
+            ):
+                raise ValueError("alias-based live runs require a drift limitation")
+            if (
+                self.model_identity.resolved_snapshot is not None
+                and self.model_drift_limitation is not None
+            ):
+                raise ValueError("snapshot-based live runs cannot claim alias drift")
+        elif self.model_identity is not None or self.model_drift_limitation is not None:
+            raise ValueError("recorded-response runs cannot claim live model identity")
         return self
 
 
