@@ -12,7 +12,7 @@ This milestone delivers six vertical validation capabilities in dependency order
 - Decimal phases (2.1, 2.2): Urgent insertions, marked as INSERTED
 
 - [x] **Phase 1: Validation Charter, Provenance, and Technical Decision Gate** - Evaluators can begin a falsifiable, reproducible study with explicit upstream and implementation boundaries. (completed 2026-07-30)
-- [ ] **Phase 2: Domain Contracts, STOA Fixture, and Deterministic Invariants** - Users and evaluators can represent Contribution-grounded career evidence and reject invalid assessment states.
+- [x] **Phase 2: Domain Contracts, STOA Fixture, and Deterministic Invariants** - Users and evaluators can represent Contribution-grounded career evidence and reject invalid assessment states. (completed 2026-07-30)
 - [ ] **Phase 3: Artifact-Aware Grill-Me and Attribution Workflow** - A user can complete and resume a focused Contribution audit with inspectable ownership and conclusions.
 - [ ] **Phase 4: Contribution–Skill Assessment and Aggregation Calibration** - Reviewers can calibrate traceable Skill judgments and replaceable aggregation policies without score inflation.
 - [ ] **Phase 5: JD Usefulness and Adversarial Evaluation** - Users can compare a stable Skill graph with contrasting JDs, and evaluators can test whether the results are truthful and more useful than baselines.
@@ -55,7 +55,7 @@ This milestone delivers six vertical validation capabilities in dependency order
   4. A user can inspect one stable mastery value for a specific Skill while confidence, verified duration, recency, context, and JD match remain separate, and changing aliases or ontology adjacency does not create or increase mastery.
   5. An evaluator can exercise a human-reviewed STOA fixture and known-good and known-bad variants that span the required score, attribution, assistance, context, duration, and evidence-quality cases, with every assessment tracing to a Contribution.
 
-**Plans:** 6/6 plans executed
+**Plans:** 6/6 plans complete
 
 **Wave 1**
 
@@ -147,7 +147,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Validation Charter, Provenance, and Technical Decision Gate | 2/2 | Complete    | 2026-07-30 |
-| 2. Domain Contracts, STOA Fixture, and Deterministic Invariants | 6/6 | In Progress|  |
+| 2. Domain Contracts, STOA Fixture, and Deterministic Invariants | 6/6 | Complete    | 2026-07-30 |
 | 3. Artifact-Aware Grill-Me and Attribution Workflow | 0/TBD | Not started | - |
 | 4. Contribution–Skill Assessment and Aggregation Calibration | 0/TBD | Not started | - |
 | 5. JD Usefulness and Adversarial Evaluation | 0/TBD | Not started | - |
