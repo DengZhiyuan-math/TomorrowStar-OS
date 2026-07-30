@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import tempfile
 from copy import deepcopy
@@ -523,7 +524,7 @@ def _validated_attribution_corrections(
 ) -> dict[str, dict[str, str]]:
     """Validate hash-bound human attribution edits before any fixture materialization."""
     if (
-        review.reviewer_id is None
+        review.reviewer_id != _CONFIRMED_REVIEWER_ID
         or review.checkpoint_summary_hash is None
         or review.reviewed_at is None
         or review.candidate_ledger_hash != _candidate_ledger_hash(candidates)
@@ -547,7 +548,7 @@ def _validated_attribution_corrections(
         if (
             candidate_id not in decisions
             or record.correction_id != f"correction-{candidate_id}-attribution-assistance"
-            or record.reviewer_id != review.reviewer_id
+            or record.reviewer_id != _CONFIRMED_REVIEWER_ID
             or record.original_proposal_hash != proposal_hash
             or canonical_json_bytes(record.original_proposal) != canonical_json_bytes(proposal)
             or correction != expected
@@ -672,9 +673,21 @@ def materialize_review_decisions(
     """Materialize the supplied, hash-bound checkpoint without favorable defaults."""
     if checkpoint_decisions.candidate_ledger_hash != _candidate_ledger_hash(candidates):
         raise _source_scope_error("checkpoint response is not bound to the candidate ledger")
-    if b"review-confirmed: zhdeng" not in checkpoint_summary_bytes:
+    if checkpoint_decisions.reviewer_id != _CONFIRMED_REVIEWER_ID:
+        raise _source_scope_error("checkpoint response does not name the confirmed reviewer")
+    try:
+        checkpoint_summary = checkpoint_summary_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise _source_scope_error("checkpoint summary is not valid UTF-8") from exc
+    confirmed_ids = re.findall(r"(?m)^review-confirmed: ([^\s;]+)$", checkpoint_summary)
+    reviewer_ids = re.findall(r"(?m)^reviewer_id: ([^\s;]+)$", checkpoint_summary)
+    if (
+        confirmed_ids != [_CONFIRMED_REVIEWER_ID]
+        or reviewer_ids != [_CONFIRMED_REVIEWER_ID]
+        or confirmed_ids[0] != checkpoint_decisions.reviewer_id
+    ):
         raise _source_scope_error(
-            "checkpoint confirmation is absent or belongs to another reviewer"
+            "checkpoint confirmation does not exactly match the confirmed reviewer"
         )
     if not evaluate_review_status(candidates, checkpoint_decisions).sealable:
         raise _source_scope_error("complete checkpoint response is unexpectedly unsealable")

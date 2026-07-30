@@ -263,6 +263,19 @@ def test_materialization_rejects_tampered_correction_authority() -> None:
     assert evaluate_review_status(candidates, wrong_ledger).sealable is False
 
 
+def test_materialization_rejects_coordinated_non_confirmed_reviewer_tampering() -> None:
+    candidates, review = load_candidate_packet(CANDIDATES, REVIEW)
+    payload = review.model_dump(mode="json")
+    payload["reviewer_id"] = "mallory"
+    for correction in payload["corrections"]:
+        correction["reviewer_id"] = "mallory"
+    tampered = CandidateReviewRecord.model_validate(payload)
+
+    assert evaluate_review_status(candidates, tampered).sealable is False
+    with pytest.raises(SourceScopeError, match="confirmed reviewer"):
+        materialize_review_decisions(candidates, tampered, CHECKPOINT_SUMMARY.read_bytes())
+
+
 def test_seal_publishes_verified_bundle_and_provider_free_replay(tmp_path: Path) -> None:
     """Known-good can only be recovered from verified immutable formal evidence."""
     workspace = _sealed_workspace(tmp_path)
