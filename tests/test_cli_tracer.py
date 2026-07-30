@@ -41,9 +41,10 @@ def test_locked_commands_resolve_the_repository_src_package() -> None:
     )
 
     assert cli.returncode == 0, cli.stderr
-    assert Path(json.loads(cli.stdout)["package_path"]).resolve() == (
-        ROOT / "src" / "career_evidence_graph" / "cli.py"
-    ).resolve()
+    assert (
+        Path(json.loads(cli.stdout)["package_path"]).resolve()
+        == (ROOT / "src" / "career_evidence_graph" / "cli.py").resolve()
+    )
 
 
 def _run(*args: str) -> subprocess.CompletedProcess[str]:
