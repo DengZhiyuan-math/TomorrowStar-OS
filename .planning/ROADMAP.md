@@ -32,10 +32,10 @@ This milestone delivers six vertical validation capabilities in dependency order
   2. An evaluator can reproduce a recorded validation run from its versioned fixture, artifacts, prompt, model, configuration, policy, and reviewer inputs without altering the original run.
   3. A maintainer can trace every reused or adapted seam to its pinned repository revision, source path, license, classification, attribution, and local divergence, while confirming that the upstream repositories remain reference inputs rather than wholesale runtime dependencies.
 
-**Plans:** 0/2 plans executed
+**Plans:** 1/2 plans executed
 **Wave 1**
 
-- [ ] 01-01-PLAN.md
+- [x] 01-01-PLAN.md
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -125,7 +125,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Validation Charter, Provenance, and Technical Decision Gate | 0/2 | Planned    |  |
+| 1. Validation Charter, Provenance, and Technical Decision Gate | 1/2 | In Progress|  |
 | 2. Domain Contracts, STOA Fixture, and Deterministic Invariants | 0/TBD | Not started | - |
 | 3. Artifact-Aware Grill-Me and Attribution Workflow | 0/TBD | Not started | - |
 | 4. Contribution–Skill Assessment and Aggregation Calibration | 0/TBD | Not started | - |
