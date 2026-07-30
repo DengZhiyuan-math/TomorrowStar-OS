@@ -173,12 +173,23 @@ def validate_user_skill_views(
 ) -> tuple[InvariantViolation, ...]:
     """Keep one exact Skill view separate from confidence, duration, and JD data."""
     assessments_by_id = {assessment.id: assessment for assessment in fixture.assessments}
+    skill_ids = {skill.id for skill in fixture.skills}
     assessed_skill_ids = {assessment.skill_id for assessment in fixture.assessments}
     views_by_skill: dict[str, list[object]] = {}
     violations: list[InvariantViolation] = []
+    for assessment in fixture.assessments:
+        if assessment.skill_id not in skill_ids:
+            violations.append(
+                InvariantViolation(
+                    code="assessment.skill_missing",
+                    path=f"assessments.{assessment.id}.skill_id",
+                )
+            )
     for view in fixture.user_skill_views:
         views_by_skill.setdefault(view.skill_id, []).append(view)
         view_path = f"user_skill_views.{view.skill_id}"
+        if view.skill_id not in skill_ids:
+            violations.append(InvariantViolation(code="user-skill.skill_missing", path=view_path))
         if view.skill_id not in assessed_skill_ids:
             violations.append(
                 InvariantViolation(code="user-skill.without-assessment", path=view_path)

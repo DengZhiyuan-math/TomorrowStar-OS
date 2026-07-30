@@ -163,6 +163,17 @@ def test_view_for_an_unassessed_skill_is_rejected_without_creating_mastery():
     ]
 
 
+def test_assessment_and_view_cannot_share_an_undeclared_skill_reference() -> None:
+    payload = _payload()
+    payload["assessments"][0]["skill_id"] = "skill.missing"  # type: ignore[index]
+    payload["user_skill_views"][0]["skill_id"] = "skill.missing"  # type: ignore[index]
+
+    assert _codes(_fixture(payload)) == [
+        "assessment.skill_missing",
+        "user-skill.skill_missing",
+    ]
+
+
 def test_user_skill_view_has_no_supporting_score_dimensions():
     view = _fixture(_payload()).user_skill_views[0]
 
