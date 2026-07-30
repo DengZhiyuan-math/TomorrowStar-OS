@@ -183,6 +183,7 @@ def test_view_for_an_unassessed_skill_is_rejected_without_creating_mastery():
     assert _codes(_fixture(payload)) == [
         "user-skill.missing",
         "user-skill.skill_mismatch",
+        "user-skill.skill_missing",
         "user-skill.without-assessment",
     ]
 
