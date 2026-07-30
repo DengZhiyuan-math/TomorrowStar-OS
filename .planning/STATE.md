@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 02
 current_phase_name: domain-contracts-stoa-fixture-and-deterministic-invariants
 status: executing
-stopped_at: Completed 02-02-PLAN.md
-last_updated: "2026-07-30T14:42:59.685Z"
+stopped_at: Completed 02-03-PLAN.md
+last_updated: "2026-07-30T14:58:00.791Z"
 last_activity: 2026-07-30
 last_activity_desc: Phase 02 execution started
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 8
-  completed_plans: 4
+  completed_plans: 5
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-07-30)
 ## Current Position
 
 Phase: 02 (domain-contracts-stoa-fixture-and-deterministic-invariants) — EXECUTING
-Plan: 3 of 6
+Plan: 4 of 6
 Status: Ready to execute
 Last activity: 2026-07-30 — Phase 02 execution started
 
-Progress: [█████░░░░░] 50%
+Progress: [██████░░░░] 63%
 
 ## Performance Metrics
 
@@ -62,6 +62,7 @@ Progress: [█████░░░░░] 50%
 | Phase 01 P02 | 9min | 3 tasks | 19 files |
 | Phase 02 P01 | 17 min | 2 tasks | 7 files |
 | Phase 02 P02 | 14 min | 2 tasks | 4 files |
+| Phase 02 P03 | 10 min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -78,6 +79,8 @@ Recent decisions affecting current work:
 - [Phase 02]: Whitespace-only assessment context is rejected; Phase 2 fixture scores remain non-calibrated.
 - [Phase ?]: Phase 02: Direct-source and user-Skill invariant namespaces use stable hyphenated codes; normalization metadata remains mastery-isolated.
 - [Phase ?]: Phase 02: UserSkillView carries fixture-test expectations only; aggregation and calibrated capability policy remain deferred.
+- [Phase ?]: STOA documentary candidates remain non-personal and unsealed until six separate human review decisions are recorded.
+- [Phase ?]: Pinned source verification permits exactly four repository commits and ten Git-tracked documents with no working-tree fallback.
 
 ### Pending Todos
 
@@ -98,6 +101,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-07-30T14:42:59.675Z
-Stopped at: Completed 02-02-PLAN.md
+Last session: 2026-07-30T14:58:00.782Z
+Stopped at: Completed 02-03-PLAN.md
 Resume file: None
