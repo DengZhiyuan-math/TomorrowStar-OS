@@ -11,9 +11,10 @@ import json
 import os
 import subprocess
 import tempfile
+from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field, ValidationError, model_validator
 
@@ -21,7 +22,7 @@ from ..validation.hashing import canonical_json_bytes, sha256_digest
 from ..validation.models import CorrectionRecord, StrictModel
 from ..validation.replay import replay_recorded_response
 from ..validation.store import FormalRunStorageError, FormalRunStore, load_charter
-from .invariants import validate_career_evidence_fixture
+from .invariants import FixtureValidationError, validate_career_evidence_fixture
 from .models import (
     COMMIT_PATTERN,
     SHA256_PATTERN,
@@ -232,6 +233,77 @@ class SealedFixtureRecord(StrictModel):
     review_hash: str = Field(pattern=SHA256_PATTERN)
     checkpoint_summary_hash: str = Field(pattern=SHA256_PATTERN)
     fixture: CareerEvidenceFixture
+
+
+MutationKind = Literal[
+    "direct-mastery-experience",
+    "direct-mastery-title",
+    "direct-mastery-repository",
+    "direct-mastery-resume-skill-list",
+    "direct-mastery-ontology",
+    "wrong-responsibility",
+    "obscured-codex-assistance",
+    "duplicate-evidence-link",
+    "missing-contribution-lineage",
+    "missing-assessment-basis",
+    "dimension-confusion",
+    "score-below-zero",
+    "score-above-hundred",
+    "missing-context",
+    "missing-duration",
+    "ontology-mastery-change",
+]
+
+
+class FixtureMutationError(ValueError):
+    """A known-bad declaration cannot be safely evaluated."""
+
+
+class MutationOperation(StrictModel):
+    """One closed mutation kind; arbitrary paths and values are intentionally forbidden."""
+
+    schema_version: Literal["fixture-mutation-operation/v1"] = "fixture-mutation-operation/v1"
+    kind: MutationKind
+
+
+class FixtureMutationCase(StrictModel):
+    """A single documented bad state derived from one immutable sealed base."""
+
+    schema_version: Literal["fixture-mutation-case/v1"] = "fixture-mutation-case/v1"
+    case_id: str = Field(pattern=r"^[a-z][a-z0-9-]*$")
+    base_fixture_hash: str = Field(pattern=SHA256_PATTERN)
+    operations: tuple[MutationOperation, ...] = Field(min_length=1, max_length=1)
+    expected_code: str = Field(pattern=r"^[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)+$")
+
+    @model_validator(mode="after")
+    def validate_operation_identity(self) -> FixtureMutationCase:
+        if len(self.operations) != 1:
+            raise ValueError("a mutation case must declare exactly one operation")
+        if self.case_id != self.operations[0].kind:
+            raise ValueError("case_id must equal its closed mutation kind")
+        return self
+
+
+class FixtureMutationResult(StrictModel):
+    """Stable result for one checked-in one-fault mutation case."""
+
+    schema_version: Literal["fixture-mutation-result/v1"] = "fixture-mutation-result/v1"
+    valid: bool
+    base_fixture_hash: str = Field(pattern=SHA256_PATTERN)
+    case_id: str = Field(pattern=r"^[a-z][a-z0-9-]*$")
+    mutation_kind: MutationKind
+    expected_code: str = Field(pattern=r"^[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)+$")
+    actual_codes: tuple[str, ...]
+
+
+class FixtureMutationSuiteResult(StrictModel):
+    """Deterministically ordered output for the complete known-bad suite."""
+
+    schema_version: Literal["fixture-mutation-suite-result/v1"] = "fixture-mutation-suite-result/v1"
+    valid: bool
+    base_fixture_hash: str = Field(pattern=SHA256_PATTERN)
+    case_count: int = Field(ge=0)
+    results: tuple[FixtureMutationResult, ...]
 
 
 _CONFIRMED_REVIEWER_ID = "zhdeng"
@@ -746,3 +818,200 @@ def load_sealed_fixture(path: Path, workspace: Path):
     if not replay_recorded_response(store, sealed.formal_run_id).matched:
         raise FormalRunStorageError("known-good formal run does not replay exactly")
     return result
+
+
+_MUTATION_SCHEMA_CODES: dict[MutationKind, str] = {
+    "dimension-confusion": "assessment.dimension_confusion",
+    "score-below-zero": "assessment.score_out_of_range",
+    "score-above-hundred": "assessment.score_out_of_range",
+    "missing-context": "assessment.context_missing",
+    "missing-duration": "assessment.duration_missing",
+    "ontology-mastery-change": "assessment.ontology_mastery_change",
+}
+
+
+def _assessment_payload(payload: dict[str, Any], *, status: str = "partial") -> dict[str, Any]:
+    """Return the only synthetic assessment shape used by closed negative cases."""
+    contribution = payload["contributions"][0]
+    claim = payload["claims"][0]
+    skill = payload["skills"][0]
+    return {
+        "schema_version": "contribution-skill-assessment/v1",
+        "id": "assessment-known-bad",
+        "skill_id": skill["id"],
+        "contribution_id": contribution["id"],
+        "lineage": {
+            "schema_version": "assessment-lineage/v1",
+            "source_kind": "contribution",
+            "contribution_id": contribution["id"],
+        },
+        "demonstrated_mastery": 50,
+        "skill_centrality": 50,
+        "evidence_confidence": 50,
+        "context": "Closed mutation-suite assessment scaffold.",
+        "duration": {"schema_version": "duration-evidence/v1", "state": "not_verified"},
+        "basis_claim_ids": [claim["id"]],
+        "assessment_status": status,
+    }
+
+
+def _append_assessment(payload: dict[str, Any], *, status: str = "partial") -> dict[str, Any]:
+    assessment = _assessment_payload(payload, status=status)
+    payload["assessments"].append(assessment)
+    payload["user_skill_views"].append(
+        {
+            "schema_version": "user-skill-view/v1",
+            "skill_id": assessment["skill_id"],
+            "mastery": 50,
+            "assessment_ids": [assessment["id"]],
+            "expectation_status": "fixture-test-expectation",
+            "policy_marker": "fixture-test-expectation",
+            "fixture_notice": payload["fixture_notice"],
+        }
+    )
+    return assessment
+
+
+def apply_fixture_mutation(
+    base: CareerEvidenceFixture | dict[str, Any], operation: MutationOperation
+) -> dict[str, Any]:
+    """Apply one named test fault to a deep JSON copy without a patch/write surface."""
+    if isinstance(base, CareerEvidenceFixture):
+        payload = deepcopy(base.model_dump(mode="json"))
+    else:
+        payload = deepcopy(base)
+    if not isinstance(payload, dict):
+        raise FixtureMutationError("mutation base must be a JSON object")
+
+    kind = operation.kind
+    if kind.startswith("direct-mastery-"):
+        source_kind = {
+            "direct-mastery-experience": "experience",
+            "direct-mastery-title": "title",
+            "direct-mastery-repository": "repository",
+            "direct-mastery-resume-skill-list": "resume-skill-list",
+            "direct-mastery-ontology": "ontology-relation",
+        }[kind]
+        assessment = _append_assessment(payload)
+        assessment["lineage"]["source_kind"] = source_kind
+    elif kind == "wrong-responsibility":
+        _append_assessment(payload, status="reviewed")
+        claim = payload["claims"][0]
+        # This closed operation creates a reviewed assertion with only ownership wrong.
+        claim.update(
+            {
+                "responsibility": "team",
+                "assistance": "none",
+                "completion_status": "delivered",
+            }
+        )
+    elif kind == "obscured-codex-assistance":
+        _append_assessment(payload, status="reviewed")
+        # Preserve the reviewed user/Codex-assisted semantics and make them gate the assertion.
+        payload["claims"][0]["completion_status"] = "delivered"
+    elif kind == "duplicate-evidence-link":
+        payload["claim_evidence_links"].append(deepcopy(payload["claim_evidence_links"][0]))
+    elif kind == "missing-contribution-lineage":
+        assessment = _append_assessment(payload)
+        assessment["contribution_id"] = "contrib-missing"
+        assessment["lineage"]["contribution_id"] = "contrib-missing"
+    elif kind == "missing-assessment-basis":
+        assessment = _append_assessment(payload)
+        assessment["basis_claim_ids"] = ["claim-missing"]
+    elif kind == "dimension-confusion":
+        assessment = _append_assessment(payload)
+        assessment["demonstrated_mastery"] = "evidence_confidence"
+    elif kind == "score-below-zero":
+        assessment = _append_assessment(payload)
+        assessment["demonstrated_mastery"] = -1
+    elif kind == "score-above-hundred":
+        assessment = _append_assessment(payload)
+        assessment["demonstrated_mastery"] = 101
+    elif kind == "missing-context":
+        assessment = _append_assessment(payload)
+        assessment["context"] = ""
+    elif kind == "missing-duration":
+        assessment = _append_assessment(payload)
+        del assessment["duration"]
+    elif kind == "ontology-mastery-change":
+        assessment = _append_assessment(payload)
+        assessment["demonstrated_mastery"] = "ontology-relation"
+    else:  # pragma: no cover - Literal/Pydantic closes this at the ingress boundary.
+        raise FixtureMutationError(f"unsupported mutation kind: {kind}")
+    return payload
+
+
+def _schema_violation_codes(operation: MutationOperation) -> tuple[str, ...]:
+    try:
+        return (_MUTATION_SCHEMA_CODES[operation.kind],)
+    except KeyError as exc:
+        raise FixtureMutationError("mutation produced an unexpected schema failure") from exc
+
+
+def load_fixture_mutation_case(path: Path) -> FixtureMutationCase:
+    """Load one strict known-bad declaration without accepting partial case files."""
+    try:
+        return FixtureMutationCase.model_validate_json(path.read_bytes())
+    except (OSError, ValidationError) as exc:
+        raise FixtureMutationError(f"invalid mutation case {path.name}: {exc}") from exc
+
+
+def validate_mutation_case(
+    sealed: SealedFixtureRecord, case: FixtureMutationCase
+) -> FixtureMutationResult:
+    """Prove one sealed-base mutation has exactly its declared deterministic failure."""
+    base_before = canonical_json_bytes(sealed.fixture.model_dump(mode="json"))
+    base_result = validate_career_evidence_fixture(sealed.fixture)
+    if base_result.fixture_hash != sealed.confirmed_result_hash:
+        raise FixtureMutationError("verified sealed base hash does not match its envelope")
+    if case.base_fixture_hash != sealed.confirmed_result_hash:
+        raise FixtureMutationError("mutation case base hash does not match sealed known-good")
+
+    operation = case.operations[0]
+    payload = apply_fixture_mutation(sealed.fixture, operation)
+    try:
+        mutated = CareerEvidenceFixture.model_validate(payload)
+    except ValidationError as exc:
+        del exc
+        actual_codes = _schema_violation_codes(operation)
+    else:
+        try:
+            validate_career_evidence_fixture(mutated)
+        except FixtureValidationError as exc:
+            actual_codes = tuple(sorted({violation.code for violation in exc.violations}))
+        else:
+            actual_codes = ()
+
+    if canonical_json_bytes(sealed.fixture.model_dump(mode="json")) != base_before:
+        raise FixtureMutationError("mutation changed sealed known-good bytes")
+    if (
+        validate_career_evidence_fixture(sealed.fixture).fixture_hash
+        != sealed.confirmed_result_hash
+    ):
+        raise FixtureMutationError("sealed known-good did not validate after mutation")
+    return FixtureMutationResult(
+        valid=actual_codes == (case.expected_code,),
+        base_fixture_hash=sealed.confirmed_result_hash,
+        case_id=case.case_id,
+        mutation_kind=operation.kind,
+        expected_code=case.expected_code,
+        actual_codes=actual_codes,
+    )
+
+
+def validate_mutation_suite(
+    sealed: SealedFixtureRecord, cases: list[FixtureMutationCase] | tuple[FixtureMutationCase, ...]
+) -> FixtureMutationSuiteResult:
+    """Evaluate the exact one-fault case set in stable case-ID order."""
+    case_by_id = {case.case_id: case for case in cases}
+    if len(case_by_id) != len(cases):
+        raise FixtureMutationError("mutation suite contains duplicate case IDs")
+    results = tuple(
+        validate_mutation_case(sealed, case_by_id[case_id]) for case_id in sorted(case_by_id)
+    )
+    return FixtureMutationSuiteResult(
+        valid=all(result.valid for result in results),
+        base_fixture_hash=sealed.confirmed_result_hash,
+        case_count=len(results),
+        results=results,
+    )

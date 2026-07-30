@@ -1,12 +1,21 @@
 """Public Phase 2 career-evidence domain contracts and validation seam."""
 
 from .fixtures import (
+    FixtureMutationCase,
+    FixtureMutationError,
+    FixtureMutationResult,
+    FixtureMutationSuiteResult,
+    MutationOperation,
     SourceManifestVerification,
     SourceScopeError,
+    apply_fixture_mutation,
     evaluate_review_status,
     load_candidate_packet,
+    load_fixture_mutation_case,
     load_sealed_fixture,
     seal_reviewed_fixture,
+    validate_mutation_case,
+    validate_mutation_suite,
     verify_source_manifest,
 )
 from .invariants import (
@@ -42,6 +51,11 @@ __all__ = [
     "SkillAlias",
     "SkillNormalizationRecord",
     "UserSkillView",
+    "FixtureMutationCase",
+    "FixtureMutationError",
+    "FixtureMutationResult",
+    "FixtureMutationSuiteResult",
+    "MutationOperation",
     "SourceManifestVerification",
     "SourceScopeError",
     "collect_invariant_violations",
@@ -54,8 +68,12 @@ __all__ = [
     "validate_evidence_links",
     "validate_user_skill_views",
     "evaluate_review_status",
+    "apply_fixture_mutation",
     "load_candidate_packet",
+    "load_fixture_mutation_case",
     "load_sealed_fixture",
     "seal_reviewed_fixture",
+    "validate_mutation_case",
+    "validate_mutation_suite",
     "verify_source_manifest",
 ]

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from copy import deepcopy
 from pathlib import Path
 
@@ -108,7 +107,7 @@ def test_every_case_is_one_declared_failure_and_preserves_all_accepted_bytes() -
 
     results = [validate_mutation_case(sealed, case) for case in _cases()]
 
-    assert [(result.case_id, result.actual_codes) for result in results] == [
+    assert sorted((result.case_id, result.actual_codes) for result in results) == [
         (case_id, (expected_code,)) for case_id, expected_code in sorted(EXPECTED_CODES.items())
     ]
     assert all(result.valid is True for result in results)
@@ -128,7 +127,8 @@ def test_every_case_is_one_declared_failure_and_preserves_all_accepted_bytes() -
     ],
 )
 def test_direct_source_cases_each_return_the_same_sole_stable_code(case_id: str) -> None:
-    result = validate_mutation_case(_sealed(), next(case for case in _cases() if case.case_id == case_id))
+    case = next(case for case in _cases() if case.case_id == case_id)
+    result = validate_mutation_case(_sealed(), case)
 
     assert result.actual_codes == ("assessment.direct-source-forbidden",)
 
