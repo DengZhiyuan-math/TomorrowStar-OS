@@ -1,11 +1,13 @@
 """Public Phase 2 career-evidence domain contracts and validation seam."""
 
 from .fixtures import (
+    KNOWN_BAD_CASE_IDS,
     FixtureMutationCase,
     FixtureMutationError,
     FixtureMutationResult,
     FixtureMutationSuiteResult,
     MutationOperation,
+    SealedFixtureRecord,
     SourceManifestVerification,
     SourceScopeError,
     apply_fixture_mutation,
@@ -55,7 +57,9 @@ __all__ = [
     "FixtureMutationError",
     "FixtureMutationResult",
     "FixtureMutationSuiteResult",
+    "KNOWN_BAD_CASE_IDS",
     "MutationOperation",
+    "SealedFixtureRecord",
     "SourceManifestVerification",
     "SourceScopeError",
     "collect_invariant_violations",

@@ -2,19 +2,22 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
 import json
 import shutil
 import subprocess
 import sys
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
+from career_evidence_graph import cli
 from career_evidence_graph.domain.fixtures import (
     FixtureMutationCase,
     FixtureMutationError,
+    FixtureMutationResult,
+    FixtureMutationSuiteResult,
     MutationOperation,
     SealedFixtureRecord,
     load_fixture_mutation_case,
@@ -200,9 +203,7 @@ def test_fixture_validate_suite_cli_emits_the_stable_complete_json_report() -> N
     assert report["case_count"] == 16
     assert [result["case_id"] for result in report["results"]] == sorted(EXPECTED_CODES)
     assert all(result["valid"] is True for result in report["results"])
-    assert all(
-        result["actual_codes"] == [result["expected_code"]] for result in report["results"]
-    )
+    assert all(result["actual_codes"] == [result["expected_code"]] for result in report["results"])
 
 
 @pytest.mark.parametrize("fault", ["missing-good", "tampered-good", "base-mismatch", "extra-case"])
@@ -211,11 +212,11 @@ def test_fixture_validate_suite_cli_fails_closed_without_editing_fixtures(
 ) -> None:
     copied_good = tmp_path / "known-good.json"
     copied_bad = tmp_path / "known-bad"
-    shutil.copy2(KNOWN_GOOD, copied_good)
     shutil.copytree(KNOWN_BAD_DIR, copied_bad)
     if fault == "missing-good":
         known_good = tmp_path / "missing.json"
     elif fault == "tampered-good":
+        shutil.copy2(KNOWN_GOOD, copied_good)
         copied_good.write_text('{"tampered":true}\n', encoding="utf-8")
         known_good = copied_good
     elif fault == "base-mismatch":
@@ -223,17 +224,60 @@ def test_fixture_validate_suite_cli_fails_closed_without_editing_fixtures(
         case = json.loads(case_path.read_text(encoding="utf-8"))
         case["base_fixture_hash"] = "sha256:" + "0" * 64
         case_path.write_text(json.dumps(case), encoding="utf-8")
-        known_good = copied_good
+        known_good = KNOWN_GOOD
     else:
-        shutil.copy2(
-            copied_bad / "direct-mastery-title.json", copied_bad / "unexpected-case.json"
-        )
-        known_good = copied_good
+        shutil.copy2(copied_bad / "direct-mastery-title.json", copied_bad / "unexpected-case.json")
+        known_good = KNOWN_GOOD
 
-    expected_good = copied_good.read_bytes()
+    known_good_before = KNOWN_GOOD.read_bytes()
+    expected_tampered_good = copied_good.read_bytes() if copied_good.exists() else None
     expected_cases = {path.name: path.read_bytes() for path in sorted(copied_bad.glob("*.json"))}
     completed = _validate_suite_cli(known_good, copied_bad)
 
     assert completed.returncode == 2
-    assert copied_good.read_bytes() == expected_good
-    assert {path.name: path.read_bytes() for path in sorted(copied_bad.glob("*.json"))} == expected_cases
+    assert KNOWN_GOOD.read_bytes() == known_good_before
+    if expected_tampered_good is not None:
+        assert copied_good.read_bytes() == expected_tampered_good
+    assert {
+        path.name: path.read_bytes() for path in sorted(copied_bad.glob("*.json"))
+    } == expected_cases
+
+
+def test_fixture_validate_suite_cli_rejects_a_multi_error_result_without_writing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sealed = _sealed()
+    before = KNOWN_GOOD.read_bytes()
+    multi_error = FixtureMutationResult(
+        valid=False,
+        base_fixture_hash=sealed.confirmed_result_hash,
+        case_id="dimension-confusion",
+        mutation_kind="dimension-confusion",
+        expected_code="assessment.dimension_confusion",
+        actual_codes=("assessment.first", "assessment.second"),
+    )
+    monkeypatch.setattr(
+        cli,
+        "validate_mutation_suite",
+        lambda sealed, cases: FixtureMutationSuiteResult(
+            valid=False,
+            base_fixture_hash=sealed.confirmed_result_hash,
+            case_count=len(cases),
+            results=(multi_error,),
+        ),
+    )
+
+    assert (
+        cli.main(
+            [
+                "fixture",
+                "validate-suite",
+                "--known-good",
+                str(KNOWN_GOOD),
+                "--known-bad-dir",
+                str(KNOWN_BAD_DIR),
+            ]
+        )
+        == 2
+    )
+    assert KNOWN_GOOD.read_bytes() == before

@@ -12,13 +12,18 @@ from typing import Any
 from pydantic import ValidationError
 
 from .domain import (
+    KNOWN_BAD_CASE_IDS,
+    FixtureMutationError,
     FixtureValidationError,
+    SealedFixtureRecord,
     SourceScopeError,
     evaluate_review_status,
     load_and_validate_fixture,
     load_candidate_packet,
+    load_fixture_mutation_case,
     load_sealed_fixture,
     seal_reviewed_fixture,
+    validate_mutation_suite,
     verify_source_manifest,
 )
 from .validation.provenance import ProvenanceValidationError, verify_provenance_registry
@@ -51,6 +56,9 @@ def _parser() -> argparse.ArgumentParser:
     fixture_commands = fixture.add_subparsers(dest="fixture_command", required=True)
     fixture_validate = fixture_commands.add_parser("validate")
     fixture_validate.add_argument("path")
+    fixture_validate_suite = fixture_commands.add_parser("validate-suite")
+    fixture_validate_suite.add_argument("--known-good", required=True)
+    fixture_validate_suite.add_argument("--known-bad-dir", required=True)
     fixture_seal = fixture_commands.add_parser("seal")
     fixture_seal.add_argument("--workspace", required=True)
     fixture_seal.add_argument("--run-id", required=True)
@@ -122,6 +130,31 @@ def main(argv: list[str] | None = None) -> int:
                 _emit(load_sealed_fixture(path, path.parent))
             else:
                 _emit(load_and_validate_fixture(path))
+        elif args.command == "fixture" and args.fixture_command == "validate-suite":
+            known_good_path = Path(args.known_good)
+            known_bad_dir = Path(args.known_bad_dir)
+            if not known_bad_dir.is_dir():
+                raise FixtureMutationError("known-bad directory is missing")
+            case_paths = tuple(sorted(known_bad_dir.glob("*.json")))
+            if {path.stem for path in case_paths} != KNOWN_BAD_CASE_IDS:
+                raise FixtureMutationError(
+                    "known-bad case files do not match the required inventory"
+                )
+            load_sealed_fixture(known_good_path, known_good_path.parent)
+            sealed = SealedFixtureRecord.model_validate_json(known_good_path.read_bytes())
+            cases = tuple(load_fixture_mutation_case(path) for path in case_paths)
+            if {case.case_id for case in cases} != KNOWN_BAD_CASE_IDS:
+                raise FixtureMutationError("known-bad case IDs do not match the required inventory")
+            result = validate_mutation_suite(sealed, cases)
+            if (
+                not result.valid
+                or result.case_count != len(KNOWN_BAD_CASE_IDS)
+                or any(item.actual_codes != (item.expected_code,) for item in result.results)
+            ):
+                raise FixtureMutationError(
+                    "known-bad suite did not produce one matching sole code per case"
+                )
+            _emit(result)
         elif args.command == "fixture" and args.fixture_command == "seal":
             candidates, review = load_candidate_packet(Path(args.candidates), Path(args.review))
             checkpoint_summary = (
@@ -246,6 +279,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
     except (
+        FixtureMutationError,
         FormalRunStorageError,
         LiveExecutionError,
         ProvenanceValidationError,

@@ -254,6 +254,27 @@ MutationKind = Literal[
     "ontology-mastery-change",
 ]
 
+KNOWN_BAD_CASE_IDS = frozenset(
+    {
+        "direct-mastery-experience",
+        "direct-mastery-title",
+        "direct-mastery-repository",
+        "direct-mastery-resume-skill-list",
+        "direct-mastery-ontology",
+        "wrong-responsibility",
+        "obscured-codex-assistance",
+        "duplicate-evidence-link",
+        "missing-contribution-lineage",
+        "missing-assessment-basis",
+        "dimension-confusion",
+        "score-below-zero",
+        "score-above-hundred",
+        "missing-context",
+        "missing-duration",
+        "ontology-mastery-change",
+    }
+)
+
 
 class FixtureMutationError(ValueError):
     """A known-bad declaration cannot be safely evaluated."""
