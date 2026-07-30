@@ -131,6 +131,30 @@ def test_assessment_basis_requires_a_resolved_evidence_link() -> None:
     assert _codes(_fixture(payload)) == ["assessment.basis_claim_evidence_missing"]
 
 
+def test_assessed_contribution_must_be_listed_by_its_experience() -> None:
+    payload = _payload()
+    claim = deepcopy(payload["claims"][0])  # type: ignore[index]
+    claim["id"] = "claim.orphan"  # type: ignore[index]
+    claim["contribution_id"] = "contribution.orphan"  # type: ignore[index]
+    payload["claims"].append(claim)  # type: ignore[index]
+    contribution = deepcopy(payload["contributions"][0])  # type: ignore[index]
+    contribution["id"] = "contribution.orphan"  # type: ignore[index]
+    contribution["claim_ids"] = ["claim.orphan"]  # type: ignore[index]
+    payload["contributions"].append(contribution)  # type: ignore[index]
+    evidence_link = deepcopy(payload["claim_evidence_links"][0])  # type: ignore[index]
+    evidence_link["claim_id"] = "claim.orphan"  # type: ignore[index]
+    payload["claim_evidence_links"].append(evidence_link)  # type: ignore[index]
+    assessment = deepcopy(payload["assessments"][0])  # type: ignore[index]
+    assessment["id"] = "assessment.orphan"  # type: ignore[index]
+    assessment["contribution_id"] = "contribution.orphan"  # type: ignore[index]
+    assessment["lineage"]["contribution_id"] = "contribution.orphan"  # type: ignore[index]
+    assessment["basis_claim_ids"] = ["claim.orphan"]  # type: ignore[index]
+    payload["assessments"].append(assessment)  # type: ignore[index]
+    payload["user_skill_views"][0]["assessment_ids"].append("assessment.orphan")  # type: ignore[index]
+
+    assert _codes(_fixture(payload)) == ["experience.contribution_unlisted"]
+
+
 def test_user_skill_views_require_exactly_one_view_for_each_assessed_skill():
     payload = _payload()
     payload["user_skill_views"].append(deepcopy(payload["user_skill_views"][0]))  # type: ignore[index]

@@ -350,7 +350,9 @@ def collect_invariant_violations(
         violations.extend(_duplicate_violations(items, name))
 
     experience_ids = {item.id for item in fixture.experiences}
+    contribution_ids_by_experience: dict[str, set[str]] = {}
     for experience in fixture.experiences:
+        contribution_ids_by_experience[experience.id] = set(experience.contribution_ids)
         for contribution_id in experience.contribution_ids:
             contribution = next(
                 (item for item in fixture.contributions if item.id == contribution_id), None
@@ -370,6 +372,16 @@ def collect_invariant_violations(
                 InvariantViolation(
                     code="contribution.experience_missing",
                     path=f"contributions.{contribution.id}.experience_id",
+                )
+            )
+        elif contribution.id not in contribution_ids_by_experience[contribution.experience_id]:
+            violations.append(
+                InvariantViolation(
+                    code="experience.contribution_unlisted",
+                    path=(
+                        f"experiences.{contribution.experience_id}.contribution_ids."
+                        f"{contribution.id}"
+                    ),
                 )
             )
         for claim_id in contribution.claim_ids:
