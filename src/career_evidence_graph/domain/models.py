@@ -6,17 +6,17 @@ derive a person's capability from a document, title, repository, or ontology.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import Field, model_validator
 
 from ..validation.models import StrictModel
 
-Identifier = str
 ID_PATTERN = r"^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
 SHA256_PATTERN = r"^sha256:[0-9a-f]{64}$"
 COMMIT_PATTERN = r"^[0-9a-f]{40}$"
 MONTH_PATTERN = r"^\d{4}-(0[1-9]|1[0-2])$"
+Identifier = Annotated[str, Field(pattern=ID_PATTERN)]
 
 ExperienceType = Literal[
     "employment",
@@ -163,6 +163,8 @@ class ContributionSkillAssessment(StrictModel):
     def validate_lineage_and_basis(self) -> ContributionSkillAssessment:
         if self.lineage.contribution_id != self.contribution_id:
             raise ValueError("lineage contribution_id must match assessment contribution_id")
+        if not self.context.strip():
+            raise ValueError("context cannot be blank")
         _unique_ids(self.basis_claim_ids, "basis_claim_ids")
         return self
 
