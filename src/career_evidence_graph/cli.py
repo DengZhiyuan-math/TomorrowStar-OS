@@ -11,7 +11,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from .codex_cli import CodexCLIConfig, CodexCLIError, run_codex_exec
+from .domain import FixtureValidationError, load_and_validate_fixture
 from .validation.provenance import ProvenanceValidationError, verify_provenance_registry
 from .validation.replay import replay_recorded_response
 from .validation.store import FormalRunStorageError, FormalRunStore, load_charter
@@ -19,6 +19,10 @@ from .validation.store import FormalRunStorageError, FormalRunStore, load_charte
 
 def _json_file(path: str) -> Any:
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+class LiveExecutionError(ValueError):
+    """A guarded live-model invocation could not run."""
 
 
 def _emit(value: Any) -> None:
@@ -33,6 +37,11 @@ def _parser() -> argparse.ArgumentParser:
 
     charter = commands.add_parser("validate-charter")
     charter.add_argument("path")
+
+    fixture = commands.add_parser("fixture")
+    fixture_commands = fixture.add_subparsers(dest="fixture_command", required=True)
+    fixture_validate = fixture_commands.add_parser("validate")
+    fixture_validate.add_argument("path")
 
     run = commands.add_parser("run")
     run_commands = run.add_subparsers(dest="run_command", required=True)
@@ -83,6 +92,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "validate-charter":
             charter = load_charter(Path(args.path))
             _emit({"valid": True, "charter_version": charter.charter_version})
+        elif args.command == "fixture" and args.fixture_command == "validate":
+            _emit(load_and_validate_fixture(Path(args.path)))
         elif args.command == "run" and args.run_command == "create":
             charter = load_charter(Path(args.charter))
             manifest = FormalRunStore(Path(args.workspace)).create(
@@ -109,16 +120,20 @@ def main(argv: list[str] | None = None) -> int:
             _emit({"valid": True, "record_count": len(registry.records)})
         elif args.command == "live-run" and args.live_runtime == "codex":
             if os.environ.get("CAREER_EVIDENCE_ENABLE_LIVE_MODEL") != "1":
-                raise CodexCLIError("live execution requires CAREER_EVIDENCE_ENABLE_LIVE_MODEL=1")
+                raise LiveExecutionError(
+                    "live execution requires CAREER_EVIDENCE_ENABLE_LIVE_MODEL=1"
+                )
             workspace = Path(args.workspace)
             prompt_path = Path(args.prompt_file)
             resolved_workspace = workspace.resolve(strict=True)
             if prompt_path.is_symlink():
-                raise CodexCLIError("prompt file cannot be a symlink")
+                raise LiveExecutionError("prompt file cannot be a symlink")
             resolved_prompt = prompt_path.resolve(strict=True)
             if not resolved_prompt.is_relative_to(resolved_workspace):
-                raise CodexCLIError("prompt file must be inside workspace")
+                raise LiveExecutionError("prompt file must be inside workspace")
             prompt = resolved_prompt.read_text(encoding="utf-8")
+            from .codex_cli import CodexCLIConfig, CodexCLIError, run_codex_exec
+
             config = CodexCLIConfig(
                 schema_version="codex-cli-config/v1",
                 workspace=workspace,
@@ -126,7 +141,10 @@ def main(argv: list[str] | None = None) -> int:
                 immutable_snapshot=args.model_snapshot,
                 drift_limitation_reason=args.drift_limitation,
             )
-            result = run_codex_exec(config, prompt)
+            try:
+                result = run_codex_exec(config, prompt)
+            except CodexCLIError as exc:
+                raise LiveExecutionError(str(exc)) from exc
             charter = load_charter(Path(args.charter))
             raw_response = {
                 "raw_jsonl": result.raw_stdout_jsonl,
@@ -162,9 +180,19 @@ def main(argv: list[str] | None = None) -> int:
             )
             _emit(manifest)
         return 0
+    except FixtureValidationError as exc:
+        _emit_error(
+            {
+                "valid": False,
+                "violations": [
+                    violation.model_dump(exclude={"schema_version"}) for violation in exc.violations
+                ],
+            }
+        )
+        return 2
     except (
         FormalRunStorageError,
-        CodexCLIError,
+        LiveExecutionError,
         ProvenanceValidationError,
         ValidationError,
         OSError,
@@ -172,6 +200,10 @@ def main(argv: list[str] | None = None) -> int:
     ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+
+
+def _emit_error(value: Any) -> None:
+    print(json.dumps(value, ensure_ascii=False, sort_keys=True), file=sys.stderr)
 
 
 if __name__ == "__main__":

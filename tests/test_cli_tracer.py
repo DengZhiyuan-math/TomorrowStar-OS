@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -12,6 +14,24 @@ def _run(*args: str) -> subprocess.CompletedProcess[str]:
         check=False,
         capture_output=True,
         text=True,
+    )
+
+
+def _run_source(
+    *args: str, pythonpath_prefix: Path | None = None
+) -> subprocess.CompletedProcess[str]:
+    """Run the package CLI from the source tree, not a stale wheel install."""
+    source_root = str(Path(__file__).resolve().parents[1] / "src")
+    source_paths = [source_root]
+    if pythonpath_prefix is not None:
+        source_paths.insert(0, str(pythonpath_prefix))
+    environment = os.environ | {"PYTHONPATH": os.pathsep.join(source_paths)}
+    return subprocess.run(
+        [sys.executable, "-m", "career_evidence_graph.cli", *args],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=environment,
     )
 
 
@@ -219,27 +239,25 @@ def _domain_fixture(*, contribution_id: str = "contribution.delivery") -> dict[s
 
 
 def test_domain_fixture_validate_tracer_is_offline_and_deterministic(tmp_path):
-    fixture_path = tmp_path / "fixture.json"
-    _write_json(fixture_path, _domain_fixture())
+    fixture_path = Path(__file__).parent / "fixtures" / "domain_fixture.json"
 
-    result = _run("fixture", "validate", str(fixture_path))
+    result = _run_source("fixture", "validate", str(fixture_path))
 
     assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout) == {
-        "assessment_count": 1,
-        "contribution_count": 1,
-        "experience_count": 1,
-        "fixture_hash": "sha256:PLACEHOLDER",
-        "user_skill_count": 1,
-        "valid": True,
-    }
+    payload = json.loads(result.stdout)
+    assert payload["valid"] is True
+    assert payload["experience_count"] == 1
+    assert payload["contribution_count"] == 1
+    assert payload["assessment_count"] == 1
+    assert payload["user_skill_count"] == 1
+    assert re.fullmatch(r"sha256:[0-9a-f]{64}", payload["fixture_hash"])
 
 
 def test_domain_fixture_rejects_missing_assessment_contribution(tmp_path):
     fixture_path = tmp_path / "invalid-fixture.json"
     _write_json(fixture_path, _domain_fixture(contribution_id="contribution.missing"))
 
-    result = _run("fixture", "validate", str(fixture_path))
+    result = _run_source("fixture", "validate", str(fixture_path))
 
     assert result.returncode == 2
     assert json.loads(result.stderr) == {
@@ -251,3 +269,36 @@ def test_domain_fixture_rejects_missing_assessment_contribution(tmp_path):
             }
         ],
     }
+
+
+def test_domain_fixture_tracer_cannot_reach_network_subprocess_or_live_adapter(tmp_path):
+    fixture_path = tmp_path / "fixture.json"
+    _write_json(fixture_path, _domain_fixture())
+    guard_dir = tmp_path / "guard"
+    guard_dir.mkdir()
+    (guard_dir / "sitecustomize.py").write_text(
+        """
+import importlib.abc
+import socket
+import subprocess
+import sys
+
+def blocked(*args, **kwargs):
+    raise AssertionError('offline tracer reached a forbidden side effect')
+
+class BlockCodexAdapter(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == 'career_evidence_graph.codex_cli':
+            raise AssertionError('offline tracer imported the Codex adapter')
+        return None
+
+socket.create_connection = blocked
+subprocess.run = blocked
+sys.meta_path.insert(0, BlockCodexAdapter())
+""".strip(),
+        encoding="utf-8",
+    )
+
+    result = _run_source("fixture", "validate", str(fixture_path), pythonpath_prefix=guard_dir)
+
+    assert result.returncode == 0, result.stderr
