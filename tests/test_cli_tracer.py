@@ -137,4 +137,4 @@ def test_cli_verifies_machine_and_human_provenance_registry():
     )
 
     assert verified.returncode == 0, verified.stderr
-    assert json.loads(verified.stdout) == {"record_count": 3, "valid": True}
+    assert json.loads(verified.stdout) == {"record_count": 4, "valid": True}

@@ -21,7 +21,7 @@ def test_project_registry_is_strict_complete_and_readme_synchronized():
         project_root=".",
     )
 
-    assert len(registry.records) == 3
+    assert len(registry.records) == 4
     assert {record.classification for record in registry.records} == {
         "adapt",
         "inspired-by",

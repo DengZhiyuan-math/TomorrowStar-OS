@@ -76,6 +76,22 @@ def test_argv_locks_luna_medium_json_schema_workspace_and_read_only(tmp_path):
     assert argv[-1] == prompt
 
 
+def test_argv_excludes_every_out_of_scope_or_privilege_expanding_surface(tmp_path):
+    argv = build_codex_exec_argv(_config(tmp_path), "prompt")
+    forbidden = {
+        "--add-dir",
+        "--dangerously-bypass-approvals-and-sandbox",
+        "--image",
+        "--oss",
+        "--output-last-message",
+        "danger-full-access",
+        "resume",
+        "review",
+    }
+
+    assert forbidden.isdisjoint(argv)
+
+
 @pytest.mark.skipif(shutil.which("codex") is None, reason="Codex CLI is not installed")
 def test_installed_cli_accepts_the_locked_reasoning_config_syntax():
     result = subprocess.run(
@@ -272,6 +288,19 @@ def test_live_store_rejects_raw_jsonl_mismatch(tmp_path, charter_path):
             model_identity=result.model_identity,
             model_drift_limitation=result.model_drift_limitation,
         )
+
+
+def test_operator_documentation_keeps_live_claims_bounded_and_commands_separate():
+    document = Path("docs/validation-runs.md").read_text(encoding="utf-8")
+
+    assert "uv run --locked career-evidence run create" in document
+    assert "uv run --locked career-evidence replay" in document
+    assert "CAREER_EVIDENCE_ENABLE_LIVE_MODEL=1" in document
+    assert "--model gpt-5.6-luna" in document
+    assert 'model_reasoning_effort="medium"' in document
+    assert "--sandbox read-only" in document
+    assert "Neither result proves" in document
+    assert "résumé submissions, interviews, or hiring outcomes" in document
 
 
 @pytest.mark.live_model

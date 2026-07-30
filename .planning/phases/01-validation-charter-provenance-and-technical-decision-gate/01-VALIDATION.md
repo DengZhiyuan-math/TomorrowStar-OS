@@ -1,9 +1,9 @@
 ---
 phase: 01
 slug: validation-charter-provenance-and-technical-decision-gate
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: complete
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-07-30
 ---
 
@@ -39,12 +39,12 @@ created: 2026-07-30
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 01-01-01 | 01 | 1 | VAL-01 | T-01-01 | Charter rejects prohibited product-effectiveness claims and invalid paths | unit + CLI | `uv run --locked pytest -q tests/test_charter.py tests/test_cli_tracer.py` | ❌ W0 | ⬜ pending |
-| 01-01-02 | 01 | 1 | VAL-02 | Formal bundles cannot overwrite or escape the workspace | unit | `uv run --locked pytest -q tests/test_run_store.py tests/test_replay.py` | ❌ W0 | ⬜ pending |
-| 01-01-03 | 01 | 1 | OSS-01 | T-01-03 | Provenance profiles fail closed when required source/license fields are absent | unit + CLI | `uv run --locked pytest -q tests/test_provenance.py tests/test_cli_tracer.py` | ❌ W0 | ⬜ pending |
-| 01-02-01 | 02 | 2 | VAL-01, VAL-02 | T-01-01, T-01-02, T-01-06 | Critical negative cases are deterministic and cannot mutate accepted artifacts | regression | `uv run --locked pytest -q` | ❌ W0 | ⬜ pending |
-| 01-02-02 | 02 | 2 | VAL-02 | T-01-04, T-01-05, T-01-07 | Live Codex execution is opt-in, read-only, version-recorded, and raw-output preserving | contract + opt-in smoke | `uv run --locked pytest -q -m "not live_model" tests/test_codex_cli.py tests/test_security_boundaries.py` | ❌ W0 | ⬜ pending |
-| 01-02-03 | 02 | 2 | VAL-02, OSS-01 | T-01-05 | Operator claims stay bounded and all used patterns remain provenance-complete | docs + integration | `uv run --locked pytest -q && uv run --locked career-evidence provenance verify validation/provenance/registry.json` | ❌ W0 | ⬜ pending |
+| 01-01-01 | 01 | 1 | VAL-01 | T-01-01 | Charter rejects prohibited product-effectiveness claims and invalid paths | unit + CLI | `uv run --locked pytest -q tests/test_charter.py tests/test_cli_tracer.py` | ✅ | ✅ green |
+| 01-01-02 | 01 | 1 | VAL-02 | Formal bundles cannot overwrite or escape the workspace | unit | `uv run --locked pytest -q tests/test_run_store.py tests/test_replay.py` | ✅ | ✅ green |
+| 01-01-03 | 01 | 1 | OSS-01 | T-01-03 | Provenance profiles fail closed when required source/license fields are absent | unit + CLI | `uv run --locked pytest -q tests/test_provenance.py tests/test_cli_tracer.py` | ✅ | ✅ green |
+| 01-02-01 | 02 | 2 | VAL-01, VAL-02 | T-01-01, T-01-02, T-01-06 | Critical negative cases are deterministic and cannot mutate accepted artifacts | regression | `uv run --locked pytest -q` | ✅ | ✅ green |
+| 01-02-02 | 02 | 2 | VAL-02 | T-01-04, T-01-05, T-01-07 | Live Codex execution is opt-in, read-only, version-recorded, and raw-output preserving | contract + opt-in smoke | `uv run --locked pytest -q -m "not live_model" tests/test_codex_cli.py tests/test_security_boundaries.py` | ✅ | ✅ green |
+| 01-02-03 | 02 | 2 | VAL-02, OSS-01 | T-01-05 | Operator claims stay bounded and all used patterns remain provenance-complete | docs + integration | `uv run --locked pytest -q && uv run --locked career-evidence provenance verify validation/provenance/registry.json` | ✅ | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -52,19 +52,19 @@ created: 2026-07-30
 
 ## Wave 0 Requirements
 
-- [ ] `.python-version` — pin CPython `3.13.14`.
-- [ ] `pyproject.toml` — package metadata, Pydantic, pytest, Ruff, and CLI
+- [x] `.python-version` — pin CPython `3.13.14`.
+- [x] `pyproject.toml` — package metadata, Pydantic, pytest, Ruff, and CLI
   entrypoint.
-- [ ] `uv.lock` — locked runtime and development dependencies.
-- [ ] `tests/conftest.py` — temporary validation-workspace fixtures.
-- [ ] `tests/test_charter.py` — initial red charter contract tests.
-- [ ] `tests/test_run_store.py` — initial red immutability tests.
-- [ ] `tests/test_replay.py` — initial red exact-replay tests.
-- [ ] `tests/test_provenance.py` — initial red provenance-profile tests.
-- [ ] `tests/test_cli_tracer.py` — initial red end-to-end CLI tracer.
-- [ ] `tests/test_codex_cli.py` — recorded Codex process-contract cases and
+- [x] `uv.lock` — locked runtime and development dependencies.
+- [x] `tests/conftest.py` — temporary validation-workspace fixtures.
+- [x] `tests/test_charter.py` — charter contract tests.
+- [x] `tests/test_run_store.py` — immutability tests.
+- [x] `tests/test_replay.py` — exact-replay tests.
+- [x] `tests/test_provenance.py` — provenance-profile tests.
+- [x] `tests/test_cli_tracer.py` — end-to-end CLI tracer.
+- [x] `tests/test_codex_cli.py` — recorded Codex process-contract cases and
   opt-in live marker.
-- [ ] `tests/test_security_boundaries.py` — hostile path, mutation, and
+- [x] `tests/test_security_boundaries.py` — hostile path, mutation, and
   command-boundary regression cases.
 
 ---
@@ -80,13 +80,13 @@ created: 2026-07-30
 
 ## Validation Sign-Off
 
-- [ ] All tasks have automated verification or Wave 0 dependencies.
-- [ ] Sampling continuity: no three consecutive tasks without automated
+- [x] All tasks have automated verification or Wave 0 dependencies.
+- [x] Sampling continuity: no three consecutive tasks without automated
   verification.
-- [ ] Wave 0 covers all missing test references.
-- [ ] Default suite contains no live model calls and no watch-mode flags.
-- [ ] Feedback latency is under 20 seconds.
-- [ ] `nyquist_compliant: true` is set after the validation map matches final
+- [x] Wave 0 covers all missing test references.
+- [x] Default suite contains no live model calls and no watch-mode flags.
+- [x] Feedback latency is under 20 seconds.
+- [x] `nyquist_compliant: true` is set after the validation map matches final
   plan task IDs and all referenced test files exist.
 
-**Approval:** pending
+**Approval:** Offline validation complete; the authenticated live smoke remains an explicit optional manual gate.

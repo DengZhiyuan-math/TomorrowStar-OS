@@ -128,3 +128,8 @@ introduced in Phase 1; none claims verbatim copied code or data.
 | `cv-market-formal-history` | `adapt` | `ea507847c7a42a1a54becc853fadd15506479b38` | `formal-run storage and linked history` | Immutable directories, complete hashes, atomic publication, explicit parent links, and no overwrite/delete operation |
 | `tabiya-run-store-boundary` | `inspired-by` | `8470bea7f68d0990898f441a12bbb6a261a0ef34` | `FormalRunStore directory-per-run boundary` | Reject overwrites and symlinks; validate manifests; expose no mutable save/delete API |
 | `hiring-agent-validation-contracts` | `adapt` | `70fd3ea9aa74d8f76519ec643a99f9871003e70d` | `strict structured validation contracts` | Forbid unknown fields, retain formal history, hash full lineage, and prohibit résumé/repository-derived mastery |
+| `hiring-agent-provider-port` | `adapt` | `70fd3ea9aa74d8f76519ec643a99f9871003e70d` | `Codex CLI provider process boundary` | Fixed shell-free argv, read-only sandbox, allowlisted environment, retained JSONL, redacted diagnostics, and snapshot-or-drift enforcement |
+
+Codex CLI itself is an invoked runtime interface, not copied upstream source.
+Its exact CLI version and model configuration are recorded per live run rather
+than represented as a pinned source-code adaptation.
