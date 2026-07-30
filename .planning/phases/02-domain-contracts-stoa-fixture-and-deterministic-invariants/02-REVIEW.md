@@ -1,9 +1,13 @@
 ---
 phase: 02-domain-contracts-stoa-fixture-and-deterministic-invariants
-reviewed: 2026-07-30T16:05:37Z
+reviewed: 2026-07-30T16:47:46Z
 depth: standard
-files_reviewed: 16
+files_reviewed: 44
 files_reviewed_list:
+  - _build_backend.py (deleted; reviewed through d7edfb6)
+  - pyproject.toml
+  - scripts/run_career_evidence.py
+  - scripts/run_pytest.py
   - src/career_evidence_graph/cli.py
   - src/career_evidence_graph/domain/__init__.py
   - src/career_evidence_graph/domain/fixtures.py
@@ -16,87 +20,82 @@ files_reviewed_list:
   - tests/test_fixture_mutations.py
   - tests/test_stoa_fixture.py
   - validation/fixtures/stoa/v1/candidates.json
-  - validation/fixtures/stoa/v1/formal-runs/stoa-known-good/manifest.json
-  - validation/fixtures/stoa/v1/known-good.json
   - validation/fixtures/stoa/v1/review.json
   - validation/fixtures/stoa/v1/source-manifest.json
+  - validation/fixtures/stoa/v1/known-good.json
+  - validation/fixtures/stoa/v1/formal-runs/stoa-known-good/manifest.json
+  - validation/fixtures/stoa/v1/formal-runs/stoa-known-good/raw_response.json
+  - validation/fixtures/stoa/v1/formal-runs/stoa-known-good/original_proposal.json
+  - validation/fixtures/stoa/v1/formal-runs/stoa-known-good/confirmed_result.json
+  - validation/fixtures/stoa/v1/formal-runs/stoa-known-good/corrections.json
+  - validation/fixtures/stoa/v1/formal-runs/stoa-known-good-v2/manifest.json
+  - validation/fixtures/stoa/v1/formal-runs/stoa-known-good-v2/raw_response.json
+  - validation/fixtures/stoa/v1/formal-runs/stoa-known-good-v2/original_proposal.json
+  - validation/fixtures/stoa/v1/formal-runs/stoa-known-good-v2/confirmed_result.json
+  - validation/fixtures/stoa/v1/formal-runs/stoa-known-good-v2/corrections.json
+  - validation/fixtures/stoa/v1/known-bad/dimension-confusion.json
+  - validation/fixtures/stoa/v1/known-bad/direct-mastery-experience.json
+  - validation/fixtures/stoa/v1/known-bad/direct-mastery-ontology.json
+  - validation/fixtures/stoa/v1/known-bad/direct-mastery-repository.json
+  - validation/fixtures/stoa/v1/known-bad/direct-mastery-resume-skill-list.json
+  - validation/fixtures/stoa/v1/known-bad/direct-mastery-title.json
+  - validation/fixtures/stoa/v1/known-bad/duplicate-evidence-link.json
+  - validation/fixtures/stoa/v1/known-bad/missing-assessment-basis.json
+  - validation/fixtures/stoa/v1/known-bad/missing-context.json
+  - validation/fixtures/stoa/v1/known-bad/missing-contribution-lineage.json
+  - validation/fixtures/stoa/v1/known-bad/missing-duration.json
+  - validation/fixtures/stoa/v1/known-bad/obscured-codex-assistance.json
+  - validation/fixtures/stoa/v1/known-bad/ontology-mastery-change.json
+  - validation/fixtures/stoa/v1/known-bad/score-above-hundred.json
+  - validation/fixtures/stoa/v1/known-bad/score-below-zero.json
+  - validation/fixtures/stoa/v1/known-bad/wrong-responsibility.json
 findings:
-  critical: 4
-  warning: 1
+  critical: 0
+  warning: 0
   info: 0
-  total: 5
-status: issues_found
+  total: 0
+status: clean
 ---
 
 # Phase 02: Code Review Report
 
-**Reviewed:** 2026-07-30T16:05:37Z
+**Reviewed:** 2026-07-30T16:47:46Z
 **Depth:** standard
-**Files Reviewed:** 16
-**Status:** issues_found
+**Files Reviewed:** 44
+**Status:** clean
 
 ## Summary
 
-The submitted source has strong deterministic fixtures and the source-tree-focused Phase 2 tests pass (111 passed). However, the required locked verification command does not test this source tree: it imports a stale installed package, fails collection, and exposes no `fixture validate-suite` command. Independent probes also show that sealing can materialize rejected claims as confirmed user work, and that assessment grounding is incomplete for both Skills and Evidence.
+Final adversarial re-review found no actionable correctness, security, or robustness defects in the reviewed Phase 2 scope. The standard Flit wheel no longer embeds a global `sitecustomize` or a build-machine source path; the project-local launchers select checkout code only for their own invoked process. The current locked commands work without `PYTHONPATH`, while the isolated-wheel regression imports the installed artifact from outside the checkout.
+
+The sealed fixture now recomputes and cross-binds source-manifest, canonical review, and checkpoint-summary hashes against the v2 formal-run lineage. The confirmed reviewer is required both when validating corrections and when materializing review decisions; coordinated reviewer tampering fails closed. The v1 formal bundle remains retained historical evidence, `known-good.json` points to `stoa-known-good-v2`, and both bundles independently verify and replay to the same confirmed fixture hash. All 16 closed known-bad cases bind that hash and return exactly their one declared error.
+
+Verification performed without `PYTHONPATH`:
+
+- `uv run --locked python scripts/run_pytest.py -q` — `173 passed, 1 deselected`.
+- `uv run --locked ruff check .` and `uv run --locked ruff format --check .` — passed.
+- `uv run --locked python scripts/run_career_evidence.py fixture validate ...known-good.json` — valid.
+- `fixture validate-suite` — valid with `case_count: 16` and one matching sole error per case.
+- `run verify` and `replay` — passed for both `stoa-known-good` and `stoa-known-good-v2`.
 
 ## Narrative Findings (AI reviewer)
 
-## Critical Issues
+No Critical Issues, Warnings, or Info findings.
 
-### CR-01: Required locked verification runs a stale package, not this implementation
+### Prior-finding closure
 
-**Classification:** BLOCKER
-
-**File:** `tests/test_fixture_mutations.py:16` and `tests/test_stoa_fixture.py:12`
-
-**Issue:** These tests import `career_evidence_graph` directly. Running the declared gate, `uv run --locked pytest -q ...`, imports `/Users/zhdeng/Documents/TomorrowStar OS/.venv/lib/python3.13/site-packages/career_evidence_graph`, which predates Phase 2. Collection then fails because it lacks `FixtureMutationCase` and `load_sealed_fixture`; the same environment's CLI rejects `fixture validate-suite` as an unknown command. The green source run required manually adding `PYTHONPATH=src`, so the recorded Phase 2 gate is neither reproducible nor evidence that the submitted code was tested.
-
-**Fix:** Make the locked project command resolve `src/` deterministically (for example, configure pytest's `pythonpath = ["src"]` and use the same package entry point for the CLI), or ensure the editable package is rebuilt/synced before every locked gate. Add a regression that asserts `career_evidence_graph.__file__` is under the repository's `src/` directory when the documented command runs.
-
-### CR-02: A rejected review can still be sealed as confirmed user/Codex-assisted work
-
-**Classification:** BLOCKER
-
-**File:** `src/career_evidence_graph/domain/fixtures.py:491-518, 577-627`
-
-**Issue:** `evaluate_review_status` considers every state other than `pending` sealable, including `rejected`, and only checks that correction IDs exist. `_reviewed_fixture` then ignores the supplied review decisions and correction contents, hard-coding every candidate as `responsibility="user"`, `assistance="codex_assisted"`, and `confirmation_status="confirmed"`. In a direct probe, changing every recorded `fact` decision to `rejected` still yielded `sealable=True`, and `materialize_review_decisions` returned four user claims. This violates the human-review gate and permits responsibility fabrication during immutable publication.
-
-**Fix:** Materialize claims only from a validated, hash-bound review decision and its concrete corrections. A rejected fact must be omitted from the confirmed fixture; unresolved decisions must remain unresolved and cannot become confirmed claims. Validate each correction's candidate ID, reviewer, original hash, and edited attribution against the output rather than only checking its ID.
-
-### CR-03: A reviewed assessment may rely on a claim with no Evidence link
-
-**Classification:** BLOCKER
-
-**File:** `src/career_evidence_graph/domain/invariants.py:86-106, 109-157`
-
-**Issue:** `validate_evidence_links` validates only links that happen to be present. `validate_claim_attribution` validates the basis claim's attribution but never requires any Evidence link for it. A valid fixture can therefore add a claim to a Contribution, point a reviewed assessment's `basis_claim_ids` at that claim, and provide no link to any Evidence; `collect_invariant_violations` returns no errors. This allows a contribution-to-Skill conclusion without the provenance-bearing Evidence required by MOD-03.
-
-**Fix:** Build a claim-to-Evidence index and reject every assessment basis claim that has no linked, resolved Evidence record (for example `assessment.basis_claim_evidence_missing`). Add a mutation and a direct invariant test for an otherwise reviewed/delivered claim with no Evidence link.
-
-### CR-04: Assessments and user-Skill views may name Skills that do not exist
-
-**Classification:** BLOCKER
-
-**File:** `src/career_evidence_graph/domain/invariants.py:160-191`
-
-**Issue:** The validator derives `assessed_skill_ids` from assessments but never compares those IDs with `fixture.skills`. If an assessment and its view are both changed from `skill.validation` to an undeclared ID, all current checks pass and a user-level mastery view is accepted for no defined Skill. This breaks the strict “one specific Skill” contract rather than merely reporting a malformed reference.
-
-**Fix:** Index `fixture.skills` and reject unknown `assessment.skill_id` and `UserSkillView.skill_id` values before evaluating view uniqueness (for example `assessment.skill_missing` and `user-skill.skill_missing`). Cover the paired unknown-assessment/unknown-view case with an expected deterministic result.
-
-## Warnings
-
-### WR-01: Reverse Experience/Contribution containment is not validated
-
-**Classification:** WARNING
-
-**File:** `src/career_evidence_graph/domain/invariants.py:330-359`
-
-**Issue:** The code verifies each ID listed on an Experience, but never verifies that every Contribution whose `experience_id` names that Experience is included in its `contribution_ids`. An extra Contribution (and its claim) can therefore be accepted while absent from the Experience's declared auditable contents. This duplicated relationship can drift and permits assessments to refer to a Contribution the Experience does not actually enumerate.
-
-**Fix:** After indexing records, compare each Experience's declared contribution IDs with the set of Contributions whose `experience_id` equals its ID. Emit a stable violation for both unlisted Contributions and any mismatched reverse relationship; add a mutation test for an orphan Contribution used by an assessment.
+| Prior finding | Re-review result |
+| --- | --- |
+| CR-01 global wheel import hook | Closed: the custom backend is deleted, standard Flit packaging is used, and the isolated-wheel regression passed. |
+| CR-02 missing sealed source/review/checkpoint binding | Closed: loader recomputes canonical input hashes and compares envelope plus v2 `artifacts`/`reviewer` lineage hashes. |
+| WR-01 non-confirmed reviewer materialization | Closed: exact `zhdeng` review and checkpoint identities are required before materialization. |
+| Earlier CR-02 rejected claim sealing | Remains closed: rejected facts are omitted and unresolved review decisions are unsealable. |
+| Earlier CR-03 Evidence basis gap | Remains closed: an assessment basis claim requires a resolved Evidence link. |
+| Earlier CR-04 undeclared Skill reference | Remains closed: assessment and user-view Skill references are checked. |
+| Earlier reverse containment warning | Remains closed: Contributions absent from their Experience are rejected. |
 
 ---
 
-_Reviewed: 2026-07-30T16:05:37Z_
+_Reviewed: 2026-07-30T16:47:46Z_
 _Reviewer: the agent (gsd-code-reviewer)_
 _Depth: standard_
