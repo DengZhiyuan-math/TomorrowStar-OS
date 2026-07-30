@@ -25,9 +25,7 @@ from career_evidence_graph.validation.hashing import canonical_json_bytes
 
 
 def _payload() -> dict[str, object]:
-    return json.loads(
-        Path("tests/fixtures/domain_fixture.json").read_text(encoding="utf-8")
-    )
+    return json.loads(Path("tests/fixtures/domain_fixture.json").read_text(encoding="utf-8"))
 
 
 def _fixture(payload: dict[str, object]) -> CareerEvidenceFixture:
@@ -164,9 +162,7 @@ def test_repeated_and_shuffled_validation_is_sorted_and_does_not_mutate_input():
     shuffled = deepcopy(payload)
     shuffled["assessments"].reverse()  # type: ignore[index]
 
-    assert first == second == canonical_json_bytes(
-        collect_invariant_violations(_fixture(shuffled))
-    )
+    assert first == second == canonical_json_bytes(collect_invariant_violations(_fixture(shuffled)))
     assert original_bytes == canonical_json_bytes(payload)
     expected = tuple(
         sorted(collect_invariant_violations(fixture), key=lambda item: (item.code, item.path))
@@ -236,9 +232,12 @@ def test_ontology_alias_normalization_is_unicode_case_whitespace_stable_and_revi
     assert records[0].ontology_source_id == "mind-tech-ontology"
     assert records[0].pinned_revision == "a" * 40
     assert records[0].review_status == "matched"
-    assert canonical_json_bytes(records) == canonical_json_bytes(
-        normalize_skill_metadata(_skills(), aliases=tuple(reversed(aliases)))
+    serialized_records = tuple(record.model_dump(mode="json") for record in records)
+    reordered_records = tuple(
+        record.model_dump(mode="json")
+        for record in normalize_skill_metadata(_skills(), aliases=tuple(reversed(aliases)))
     )
+    assert canonical_json_bytes(serialized_records) == canonical_json_bytes(reordered_records)
 
 
 def test_ontology_ambiguous_aliases_are_sorted_and_require_review_without_mastery():

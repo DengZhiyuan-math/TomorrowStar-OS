@@ -3,12 +3,21 @@
 from __future__ import annotations
 
 import json
+import unicodedata
 from pathlib import Path
 
 from pydantic import ValidationError
 
 from ..validation.hashing import canonical_json_bytes, sha256_digest
-from .models import CareerEvidenceFixture, FixtureValidationResult, InvariantViolation
+from .models import (
+    CareerEvidenceFixture,
+    FixtureValidationResult,
+    InvariantViolation,
+    OntologyRelation,
+    Skill,
+    SkillAlias,
+    SkillNormalizationRecord,
+)
 
 DIRECT_MASTERY_SOURCES = frozenset(
     {
@@ -134,9 +143,7 @@ def validate_claim_attribution(
                 )
             if claim.completion_status in {"partial", "unresolved", "planned_only"}:
                 violations.append(
-                    InvariantViolation(
-                        code="assessment.definite_claim_unresolved", path=basis_path
-                    )
+                    InvariantViolation(code="assessment.definite_claim_unresolved", path=basis_path)
                 )
             if claim.assistance != "none":
                 violations.append(
@@ -168,9 +175,7 @@ def validate_user_skill_views(
                     InvariantViolation(code="user-skill.assessment_missing", path=path)
                 )
             elif assessment.skill_id != view.skill_id:
-                violations.append(
-                    InvariantViolation(code="user-skill.skill_mismatch", path=path)
-                )
+                violations.append(InvariantViolation(code="user-skill.skill_mismatch", path=path))
     for skill_id in sorted(views_by_skill):
         if len(views_by_skill[skill_id]) > 1:
             violations.append(
@@ -179,6 +184,127 @@ def validate_user_skill_views(
     for skill_id in sorted(assessed_skill_ids - set(views_by_skill)):
         violations.append(InvariantViolation(code="user-skill.missing", path=skill_id))
     return tuple(violations)
+
+
+def _normalized_text(value: str) -> str:
+    """Normalize display variants deterministically without altering their source text."""
+    return " ".join(unicodedata.normalize("NFKC", value).split()).casefold()
+
+
+def normalize_skill_metadata(
+    skills: tuple[Skill, ...],
+    aliases: tuple[SkillAlias, ...] = (),
+    ontology_relations: tuple[OntologyRelation, ...] = (),
+) -> tuple[SkillNormalizationRecord, ...]:
+    """Return reviewable alias and relation metadata without changing any fixture."""
+    skills_by_id = {skill.id: skill for skill in skills}
+    alias_groups: dict[str, list[SkillAlias]] = {}
+    for alias in aliases:
+        alias_groups.setdefault(_normalized_text(alias.alias), []).append(alias)
+
+    records: list[SkillNormalizationRecord] = []
+    for normalized_text, group in alias_groups.items():
+        ordered_group = sorted(
+            group,
+            key=lambda alias: (
+                alias.alias,
+                alias.skill_id,
+                alias.ontology_source_id,
+                alias.pinned_revision,
+            ),
+        )
+        representative = ordered_group[0]
+        candidate_skill_ids = tuple(
+            sorted({alias.skill_id for alias in group if alias.skill_id in skills_by_id})
+        )
+        if len(candidate_skill_ids) == 1:
+            review_status = "matched"
+        elif candidate_skill_ids:
+            review_status = "review-required"
+        else:
+            review_status = "unmatched"
+        records.append(
+            SkillNormalizationRecord(
+                original_text=representative.alias,
+                normalized_text=normalized_text,
+                matched_alias=representative.alias,
+                candidate_skill_ids=candidate_skill_ids,
+                ontology_source_id=representative.ontology_source_id,
+                pinned_revision=representative.pinned_revision,
+                review_status=review_status,
+            )
+        )
+
+    unique_relations = {
+        (
+            relation.source_skill_id,
+            relation.target_skill_id,
+            relation.relation_kind,
+            relation.ontology_source_id,
+            relation.pinned_revision,
+        ): relation
+        for relation in ontology_relations
+    }
+    for relation_key in sorted(unique_relations):
+        relation = unique_relations[relation_key]
+        source = skills_by_id.get(relation.source_skill_id)
+        records.append(
+            SkillNormalizationRecord(
+                original_text=source.name if source else relation.source_skill_id,
+                normalized_text=_normalized_text(source.name)
+                if source
+                else relation.source_skill_id,
+                candidate_skill_ids=(relation.target_skill_id,)
+                if relation.target_skill_id in skills_by_id
+                else (),
+                ontology_source_id=relation.ontology_source_id,
+                pinned_revision=relation.pinned_revision,
+                review_status="descriptive-only",
+                relation_kind=relation.relation_kind,
+            )
+        )
+    return tuple(
+        sorted(
+            records,
+            key=lambda record: (
+                record.normalized_text,
+                record.candidate_skill_ids,
+                record.review_status,
+                record.relation_kind or "",
+                record.ontology_source_id or "",
+                record.pinned_revision or "",
+                record.original_text,
+            ),
+        )
+    )
+
+
+def mastery_snapshot_bytes(fixture: CareerEvidenceFixture) -> bytes:
+    """Serialize only mastery-bearing records for non-propagation assertions."""
+    assessments = sorted(
+        (
+            {
+                "id": assessment.id,
+                "contribution_id": assessment.contribution_id,
+                "skill_id": assessment.skill_id,
+                "demonstrated_mastery": assessment.demonstrated_mastery,
+            }
+            for assessment in fixture.assessments
+        ),
+        key=lambda assessment: assessment["id"],
+    )
+    views = sorted(
+        (
+            {
+                "skill_id": view.skill_id,
+                "mastery": view.mastery,
+                "assessment_ids": tuple(sorted(view.assessment_ids)),
+            }
+            for view in fixture.user_skill_views
+        ),
+        key=lambda view: view["skill_id"],
+    )
+    return canonical_json_bytes({"assessments": assessments, "user_skill_views": views})
 
 
 def collect_invariant_violations(

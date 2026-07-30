@@ -133,6 +133,41 @@ class Skill(StrictModel):
     name: str = Field(min_length=1)
 
 
+class SkillAlias(StrictModel):
+    """Pinned ontology alias metadata; never evidence of capability."""
+
+    schema_version: Literal["skill-alias/v1"] = "skill-alias/v1"
+    alias: str = Field(min_length=1)
+    skill_id: Identifier = Field(pattern=ID_PATTERN)
+    ontology_source_id: str = Field(min_length=1)
+    pinned_revision: str = Field(pattern=COMMIT_PATTERN)
+
+
+class OntologyRelation(StrictModel):
+    """Descriptive ontology adjacency with its own pinned provenance."""
+
+    schema_version: Literal["ontology-relation/v1"] = "ontology-relation/v1"
+    source_skill_id: Identifier = Field(pattern=ID_PATTERN)
+    target_skill_id: Identifier = Field(pattern=ID_PATTERN)
+    relation_kind: Literal["dependency", "implies_knowledge"]
+    ontology_source_id: str = Field(min_length=1)
+    pinned_revision: str = Field(pattern=COMMIT_PATTERN)
+
+
+class SkillNormalizationRecord(StrictModel):
+    """Reviewable normalization output, deliberately separate from mastery records."""
+
+    schema_version: Literal["skill-normalization-record/v1"] = "skill-normalization-record/v1"
+    original_text: str = Field(min_length=1)
+    normalized_text: str = Field(min_length=1)
+    matched_alias: str | None = None
+    candidate_skill_ids: tuple[Identifier, ...] = ()
+    ontology_source_id: str | None = None
+    pinned_revision: str | None = Field(default=None, pattern=COMMIT_PATTERN)
+    review_status: Literal["matched", "review-required", "unmatched", "descriptive-only"]
+    relation_kind: Literal["dependency", "implies_knowledge"] | None = None
+
+
 class DurationEvidence(StrictModel):
     schema_version: Literal["duration-evidence/v1"] = "duration-evidence/v1"
     state: Literal["verified", "not_verified", "unavailable"]
