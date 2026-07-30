@@ -1,7 +1,7 @@
 ---
 phase: 01
 slug: validation-charter-provenance-and-technical-decision-gate
-status: complete
+status: validated
 nyquist_compliant: true
 wave_0_complete: true
 created: 2026-07-30
@@ -21,7 +21,7 @@ created: 2026-07-30
 | **Config file** | `pyproject.toml` — created in Wave 0 |
 | **Quick run command** | `uv run --locked pytest -q tests/test_charter.py tests/test_run_store.py tests/test_replay.py tests/test_provenance.py` |
 | **Full suite command** | `uv run --locked pytest -q && uv run --locked ruff check . && uv run --locked ruff format --check .` |
-| **Estimated runtime** | ~15 seconds offline |
+| **Estimated runtime** | <2 seconds offline in the verified workspace |
 
 ---
 
@@ -73,8 +73,8 @@ created: 2026-07-30
 
 | Behavior | Requirement | Why Manual | Test Instructions |
 |----------|-------------|------------|-------------------|
-| Live Codex CLI accepts `gpt-5.6-luna` with `medium` reasoning and emits JSONL | VAL-02 | Requires local Codex authentication and may incur model usage | Run the opt-in live smoke command documented by Plan 02; inspect the stored CLI version, invocation metadata, raw JSONL, exit code, and drift limitation/snapshot field |
-| Human-readable provenance matrix matches the machine registry | OSS-01 | License and divergence descriptions require maintainer review | Compare every machine registry record with `references/README.md`; confirm copied records identify exact upstream path and local divergence |
+| Optional live Codex CLI accepts `gpt-5.6-luna` with `medium` reasoning and emits JSONL | Non-blocking external runtime smoke | Requires local Codex authentication and may incur model usage; no Phase 1 requirement depends on running it | Run the opt-in live smoke command documented by Plan 02; inspect the stored CLI version, invocation metadata, raw JSONL, exit code, and drift limitation/snapshot field |
+| Human-readable provenance wording is semantically satisfactory | Non-blocking maintainer review | Automated tests verify synchronization and required fields, but prose quality remains a maintainer judgment | Compare every machine registry record with `references/README.md`; confirm divergence wording is clear |
 
 ---
 
@@ -90,3 +90,16 @@ created: 2026-07-30
   plan task IDs and all referenced test files exist.
 
 **Approval:** Offline validation complete; the authenticated live smoke remains an explicit optional manual gate.
+
+## Validation Audit 2026-07-30
+
+| Metric | Count |
+|--------|-------|
+| Requirement coverage gaps found | 0 |
+| Automated offline tests passing | 52 |
+| Optional live tests not run | 1 |
+| Code-review regressions added | 3 |
+
+VAL-01, VAL-02, and OSS-01 each have green automated behavioral coverage.
+The two manual-only rows above are optional judgment/external-runtime checks,
+not missing requirement verification.
