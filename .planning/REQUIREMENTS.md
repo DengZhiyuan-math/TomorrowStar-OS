@@ -17,9 +17,9 @@ Requirements for the first validation milestone. Each requirement maps to exactl
 
 - [x] **MOD-01**: A user can represent employment, projects, research, publications, education, teaching, open-source work, internships, and related history as typed `Experience` records containing distinguishable `Contribution` records.
 - [x] **MOD-02**: The system treats `Contribution` as the smallest auditable unit and rejects any attempt to create a user Skill assessment directly from an `Experience`, credential, title, repository, or résumé skill list.
-- [ ] **MOD-03**: A user can attach typed, provenance-bearing `Evidence` to the `Contribution` it supports while Evidence remains supporting information rather than a separate audit hierarchy.
-- [ ] **MOD-04**: Each `ContributionSkillAssessment` records a Contribution, a specific Skill, `demonstrated_mastery`, `skill_centrality`, `evidence_confidence`, context, duration, and an explicit assessment basis, with all three scores independently constrained to 0–100.
-- [ ] **MOD-05**: Assessment records distinguish the user's own work from team work, another person's work, non-responsibilities, Codex-assisted work, and third-party work wherever attribution affects mastery.
+- [x] **MOD-03**: A user can attach typed, provenance-bearing `Evidence` to the `Contribution` it supports while Evidence remains supporting information rather than a separate audit hierarchy.
+- [x] **MOD-04**: Each `ContributionSkillAssessment` records a Contribution, a specific Skill, `demonstrated_mastery`, `skill_centrality`, `evidence_confidence`, context, duration, and an explicit assessment basis, with all three scores independently constrained to 0–100.
+- [x] **MOD-05**: Assessment records distinguish the user's own work from team work, another person's work, non-responsibilities, Codex-assisted work, and third-party work wherever attribution affects mastery.
 - [x] **MOD-06**: Each specific user Skill has one relatively stable 0–100 mastery value while evidence confidence, verified duration, recency, context, and JD-specific match remain separately inspectable.
 - [x] **MOD-07**: A maintainer can normalize Skill names and ontology relationships without ontology adjacency, aliases, dependencies, or `implies knowledge` relations creating or increasing user mastery.
 - [x] **FIX-01**: An evaluator can use a human-reviewed STOA fixture decomposed into selected Contributions, supporting Evidence, responsibility boundaries, and Contribution–Skill relationships.
@@ -109,9 +109,9 @@ Every v1 requirement maps to exactly one roadmap phase. Deferred v2 requirements
 | OSS-01 | Phase 1 | Complete |
 | MOD-01 | Phase 2 | Complete |
 | MOD-02 | Phase 2 | Complete |
-| MOD-03 | Phase 2 | Pending |
-| MOD-04 | Phase 2 | Pending |
-| MOD-05 | Phase 2 | Pending |
+| MOD-03 | Phase 2 | Complete |
+| MOD-04 | Phase 2 | Complete |
+| MOD-05 | Phase 2 | Complete |
 | MOD-06 | Phase 2 | Complete |
 | MOD-07 | Phase 2 | Complete |
 | FIX-01 | Phase 2 | Complete |

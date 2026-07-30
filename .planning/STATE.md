@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 02
 current_phase_name: domain-contracts-stoa-fixture-and-deterministic-invariants
 status: executing
-stopped_at: Completed 02-04-PLAN.md
-last_updated: "2026-07-30T15:28:10.221Z"
+stopped_at: Completed 02-05-PLAN.md
+last_updated: "2026-07-30T15:41:06.487Z"
 last_activity: 2026-07-30
 last_activity_desc: Phase 02 execution started
 progress:
-  total_phases: 6
+  total_phases: 2
   completed_phases: 1
   total_plans: 8
-  completed_plans: 6
+  completed_plans: 7
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-07-30)
 ## Current Position
 
 Phase: 02 (domain-contracts-stoa-fixture-and-deterministic-invariants) — EXECUTING
-Plan: 5 of 6
+Plan: 6 of 6
 Status: Ready to execute
 Last activity: 2026-07-30 — Phase 02 execution started
 
-Progress: [████████░░] 75%
+Progress: [█████████░] 88%
 
 ## Performance Metrics
 
@@ -64,6 +64,7 @@ Progress: [████████░░] 75%
 | Phase 02 P02 | 14 min | 2 tasks | 4 files |
 | Phase 02 P03 | 10 min | 2 tasks | 8 files |
 | Phase 02 P04 | 5 min | 1 tasks | 1 files |
+| Phase 02 P05 | 8 min | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -84,6 +85,8 @@ Recent decisions affecting current work:
 - [Phase ?]: Pinned source verification permits exactly four repository commits and ten Git-tracked documents with no working-tree fallback.
 - [Phase ?]: Phase 02: zhdeng recorded all four STOA candidate IDs with six explicit decisions each; no blanket approval was used.
 - [Phase ?]: Phase 02: Responsibility means ownership of decisions, integration, delivery, and result; Codex assistance does not establish mastery, which remains for later Grill-Me.
+- [Phase ?]: Phase 02: STOA review authority is hash-linked and immutable; all fixture score/range expectations remain unresolved and non-calibrated.
+- [Phase ?]: Phase 02: known-good is a verified FormalRunStore fixture with provider-free exact replay, not product or employment effectiveness evidence.
 
 ### Pending Todos
 
@@ -104,6 +107,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-07-30T15:28:10.211Z
-Stopped at: Completed 02-04-PLAN.md
+Last session: 2026-07-30T15:41:06.479Z
+Stopped at: Completed 02-05-PLAN.md
 Resume file: None
