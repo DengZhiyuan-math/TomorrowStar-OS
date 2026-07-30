@@ -23,7 +23,7 @@ Requirements for the first validation milestone. Each requirement maps to exactl
 - [x] **MOD-06**: Each specific user Skill has one relatively stable 0–100 mastery value while evidence confidence, verified duration, recency, context, and JD-specific match remain separately inspectable.
 - [x] **MOD-07**: A maintainer can normalize Skill names and ontology relationships without ontology adjacency, aliases, dependencies, or `implies knowledge` relations creating or increasing user mastery.
 - [x] **FIX-01**: An evaluator can use a human-reviewed STOA fixture decomposed into selected Contributions, supporting Evidence, responsibility boundaries, and Contribution–Skill relationships.
-- [ ] **FIX-02**: The fixture set contains known-good and known-bad variants spanning different mastery, centrality, confidence, context, duration, attribution, assistance, and evidence-quality cases.
+- [x] **FIX-02**: The fixture set contains known-good and known-bad variants spanning different mastery, centrality, confidence, context, duration, attribution, assistance, and evidence-quality cases.
 
 ### Contribution-Level Grill-Me Audit
 
@@ -115,7 +115,7 @@ Every v1 requirement maps to exactly one roadmap phase. Deferred v2 requirements
 | MOD-06 | Phase 2 | Complete |
 | MOD-07 | Phase 2 | Complete |
 | FIX-01 | Phase 2 | Complete |
-| FIX-02 | Phase 2 | Pending |
+| FIX-02 | Phase 2 | Complete |
 | AUD-01 | Phase 3 | Pending |
 | AUD-02 | Phase 3 | Pending |
 | AUD-03 | Phase 3 | Pending |
