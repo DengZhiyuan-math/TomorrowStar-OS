@@ -136,11 +136,11 @@ def test_candidate_packet_covers_each_source_and_preserves_non_personal_limits()
     }
 
 
-def test_review_status_has_six_pending_decision_groups_and_cannot_seal() -> None:
+def test_recorded_review_has_six_resolved_groups_and_can_seal() -> None:
     candidates, review = load_candidate_packet(CANDIDATES, REVIEW)
     status = evaluate_review_status(candidates, review)
 
-    assert status.sealable is False
+    assert status.sealable is True
     assert set(status.pending_ids_by_group) == {
         "fact",
         "attribution_assistance",
@@ -149,7 +149,7 @@ def test_review_status_has_six_pending_decision_groups_and_cannot_seal() -> None
         "limitations_conflicts",
         "fixture_score_range",
     }
-    assert all(status.pending_ids_by_group.values())
+    assert not any(status.pending_ids_by_group.values())
     assert not (ROOT / "validation/fixtures/stoa/v1/known-good.json").exists()
 
 
@@ -189,4 +189,7 @@ def test_review_materialization_preserves_human_corrections_and_unresolved_value
         claim.responsibility == "user" and claim.assistance == "codex_assisted"
         for claim in fixture.claims
     )
-    assert all(view.expectation_status == "fixture-test-expectation" for view in fixture.user_skill_views)
+    assert all(
+        view.expectation_status == "fixture-test-expectation"
+        for view in fixture.user_skill_views
+    )

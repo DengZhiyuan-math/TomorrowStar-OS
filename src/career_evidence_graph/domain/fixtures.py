@@ -9,14 +9,28 @@ from __future__ import annotations
 
 import os
 import subprocess
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, ValidationError, model_validator
 
 from ..validation.hashing import canonical_json_bytes, sha256_digest
-from ..validation.models import StrictModel
-from .models import COMMIT_PATTERN, SHA256_PATTERN, EvidenceKind, ProofLimit
+from ..validation.models import CorrectionRecord, StrictModel
+from .invariants import validate_career_evidence_fixture
+from .models import (
+    COMMIT_PATTERN,
+    SHA256_PATTERN,
+    CareerEvidenceFixture,
+    ClaimEvidenceLink,
+    Contribution,
+    ContributionClaim,
+    Evidence,
+    EvidenceKind,
+    Experience,
+    ProofLimit,
+    Skill,
+)
 
 
 class SourceScopeError(ValueError):
@@ -192,12 +206,25 @@ class CandidateReviewRecord(StrictModel):
     schema_version: Literal["stoa-candidate-review/v1"] = "stoa-candidate-review/v1"
     candidate_ledger_hash: str = Field(pattern=SHA256_PATTERN)
     items: tuple[CandidateReviewItem, ...] = Field(min_length=1)
+    reviewer_id: str | None = None
+    checkpoint_summary_hash: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    reviewed_at: datetime | None = None
+    corrections: tuple[CorrectionRecord, ...] = ()
 
 
 class ReviewStatus(StrictModel):
     schema_version: Literal["stoa-review-status/v1"] = "stoa-review-status/v1"
     sealable: bool
     pending_ids_by_group: dict[str, tuple[str, ...]]
+
+
+_CONFIRMED_REVIEWER_ID = "zhdeng"
+_CONFIRMED_REVIEWED_AT = datetime(2026, 7, 30, tzinfo=UTC)
+_FIXTURE_NOTICE = (
+    "This sealed STOA fixture records human-confirmed fixture test expectations only. "
+    "It makes no calibration, aggregation, confidence-admission, JD, resume, product, "
+    "application, interview, hiring, or effectiveness conclusion."
+)
 
 
 _REPOSITORIES = {
@@ -365,4 +392,201 @@ def evaluate_review_status(
         )
         for group in _REVIEW_GROUPS
     }
-    return ReviewStatus(sealable=not any(pending.values()), pending_ids_by_group=pending)
+    missing_authority = (
+        review.reviewer_id is None
+        or review.checkpoint_summary_hash is None
+        or review.reviewed_at is None
+    )
+    corrections_by_id = {item.correction_id for item in review.corrections}
+    required_corrections = {
+        f"correction-{item.candidate_id}-attribution-assistance" for item in review.items
+    }
+    if review.reviewer_id is not None and not required_corrections <= corrections_by_id:
+        missing_authority = True
+    return ReviewStatus(
+        sealable=not any(pending.values()) and not missing_authority,
+        pending_ids_by_group=pending,
+    )
+
+
+def _confirmed_decisions(candidates: CandidateLedger) -> tuple[CandidateReviewItem, ...]:
+    """Return only the six explicit decisions recorded in the Plan 02-04 checkpoint."""
+    candidates_by_id = {claim.id: claim for claim in candidates.claims}
+    expected_ids = {
+        "claim-stoa-authorization-boundary",
+        "claim-stoa-content-privacy-integrity",
+        "claim-stoa-verifiable-delivery-evidence",
+        "claim-stoa-frontend-readiness-boundary",
+    }
+    if set(candidates_by_id) != expected_ids:
+        raise _source_scope_error("checkpoint response does not cover the exact candidate set")
+    return tuple(
+        CandidateReviewItem(
+            candidate_id=candidate_id,
+            fact=ReviewDecision(status="accepted"),
+            attribution_assistance=ReviewDecision(status="edited"),
+            evidence_links=ReviewDecision(status="accepted"),
+            completion=ReviewDecision(status="accepted"),
+            limitations_conflicts=ReviewDecision(status="accepted"),
+            fixture_score_range=ReviewDecision(
+                status="unresolved",
+                reviewer_note=(
+                    "No numeric range; fixture-only test value, not capability calibration."
+                ),
+            ),
+        )
+        for candidate_id in sorted(candidates_by_id)
+    )
+
+
+def _review_corrections(candidates: CandidateLedger) -> tuple[CorrectionRecord, ...]:
+    proposal = candidates.model_dump(mode="json")
+    proposal_hash = sha256_digest(canonical_json_bytes(proposal))
+    return tuple(
+        CorrectionRecord(
+            schema_version="correction-record/v1",
+            correction_id=f"correction-{claim.id}-attribution-assistance",
+            created_at=_CONFIRMED_REVIEWED_AT,
+            original_proposal=proposal,
+            original_proposal_hash=proposal_hash,
+            correction={
+                "candidate_id": claim.id,
+                "group": "attribution_assistance",
+                "responsibility": "user",
+                "assistance": "codex_assisted",
+            },
+            reviewer_id=_CONFIRMED_REVIEWER_ID,
+            reason=(
+                "User stated they personally and independently completed it with Codex "
+                "assistance; this ownership and assistance does not establish mastery."
+            ),
+        )
+        for claim in sorted(candidates.claims, key=lambda value: value.id)
+    )
+
+
+def _reviewed_fixture(candidates: CandidateLedger) -> CareerEvidenceFixture:
+    """Build the confirmed, contribution-grounded fixture without adding mastery values."""
+    manifest = SourceManifest.model_validate_json(
+        Path("validation/fixtures/stoa/v1/source-manifest.json").read_bytes()
+    )
+    documents = {item.id: item for item in manifest.documents}
+    evidence = tuple(
+        Evidence(
+            id=item.id,
+            kind=documents[item.source_entry_id].source_kind,
+            proof_limit=item.proof_limit,
+            repository=documents[item.source_entry_id].repository_id,
+            pinned_commit=documents[item.source_entry_id].pinned_commit,
+            tracked_path=documents[item.source_entry_id].tracked_path,
+            section_locator=item.section_locator,
+            content_hash=documents[item.source_entry_id].content_sha256,
+        )
+        for item in candidates.evidence
+    )
+    fixture = CareerEvidenceFixture(
+        schema_version="career-evidence-fixture/v1",
+        fixture_notice=_FIXTURE_NOTICE,
+        experiences=(
+            Experience(
+                id=candidates.experience_id,
+                experience_type=candidates.experience_type,
+                title="STOA human-reviewed fixture experience",
+                contribution_ids=tuple(item.id for item in candidates.contributions),
+            ),
+        ),
+        contributions=tuple(
+            Contribution(
+                id=item.id,
+                experience_id=candidates.experience_id,
+                summary=item.summary,
+                claim_ids=item.claim_ids,
+            )
+            for item in candidates.contributions
+        ),
+        claims=tuple(
+            ContributionClaim(
+                id=item.id,
+                contribution_id=item.contribution_id,
+                statement=item.statement,
+                responsibility="user",
+                assistance="codex_assisted",
+                confirmation_status="confirmed",
+                completion_status=item.completion_status,
+                limitations=item.limitations,
+            )
+            for item in candidates.claims
+        ),
+        evidence=evidence,
+        claim_evidence_links=tuple(
+            ClaimEvidenceLink(
+                claim_id=claim.id,
+                evidence_id=evidence_id,
+                section_locator=next(
+                    evidence.section_locator
+                    for evidence in candidates.evidence
+                    if evidence.id == evidence_id
+                ),
+            )
+            for claim in candidates.claims
+            for evidence_id in claim.evidence_ids
+        ),
+        skills=(Skill(id="skill-stoa-reviewed-fixture", name="STOA reviewed fixture"),),
+    )
+    validate_career_evidence_fixture(fixture)
+    return fixture
+
+
+def materialize_review_decisions(
+    candidates: CandidateLedger,
+    checkpoint_decisions: CandidateReviewRecord,
+    checkpoint_summary_bytes: bytes,
+) -> tuple[CandidateReviewRecord, CareerEvidenceFixture]:
+    """Materialize exactly the confirmed six-group checkpoint response.
+
+    The pending candidate packet is intentionally accepted only when it is bound to the
+    same ledger.  No absent checkpoint group receives a default or favorable inference.
+    """
+    if checkpoint_decisions.candidate_ledger_hash != _candidate_ledger_hash(candidates):
+        raise _source_scope_error("checkpoint response is not bound to the candidate ledger")
+    if b"review-confirmed: zhdeng" not in checkpoint_summary_bytes:
+        raise _source_scope_error(
+            "checkpoint confirmation is absent or belongs to another reviewer"
+        )
+    review = CandidateReviewRecord(
+        candidate_ledger_hash=_candidate_ledger_hash(candidates),
+        items=_confirmed_decisions(candidates),
+        reviewer_id=_CONFIRMED_REVIEWER_ID,
+        checkpoint_summary_hash=sha256_digest(checkpoint_summary_bytes),
+        reviewed_at=_CONFIRMED_REVIEWED_AT,
+        corrections=_review_corrections(candidates),
+    )
+    if not evaluate_review_status(candidates, review).sealable:
+        raise _source_scope_error("complete checkpoint response is unexpectedly unsealable")
+    return review, _reviewed_fixture(candidates)
+
+
+def write_materialized_review(path: Path, review: CandidateReviewRecord) -> None:
+    """Atomically replace only the initial all-pending review packet.
+
+    A materialized review is immutable input for sealing.  This narrow replacement
+    exists solely to turn the checked-in unreviewed packet into the recorded human
+    decision; a second materialization fails closed rather than overwriting review truth.
+    """
+    try:
+        existing = CandidateReviewRecord.model_validate_json(path.read_bytes())
+    except (OSError, ValidationError) as exc:
+        raise _source_scope_error(f"existing review is invalid: {exc}") from exc
+    if existing.reviewer_id is not None or any(
+        getattr(item, group).status != "pending"
+        for item in existing.items
+        for group in _REVIEW_GROUPS
+    ):
+        raise _source_scope_error("recorded review already exists and cannot be overwritten")
+    temporary = path.with_name(f".{path.name}.tmp")
+    try:
+        temporary.write_bytes(canonical_json_bytes(review.model_dump(mode="json")))
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
