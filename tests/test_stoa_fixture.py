@@ -13,6 +13,7 @@ from career_evidence_graph.domain.fixtures import (
     SourceScopeError,
     evaluate_review_status,
     load_candidate_packet,
+    materialize_review_decisions,
     verify_source_manifest,
 )
 
@@ -162,3 +163,30 @@ def test_candidate_packet_rejects_documentary_personal_claim_and_planned_lineage
 
     with pytest.raises(SourceScopeError, match="source-scope"):
         load_candidate_packet(altered_candidates, REVIEW)
+
+
+def test_review_materialization_preserves_human_corrections_and_unresolved_values() -> None:
+    """The confirmed checkpoint response is complete without fabricating mastery."""
+    candidates, pending_review = load_candidate_packet(CANDIDATES, REVIEW)
+    summary_path = (
+        ROOT
+        / ".planning/phases/02-domain-contracts-stoa-fixture-and-deterministic-invariants"
+        / "02-04-SUMMARY.md"
+    )
+
+    review, fixture = materialize_review_decisions(
+        candidates, pending_review, summary_path.read_bytes()
+    )
+
+    assert review.reviewer_id == "zhdeng"
+    assert review.checkpoint_summary_hash.startswith("sha256:")
+    assert review.candidate_ledger_hash == pending_review.candidate_ledger_hash
+    assert evaluate_review_status(candidates, review).sealable is True
+    assert all(
+        item.fixture_score_range.status == "unresolved" for item in review.items
+    )
+    assert all(
+        claim.responsibility == "user" and claim.assistance == "codex_assisted"
+        for claim in fixture.claims
+    )
+    assert all(view.expectation_status == "fixture-test-expectation" for view in fixture.user_skill_views)
