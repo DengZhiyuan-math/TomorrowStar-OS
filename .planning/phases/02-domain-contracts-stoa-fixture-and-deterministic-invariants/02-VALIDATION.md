@@ -1,10 +1,11 @@
 ---
 phase: 02
 slug: domain-contracts-stoa-fixture-and-deterministic-invariants
-status: green
+status: validated
 nyquist_compliant: true
 wave_0_complete: true
 created: 2026-07-30
+last_audited: 2026-07-30
 ---
 
 # Phase 02 — Validation Strategy
@@ -21,7 +22,7 @@ created: 2026-07-30
 | **Config file** | `pyproject.toml` |
 | **Quick run command** | `uv run --locked python scripts/run_pytest.py -q tests/test_domain_models.py tests/test_domain_invariants.py tests/test_stoa_fixture.py tests/test_fixture_mutations.py` |
 | **Full suite command** | `uv run --locked python scripts/run_pytest.py -q && uv run --locked ruff check . && uv run --locked ruff format --check .` |
-| **Estimated runtime** | Existing 52-test baseline completes in 1.21 seconds; keep Phase 2 offline feedback below 20 seconds |
+| **Estimated runtime** | Current full offline suite: 173 passed, 1 deselected in 7.20 seconds; keep Phase 2 feedback below 20 seconds |
 
 ---
 
@@ -122,3 +123,20 @@ effectiveness.
 **Approval:** The `zhdeng` human STOA review remains distinct evidence recorded
 in `02-04-SUMMARY.md`; this green status reflects the completed automated gate
 plus that recorded checkpoint, not an automated recreation of human judgment.
+
+---
+
+## Validation Audit 2026-07-30
+
+| Metric | Count |
+|--------|-------|
+| Requirements audited | 9 |
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
+| Full offline suite | 173 passed, 1 deselected |
+| Known-bad fixture cases | 16/16 valid with one sole expected code |
+
+The audit reran the canonical fixture suite, complete offline pytest suite,
+Ruff lint, and Ruff format checks. All requirements remain covered by the
+existing task-to-test map, so no additional test files were generated.
