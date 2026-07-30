@@ -329,6 +329,10 @@ class FixtureMutationSuiteResult(StrictModel):
 
 _CONFIRMED_REVIEWER_ID = "zhdeng"
 _CONFIRMED_REVIEWED_AT = datetime(2026, 7, 30, tzinfo=UTC)
+_CHECKPOINT_SUMMARY_RELATIVE_PATH = Path(
+    ".planning/phases/02-domain-contracts-stoa-fixture-and-deterministic-invariants/"
+    "02-04-SUMMARY.md"
+)
 _FIXTURE_NOTICE = (
     "This sealed STOA fixture records human-confirmed fixture test expectations only. "
     "It makes no calibration, aggregation, confidence-admission, JD, resume, product, "
@@ -748,6 +752,66 @@ def _publish_known_good(path: Path, value: SealedFixtureRecord) -> None:
         raise
 
 
+def _reissue_known_good(
+    path: Path,
+    *,
+    previous: SealedFixtureRecord,
+    replacement: SealedFixtureRecord,
+) -> None:
+    """Atomically replace an envelope only when its confirmed fixture is unchanged."""
+    if (
+        previous.formal_run_id == replacement.formal_run_id
+        or previous.confirmed_result_hash != replacement.confirmed_result_hash
+        or canonical_json_bytes(previous.fixture) != canonical_json_bytes(replacement.fixture)
+    ):
+        raise FormalRunStorageError("known-good reissue would change confirmed fixture evidence")
+    descriptor, temporary_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(canonical_json_bytes(replacement.model_dump(mode="json")) + b"\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
+def _sealed_lineage_inputs(
+    *,
+    fixture_hash: str,
+    source_manifest_hash: str,
+    review: CandidateReviewRecord,
+    review_hash: str,
+) -> dict[str, object]:
+    """Return the exact formal inputs that bind the sealed envelope's provenance."""
+    return {
+        "fixture": {"hash": fixture_hash},
+        "artifacts": {
+            "source_manifest_hash": source_manifest_hash,
+            "review_hash": review_hash,
+        },
+        "prompt": {"kind": "none"},
+        "model": {"kind": "none"},
+        "configuration": {"mode": "offline"},
+        "policy": {"fixture_notice": _FIXTURE_NOTICE},
+        "reviewer": {
+            "reviewer_id": review.reviewer_id,
+            "checkpoint_summary_hash": review.checkpoint_summary_hash,
+            "review_hash": review_hash,
+        },
+    }
+
+
+def _sealed_input_paths(workspace: Path) -> tuple[Path, Path, Path]:
+    """Resolve the canonical source, review, and checkpoint inputs for one workspace."""
+    manifest_path = workspace / "source-manifest.json"
+    review_path = workspace / "review.json"
+    root = _validation_root(manifest_path)
+    return manifest_path, review_path, root / _CHECKPOINT_SUMMARY_RELATIVE_PATH
+
+
 def seal_reviewed_fixture(
     *,
     workspace: Path,
@@ -757,6 +821,7 @@ def seal_reviewed_fixture(
     review: CandidateReviewRecord,
     checkpoint_summary_bytes: bytes,
     output_path: Path,
+    reissue: bool = False,
 ):
     """Seal a complete human review through a verified, provider-free formal run."""
     source_verification = verify_source_manifest(manifest_path)
@@ -772,6 +837,13 @@ def seal_reviewed_fixture(
     charter = load_charter(root / "validation/charter/v1.json")
     proposal = candidates.model_dump(mode="json")
     confirmed_result = fixture.model_dump(mode="json")
+    review_hash = sha256_digest(canonical_json_bytes(review))
+    lineage_inputs = _sealed_lineage_inputs(
+        fixture_hash=fixture_result.fixture_hash,
+        source_manifest_hash=source_verification.manifest_hash,
+        review=review,
+        review_hash=review_hash,
+    )
     store = FormalRunStore(workspace)
     run_path = store.runs_root / run_id
     if run_path.exists():
@@ -787,18 +859,7 @@ def seal_reviewed_fixture(
             raw_response={"result": confirmed_result},
             proposal=proposal,
             confirmed_result=confirmed_result,
-            lineage_inputs={
-                "fixture": {"hash": fixture_result.fixture_hash},
-                "artifacts": {"source_manifest_hash": source_verification.manifest_hash},
-                "prompt": {"kind": "none"},
-                "model": {"kind": "none"},
-                "configuration": {"mode": "offline"},
-                "policy": {"fixture_notice": _FIXTURE_NOTICE},
-                "reviewer": {
-                    "reviewer_id": review.reviewer_id,
-                    "checkpoint_summary_hash": review.checkpoint_summary_hash,
-                },
-            },
+            lineage_inputs=lineage_inputs,
             corrections=list(review.corrections),
             limitations=[
                 "Fixture score/range values remain unresolved test expectations, not mastery.",
@@ -816,11 +877,19 @@ def seal_reviewed_fixture(
         formal_run_id=stored_manifest.run_id,
         confirmed_result_hash=fixture_result.fixture_hash,
         source_manifest_hash=source_verification.manifest_hash,
-        review_hash=sha256_digest(canonical_json_bytes(review)),
+        review_hash=review_hash,
         checkpoint_summary_hash=review.checkpoint_summary_hash,
         fixture=fixture,
     )
-    _publish_known_good(output_path, record)
+    if reissue and output_path.exists():
+        try:
+            previous = SealedFixtureRecord.model_validate_json(output_path.read_bytes())
+        except (OSError, ValidationError) as exc:
+            raise FormalRunStorageError("known-good output is invalid for reissue") from exc
+        store.verify(previous.formal_run_id)
+        _reissue_known_good(output_path, previous=previous, replacement=record)
+    else:
+        _publish_known_good(output_path, record)
     return fixture_result
 
 
@@ -830,8 +899,35 @@ def load_sealed_fixture(path: Path, workspace: Path):
         sealed = SealedFixtureRecord.model_validate_json(path.read_bytes())
     except (OSError, ValidationError) as exc:
         raise FormalRunStorageError("known-good fixture is invalid") from exc
+    manifest_path, review_path, checkpoint_summary_path = _sealed_input_paths(workspace)
+    source_verification = verify_source_manifest(manifest_path)
+    try:
+        review = CandidateReviewRecord.model_validate_json(review_path.read_bytes())
+        checkpoint_summary_hash = sha256_digest(checkpoint_summary_path.read_bytes())
+    except (OSError, ValidationError) as exc:
+        raise FormalRunStorageError("canonical known-good review inputs are invalid") from exc
+    review_hash = sha256_digest(canonical_json_bytes(review))
+    expected_envelope_hashes = {
+        "source_manifest_hash": source_verification.manifest_hash,
+        "review_hash": review_hash,
+        "checkpoint_summary_hash": checkpoint_summary_hash,
+    }
+    for field, expected_hash in expected_envelope_hashes.items():
+        if getattr(sealed, field) != expected_hash:
+            raise FormalRunStorageError(f"known-good {field} does not match canonical input")
+
     store = FormalRunStore(workspace)
-    store.verify(sealed.formal_run_id)
+    manifest = store.verify(sealed.formal_run_id)
+    expected_lineage = _sealed_lineage_inputs(
+        fixture_hash=sealed.confirmed_result_hash,
+        source_manifest_hash=source_verification.manifest_hash,
+        review=review,
+        review_hash=review_hash,
+    )
+    for key in ("artifacts", "reviewer"):
+        expected_hash = sha256_digest(canonical_json_bytes(expected_lineage[key]))
+        if manifest.input_hashes[key] != expected_hash:
+            raise FormalRunStorageError(f"formal run {key} lineage does not match canonical input")
     confirmed = store.payload(sealed.formal_run_id, "confirmed_result.json")
     if canonical_json_bytes(confirmed) != canonical_json_bytes(sealed.fixture):
         raise FormalRunStorageError("known-good fixture differs from formal confirmed result")

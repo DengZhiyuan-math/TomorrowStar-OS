@@ -29,7 +29,7 @@ from career_evidence_graph.validation.hashing import canonical_json_bytes
 ROOT = Path(__file__).resolve().parents[1]
 KNOWN_GOOD = ROOT / "validation/fixtures/stoa/v1/known-good.json"
 KNOWN_BAD_DIR = ROOT / "validation/fixtures/stoa/v1/known-bad"
-FORMAL_RUN = ROOT / "validation/fixtures/stoa/v1/formal-runs/stoa-known-good"
+FORMAL_RUN = ROOT / "validation/fixtures/stoa/v1/formal-runs/stoa-known-good-v2"
 LAUNCHER = ROOT / "scripts" / "run_career_evidence.py"
 
 EXPECTED_CODES = {

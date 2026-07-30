@@ -68,6 +68,7 @@ def _parser() -> argparse.ArgumentParser:
     fixture_seal.add_argument("--candidates", required=True)
     fixture_seal.add_argument("--review", required=True)
     fixture_seal.add_argument("--output", required=True)
+    fixture_seal.add_argument("--reissue", action="store_true")
     fixture_source = fixture_commands.add_parser("source")
     fixture_source_commands = fixture_source.add_subparsers(dest="source_command", required=True)
     fixture_source_verify = fixture_source_commands.add_parser("verify")
@@ -175,6 +176,7 @@ def main(argv: list[str] | None = None) -> int:
                     review=review,
                     checkpoint_summary_bytes=checkpoint_summary.read_bytes(),
                     output_path=Path(args.output),
+                    reissue=args.reissue,
                 )
             )
         elif (

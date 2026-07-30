@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -20,13 +21,35 @@ from career_evidence_graph.domain.fixtures import (
     verify_source_manifest,
 )
 from career_evidence_graph.validation.replay import replay_recorded_response
-from career_evidence_graph.validation.store import FormalRunStore
+from career_evidence_graph.validation.store import FormalRunStorageError, FormalRunStore
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "validation/fixtures/stoa/v1/source-manifest.json"
 CANDIDATES = ROOT / "validation/fixtures/stoa/v1/candidates.json"
 REVIEW = ROOT / "validation/fixtures/stoa/v1/review.json"
 LAUNCHER = ROOT / "scripts" / "run_career_evidence.py"
+CHECKPOINT_SUMMARY = (
+    ROOT
+    / ".planning/phases/02-domain-contracts-stoa-fixture-and-deterministic-invariants"
+    / "02-04-SUMMARY.md"
+)
+
+
+def _sealed_workspace(tmp_path: Path) -> Path:
+    """Create the canonical on-disk input layout required by sealed loading."""
+    workspace = tmp_path / "validation/fixtures/stoa/v1"
+    workspace.mkdir(parents=True)
+    shutil.copyfile(MANIFEST, workspace / "source-manifest.json")
+    shutil.copyfile(REVIEW, workspace / "review.json")
+    charter = tmp_path / "validation/charter"
+    charter.mkdir(parents=True)
+    shutil.copyfile(ROOT / "validation/charter/v1.json", charter / "v1.json")
+    checkpoint = (
+        tmp_path / ".planning/phases/02-domain-contracts-stoa-fixture-and-deterministic-invariants"
+    )
+    checkpoint.mkdir(parents=True)
+    shutil.copyfile(CHECKPOINT_SUMMARY, checkpoint / "02-04-SUMMARY.md")
+    return workspace
 
 
 def test_source_manifest_verifies_exact_pinned_document_inventory() -> None:
@@ -197,7 +220,8 @@ def test_review_materialization_preserves_human_corrections_and_unresolved_value
     )
     confirmed_result = json.loads(
         (
-            ROOT / "validation/fixtures/stoa/v1/formal-runs/stoa-known-good/confirmed_result.json"
+            ROOT
+            / "validation/fixtures/stoa/v1/formal-runs/stoa-known-good-v2/confirmed_result.json"
         ).read_text(encoding="utf-8")
     )
     assert fixture.model_dump(mode="json") == confirmed_result
@@ -241,22 +265,17 @@ def test_materialization_rejects_tampered_correction_authority() -> None:
 
 def test_seal_publishes_verified_bundle_and_provider_free_replay(tmp_path: Path) -> None:
     """Known-good can only be recovered from verified immutable formal evidence."""
-    workspace = tmp_path / "stoa"
-    workspace.mkdir()
+    workspace = _sealed_workspace(tmp_path)
     candidates, review = load_candidate_packet(CANDIDATES, REVIEW)
     output = workspace / "known-good.json"
 
     sealed = seal_reviewed_fixture(
         workspace=workspace,
         run_id="stoa-known-good",
-        manifest_path=MANIFEST,
+        manifest_path=workspace / "source-manifest.json",
         candidates=candidates,
         review=review,
-        checkpoint_summary_bytes=(
-            ROOT
-            / ".planning/phases/02-domain-contracts-stoa-fixture-and-deterministic-invariants"
-            / "02-04-SUMMARY.md"
-        ).read_bytes(),
+        checkpoint_summary_bytes=CHECKPOINT_SUMMARY.read_bytes(),
         output_path=output,
     )
 
@@ -268,19 +287,14 @@ def test_seal_publishes_verified_bundle_and_provider_free_replay(tmp_path: Path)
 
 
 def test_seal_recovers_only_identical_missing_output_and_rejects_overwrite(tmp_path: Path) -> None:
-    workspace = tmp_path / "stoa"
-    workspace.mkdir()
+    workspace = _sealed_workspace(tmp_path)
     candidates, review = load_candidate_packet(CANDIDATES, REVIEW)
-    summary = (
-        ROOT
-        / ".planning/phases/02-domain-contracts-stoa-fixture-and-deterministic-invariants"
-        / "02-04-SUMMARY.md"
-    ).read_bytes()
+    summary = CHECKPOINT_SUMMARY.read_bytes()
     output = workspace / "known-good.json"
     kwargs = {
         "workspace": workspace,
         "run_id": "stoa-known-good",
-        "manifest_path": MANIFEST,
+        "manifest_path": workspace / "source-manifest.json",
         "candidates": candidates,
         "review": review,
         "checkpoint_summary_bytes": summary,
@@ -296,3 +310,52 @@ def test_seal_recovers_only_identical_missing_output_and_rejects_overwrite(tmp_p
         seal_reviewed_fixture(**kwargs)
 
     assert not list(workspace.glob(".known-good.json.*"))
+
+
+@pytest.mark.parametrize(
+    "field",
+    ("source_manifest_hash", "review_hash", "checkpoint_summary_hash"),
+)
+def test_load_sealed_fixture_rejects_each_tampered_envelope_hash(
+    tmp_path: Path, field: str
+) -> None:
+    workspace = _sealed_workspace(tmp_path)
+    candidates, review = load_candidate_packet(CANDIDATES, REVIEW)
+    output = workspace / "known-good.json"
+    seal_reviewed_fixture(
+        workspace=workspace,
+        run_id="stoa-known-good",
+        manifest_path=workspace / "source-manifest.json",
+        candidates=candidates,
+        review=review,
+        checkpoint_summary_bytes=CHECKPOINT_SUMMARY.read_bytes(),
+        output_path=output,
+    )
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    payload[field] = "sha256:" + "0" * 64
+    output.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(FormalRunStorageError, match=field):
+        load_sealed_fixture(output, workspace)
+
+
+def test_reissue_preserves_fixture_evidence_and_creates_new_formal_lineage(tmp_path: Path) -> None:
+    workspace = _sealed_workspace(tmp_path)
+    candidates, review = load_candidate_packet(CANDIDATES, REVIEW)
+    output = workspace / "known-good.json"
+    kwargs = {
+        "workspace": workspace,
+        "manifest_path": workspace / "source-manifest.json",
+        "candidates": candidates,
+        "review": review,
+        "checkpoint_summary_bytes": CHECKPOINT_SUMMARY.read_bytes(),
+        "output_path": output,
+    }
+    first = seal_reviewed_fixture(run_id="stoa-known-good", **kwargs)
+    reissued = seal_reviewed_fixture(run_id="stoa-known-good-v2", reissue=True, **kwargs)
+
+    sealed = json.loads(output.read_text(encoding="utf-8"))
+    assert first.fixture_hash == reissued.fixture_hash
+    assert sealed["formal_run_id"] == "stoa-known-good-v2"
+    assert FormalRunStore(workspace).verify("stoa-known-good").run_id == "stoa-known-good"
+    assert load_sealed_fixture(output, workspace).fixture_hash == reissued.fixture_hash
