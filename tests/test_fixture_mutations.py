@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import json
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -164,3 +168,72 @@ def test_mutation_operations_are_closed_not_general_json_patches() -> None:
 
     with pytest.raises(ValidationError):
         MutationOperation.model_validate(payload)
+
+
+def _validate_suite_cli(known_good: Path, known_bad_dir: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "career_evidence_graph.cli",
+            "fixture",
+            "validate-suite",
+            "--known-good",
+            str(known_good),
+            "--known-bad-dir",
+            str(known_bad_dir),
+        ],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_fixture_validate_suite_cli_emits_the_stable_complete_json_report() -> None:
+    completed = _validate_suite_cli(KNOWN_GOOD, KNOWN_BAD_DIR)
+
+    assert completed.returncode == 0, completed.stderr
+    report = json.loads(completed.stdout)
+    assert report["valid"] is True
+    assert report["base_fixture_hash"] == _sealed().confirmed_result_hash
+    assert report["case_count"] == 16
+    assert [result["case_id"] for result in report["results"]] == sorted(EXPECTED_CODES)
+    assert all(result["valid"] is True for result in report["results"])
+    assert all(
+        result["actual_codes"] == [result["expected_code"]] for result in report["results"]
+    )
+
+
+@pytest.mark.parametrize("fault", ["missing-good", "tampered-good", "base-mismatch", "extra-case"])
+def test_fixture_validate_suite_cli_fails_closed_without_editing_fixtures(
+    tmp_path: Path, fault: str
+) -> None:
+    copied_good = tmp_path / "known-good.json"
+    copied_bad = tmp_path / "known-bad"
+    shutil.copy2(KNOWN_GOOD, copied_good)
+    shutil.copytree(KNOWN_BAD_DIR, copied_bad)
+    if fault == "missing-good":
+        known_good = tmp_path / "missing.json"
+    elif fault == "tampered-good":
+        copied_good.write_text('{"tampered":true}\n', encoding="utf-8")
+        known_good = copied_good
+    elif fault == "base-mismatch":
+        case_path = copied_bad / "direct-mastery-title.json"
+        case = json.loads(case_path.read_text(encoding="utf-8"))
+        case["base_fixture_hash"] = "sha256:" + "0" * 64
+        case_path.write_text(json.dumps(case), encoding="utf-8")
+        known_good = copied_good
+    else:
+        shutil.copy2(
+            copied_bad / "direct-mastery-title.json", copied_bad / "unexpected-case.json"
+        )
+        known_good = copied_good
+
+    expected_good = copied_good.read_bytes()
+    expected_cases = {path.name: path.read_bytes() for path in sorted(copied_bad.glob("*.json"))}
+    completed = _validate_suite_cli(known_good, copied_bad)
+
+    assert completed.returncode == 2
+    assert copied_good.read_bytes() == expected_good
+    assert {path.name: path.read_bytes() for path in sorted(copied_bad.glob("*.json"))} == expected_cases
