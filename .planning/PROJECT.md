@@ -14,15 +14,15 @@ Accurately determine what the user can genuinely do within specific contribution
 
 ### Validated
 
-(None yet — this project exists to validate the core hypothesis)
+- [x] **Validated in Phase 2:** Supported career-history types can be represented as strict `Experience → Contribution` records with provenance-bearing Evidence linked to concrete Contribution claims.
+- [x] **Validated in Phase 2:** Contribution is the minimum auditable assessment unit; direct mastery paths from Experience, credential, title, repository, résumé skill list, or ontology relationships fail closed.
+- [x] **Validated in Phase 2:** Contribution–Skill records keep mastery, centrality, confidence, context, duration, basis, responsibility, and assistance as distinct validated fields without selecting a calibration or aggregation policy.
+- [x] **Validated in Phase 2:** A document-bounded, item-by-item human-reviewed STOA fixture can be sealed with immutable provenance and exercised against deterministic known-good and single-fault known-bad cases.
 
 ### Active
 
-- [ ] Represent résumé-relevant history through the hierarchy `Experience → Contribution → Skill`, with Evidence supporting each Contribution.
-- [ ] Treat Contribution as the smallest Grill-Me audit unit while retaining Experience as a unified container for employment, projects, research, publications, education, teaching, open-source work, internships, and related experience types.
 - [ ] Audit a Contribution deeply enough to determine what the user personally understands and can explain, implement, reproduce, defend, debug, or operate.
 - [ ] Extract specific Skills from audited Contributions without inferring mastery directly from an Experience, education credential, repository, or ontology relationship.
-- [ ] Assess each Contribution–Skill relationship with separate `demonstrated_mastery`, `skill_centrality`, and `evidence_confidence` values, plus context, duration, and an explicit assessment basis.
 - [ ] Aggregate credible Contribution–Skill assessments into one relatively stable 0–100 mastery score for each specific user Skill while keeping evidence confidence, verified duration, context, and JD match separate.
 - [ ] Use observable capability anchors for the 0–100 mastery scale and prevent numerous low-level Contributions from mechanically accumulating into advanced mastery.
 - [ ] Build and audit a representative STOA Experience with distinguishable Contributions, Evidence, Skills, responsibility attribution, and Contribution–Skill assessments.
@@ -154,4 +154,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-30 after open-source reference integration*
+*Last updated: 2026-07-30 after Phase 2 validation*
