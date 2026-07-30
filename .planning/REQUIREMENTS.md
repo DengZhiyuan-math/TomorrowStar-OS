@@ -15,7 +15,7 @@ Requirements for the first validation milestone. Each requirement maps to exactl
 
 ### Domain Model and Validation Fixtures
 
-- [ ] **MOD-01**: A user can represent employment, projects, research, publications, education, teaching, open-source work, internships, and related history as typed `Experience` records containing distinguishable `Contribution` records.
+- [x] **MOD-01**: A user can represent employment, projects, research, publications, education, teaching, open-source work, internships, and related history as typed `Experience` records containing distinguishable `Contribution` records.
 - [ ] **MOD-02**: The system treats `Contribution` as the smallest auditable unit and rejects any attempt to create a user Skill assessment directly from an `Experience`, credential, title, repository, or résumé skill list.
 - [ ] **MOD-03**: A user can attach typed, provenance-bearing `Evidence` to the `Contribution` it supports while Evidence remains supporting information rather than a separate audit hierarchy.
 - [ ] **MOD-04**: Each `ContributionSkillAssessment` records a Contribution, a specific Skill, `demonstrated_mastery`, `skill_centrality`, `evidence_confidence`, context, duration, and an explicit assessment basis, with all three scores independently constrained to 0–100.
@@ -107,7 +107,7 @@ Every v1 requirement maps to exactly one roadmap phase. Deferred v2 requirements
 | VAL-01 | Phase 1 | Complete |
 | VAL-02 | Phase 1 | Complete |
 | OSS-01 | Phase 1 | Complete |
-| MOD-01 | Phase 2 | Pending |
+| MOD-01 | Phase 2 | Complete |
 | MOD-02 | Phase 2 | Pending |
 | MOD-03 | Phase 2 | Pending |
 | MOD-04 | Phase 2 | Pending |
