@@ -232,6 +232,12 @@ def test_materialization_rejects_tampered_correction_authority() -> None:
 
     assert evaluate_review_status(candidates, tampered).sealable is False
 
+    payload = review.model_dump(mode="json")
+    payload["candidate_ledger_hash"] = "sha256:" + "0" * 64
+    wrong_ledger = CandidateReviewRecord.model_validate(payload)
+
+    assert evaluate_review_status(candidates, wrong_ledger).sealable is False
+
 
 def test_seal_publishes_verified_bundle_and_provider_free_replay(tmp_path: Path) -> None:
     """Known-good can only be recovered from verified immutable formal evidence."""

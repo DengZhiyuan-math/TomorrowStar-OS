@@ -522,6 +522,7 @@ def _validated_attribution_corrections(
         review.reviewer_id is None
         or review.checkpoint_summary_hash is None
         or review.reviewed_at is None
+        or review.candidate_ledger_hash != _candidate_ledger_hash(candidates)
     ):
         raise _source_scope_error("review authority is incomplete")
     proposal = candidates.model_dump(mode="json")
