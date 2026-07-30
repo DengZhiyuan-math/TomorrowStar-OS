@@ -11,7 +11,6 @@ import pytest
 
 from career_evidence_graph.domain.fixtures import SourceScopeError, verify_source_manifest
 
-
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "validation/fixtures/stoa/v1/source-manifest.json"
 
@@ -33,9 +32,7 @@ def test_source_manifest_verifies_exact_pinned_document_inventory() -> None:
         ("tracked_path", "/private/tmp/private.txt"),
     ],
 )
-def test_source_manifest_rejects_scope_escape(
-    tmp_path: Path, field: str, replacement: str
-) -> None:
+def test_source_manifest_rejects_scope_escape(tmp_path: Path, field: str, replacement: str) -> None:
     payload = json.loads(MANIFEST.read_text(encoding="utf-8"))
     payload["documents"][0][field] = replacement
     altered = tmp_path / "altered-manifest.json"
@@ -54,9 +51,15 @@ def test_source_manifest_documents_are_non_personal_and_have_proof_limits() -> N
         "stoa-infra",
         "stoa-docs",
     }
-    assert all(item["proof_limit"] != "personal_responsibility_and_claimed_capability" for item in payload["documents"])
+    assert all(
+        item["proof_limit"] != "personal_responsibility_and_claimed_capability"
+        for item in payload["documents"]
+    )
     assert all(item["personal_claim_proof"] == "none" for item in payload["documents"])
-    assert all(item["section_locator_policy"] == "markdown-heading-or-document" for item in payload["documents"])
+    assert all(
+        item["section_locator_policy"] == "markdown-heading-or-document"
+        for item in payload["documents"]
+    )
 
 
 def test_fixture_source_verify_cli_is_offline_and_reports_counts() -> None:

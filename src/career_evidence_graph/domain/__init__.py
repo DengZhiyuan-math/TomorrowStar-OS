@@ -22,6 +22,7 @@ from .models import (
     SkillNormalizationRecord,
     UserSkillView,
 )
+from .fixtures import SourceManifestVerification, SourceScopeError, verify_source_manifest
 
 __all__ = [
     "AssessmentSourceKind",
@@ -33,6 +34,8 @@ __all__ = [
     "SkillAlias",
     "SkillNormalizationRecord",
     "UserSkillView",
+    "SourceManifestVerification",
+    "SourceScopeError",
     "collect_invariant_violations",
     "load_and_validate_fixture",
     "mastery_snapshot_bytes",
@@ -42,4 +45,5 @@ __all__ = [
     "validate_contribution_lineage",
     "validate_evidence_links",
     "validate_user_skill_views",
+    "verify_source_manifest",
 ]

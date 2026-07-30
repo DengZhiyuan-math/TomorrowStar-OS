@@ -11,7 +11,12 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from .domain import FixtureValidationError, load_and_validate_fixture
+from .domain import (
+    FixtureValidationError,
+    SourceScopeError,
+    load_and_validate_fixture,
+    verify_source_manifest,
+)
 from .validation.provenance import ProvenanceValidationError, verify_provenance_registry
 from .validation.replay import replay_recorded_response
 from .validation.store import FormalRunStorageError, FormalRunStore, load_charter
@@ -42,6 +47,10 @@ def _parser() -> argparse.ArgumentParser:
     fixture_commands = fixture.add_subparsers(dest="fixture_command", required=True)
     fixture_validate = fixture_commands.add_parser("validate")
     fixture_validate.add_argument("path")
+    fixture_source = fixture_commands.add_parser("source")
+    fixture_source_commands = fixture_source.add_subparsers(dest="source_command", required=True)
+    fixture_source_verify = fixture_source_commands.add_parser("verify")
+    fixture_source_verify.add_argument("--manifest", required=True)
 
     run = commands.add_parser("run")
     run_commands = run.add_subparsers(dest="run_command", required=True)
@@ -94,6 +103,12 @@ def main(argv: list[str] | None = None) -> int:
             _emit({"valid": True, "charter_version": charter.charter_version})
         elif args.command == "fixture" and args.fixture_command == "validate":
             _emit(load_and_validate_fixture(Path(args.path)))
+        elif (
+            args.command == "fixture"
+            and args.fixture_command == "source"
+            and args.source_command == "verify"
+        ):
+            _emit(verify_source_manifest(Path(args.manifest)))
         elif args.command == "run" and args.run_command == "create":
             charter = load_charter(Path(args.charter))
             manifest = FormalRunStore(Path(args.workspace)).create(
@@ -194,6 +209,7 @@ def main(argv: list[str] | None = None) -> int:
         FormalRunStorageError,
         LiveExecutionError,
         ProvenanceValidationError,
+        SourceScopeError,
         ValidationError,
         OSError,
         json.JSONDecodeError,
