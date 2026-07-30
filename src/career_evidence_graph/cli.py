@@ -14,7 +14,9 @@ from pydantic import ValidationError
 from .domain import (
     FixtureValidationError,
     SourceScopeError,
+    evaluate_review_status,
     load_and_validate_fixture,
+    load_candidate_packet,
     verify_source_manifest,
 )
 from .validation.provenance import ProvenanceValidationError, verify_provenance_registry
@@ -51,6 +53,9 @@ def _parser() -> argparse.ArgumentParser:
     fixture_source_commands = fixture_source.add_subparsers(dest="source_command", required=True)
     fixture_source_verify = fixture_source_commands.add_parser("verify")
     fixture_source_verify.add_argument("--manifest", required=True)
+    fixture_review_status = fixture_commands.add_parser("review-status")
+    fixture_review_status.add_argument("--candidates", required=True)
+    fixture_review_status.add_argument("--review", required=True)
 
     run = commands.add_parser("run")
     run_commands = run.add_subparsers(dest="run_command", required=True)
@@ -109,6 +114,9 @@ def main(argv: list[str] | None = None) -> int:
             and args.source_command == "verify"
         ):
             _emit(verify_source_manifest(Path(args.manifest)))
+        elif args.command == "fixture" and args.fixture_command == "review-status":
+            candidates, review = load_candidate_packet(Path(args.candidates), Path(args.review))
+            _emit(evaluate_review_status(candidates, review))
         elif args.command == "run" and args.run_command == "create":
             charter = load_charter(Path(args.charter))
             manifest = FormalRunStore(Path(args.workspace)).create(

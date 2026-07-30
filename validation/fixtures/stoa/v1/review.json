@@ -1,0 +1,42 @@
+{
+  "schema_version": "stoa-candidate-review/v1",
+  "candidate_ledger_hash": "sha256:d34d8753156bae3742bfdc793223483a0c5911556ad348cc4590b77f3a03709d",
+  "items": [
+    {
+      "candidate_id": "claim-stoa-authorization-boundary",
+      "fact": {"status": "pending"},
+      "attribution_assistance": {"status": "pending"},
+      "evidence_links": {"status": "pending"},
+      "completion": {"status": "pending"},
+      "limitations_conflicts": {"status": "pending"},
+      "fixture_score_range": {"status": "pending"}
+    },
+    {
+      "candidate_id": "claim-stoa-content-privacy-integrity",
+      "fact": {"status": "pending"},
+      "attribution_assistance": {"status": "pending"},
+      "evidence_links": {"status": "pending"},
+      "completion": {"status": "pending"},
+      "limitations_conflicts": {"status": "pending"},
+      "fixture_score_range": {"status": "pending"}
+    },
+    {
+      "candidate_id": "claim-stoa-verifiable-delivery-evidence",
+      "fact": {"status": "pending"},
+      "attribution_assistance": {"status": "pending"},
+      "evidence_links": {"status": "pending"},
+      "completion": {"status": "pending"},
+      "limitations_conflicts": {"status": "pending"},
+      "fixture_score_range": {"status": "pending"}
+    },
+    {
+      "candidate_id": "claim-stoa-frontend-readiness-boundary",
+      "fact": {"status": "pending"},
+      "attribution_assistance": {"status": "pending"},
+      "evidence_links": {"status": "pending"},
+      "completion": {"status": "pending"},
+      "limitations_conflicts": {"status": "pending"},
+      "fixture_score_range": {"status": "pending"}
+    }
+  ]
+}

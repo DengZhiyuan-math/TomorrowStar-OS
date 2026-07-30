@@ -1,5 +1,12 @@
 """Public Phase 2 career-evidence domain contracts and validation seam."""
 
+from .fixtures import (
+    SourceManifestVerification,
+    SourceScopeError,
+    evaluate_review_status,
+    load_candidate_packet,
+    verify_source_manifest,
+)
 from .invariants import (
     FixtureValidationError,
     collect_invariant_violations,
@@ -22,7 +29,6 @@ from .models import (
     SkillNormalizationRecord,
     UserSkillView,
 )
-from .fixtures import SourceManifestVerification, SourceScopeError, verify_source_manifest
 
 __all__ = [
     "AssessmentSourceKind",
@@ -45,5 +51,7 @@ __all__ = [
     "validate_contribution_lineage",
     "validate_evidence_links",
     "validate_user_skill_views",
+    "evaluate_review_status",
+    "load_candidate_packet",
     "verify_source_manifest",
 ]

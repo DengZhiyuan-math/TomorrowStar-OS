@@ -100,9 +100,16 @@ def test_candidate_packet_is_one_stoa_experience_grouped_by_durable_outcome() ->
 
     assert candidates.experience_id == "exp-stoa"
     assert len(candidates.contributions) >= 3
-    assert all("repository" not in contribution.outcome_group_id for contribution in candidates.contributions)
-    assert all("commit" not in contribution.outcome_group_id for contribution in candidates.contributions)
-    assert all("phase" not in contribution.outcome_group_id for contribution in candidates.contributions)
+    assert all(
+        "repository" not in contribution.outcome_group_id
+        for contribution in candidates.contributions
+    )
+    assert all(
+        "commit" not in contribution.outcome_group_id for contribution in candidates.contributions
+    )
+    assert all(
+        "phase" not in contribution.outcome_group_id for contribution in candidates.contributions
+    )
     assert len(review.items) == len(candidates.claims)
 
 
@@ -117,7 +124,9 @@ def test_candidate_packet_covers_each_source_and_preserves_non_personal_limits()
         "conflict",
         "excluded-with-reason",
     }
-    assert all(claim.documentary_status == "document-derived-non-personal" for claim in candidates.claims)
+    assert all(
+        claim.documentary_status == "document-derived-non-personal" for claim in candidates.claims
+    )
     assert all(claim.responsibility == "unconfirmed" for claim in candidates.claims)
     assert all(claim.assistance == "unconfirmed" for claim in candidates.claims)
     assert all(item.background_only for item in candidates.background_context)

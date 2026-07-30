@@ -1,0 +1,117 @@
+{
+  "schema_version": "stoa-candidate-ledger/v1",
+  "experience_id": "exp-stoa",
+  "experience_type": "project",
+  "title": "STOA document-derived candidate experience",
+  "documentary_status": "document-derived-non-personal",
+  "contributions": [
+    {
+      "id": "contrib-stoa-authorization-boundary",
+      "outcome_group_id": "outcome-authorization-boundary",
+      "summary": "Documented authorization-boundary hardening proposal with conflicting audit history retained.",
+      "claim_ids": ["claim-stoa-authorization-boundary"],
+      "completion_status": "partial",
+      "limitations": ["The audit records earlier critical authorization defects; documents do not establish personal responsibility."]
+    },
+    {
+      "id": "contrib-stoa-content-privacy-integrity",
+      "outcome_group_id": "outcome-content-privacy-integrity",
+      "summary": "Documented privacy and practice-integrity work proposal with retained verification limits.",
+      "claim_ids": ["claim-stoa-content-privacy-integrity"],
+      "completion_status": "partial",
+      "limitations": ["Recorded delivery does not prove every provider or production path was exercised."]
+    },
+    {
+      "id": "contrib-stoa-verifiable-delivery-evidence",
+      "outcome_group_id": "outcome-verifiable-delivery-evidence",
+      "summary": "Documented deterministic verification and release-evidence proposal across delivery records and audit limits.",
+      "claim_ids": ["claim-stoa-verifiable-delivery-evidence"],
+      "completion_status": "partial",
+      "limitations": ["The audit reports missing release gates and non-production readiness; an owner handoff requires confirmation."]
+    },
+    {
+      "id": "contrib-stoa-frontend-readiness-boundary",
+      "outcome_group_id": "outcome-frontend-readiness-boundary",
+      "summary": "Documented frontend artifact and production-readiness boundary proposal, retained as partial.",
+      "claim_ids": ["claim-stoa-frontend-readiness-boundary"],
+      "completion_status": "partial",
+      "limitations": ["Readiness documents prescribe launch gates and do not prove a production-ready user journey."]
+    }
+  ],
+  "claims": [
+    {
+      "id": "claim-stoa-authorization-boundary",
+      "contribution_id": "contrib-stoa-authorization-boundary",
+      "statement": "Documents propose a privileged identity and student-resource authorization outcome.",
+      "documentary_status": "document-derived-non-personal",
+      "responsibility": "unconfirmed",
+      "assistance": "unconfirmed",
+      "completion_status": "partial",
+      "evidence_ids": ["evid-stoa-build-week", "evid-stoa-backend-audit"],
+      "limitations": ["Build Week delivery claims remain qualified; the audit records critical historical authorization defects."],
+      "conflicting_source_entry_ids": ["src-stoa-backend-audit"]
+    },
+    {
+      "id": "claim-stoa-content-privacy-integrity",
+      "contribution_id": "contrib-stoa-content-privacy-integrity",
+      "statement": "Documents propose student-content privacy and practice-integrity work.",
+      "documentary_status": "document-derived-non-personal",
+      "responsibility": "unconfirmed",
+      "assistance": "unconfirmed",
+      "completion_status": "partial",
+      "evidence_ids": ["evid-stoa-build-week", "evid-stoa-backend-audit"],
+      "limitations": ["Recorded local and formal verification does not prove all external-provider or production paths."],
+      "conflicting_source_entry_ids": ["src-stoa-backend-audit"]
+    },
+    {
+      "id": "claim-stoa-verifiable-delivery-evidence",
+      "contribution_id": "contrib-stoa-verifiable-delivery-evidence",
+      "statement": "Documents propose deterministic verification and source-bound delivery evidence.",
+      "documentary_status": "document-derived-non-personal",
+      "responsibility": "unconfirmed",
+      "assistance": "unconfirmed",
+      "completion_status": "partial",
+      "evidence_ids": ["evid-stoa-build-week", "evid-stoa-owner-handoff", "evid-stoa-backend-audit"],
+      "limitations": ["The audit retains missing quality and release gates; handoff responsibility and assistance require human confirmation."],
+      "conflicting_source_entry_ids": ["src-stoa-backend-audit", "src-stoa-owner-handoff"]
+    },
+    {
+      "id": "claim-stoa-frontend-readiness-boundary",
+      "contribution_id": "contrib-stoa-frontend-readiness-boundary",
+      "statement": "Documents propose frontend development-artifact and launch-readiness boundaries.",
+      "documentary_status": "document-derived-non-personal",
+      "responsibility": "unconfirmed",
+      "assistance": "unconfirmed",
+      "completion_status": "partial",
+      "evidence_ids": ["evid-stoa-frontend-audit", "evid-stoa-production-readiness"],
+      "limitations": ["The documented launch gates are conditions to verify, not proof of production operation."],
+      "conflicting_source_entry_ids": ["src-stoa-production-readiness"]
+    }
+  ],
+  "evidence": [
+    {"id": "evid-stoa-build-week", "source_entry_id": "src-stoa-build-week", "section_locator": "document", "proof_limit": "recorded_delivery"},
+    {"id": "evid-stoa-backend-audit", "source_entry_id": "src-stoa-backend-audit", "section_locator": "document", "proof_limit": "observed_state_defects_limitations"},
+    {"id": "evid-stoa-owner-handoff", "source_entry_id": "src-stoa-owner-handoff", "section_locator": "document", "proof_limit": "recorded_delivery"},
+    {"id": "evid-stoa-frontend-audit", "source_entry_id": "src-stoa-frontend-audit", "section_locator": "document", "proof_limit": "observed_state_defects_limitations"},
+    {"id": "evid-stoa-production-readiness", "source_entry_id": "src-stoa-production-readiness", "section_locator": "document", "proof_limit": "observed_state_defects_limitations"}
+  ],
+  "source_section_dispositions": [
+    {"source_entry_id": "src-stoa-backend-audit", "section_locator": "document", "disposition": "conflict", "proof_limit_reason": "Audit records observed defects and limitations that qualify delivery claims."},
+    {"source_entry_id": "src-stoa-build-week", "section_locator": "document", "disposition": "used", "proof_limit_reason": "Acceptance record can propose recorded delivery only."},
+    {"source_entry_id": "src-stoa-owner-handoff", "section_locator": "document", "disposition": "conflict", "proof_limit_reason": "Handoff records delivery context but explicitly reserves identity, responsibility, and assistance confirmation."},
+    {"source_entry_id": "src-stoa-frontend-audit", "section_locator": "document", "disposition": "used", "proof_limit_reason": "Audit can propose observed artifact state and limitations only."},
+    {"source_entry_id": "src-stoa-production-readiness", "section_locator": "document", "disposition": "conflict", "proof_limit_reason": "Readiness material names required conditions rather than proving production operation."},
+    {"source_entry_id": "src-stoa-next-stage-backlog", "section_locator": "document", "disposition": "background-only", "proof_limit_reason": "Future backlog is planned-only and cannot create contribution or assessment lineage."},
+    {"source_entry_id": "src-stoa-plan", "section_locator": "document", "disposition": "background-only", "proof_limit_reason": "Project planning supplies intent and historical context only."},
+    {"source_entry_id": "src-stoa-adr", "section_locator": "document", "disposition": "background-only", "proof_limit_reason": "Architecture decisions record intended design choices, not personal capability or delivered operation."},
+    {"source_entry_id": "src-stoa-deployment", "section_locator": "document", "disposition": "background-only", "proof_limit_reason": "Deployment guidance is operating context and cannot prove production operation."},
+    {"source_entry_id": "src-stoa-infra-readme", "section_locator": "document", "disposition": "background-only", "proof_limit_reason": "Infrastructure README describes scope and setup context only."}
+  ],
+  "background_context": [
+    {"source_entry_id": "src-stoa-next-stage-backlog", "description": "Future UI, backend, AWS, and product work remains planned-only."},
+    {"source_entry_id": "src-stoa-plan", "description": "Historical plan and sprint context remains intent-only."},
+    {"source_entry_id": "src-stoa-adr", "description": "Architecture decision context remains non-personal."},
+    {"source_entry_id": "src-stoa-deployment", "description": "Deployment guide remains operating context rather than proof of operation."},
+    {"source_entry_id": "src-stoa-infra-readme", "description": "Infrastructure scope remains background-only context."}
+  ]
+}
