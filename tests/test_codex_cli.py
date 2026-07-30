@@ -59,6 +59,18 @@ def _success_process() -> subprocess.CompletedProcess[str]:
     return subprocess.CompletedProcess(["codex", "exec"], 0, f"{json.dumps(event)}\n", "")
 
 
+def _success_process_with_untrusted_model_claim() -> subprocess.CompletedProcess[str]:
+    events = [
+        {"type": "turn.started", "model": "attacker-claimed-snapshot"},
+        {
+            "type": "item.completed",
+            "item": {"type": "agent_message", "text": '{"status":"ok"}'},
+        },
+    ]
+    stdout = "".join(f"{json.dumps(event)}\n" for event in events)
+    return subprocess.CompletedProcess(["codex", "exec"], 0, stdout, "")
+
+
 def test_argv_locks_luna_medium_json_schema_workspace_and_read_only(tmp_path):
     prompt = 'Return JSON; $(touch /tmp/nope); "quoted"'
 
@@ -140,6 +152,17 @@ def test_runner_uses_shell_false_redacts_secrets_and_retains_raw_jsonl(tmp_path)
     assert result.model_identity.model_alias == "gpt-5.6-luna"
     assert result.model_drift_limitation is not None
     assert result.sanitized_argv[-1].startswith("<prompt:sha256:")
+
+
+def test_untrusted_event_cannot_claim_an_immutable_model_snapshot(tmp_path):
+    result = run_codex_exec(
+        _config(tmp_path),
+        "prompt",
+        runner=FakeRunner(_success_process_with_untrusted_model_claim()),
+    )
+
+    assert result.model_identity.resolved_snapshot is None
+    assert result.model_drift_limitation is not None
 
 
 @pytest.mark.parametrize(

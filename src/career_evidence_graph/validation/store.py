@@ -250,7 +250,12 @@ class FormalRunStore:
         )
 
     def verify(self, run_id: str) -> FormalRunManifest:
-        """Fail closed unless all declared bundle bytes match their manifest."""
+        """Fail closed unless the complete bundle and its ancestry remain valid."""
+        return self._verify(run_id, ancestry=frozenset())
+
+    def _verify(self, run_id: str, *, ancestry: frozenset[str]) -> FormalRunManifest:
+        if run_id in ancestry:
+            raise FormalRunStorageError("formal run lineage contains a cycle")
         run_path = self._run_path(run_id)
         if run_path.is_symlink() or not run_path.is_dir():
             raise FormalRunStorageError(f"formal run does not exist safely: {run_id}")
@@ -270,6 +275,9 @@ class FormalRunStore:
             expected_files.add("codex_cli_result.json")
         if set(manifest.content_manifest) != expected_files:
             raise FormalRunStorageError("manifest does not declare the exact payload set")
+        actual_files = {entry.name for entry in run_path.iterdir()}
+        if actual_files != expected_files | {"manifest.json"}:
+            raise FormalRunStorageError("formal run contains missing or undeclared files")
         for filename, expected_hash in manifest.content_manifest.items():
             source_path = run_path / filename
             if source_path.is_symlink():
@@ -315,6 +323,11 @@ class FormalRunStore:
                 != canonical_json_bytes(codex_result.structured_result)
             ):
                 raise FormalRunStorageError("stored Codex raw response does not match metadata")
+        if manifest.parent_run_id is not None:
+            self._verify(
+                manifest.parent_run_id,
+                ancestry=ancestry | {run_id},
+            )
         return manifest
 
     def payload(self, run_id: str, filename: str) -> Any:

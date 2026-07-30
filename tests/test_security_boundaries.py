@@ -144,6 +144,18 @@ def test_corrupt_or_replaced_bundle_fails_without_mutating_another_run(
     assert _bytes(control_path) == control_before
 
 
+def test_undeclared_file_invalidates_the_complete_formal_bundle(tmp_path, charter_path):
+    store = FormalRunStore(tmp_path)
+    _create(store, charter_path)
+    (tmp_path / "formal-runs/accepted/injected.txt").write_text(
+        "undeclared",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(FormalRunStorageError, match="undeclared files"):
+        store.verify("accepted")
+
+
 def test_missing_parent_lineage_is_rejected(tmp_path, charter_path):
     store = FormalRunStore(tmp_path)
 
@@ -161,6 +173,29 @@ def test_missing_parent_lineage_is_rejected(tmp_path, charter_path):
         )
 
     assert not (tmp_path / "formal-runs/child").exists()
+
+
+def test_child_verification_fails_when_parent_is_later_tampered(tmp_path, charter_path):
+    store = FormalRunStore(tmp_path)
+    _create(store, charter_path, "parent")
+    store.create_linked_rerun(
+        parent_run_id="parent",
+        run_id="child",
+        change_reason="controlled rerun",
+        diff={"configuration": ["old", "new"]},
+        charter=load_charter(charter_path),
+        raw_response={"result": {"accepted": True}},
+        proposal={"accepted": True},
+        confirmed_result={"accepted": True},
+        lineage_inputs=_lineage(),
+    )
+    (tmp_path / "formal-runs/parent/raw_response.json").write_text(
+        '{"result":{"accepted":false}}\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(FormalRunStorageError, match="payload hash mismatch"):
+        store.verify("child")
 
 
 def test_exact_replay_has_no_live_runner_escape_hatch(tmp_path, charter_path, monkeypatch):

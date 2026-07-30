@@ -145,18 +145,6 @@ def _parse_jsonl(raw_stdout: str) -> tuple[list[dict[str, Any]], Any]:
     return events, result
 
 
-def _observed_snapshot(events: list[dict[str, Any]], requested_alias: str) -> str | None:
-    for event in reversed(events):
-        candidates = [event.get("model")]
-        turn = event.get("turn")
-        if isinstance(turn, dict):
-            candidates.append(turn.get("model"))
-        for candidate in candidates:
-            if isinstance(candidate, str) and candidate and candidate != requested_alias:
-                return candidate
-    return None
-
-
 def run_codex_exec(
     config: CodexCLIConfig,
     prompt: str,
@@ -204,10 +192,10 @@ def run_codex_exec(
         raise CodexCLIError(
             f"Codex exec failed with exit code {process.returncode}: {redacted_stderr}"
         )
-    events, structured_result = _parse_jsonl(process.stdout)
-    resolved_snapshot = config.immutable_snapshot or _observed_snapshot(
-        events, config.requested_model
-    )
+    _, structured_result = _parse_jsonl(process.stdout)
+    # Subprocess output is untrusted evidence and cannot promote an alias into an
+    # immutable identity. Only an operator-configured snapshot crosses that boundary.
+    resolved_snapshot = config.immutable_snapshot
     model_identity = ModelIdentity(
         schema_version="model-identity/v1",
         model_alias=config.requested_model,
