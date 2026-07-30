@@ -28,6 +28,28 @@ class AcceptanceState(StrictModel):
     missing_prerequisites: list[str]
 
 
+class CriticalNegativeCase(StrictModel):
+    schema_version: Literal["critical-negative-case/v1"]
+    case_id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,127}$")
+    blocker_class: Literal[
+        "capability_fabrication",
+        "incorrect_attribution",
+        "duplicate_evidence_inflation",
+        "broken_lineage",
+        "material_instability",
+        "unreproducible_formal_run",
+    ]
+    triggered: bool
+    evidence: list[str]
+
+
+class FunctionalAcceptanceEvaluation(StrictModel):
+    schema_version: Literal["functional-acceptance-evaluation/v1"]
+    decision: Literal["pass", "block"]
+    blocking_classes: list[str]
+    strengths_observed: list[str]
+
+
 class ProductEffectLabels(StrictModel):
     labels: list[Literal["supported", "partially-supported", "rejected"]]
     authoritative_for_this_charter: bool
