@@ -111,11 +111,16 @@ def validate_claim_attribution(
 ) -> tuple[InvariantViolation, ...]:
     """Require definite fixture conclusions to retain user claim provenance."""
     claims_by_id = {claim.id: claim for claim in fixture.claims}
+    contribution_ids = {contribution.id for contribution in fixture.contributions}
     violations: list[InvariantViolation] = []
     for assessment in fixture.assessments:
         path = f"assessments.{assessment.id}"
         if not assessment.basis_claim_ids:
             violations.append(InvariantViolation(code="assessment.basis_missing", path=path))
+            continue
+        if assessment.contribution_id not in contribution_ids:
+            # A missing Contribution is a primary lineage failure. Basis claims cannot
+            # be compared to that absent record, so avoid derivative mismatch noise.
             continue
         for claim_id in assessment.basis_claim_ids:
             claim = claims_by_id.get(claim_id)

@@ -88,7 +88,7 @@ def test_contribution_lineage_is_the_only_admitted_source_kind():
                     {"contribution_id": "contribution.missing"}
                 ),
             ),
-            ["assessment.basis_claim_mismatch", "assessment.contribution_missing"],
+            ["assessment.contribution_missing"],
         ),
     ),
 )
