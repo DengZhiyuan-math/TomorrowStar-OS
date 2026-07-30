@@ -15,6 +15,9 @@ dependencies = [
 [project.scripts]
 career-evidence = "career_evidence_graph.cli:main"
 
+[tool.uv]
+cache-keys = [{ file = "_build_backend.py" }]
+
 [dependency-groups]
 dev = [
   "pytest==9.1.1",

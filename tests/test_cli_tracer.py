@@ -7,6 +7,44 @@ import subprocess
 import sys
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_locked_commands_resolve_the_repository_src_package() -> None:
+    """Both pytest and ``python -m`` must exercise this checkout, not a stale wheel."""
+    import career_evidence_graph
+
+    expected = ROOT / "src" / "career_evidence_graph" / "__init__.py"
+    assert Path(career_evidence_graph.__file__).resolve() == expected.resolve()
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import career_evidence_graph; print(career_evidence_graph.__file__)",
+        ],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert Path(completed.stdout.strip()).resolve() == expected.resolve()
+
+    cli = subprocess.run(
+        [sys.executable, "-m", "career_evidence_graph.cli", "implementation-path"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert cli.returncode == 0, cli.stderr
+    assert Path(json.loads(cli.stdout)["package_path"]).resolve() == (
+        ROOT / "src" / "career_evidence_graph" / "cli.py"
+    ).resolve()
+
 
 def _run(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(

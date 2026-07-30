@@ -52,6 +52,8 @@ def _parser() -> argparse.ArgumentParser:
     charter = commands.add_parser("validate-charter")
     charter.add_argument("path")
 
+    commands.add_parser("implementation-path")
+
     fixture = commands.add_parser("fixture")
     fixture_commands = fixture.add_subparsers(dest="fixture_command", required=True)
     fixture_validate = fixture_commands.add_parser("validate")
@@ -123,6 +125,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "validate-charter":
             charter = load_charter(Path(args.path))
             _emit({"valid": True, "charter_version": charter.charter_version})
+        elif args.command == "implementation-path":
+            _emit({"package_path": str(Path(__file__).resolve())})
         elif args.command == "fixture" and args.fixture_command == "validate":
             path = Path(args.path)
             payload = _json_file(args.path)
