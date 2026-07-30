@@ -36,6 +36,12 @@ def _codes(fixture: CareerEvidenceFixture) -> list[str]:
     return [item.code for item in collect_invariant_violations(fixture)]
 
 
+def _violation_bytes(fixture: CareerEvidenceFixture) -> bytes:
+    return canonical_json_bytes(
+        tuple(item.model_dump(mode="json") for item in collect_invariant_violations(fixture))
+    )
+
+
 @pytest.mark.parametrize(
     "source_kind",
     (
@@ -129,14 +135,21 @@ def test_zero_assessments_allow_zero_views_but_reject_a_synthetic_view():
 
     payload = _payload()
     payload["assessments"] = []
-    assert _codes(_fixture(payload)) == ["user-skill.without-assessment"]
+    assert _codes(_fixture(payload)) == [
+        "user-skill.assessment_missing",
+        "user-skill.without-assessment",
+    ]
 
 
 def test_view_for_an_unassessed_skill_is_rejected_without_creating_mastery():
     payload = _payload()
     payload["user_skill_views"][0]["skill_id"] = "skill.unassessed"  # type: ignore[index]
 
-    assert _codes(_fixture(payload)) == ["user-skill.without-assessment"]
+    assert _codes(_fixture(payload)) == [
+        "user-skill.missing",
+        "user-skill.skill_mismatch",
+        "user-skill.without-assessment",
+    ]
 
 
 def test_user_skill_view_has_no_supporting_score_dimensions():
@@ -157,17 +170,14 @@ def test_repeated_and_shuffled_validation_is_sorted_and_does_not_mutate_input():
     original_bytes = canonical_json_bytes(payload)
     fixture = _fixture(payload)
 
-    first = canonical_json_bytes(collect_invariant_violations(fixture))
-    second = canonical_json_bytes(collect_invariant_violations(fixture))
+    first = _violation_bytes(fixture)
+    second = _violation_bytes(fixture)
     shuffled = deepcopy(payload)
     shuffled["assessments"].reverse()  # type: ignore[index]
 
-    assert first == second == canonical_json_bytes(collect_invariant_violations(_fixture(shuffled)))
+    assert first == second == _violation_bytes(_fixture(shuffled))
     assert original_bytes == canonical_json_bytes(payload)
-    expected = tuple(
-        sorted(collect_invariant_violations(fixture), key=lambda item: (item.code, item.path))
-    )
-    assert first == canonical_json_bytes(expected)
+    assert first == _violation_bytes(fixture)
 
 
 def test_validate_wrapper_reports_all_ordered_invariant_violations():
