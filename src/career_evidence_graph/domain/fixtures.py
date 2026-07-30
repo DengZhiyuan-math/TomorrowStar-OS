@@ -7,8 +7,10 @@ establish a person's responsibility or capability.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
@@ -17,6 +19,8 @@ from pydantic import Field, ValidationError, model_validator
 
 from ..validation.hashing import canonical_json_bytes, sha256_digest
 from ..validation.models import CorrectionRecord, StrictModel
+from ..validation.replay import replay_recorded_response
+from ..validation.store import FormalRunStorageError, FormalRunStore, load_charter
 from .invariants import validate_career_evidence_fixture
 from .models import (
     COMMIT_PATTERN,
@@ -216,6 +220,18 @@ class ReviewStatus(StrictModel):
     schema_version: Literal["stoa-review-status/v1"] = "stoa-review-status/v1"
     sealable: bool
     pending_ids_by_group: dict[str, tuple[str, ...]]
+
+
+class SealedFixtureRecord(StrictModel):
+    """A known-good envelope tied to one verified FormalRunStore bundle."""
+
+    schema_version: Literal["sealed-stoa-known-good/v1"] = "sealed-stoa-known-good/v1"
+    formal_run_id: str = Field(min_length=1)
+    confirmed_result_hash: str = Field(pattern=SHA256_PATTERN)
+    source_manifest_hash: str = Field(pattern=SHA256_PATTERN)
+    review_hash: str = Field(pattern=SHA256_PATTERN)
+    checkpoint_summary_hash: str = Field(pattern=SHA256_PATTERN)
+    fixture: CareerEvidenceFixture
 
 
 _CONFIRMED_REVIEWER_ID = "zhdeng"
@@ -590,3 +606,143 @@ def write_materialized_review(path: Path, review: CandidateReviewRecord) -> None
     finally:
         if temporary.exists():
             temporary.unlink()
+
+
+def _validation_root(manifest_path: Path) -> Path:
+    """Locate the project root from validation/fixtures/stoa/v1/source-manifest.json."""
+    try:
+        validation_dir = manifest_path.resolve().parents[3]
+    except IndexError as exc:
+        raise _source_scope_error("source manifest has no validation-root parent") from exc
+    if validation_dir.name != "validation":
+        raise _source_scope_error("source manifest must live below validation/fixtures/stoa/v1")
+    return validation_dir.parent
+
+
+def _publish_known_good(path: Path, value: SealedFixtureRecord) -> None:
+    """Publish a canonical file once; permit only exact idempotent recovery."""
+    expected = canonical_json_bytes(value.model_dump(mode="json"))
+    if path.exists():
+        try:
+            observed = canonical_json_bytes(json.loads(path.read_text(encoding="utf-8")))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise FormalRunStorageError("known-good output is unreadable or non-canonical") from exc
+        if observed != expected:
+            raise FormalRunStorageError("known-good output already exists with divergent bytes")
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(expected + b"\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.link(temporary, path)
+        except FileExistsError:
+            observed = canonical_json_bytes(json.loads(path.read_text(encoding="utf-8")))
+            if observed != expected:
+                raise FormalRunStorageError(
+                    "known-good output already exists with divergent bytes"
+                ) from None
+        finally:
+            temporary.unlink(missing_ok=True)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
+def seal_reviewed_fixture(
+    *,
+    workspace: Path,
+    run_id: str,
+    manifest_path: Path,
+    candidates: CandidateLedger,
+    review: CandidateReviewRecord,
+    checkpoint_summary_bytes: bytes,
+    output_path: Path,
+):
+    """Seal a complete human review through a verified, provider-free formal run."""
+    source_verification = verify_source_manifest(manifest_path)
+    if review.checkpoint_summary_hash != sha256_digest(checkpoint_summary_bytes):
+        raise _source_scope_error("review checkpoint summary hash has drifted")
+    if review.reviewer_id != _CONFIRMED_REVIEWER_ID:
+        raise _source_scope_error("known-good requires the confirmed human reviewer")
+    if not evaluate_review_status(candidates, review).sealable:
+        raise _source_scope_error("incomplete review cannot be sealed")
+    fixture = _reviewed_fixture(candidates)
+    fixture_result = validate_career_evidence_fixture(fixture)
+    root = _validation_root(manifest_path)
+    charter = load_charter(root / "validation/charter/v1.json")
+    proposal = candidates.model_dump(mode="json")
+    confirmed_result = fixture.model_dump(mode="json")
+    store = FormalRunStore(workspace)
+    run_path = store.runs_root / run_id
+    if run_path.exists():
+        stored_manifest = store.verify(run_id)
+        if store.payload(run_id, "confirmed_result.json") != confirmed_result:
+            raise FormalRunStorageError("existing formal run does not match reviewed fixture")
+        if not replay_recorded_response(store, run_id).matched:
+            raise FormalRunStorageError("existing formal run cannot replay exactly")
+    else:
+        stored_manifest = store.create(
+            run_id=run_id,
+            charter=charter,
+            raw_response={"result": confirmed_result},
+            proposal=proposal,
+            confirmed_result=confirmed_result,
+            lineage_inputs={
+                "fixture": {"hash": fixture_result.fixture_hash},
+                "artifacts": {"source_manifest_hash": source_verification.manifest_hash},
+                "prompt": {"kind": "none"},
+                "model": {"kind": "none"},
+                "configuration": {"mode": "offline"},
+                "policy": {"fixture_notice": _FIXTURE_NOTICE},
+                "reviewer": {
+                    "reviewer_id": review.reviewer_id,
+                    "checkpoint_summary_hash": review.checkpoint_summary_hash,
+                },
+            },
+            corrections=list(review.corrections),
+            limitations=[
+                "Fixture score/range values remain unresolved test expectations, not mastery.",
+                (
+                    "Partial delivery and source conflicts remain visible; "
+                    "no effectiveness conclusion follows."
+                ),
+                _FIXTURE_NOTICE,
+            ],
+        )
+        store.verify(run_id)
+        if not replay_recorded_response(store, run_id).matched:
+            raise FormalRunStorageError("new formal run cannot replay exactly")
+    record = SealedFixtureRecord(
+        formal_run_id=stored_manifest.run_id,
+        confirmed_result_hash=fixture_result.fixture_hash,
+        source_manifest_hash=source_verification.manifest_hash,
+        review_hash=sha256_digest(canonical_json_bytes(review)),
+        checkpoint_summary_hash=review.checkpoint_summary_hash,
+        fixture=fixture,
+    )
+    _publish_known_good(output_path, record)
+    return fixture_result
+
+
+def load_sealed_fixture(path: Path, workspace: Path):
+    """Load known-good only when it still matches its verified immutable bundle."""
+    try:
+        sealed = SealedFixtureRecord.model_validate_json(path.read_bytes())
+    except (OSError, ValidationError) as exc:
+        raise FormalRunStorageError("known-good fixture is invalid") from exc
+    store = FormalRunStore(workspace)
+    store.verify(sealed.formal_run_id)
+    confirmed = store.payload(sealed.formal_run_id, "confirmed_result.json")
+    if canonical_json_bytes(confirmed) != canonical_json_bytes(sealed.fixture):
+        raise FormalRunStorageError("known-good fixture differs from formal confirmed result")
+    result = validate_career_evidence_fixture(sealed.fixture)
+    if result.fixture_hash != sealed.confirmed_result_hash:
+        raise FormalRunStorageError("known-good confirmed-result hash is invalid")
+    if not replay_recorded_response(store, sealed.formal_run_id).matched:
+        raise FormalRunStorageError("known-good formal run does not replay exactly")
+    return result

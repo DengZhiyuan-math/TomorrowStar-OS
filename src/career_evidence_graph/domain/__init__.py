@@ -5,6 +5,8 @@ from .fixtures import (
     SourceScopeError,
     evaluate_review_status,
     load_candidate_packet,
+    load_sealed_fixture,
+    seal_reviewed_fixture,
     verify_source_manifest,
 )
 from .invariants import (
@@ -53,5 +55,7 @@ __all__ = [
     "validate_user_skill_views",
     "evaluate_review_status",
     "load_candidate_packet",
+    "load_sealed_fixture",
+    "seal_reviewed_fixture",
     "verify_source_manifest",
 ]

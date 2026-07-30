@@ -12,8 +12,8 @@ import pytest
 from career_evidence_graph.domain.fixtures import (
     SourceScopeError,
     evaluate_review_status,
-    load_sealed_fixture,
     load_candidate_packet,
+    load_sealed_fixture,
     materialize_review_decisions,
     seal_reviewed_fixture,
     verify_source_manifest,
@@ -154,7 +154,7 @@ def test_recorded_review_has_six_resolved_groups_and_can_seal() -> None:
         "fixture_score_range",
     }
     assert not any(status.pending_ids_by_group.values())
-    assert not (ROOT / "validation/fixtures/stoa/v1/known-good.json").exists()
+    assert (ROOT / "validation/fixtures/stoa/v1/known-good.json").exists()
 
 
 def test_candidate_packet_rejects_documentary_personal_claim_and_planned_lineage(
@@ -186,16 +186,13 @@ def test_review_materialization_preserves_human_corrections_and_unresolved_value
     assert review.checkpoint_summary_hash.startswith("sha256:")
     assert review.candidate_ledger_hash == pending_review.candidate_ledger_hash
     assert evaluate_review_status(candidates, review).sealable is True
-    assert all(
-        item.fixture_score_range.status == "unresolved" for item in review.items
-    )
+    assert all(item.fixture_score_range.status == "unresolved" for item in review.items)
     assert all(
         claim.responsibility == "user" and claim.assistance == "codex_assisted"
         for claim in fixture.claims
     )
     assert all(
-        view.expectation_status == "fixture-test-expectation"
-        for view in fixture.user_skill_views
+        view.expectation_status == "fixture-test-expectation" for view in fixture.user_skill_views
     )
 
 
@@ -223,4 +220,36 @@ def test_seal_publishes_verified_bundle_and_provider_free_replay(tmp_path: Path)
     assert FormalRunStore(workspace).verify("stoa-known-good").run_id == "stoa-known-good"
     assert replay_recorded_response(FormalRunStore(workspace), "stoa-known-good").matched
     assert load_sealed_fixture(output, workspace).fixture_hash == sealed.fixture_hash
-    assert json.loads(output.read_text(encoding="utf-8"))["confirmed_result_hash"] == sealed.fixture_hash
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["confirmed_result_hash"] == sealed.fixture_hash
+
+
+def test_seal_recovers_only_identical_missing_output_and_rejects_overwrite(tmp_path: Path) -> None:
+    workspace = tmp_path / "stoa"
+    workspace.mkdir()
+    candidates, review = load_candidate_packet(CANDIDATES, REVIEW)
+    summary = (
+        ROOT
+        / ".planning/phases/02-domain-contracts-stoa-fixture-and-deterministic-invariants"
+        / "02-04-SUMMARY.md"
+    ).read_bytes()
+    output = workspace / "known-good.json"
+    kwargs = {
+        "workspace": workspace,
+        "run_id": "stoa-known-good",
+        "manifest_path": MANIFEST,
+        "candidates": candidates,
+        "review": review,
+        "checkpoint_summary_bytes": summary,
+        "output_path": output,
+    }
+
+    sealed = seal_reviewed_fixture(**kwargs)
+    output.unlink()
+    assert seal_reviewed_fixture(**kwargs).fixture_hash == sealed.fixture_hash
+    output.write_text('{"unexpected":true}\n', encoding="utf-8")
+
+    with pytest.raises(Exception, match="divergent bytes"):
+        seal_reviewed_fixture(**kwargs)
+
+    assert not list(workspace.glob(".known-good.json.*"))

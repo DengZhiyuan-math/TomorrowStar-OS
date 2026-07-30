@@ -17,6 +17,8 @@ from .domain import (
     evaluate_review_status,
     load_and_validate_fixture,
     load_candidate_packet,
+    load_sealed_fixture,
+    seal_reviewed_fixture,
     verify_source_manifest,
 )
 from .validation.provenance import ProvenanceValidationError, verify_provenance_registry
@@ -49,6 +51,13 @@ def _parser() -> argparse.ArgumentParser:
     fixture_commands = fixture.add_subparsers(dest="fixture_command", required=True)
     fixture_validate = fixture_commands.add_parser("validate")
     fixture_validate.add_argument("path")
+    fixture_seal = fixture_commands.add_parser("seal")
+    fixture_seal.add_argument("--workspace", required=True)
+    fixture_seal.add_argument("--run-id", required=True)
+    fixture_seal.add_argument("--manifest", required=True)
+    fixture_seal.add_argument("--candidates", required=True)
+    fixture_seal.add_argument("--review", required=True)
+    fixture_seal.add_argument("--output", required=True)
     fixture_source = fixture_commands.add_parser("source")
     fixture_source_commands = fixture_source.add_subparsers(dest="source_command", required=True)
     fixture_source_verify = fixture_source_commands.add_parser("verify")
@@ -107,7 +116,30 @@ def main(argv: list[str] | None = None) -> int:
             charter = load_charter(Path(args.path))
             _emit({"valid": True, "charter_version": charter.charter_version})
         elif args.command == "fixture" and args.fixture_command == "validate":
-            _emit(load_and_validate_fixture(Path(args.path)))
+            path = Path(args.path)
+            payload = _json_file(args.path)
+            if payload.get("schema_version") == "sealed-stoa-known-good/v1":
+                _emit(load_sealed_fixture(path, path.parent))
+            else:
+                _emit(load_and_validate_fixture(path))
+        elif args.command == "fixture" and args.fixture_command == "seal":
+            candidates, review = load_candidate_packet(Path(args.candidates), Path(args.review))
+            checkpoint_summary = (
+                Path.cwd()
+                / ".planning/phases/02-domain-contracts-stoa-fixture-and-deterministic-invariants"
+                / "02-04-SUMMARY.md"
+            )
+            _emit(
+                seal_reviewed_fixture(
+                    workspace=Path(args.workspace),
+                    run_id=args.run_id,
+                    manifest_path=Path(args.manifest),
+                    candidates=candidates,
+                    review=review,
+                    checkpoint_summary_bytes=checkpoint_summary.read_bytes(),
+                    output_path=Path(args.output),
+                )
+            )
         elif (
             args.command == "fixture"
             and args.fixture_command == "source"
