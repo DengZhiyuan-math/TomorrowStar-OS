@@ -1,6 +1,7 @@
 [build-system]
-requires = ["flit_core>=3.12,<4"]
-build-backend = "flit_core.buildapi"
+requires = []
+build-backend = "_career_evidence_build"
+backend-path = ["."]
 
 [project]
 name = "career-evidence-graph"

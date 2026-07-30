@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import base64
 import csv
+import hashlib
 import json
 import os
 import re
@@ -52,12 +54,15 @@ def test_explicit_checkout_pytest_launcher_imports_the_source_package() -> None:
 
 
 def test_built_wheel_is_self_contained_outside_the_checkout(tmp_path: Path) -> None:
-    """An installed wheel must import itself, never a build-machine checkout hook."""
+    """A fresh-cache offline build must install without a checkout import hook."""
     distribution_dir = tmp_path / "dist"
     virtualenv = tmp_path / "wheel-venv"
     external_cwd = tmp_path / "external"
+    fresh_cache = tmp_path / "fresh-uv-cache"
     distribution_dir.mkdir()
     external_cwd.mkdir()
+    fresh_cache.mkdir()
+    offline_environment = os.environ | {"UV_CACHE_DIR": str(fresh_cache), "UV_OFFLINE": "1"}
 
     built = subprocess.run(
         ["uv", "build", "--wheel", "--offline", "--out-dir", str(distribution_dir)],
@@ -65,21 +70,35 @@ def test_built_wheel_is_self_contained_outside_the_checkout(tmp_path: Path) -> N
         check=False,
         capture_output=True,
         text=True,
+        env=offline_environment,
     )
     assert built.returncode == 0, built.stderr
     wheel = next(distribution_dir.glob("career_evidence_graph-*.whl"))
 
     with zipfile.ZipFile(wheel) as archive:
-        assert "sitecustomize.py" not in archive.namelist()
-        record_name = next(
-            name for name in archive.namelist() if name.endswith(".dist-info/RECORD")
+        wheel_members = archive.namelist()
+        assert "sitecustomize.py" not in wheel_members
+        assert not any(name.endswith(".pth") for name in wheel_members)
+        assert str(ROOT.resolve()).encode("utf-8") not in b"".join(
+            archive.read(name) for name in wheel_members
         )
+        record_name = next(name for name in wheel_members if name.endswith(".dist-info/RECORD"))
         record_rows = list(csv.reader(archive.read(record_name).decode("utf-8").splitlines()))
-    assert all(
-        row[1]
-        for row in record_rows
-        if row[0].startswith("career_evidence_graph/") and row[0].endswith(".py")
-    )
+        record = {row[0]: row[1:] for row in record_rows}
+        for name in wheel_members:
+            if name == record_name:
+                assert record[name] == ["", ""]
+                continue
+            digest = base64.urlsafe_b64encode(hashlib.sha256(archive.read(name)).digest())
+            expected_hash = f"sha256={digest.rstrip(b'=').decode('ascii')}"
+            assert record[name] == [expected_hash, str(len(archive.read(name)))]
+    package_modules = [
+        name
+        for name in wheel_members
+        if name.startswith("career_evidence_graph/") and name.endswith(".py")
+    ]
+    assert package_modules
+    assert all(name in record and record[name][0] for name in package_modules)
 
     created = subprocess.run(
         ["uv", "venv", "--offline", "--python", sys.executable, str(virtualenv)],
@@ -87,6 +106,7 @@ def test_built_wheel_is_self_contained_outside_the_checkout(tmp_path: Path) -> N
         check=False,
         capture_output=True,
         text=True,
+        env=offline_environment,
     )
     assert created.returncode == 0, created.stderr
     wheel_python = virtualenv / "bin" / "python"
@@ -105,6 +125,7 @@ def test_built_wheel_is_self_contained_outside_the_checkout(tmp_path: Path) -> N
         check=False,
         capture_output=True,
         text=True,
+        env=offline_environment,
     )
     assert installed.returncode == 0, installed.stderr
 
@@ -112,7 +133,15 @@ def test_built_wheel_is_self_contained_outside_the_checkout(tmp_path: Path) -> N
         [
             str(wheel_python),
             "-c",
-            "import career_evidence_graph; print(career_evidence_graph.__file__)",
+            (
+                "import json; from importlib.metadata import distribution; "
+                "import career_evidence_graph; "
+                "dist = distribution('career-evidence-graph'); "
+                "print(json.dumps({'package_path': career_evidence_graph.__file__, "
+                "'cli_path': str(dist.locate_file('career_evidence_graph/cli.py')), "
+                "'entry_points': [entry.value for entry in dist.entry_points "
+                "if entry.group == 'console_scripts' and entry.name == 'career-evidence']}))"
+            ),
         ],
         cwd=external_cwd,
         check=False,
@@ -121,7 +150,10 @@ def test_built_wheel_is_self_contained_outside_the_checkout(tmp_path: Path) -> N
     )
 
     assert imported.returncode == 0, imported.stderr
-    assert virtualenv.resolve() in Path(imported.stdout.strip()).resolve().parents
+    installed_paths = json.loads(imported.stdout)
+    assert virtualenv.resolve() in Path(installed_paths["package_path"]).resolve().parents
+    assert virtualenv.resolve() in Path(installed_paths["cli_path"]).resolve().parents
+    assert installed_paths["entry_points"] == ["career_evidence_graph.cli:main"]
 
 
 def _run(*args: str) -> subprocess.CompletedProcess[str]:
