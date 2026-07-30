@@ -4,15 +4,15 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 1
 current_phase_name: Validation Charter, Provenance, and Technical Decision Gate
-status: planning
-stopped_at: Phase 1 context gathered
-last_updated: "2026-07-30T08:08:02.743Z"
+status: executing
+stopped_at: Phase 1 planned
+last_updated: "2026-07-30T08:42:20.623Z"
 last_activity: 2026-07-30
-last_activity_desc: Initial six-phase Vertical MVP roadmap created with all 37 v1 requirements mapped.
+last_activity_desc: Phase 1 planned in two dependency-ordered waves with full requirement and decision coverage.
 progress:
   total_phases: 6
   completed_phases: 0
-  total_plans: 0
+  total_plans: 2
   completed_plans: 0
   percent: 0
 ---
@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-07-30)
 ## Current Position
 
 Phase: 1 of 6 (Validation Charter, Provenance, and Technical Decision Gate)
-Plan: 0 of TBD in current phase
-Status: Ready to plan
-Last activity: 2026-07-30 — Initial six-phase Vertical MVP roadmap created with all 37 v1 requirements mapped.
+Plan: 0 of 2 in current phase
+Status: Ready to execute
+Last activity: 2026-07-30 — Phase 1 planned in two dependency-ordered waves with full requirement and decision coverage.
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -74,7 +74,6 @@ None yet.
 
 ### Blockers/Concerns
 
-- [Phase 1]: Acceptance thresholds, baseline protocol, holdout sampling, and runtime/provider pins must be chosen before tuning.
 - [Phase 4]: Aggregation candidates and confidence-admission rules require human-reviewed calibration rather than initialization-time assumptions.
 - [Phase 6]: The feasible minimum non-STOA replication and resulting generalization boundary remain to be determined.
 
@@ -88,6 +87,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-07-30T08:08:02.733Z
-Stopped at: Phase 1 context gathered
-Resume file: .planning/phases/01-validation-charter-provenance-and-technical-decision-gate/01-CONTEXT.md
+Last session: 2026-07-30T08:41:58.695Z
+Stopped at: Phase 1 planned
+Resume file: .planning/phases/01-validation-charter-provenance-and-technical-decision-gate/01-01-PLAN.md
