@@ -1,7 +1,6 @@
 [build-system]
 requires = ["flit_core>=3.12,<4"]
-build-backend = "_build_backend"
-backend-path = ["."]
+build-backend = "flit_core.buildapi"
 
 [project]
 name = "career-evidence-graph"
@@ -14,9 +13,6 @@ dependencies = [
 
 [project.scripts]
 career-evidence = "career_evidence_graph.cli:main"
-
-[tool.uv]
-cache-keys = [{ file = "_build_backend.py" }]
 
 [dependency-groups]
 dev = [

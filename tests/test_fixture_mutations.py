@@ -30,6 +30,7 @@ ROOT = Path(__file__).resolve().parents[1]
 KNOWN_GOOD = ROOT / "validation/fixtures/stoa/v1/known-good.json"
 KNOWN_BAD_DIR = ROOT / "validation/fixtures/stoa/v1/known-bad"
 FORMAL_RUN = ROOT / "validation/fixtures/stoa/v1/formal-runs/stoa-known-good"
+LAUNCHER = ROOT / "scripts" / "run_career_evidence.py"
 
 EXPECTED_CODES = {
     "direct-mastery-experience": "assessment.direct-source-forbidden",
@@ -177,8 +178,7 @@ def _validate_suite_cli(known_good: Path, known_bad_dir: Path) -> subprocess.Com
     return subprocess.run(
         [
             sys.executable,
-            "-m",
-            "career_evidence_graph.cli",
+            str(LAUNCHER),
             "fixture",
             "validate-suite",
             "--known-good",

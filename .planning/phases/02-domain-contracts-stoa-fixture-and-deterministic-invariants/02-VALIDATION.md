@@ -52,7 +52,7 @@ Task IDs and statuses below are synchronized with the final six executed plans.
 | 02-05-01 | 05 | 4 | FIX-01 | T-02-16, T-02-18 | Human decisions and corrections retain proposal bytes, reasons, reviewer identity, and unresolved states | integration | `uv run --locked pytest -q tests/test_stoa_fixture.py -k "review and not seal"` | ✅ | ✅ green |
 | 02-05-02 | 05 | 4 | FIX-01, MOD-02, MOD-03, MOD-04, MOD-05, MOD-06, MOD-07 | T-02-17, T-02-19, T-02-20 | Known-good publishes immutably only after review and validates/replays through the production core | integration | `uv run --locked pytest -q tests/test_stoa_fixture.py` | ✅ | ✅ green |
 | 02-06-01 | 06 | 5 | FIX-02 | T-02-21, T-02-22, T-02-23 | Every bad variant has one base hash, one operation, one expected code, and one actual sole error | regression | `uv run --locked pytest -q tests/test_fixture_mutations.py` | ✅ | ✅ green |
-| 02-06-02 | 06 | 5 | FIX-02 | T-02-24, T-02-25 | The batch CLI, all Phase 2 tests, full suite, lint, format, and validation-status synchronization pass offline | phase gate | `uv run --locked python -m career_evidence_graph.cli fixture validate-suite --known-good validation/fixtures/stoa/v1/known-good.json --known-bad-dir validation/fixtures/stoa/v1/known-bad` | ✅ | ✅ green |
+| 02-06-02 | 06 | 5 | FIX-02 | T-02-24, T-02-25 | The batch CLI, all Phase 2 tests, full suite, lint, format, and validation-status synchronization pass offline | phase gate | `uv run --locked python scripts/run_career_evidence.py fixture validate-suite --known-good validation/fixtures/stoa/v1/known-good.json --known-bad-dir validation/fixtures/stoa/v1/known-bad` | ✅ | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 

@@ -26,6 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "validation/fixtures/stoa/v1/source-manifest.json"
 CANDIDATES = ROOT / "validation/fixtures/stoa/v1/candidates.json"
 REVIEW = ROOT / "validation/fixtures/stoa/v1/review.json"
+LAUNCHER = ROOT / "scripts" / "run_career_evidence.py"
 
 
 def test_source_manifest_verifies_exact_pinned_document_inventory() -> None:
@@ -79,8 +80,7 @@ def test_fixture_source_verify_cli_is_offline_and_reports_counts() -> None:
     completed = subprocess.run(
         [
             sys.executable,
-            "-m",
-            "career_evidence_graph.cli",
+            str(LAUNCHER),
             "fixture",
             "source",
             "verify",

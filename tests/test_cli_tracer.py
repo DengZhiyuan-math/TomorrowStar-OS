@@ -1,39 +1,23 @@
 from __future__ import annotations
 
+import csv
 import json
 import os
 import re
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+LAUNCHER = ROOT / "scripts" / "run_career_evidence.py"
+PYTEST_LAUNCHER = ROOT / "scripts" / "run_pytest.py"
 
 
-def test_locked_commands_resolve_the_repository_src_package() -> None:
-    """Both pytest and ``python -m`` must exercise this checkout, not a stale wheel."""
-    import career_evidence_graph
-
-    expected = ROOT / "src" / "career_evidence_graph" / "__init__.py"
-    assert Path(career_evidence_graph.__file__).resolve() == expected.resolve()
-
-    completed = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            "import career_evidence_graph; print(career_evidence_graph.__file__)",
-        ],
-        cwd=ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert completed.returncode == 0, completed.stderr
-    assert Path(completed.stdout.strip()).resolve() == expected.resolve()
-
+def test_explicit_checkout_launcher_resolves_the_repository_src_package() -> None:
+    """The project-local launcher selects this checkout without a global import hook."""
     cli = subprocess.run(
-        [sys.executable, "-m", "career_evidence_graph.cli", "implementation-path"],
+        [sys.executable, str(LAUNCHER), "implementation-path"],
         cwd=ROOT,
         check=False,
         capture_output=True,
@@ -47,9 +31,102 @@ def test_locked_commands_resolve_the_repository_src_package() -> None:
     )
 
 
+def test_explicit_checkout_pytest_launcher_imports_the_source_package() -> None:
+    """The locked test gate must select checkout code without ``PYTHONPATH``."""
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(PYTEST_LAUNCHER),
+            "-q",
+            "tests/test_domain_models.py",
+            "-k",
+            "models_reject_unknown_fields",
+        ],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_built_wheel_is_self_contained_outside_the_checkout(tmp_path: Path) -> None:
+    """An installed wheel must import itself, never a build-machine checkout hook."""
+    distribution_dir = tmp_path / "dist"
+    virtualenv = tmp_path / "wheel-venv"
+    external_cwd = tmp_path / "external"
+    distribution_dir.mkdir()
+    external_cwd.mkdir()
+
+    built = subprocess.run(
+        ["uv", "build", "--wheel", "--offline", "--out-dir", str(distribution_dir)],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert built.returncode == 0, built.stderr
+    wheel = next(distribution_dir.glob("career_evidence_graph-*.whl"))
+
+    with zipfile.ZipFile(wheel) as archive:
+        assert "sitecustomize.py" not in archive.namelist()
+        record_name = next(
+            name for name in archive.namelist() if name.endswith(".dist-info/RECORD")
+        )
+        record_rows = list(csv.reader(archive.read(record_name).decode("utf-8").splitlines()))
+    assert all(
+        row[1]
+        for row in record_rows
+        if row[0].startswith("career_evidence_graph/") and row[0].endswith(".py")
+    )
+
+    created = subprocess.run(
+        ["uv", "venv", "--offline", "--python", sys.executable, str(virtualenv)],
+        cwd=external_cwd,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert created.returncode == 0, created.stderr
+    wheel_python = virtualenv / "bin" / "python"
+    installed = subprocess.run(
+        [
+            "uv",
+            "pip",
+            "install",
+            "--offline",
+            "--python",
+            str(wheel_python),
+            "--no-deps",
+            str(wheel),
+        ],
+        cwd=external_cwd,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert installed.returncode == 0, installed.stderr
+
+    imported = subprocess.run(
+        [
+            str(wheel_python),
+            "-c",
+            "import career_evidence_graph; print(career_evidence_graph.__file__)",
+        ],
+        cwd=external_cwd,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert imported.returncode == 0, imported.stderr
+    assert virtualenv.resolve() in Path(imported.stdout.strip()).resolve().parents
+
+
 def _run(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, "-m", "career_evidence_graph.cli", *args],
+        [sys.executable, str(LAUNCHER), *args],
         check=False,
         capture_output=True,
         text=True,
