@@ -12,10 +12,14 @@ import pytest
 from career_evidence_graph.domain.fixtures import (
     SourceScopeError,
     evaluate_review_status,
+    load_sealed_fixture,
     load_candidate_packet,
     materialize_review_decisions,
+    seal_reviewed_fixture,
     verify_source_manifest,
 )
+from career_evidence_graph.validation.replay import replay_recorded_response
+from career_evidence_graph.validation.store import FormalRunStore
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "validation/fixtures/stoa/v1/source-manifest.json"
@@ -193,3 +197,30 @@ def test_review_materialization_preserves_human_corrections_and_unresolved_value
         view.expectation_status == "fixture-test-expectation"
         for view in fixture.user_skill_views
     )
+
+
+def test_seal_publishes_verified_bundle_and_provider_free_replay(tmp_path: Path) -> None:
+    """Known-good can only be recovered from verified immutable formal evidence."""
+    workspace = tmp_path / "stoa"
+    workspace.mkdir()
+    candidates, review = load_candidate_packet(CANDIDATES, REVIEW)
+    output = workspace / "known-good.json"
+
+    sealed = seal_reviewed_fixture(
+        workspace=workspace,
+        run_id="stoa-known-good",
+        manifest_path=MANIFEST,
+        candidates=candidates,
+        review=review,
+        checkpoint_summary_bytes=(
+            ROOT
+            / ".planning/phases/02-domain-contracts-stoa-fixture-and-deterministic-invariants"
+            / "02-04-SUMMARY.md"
+        ).read_bytes(),
+        output_path=output,
+    )
+
+    assert FormalRunStore(workspace).verify("stoa-known-good").run_id == "stoa-known-good"
+    assert replay_recorded_response(FormalRunStore(workspace), "stoa-known-good").matched
+    assert load_sealed_fixture(output, workspace).fixture_hash == sealed.fixture_hash
+    assert json.loads(output.read_text(encoding="utf-8"))["confirmed_result_hash"] == sealed.fixture_hash
