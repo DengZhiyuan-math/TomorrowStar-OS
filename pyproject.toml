@@ -1,0 +1,35 @@
+[build-system]
+requires = ["flit_core>=3.12,<4"]
+build-backend = "_build_backend"
+backend-path = ["."]
+
+[project]
+name = "career-evidence-graph"
+version = "0.1.0"
+description = "Career Evidence Graph core hypothesis validation"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+  "pydantic==2.13.4",
+]
+
+[project.scripts]
+career-evidence = "career_evidence_graph.cli:main"
+
+[dependency-groups]
+dev = [
+  "pytest==9.1.1",
+  "ruff==0.16.0",
+]
+
+[tool.pytest]
+testpaths = ["tests"]
+markers = [
+  "live: opt-in tests that may invoke an external model",
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

@@ -1,0 +1,57 @@
+{
+  "schema_version": "validation-charter/v1",
+  "charter_version": "1.0.0",
+  "target_chain": [
+    "Grill-Me",
+    "Contribution-Skill assessment",
+    "user Skill graph",
+    "JD comparison"
+  ],
+  "claim_boundary": "functional-chain-only",
+  "prohibited_claims": [
+    "product effectiveness",
+    "job application outcomes",
+    "interview outcomes",
+    "hiring outcomes"
+  ],
+  "expected_result_policy": {
+    "structurally_exact": true,
+    "semantic_comparisons": "declared_sets_and_ranges_only",
+    "approved_set_fields": [],
+    "approved_range_fields": {}
+  },
+  "critical_blocking_failures": [
+    "capability_fabrication",
+    "incorrect_attribution",
+    "broken_lineage",
+    "material_instability",
+    "unreproducible_formal_run"
+  ],
+  "required_negative_classes": [
+    "capability_fabrication",
+    "incorrect_attribution",
+    "broken_lineage",
+    "material_instability",
+    "unreproducible_formal_run",
+    "duplicate_evidence_inflation"
+  ],
+  "acceptance": {
+    "eligible_now": false,
+    "case_count": 0,
+    "holdout_eligible": false,
+    "missing_prerequisites": [
+      "future user-completed STOA flow",
+      "one human-confirmed replay case",
+      "coverage of every required negative class"
+    ]
+  },
+  "product_effect_labels": {
+    "labels": [
+      "supported",
+      "partially-supported",
+      "rejected"
+    ],
+    "authoritative_for_this_charter": false,
+    "reason": "These labels concern later evidence-backed expansion decisions and cannot measure product, application, interview, or hiring effects in this functional charter."
+  }
+}
