@@ -120,6 +120,17 @@ def test_definite_conclusions_preserve_claim_attribution_and_assistance(
     assert _codes(_fixture(payload)) == [expected_code]
 
 
+def test_assessment_basis_requires_a_resolved_evidence_link() -> None:
+    payload = _payload()
+    claim = deepcopy(payload["claims"][0])  # type: ignore[index]
+    claim["id"] = "claim.unlinked"  # type: ignore[index]
+    payload["claims"].append(claim)  # type: ignore[index]
+    payload["contributions"][0]["claim_ids"].append("claim.unlinked")  # type: ignore[index]
+    payload["assessments"][0]["basis_claim_ids"] = ["claim.unlinked"]  # type: ignore[index]
+
+    assert _codes(_fixture(payload)) == ["assessment.basis_claim_evidence_missing"]
+
+
 def test_user_skill_views_require_exactly_one_view_for_each_assessed_skill():
     payload = _payload()
     payload["user_skill_views"].append(deepcopy(payload["user_skill_views"][0]))  # type: ignore[index]

@@ -112,6 +112,11 @@ def validate_claim_attribution(
     """Require definite fixture conclusions to retain user claim provenance."""
     claims_by_id = {claim.id: claim for claim in fixture.claims}
     contribution_ids = {contribution.id for contribution in fixture.contributions}
+    evidence_ids = {evidence.id for evidence in fixture.evidence}
+    resolved_evidence_by_claim: dict[str, set[str]] = {}
+    for link in fixture.claim_evidence_links:
+        if link.claim_id in claims_by_id and link.evidence_id in evidence_ids:
+            resolved_evidence_by_claim.setdefault(link.claim_id, set()).add(link.evidence_id)
     violations: list[InvariantViolation] = []
     for assessment in fixture.assessments:
         path = f"assessments.{assessment.id}"
@@ -130,6 +135,12 @@ def validate_claim_attribution(
                     InvariantViolation(code="assessment.basis_claim_missing", path=basis_path)
                 )
                 continue
+            if not resolved_evidence_by_claim.get(claim_id):
+                violations.append(
+                    InvariantViolation(
+                        code="assessment.basis_claim_evidence_missing", path=basis_path
+                    )
+                )
             if claim.contribution_id != assessment.contribution_id:
                 violations.append(
                     InvariantViolation(code="assessment.basis_claim_mismatch", path=basis_path)
