@@ -54,35 +54,40 @@ def test_contribution_lineage_is_the_only_admitted_source_kind():
 
 
 @pytest.mark.parametrize(
-    ("mutation", "expected_code"),
+    ("mutation", "expected_codes"),
     (
         (
             lambda payload: payload["assessments"].append(  # type: ignore[index]
                 deepcopy(payload["assessments"][0])  # type: ignore[index]
             ),
-            "assessment.duplicate_id",
+            ["assessment.duplicate_id"],
         ),
         (
             lambda payload: payload["claim_evidence_links"].append(  # type: ignore[index]
                 deepcopy(payload["claim_evidence_links"][0])  # type: ignore[index]
             ),
-            "claim_evidence_link.duplicate",
+            ["claim_evidence_link.duplicate"],
         ),
         (
-            lambda payload: payload["assessments"][0].update(  # type: ignore[index]
-                {"contribution_id": "contribution.missing"}
+            lambda payload: (
+                payload["assessments"][0].update(  # type: ignore[index]
+                    {"contribution_id": "contribution.missing"}
+                ),
+                payload["assessments"][0]["lineage"].update(  # type: ignore[index]
+                    {"contribution_id": "contribution.missing"}
+                ),
             ),
-            "assessment.contribution_missing",
+            ["assessment.basis_claim_mismatch", "assessment.contribution_missing"],
         ),
     ),
 )
 def test_lineage_and_evidence_duplicates_have_one_stable_rejection(
-    mutation, expected_code: str
+    mutation, expected_codes: list[str]
 ):
     payload = _payload()
     mutation(payload)
 
-    assert expected_code in _codes(_fixture(payload))
+    assert _codes(_fixture(payload)) == expected_codes
 
 
 @pytest.mark.parametrize(
@@ -152,9 +157,14 @@ def test_repeated_and_shuffled_validation_is_sorted_and_does_not_mutate_input():
     shuffled = deepcopy(payload)
     shuffled["assessments"].reverse()  # type: ignore[index]
 
-    assert first == second == canonical_json_bytes(collect_invariant_violations(_fixture(shuffled)))
+    assert first == second == canonical_json_bytes(
+        collect_invariant_violations(_fixture(shuffled))
+    )
     assert original_bytes == canonical_json_bytes(payload)
-    assert first == canonical_json_bytes(tuple(sorted(collect_invariant_violations(fixture), key=lambda item: (item.code, item.path))))
+    expected = tuple(
+        sorted(collect_invariant_violations(fixture), key=lambda item: (item.code, item.path))
+    )
+    assert first == canonical_json_bytes(expected)
 
 
 def test_validate_wrapper_reports_all_ordered_invariant_violations():

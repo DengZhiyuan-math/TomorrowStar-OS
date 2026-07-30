@@ -40,6 +40,15 @@ ProofLimit = Literal[
     "observed_state_defects_limitations",
     "personal_responsibility_and_claimed_capability",
 ]
+AssessmentSourceKind = Literal[
+    "contribution",
+    "experience",
+    "credential",
+    "title",
+    "repository",
+    "resume-skill-list",
+    "ontology-relation",
+]
 
 
 def _unique_ids(values: tuple[str, ...], field_name: str) -> tuple[str, ...]:
@@ -141,7 +150,7 @@ class DurationEvidence(StrictModel):
 
 class AssessmentLineage(StrictModel):
     schema_version: Literal["assessment-lineage/v1"] = "assessment-lineage/v1"
-    source_kind: Literal["contribution"]
+    source_kind: AssessmentSourceKind
     contribution_id: Identifier = Field(pattern=ID_PATTERN)
 
 
@@ -172,7 +181,11 @@ class ContributionSkillAssessment(StrictModel):
 class UserSkillView(StrictModel):
     schema_version: Literal["user-skill-view/v1"] = "user-skill-view/v1"
     skill_id: Identifier = Field(pattern=ID_PATTERN)
+    mastery: int = Field(default=0, ge=0, le=100)
     assessment_ids: tuple[Identifier, ...] = Field(min_length=1)
+    expectation_status: Literal["fixture-test-expectation"] = "fixture-test-expectation"
+    policy_marker: Literal["fixture-test-expectation"] = "fixture-test-expectation"
+    # Retained only to load the phase-02 tracer fixture; it is not a score dimension.
     fixture_notice: str = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -190,13 +203,13 @@ class CareerEvidenceFixture(StrictModel):
     evidence: tuple[Evidence, ...] = Field(min_length=1)
     claim_evidence_links: tuple[ClaimEvidenceLink, ...] = Field(min_length=1)
     skills: tuple[Skill, ...] = Field(min_length=1)
-    assessments: tuple[ContributionSkillAssessment, ...] = Field(min_length=1)
-    user_skill_views: tuple[UserSkillView, ...] = Field(min_length=1)
+    assessments: tuple[ContributionSkillAssessment, ...] = ()
+    user_skill_views: tuple[UserSkillView, ...] = ()
 
 
 class InvariantViolation(StrictModel):
     schema_version: Literal["invariant-violation/v1"] = "invariant-violation/v1"
-    code: str = Field(pattern=r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$")
+    code: str = Field(pattern=r"^[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)+$")
     path: str = Field(min_length=1)
 
 
