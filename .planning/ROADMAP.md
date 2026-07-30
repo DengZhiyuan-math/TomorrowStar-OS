@@ -22,7 +22,7 @@ This milestone delivers six vertical validation capabilities in dependency order
 
 ### Phase 1: Validation Charter, Provenance, and Technical Decision Gate
 
-**Goal:** Evaluators can start a falsifiable and reproducible validation study whose success rules, trust boundaries, and upstream reuse decisions are fixed before results are tuned.
+**Goal:** As a validation evaluator, I want to start a falsifiable and reproducible validation study with fixed success rules, trust boundaries, and upstream reuse decisions, so that future results can be evaluated without tuning those rules after seeing them.
 **Mode:** mvp
 **Depends on:** Nothing (first phase)
 **Requirements:** VAL-01, VAL-02, OSS-01
