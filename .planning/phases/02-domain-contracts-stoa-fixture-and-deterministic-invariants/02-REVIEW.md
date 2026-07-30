@@ -1,10 +1,10 @@
 ---
 phase: 02-domain-contracts-stoa-fixture-and-deterministic-invariants
-reviewed: 2026-07-30T16:47:46Z
+reviewed: 2026-07-30T17:02:59Z
 depth: standard
-files_reviewed: 44
+files_reviewed: 45
 files_reviewed_list:
-  - _build_backend.py (deleted; reviewed through d7edfb6)
+  - _career_evidence_build.py
   - pyproject.toml
   - scripts/run_career_evidence.py
   - scripts/run_pytest.py
@@ -59,43 +59,35 @@ status: clean
 
 # Phase 02: Code Review Report
 
-**Reviewed:** 2026-07-30T16:47:46Z
+**Reviewed:** 2026-07-30T17:02:59Z
 **Depth:** standard
-**Files Reviewed:** 44
+**Files Reviewed:** 45
 **Status:** clean
 
 ## Summary
 
-Final adversarial re-review found no actionable correctness, security, or robustness defects in the reviewed Phase 2 scope. The standard Flit wheel no longer embeds a global `sitecustomize` or a build-machine source path; the project-local launchers select checkout code only for their own invoked process. The current locked commands work without `PYTHONPATH`, while the isolated-wheel regression imports the installed artifact from outside the checkout.
+Final adversarial consistency audit of commit `4470947` found no actionable correctness, security, or robustness issue. The restored, standard-library PEP 517/660 backend is `_career_evidence_build.py`; there is no tracked current file named `_build_backend.py`, so the reviewed-artifact list now names the actual backend rather than retaining the former deletion marker.
 
-The sealed fixture now recomputes and cross-binds source-manifest, canonical review, and checkpoint-summary hashes against the v2 formal-run lineage. The confirmed reviewer is required both when validating corrections and when materializing review decisions; coordinated reviewer tampering fails closed. The v1 formal bundle remains retained historical evidence, `known-good.json` points to `stoa-known-good-v2`, and both bundles independently verify and replay to the same confirmed fixture hash. All 16 closed known-bad cases bind that hash and return exactly their one declared error.
+Regular wheels are self-contained and deterministic: two fresh-cache offline builds with the same `SOURCE_DATE_EPOCH` were byte-identical. The inspected wheel had 18 unique, safe relative archive members, no `sitecustomize.py`, `.pth`, absolute checkout path, or global startup hook. Its generated metadata is consistent with `pyproject.toml`, and every member has a valid SHA-256/size entry in `RECORD` except `RECORD` itself, which correctly has empty hash and size. The editable hook is confined to `build_editable`: its wheel alone contains `career_evidence_graph-editable.pth`; the regular wheel contains none.
 
-Verification performed without `PYTHONPATH`:
+Verification performed with `PYTHONPATH` removed where applicable:
 
-- `uv run --locked python scripts/run_pytest.py -q` — `173 passed, 1 deselected`.
+- `uv run --locked python scripts/run_pytest.py -p no:cacheprovider -q` — `173 passed, 1 deselected`.
+- `uv run --locked python scripts/run_pytest.py -p no:cacheprovider -q tests/test_cli_tracer.py` — `9 passed`, including a fresh empty `UV_CACHE_DIR` plus `UV_OFFLINE=1` wheel build, external venv install, and installed-artifact import probe.
 - `uv run --locked ruff check .` and `uv run --locked ruff format --check .` — passed.
-- `uv run --locked python scripts/run_career_evidence.py fixture validate ...known-good.json` — valid.
-- `fixture validate-suite` — valid with `case_count: 16` and one matching sole error per case.
-- `run verify` and `replay` — passed for both `stoa-known-good` and `stoa-known-good-v2`.
+- Fresh-cache direct `uv build --wheel --offline` twice — passed with byte-identical wheels; archive and editable-wheel containment probes passed.
+- Sealed fixture validation, all 16 one-fault known-bad cases, both FormalRun verify/replay paths, and provenance verification — passed. The v2 source-manifest/review/checkpoint binding, confirmed-reviewer requirement, evidence basis, Contribution containment, declared-Skill binding, and user versus Codex-assisted semantics remain enforced.
 
 ## Narrative Findings (AI reviewer)
 
 No Critical Issues, Warnings, or Info findings.
 
-### Prior-finding closure
+### Closure note for `4470947`
 
-| Prior finding | Re-review result |
-| --- | --- |
-| CR-01 global wheel import hook | Closed: the custom backend is deleted, standard Flit packaging is used, and the isolated-wheel regression passed. |
-| CR-02 missing sealed source/review/checkpoint binding | Closed: loader recomputes canonical input hashes and compares envelope plus v2 `artifacts`/`reviewer` lineage hashes. |
-| WR-01 non-confirmed reviewer materialization | Closed: exact `zhdeng` review and checkpoint identities are required before materialization. |
-| Earlier CR-02 rejected claim sealing | Remains closed: rejected facts are omitted and unresolved review decisions are unsealable. |
-| Earlier CR-03 Evidence basis gap | Remains closed: an assessment basis claim requires a resolved Evidence link. |
-| Earlier CR-04 undeclared Skill reference | Remains closed: assessment and user-view Skill references are checked. |
-| Earlier reverse containment warning | Remains closed: Contributions absent from their Experience are rejected. |
+The prior regression (a fresh-empty-cache offline wheel build requiring uncached Flit) is closed by the in-tree backend. Its regular-wheel path does not call the editable-wheel implementation and cannot emit the editable `.pth`; the focused regression verifies both the build/install boundary and the installed distribution paths outside the checkout.
 
 ---
 
-_Reviewed: 2026-07-30T16:47:46Z_
+_Reviewed: 2026-07-30T17:02:59Z_
 _Reviewer: the agent (gsd-code-reviewer)_
 _Depth: standard_
