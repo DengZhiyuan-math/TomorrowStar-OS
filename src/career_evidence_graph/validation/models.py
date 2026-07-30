@@ -149,6 +149,55 @@ class CorrectionRecord(StrictModel):
     reason: str = Field(min_length=1)
 
 
+class ProvenanceRecord(StrictModel):
+    schema_version: Literal["provenance-record/v1"]
+    record_id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,127}$")
+    classification: Literal["reuse", "adapt", "inspired-by", "reject"]
+    repository: str = Field(pattern=r"^https://")
+    pinned_commit: str = Field(pattern=r"^[0-9a-f]{40}$")
+    spdx_license: str = Field(min_length=1)
+    attribution: str = Field(min_length=1)
+    upstream_source_path: str | None = None
+    local_destination: str | None = None
+    local_subsystem: str | None = None
+    rationale: str = Field(min_length=1)
+    divergence: str = Field(min_length=1)
+    covering_test: str | None = None
+
+    @model_validator(mode="after")
+    def validate_profile(self) -> ProvenanceRecord:
+        if self.classification == "reuse":
+            required = (
+                self.upstream_source_path,
+                self.local_destination,
+                self.covering_test,
+            )
+            if not all(required):
+                raise ValueError(
+                    "reuse requires exact source, local destination, and covering test"
+                )
+        elif self.classification in {"adapt", "inspired-by"}:
+            if not self.local_subsystem or not self.covering_test:
+                raise ValueError(
+                    "adapt and inspired-by require a local subsystem and covering test"
+                )
+        elif self.local_destination or self.covering_test:
+            raise ValueError("reject records cannot justify local implementation")
+        return self
+
+
+class ProvenanceRegistry(StrictModel):
+    schema_version: Literal["provenance-registry/v1"]
+    records: list[ProvenanceRecord]
+
+    @model_validator(mode="after")
+    def validate_unique_ids(self) -> ProvenanceRegistry:
+        record_ids = [record.record_id for record in self.records]
+        if len(record_ids) != len(set(record_ids)):
+            raise ValueError("provenance record IDs must be unique")
+        return self
+
+
 class ReplayResult(StrictModel):
     schema_version: Literal["replay-result/v1"]
     run_id: str

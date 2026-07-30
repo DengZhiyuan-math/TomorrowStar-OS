@@ -123,3 +123,18 @@ def test_duplicate_run_is_rejected_without_overwrite(tmp_path, charter_path):
 
     assert duplicate.returncode == 2
     assert manifest_path.read_bytes() == original
+
+
+def test_cli_verifies_machine_and_human_provenance_registry():
+    verified = _run(
+        "provenance",
+        "verify",
+        "validation/provenance/registry.json",
+        "--readme",
+        "references/README.md",
+        "--project-root",
+        ".",
+    )
+
+    assert verified.returncode == 0, verified.stderr
+    assert json.loads(verified.stdout) == {"record_count": 3, "valid": True}

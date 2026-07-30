@@ -116,3 +116,15 @@ Before implementing a subsystem:
 5. Add a local test that expresses this project’s distinct requirement.
 
 The upstreams are evidence for design decisions, not authorities that override this project’s product model.
+
+## Implemented provenance registry
+
+The machine-readable source of truth is
+`validation/provenance/registry.json`. These entries describe patterns actually
+introduced in Phase 1; none claims verbatim copied code or data.
+
+| Record ID | Classification | Pinned commit | Local subsystem | Local divergence |
+|---|---|---|---|---|
+| `cv-market-formal-history` | `adapt` | `ea507847c7a42a1a54becc853fadd15506479b38` | `formal-run storage and linked history` | Immutable directories, complete hashes, atomic publication, explicit parent links, and no overwrite/delete operation |
+| `tabiya-run-store-boundary` | `inspired-by` | `8470bea7f68d0990898f441a12bbb6a261a0ef34` | `FormalRunStore directory-per-run boundary` | Reject overwrites and symlinks; validate manifests; expose no mutable save/delete API |
+| `hiring-agent-validation-contracts` | `adapt` | `70fd3ea9aa74d8f76519ec643a99f9871003e70d` | `strict structured validation contracts` | Forbid unknown fields, retain formal history, hash full lineage, and prohibit résumé/repository-derived mastery |

@@ -10,6 +10,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from .validation.provenance import ProvenanceValidationError, verify_provenance_registry
 from .validation.replay import replay_recorded_response
 from .validation.store import FormalRunStorageError, FormalRunStore, load_charter
 
@@ -48,6 +49,15 @@ def _parser() -> argparse.ArgumentParser:
     replay = commands.add_parser("replay")
     replay.add_argument("--workspace", required=True)
     replay.add_argument("--run-id", required=True)
+
+    provenance = commands.add_parser("provenance")
+    provenance_commands = provenance.add_subparsers(dest="provenance_command", required=True)
+    provenance_verify = provenance_commands.add_parser("verify")
+    provenance_verify.add_argument(
+        "registry", nargs="?", default="validation/provenance/registry.json"
+    )
+    provenance_verify.add_argument("--readme", default="references/README.md")
+    provenance_verify.add_argument("--project-root", default=".")
     return parser
 
 
@@ -74,8 +84,21 @@ def main(argv: list[str] | None = None) -> int:
             result = replay_recorded_response(FormalRunStore(Path(args.workspace)), args.run_id)
             _emit(result)
             return 0 if result.matched else 1
+        elif args.command == "provenance" and args.provenance_command == "verify":
+            registry = verify_provenance_registry(
+                Path(args.registry),
+                Path(args.readme),
+                Path(args.project_root),
+            )
+            _emit({"valid": True, "record_count": len(registry.records)})
         return 0
-    except (FormalRunStorageError, ValidationError, OSError, json.JSONDecodeError) as exc:
+    except (
+        FormalRunStorageError,
+        ProvenanceValidationError,
+        ValidationError,
+        OSError,
+        json.JSONDecodeError,
+    ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
