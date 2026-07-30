@@ -11,7 +11,7 @@ This milestone delivers six vertical validation capabilities in dependency order
 - Integer phases (1, 2, 3): Planned milestone work
 - Decimal phases (2.1, 2.2): Urgent insertions, marked as INSERTED
 
-- [ ] **Phase 1: Validation Charter, Provenance, and Technical Decision Gate** - Evaluators can begin a falsifiable, reproducible study with explicit upstream and implementation boundaries.
+- [x] **Phase 1: Validation Charter, Provenance, and Technical Decision Gate** - Evaluators can begin a falsifiable, reproducible study with explicit upstream and implementation boundaries. (completed 2026-07-30)
 - [ ] **Phase 2: Domain Contracts, STOA Fixture, and Deterministic Invariants** - Users and evaluators can represent Contribution-grounded career evidence and reject invalid assessment states.
 - [ ] **Phase 3: Artifact-Aware Grill-Me and Attribution Workflow** - A user can complete and resume a focused Contribution audit with inspectable ownership and conclusions.
 - [ ] **Phase 4: Contribution–Skill Assessment and Aggregation Calibration** - Reviewers can calibrate traceable Skill judgments and replaceable aggregation policies without score inflation.
@@ -32,7 +32,7 @@ This milestone delivers six vertical validation capabilities in dependency order
   2. An evaluator can reproduce a recorded validation run from its versioned fixture, artifacts, prompt, model, configuration, policy, and reviewer inputs without altering the original run.
   3. A maintainer can trace every reused or adapted seam to its pinned repository revision, source path, license, classification, attribution, and local divergence, while confirming that the upstream repositories remain reference inputs rather than wholesale runtime dependencies.
 
-**Plans:** 2/2 plans executed
+**Plans:** 2/2 plans complete
 **Wave 1**
 
 - [x] 01-01-PLAN.md
@@ -125,7 +125,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Validation Charter, Provenance, and Technical Decision Gate | 2/2 | In Progress|  |
+| 1. Validation Charter, Provenance, and Technical Decision Gate | 2/2 | Complete    | 2026-07-30 |
 | 2. Domain Contracts, STOA Fixture, and Deterministic Invariants | 0/TBD | Not started | - |
 | 3. Artifact-Aware Grill-Me and Attribution Workflow | 0/TBD | Not started | - |
 | 4. Contribution–Skill Assessment and Aggregation Calibration | 0/TBD | Not started | - |

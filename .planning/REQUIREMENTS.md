@@ -9,9 +9,9 @@ Requirements for the first validation milestone. Each requirement maps to exactl
 
 ### Validation Contract and Open-Source Provenance
 
-- [ ] **VAL-01**: An evaluator can apply a versioned validation charter that fixes the acceptance gates, comparison baselines, holdouts, failure rules, and `supported` / `partially supported` / `rejected` decision meanings before final results are reviewed.
-- [ ] **VAL-02**: An evaluator can reproduce an assessment run from its recorded fixture, artifact, prompt, model, configuration, policy, and reviewer versions without overwriting earlier runs.
-- [ ] **OSS-01**: A maintainer can trace every reused or adapted upstream seam to its repository, pinned revision, source path, license, reuse classification, attribution, and documented local divergence.
+- [x] **VAL-01**: An evaluator can apply a versioned validation charter that fixes the acceptance gates, comparison baselines, holdouts, failure rules, and `supported` / `partially supported` / `rejected` decision meanings before final results are reviewed.
+- [x] **VAL-02**: An evaluator can reproduce an assessment run from its recorded fixture, artifact, prompt, model, configuration, policy, and reviewer versions without overwriting earlier runs.
+- [x] **OSS-01**: A maintainer can trace every reused or adapted upstream seam to its repository, pinned revision, source path, license, reuse classification, attribution, and documented local divergence.
 
 ### Domain Model and Validation Fixtures
 
@@ -104,9 +104,9 @@ Every v1 requirement maps to exactly one roadmap phase. Deferred v2 requirements
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| VAL-01 | Phase 1 | Pending |
-| VAL-02 | Phase 1 | Pending |
-| OSS-01 | Phase 1 | Pending |
+| VAL-01 | Phase 1 | Complete |
+| VAL-02 | Phase 1 | Complete |
+| OSS-01 | Phase 1 | Complete |
 | MOD-01 | Phase 2 | Pending |
 | MOD-02 | Phase 2 | Pending |
 | MOD-03 | Phase 2 | Pending |
@@ -143,6 +143,7 @@ Every v1 requirement maps to exactly one roadmap phase. Deferred v2 requirements
 | DEC-02 | Phase 6 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 37 total
 - Mapped to phases: 37
 - Unmapped: 0 ✓
