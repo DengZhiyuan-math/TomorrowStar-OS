@@ -6,9 +6,9 @@ current_phase: 3
 current_phase_name: Artifact-Aware Grill-Me and Attribution Workflow
 status: planning
 stopped_at: Completed 02-06-PLAN.md
-last_updated: "2026-07-30T17:17:31.016Z"
-last_activity: 2026-07-30
-last_activity_desc: Phase 02 complete, transitioned to Phase 3
+last_updated: "2026-07-31T08:28:51Z"
+last_activity: 2026-07-31
+last_activity_desc: "Completed quick task 260731-ee8: fixed Phase 2 coverage kind metadata"
 progress:
   total_phases: 6
   completed_phases: 2
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-30)
 Phase: 3 — Artifact-Aware Grill-Me and Attribution Workflow
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-07-30 — Phase 02 complete, transitioned to Phase 3
+Last activity: 2026-07-31 — Completed quick task 260731-ee8: fixed Phase 2 coverage kind metadata
 
 Progress: [███░░░░░░░] 33%
 
@@ -100,6 +100,12 @@ None yet.
 
 - [Phase 4]: Aggregation candidates and confidence-admission rules require human-reviewed calibration rather than initialization-time assumptions.
 - [Phase 6]: The feasible minimum non-STOA replication and resulting generalization boundary remain to be determined.
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260731-ee8 | Fix Phase 2 coverage kind regression metadata by using an allowed classifier kind, then verify classification and the ontology invariant test | 2026-07-31 | d049529 | [260731-ee8-fix-phase-2-coverage-kind-regression-met](./quick/260731-ee8-fix-phase-2-coverage-kind-regression-met/) |
 
 ## Deferred Items
 
