@@ -52,7 +52,7 @@ coverage:
     description: "Unicode aliases and ontology relations are reviewable metadata that cannot change canonical mastery bytes."
     requirement: MOD-07
     verification:
-      - kind: regression
+      - kind: unit
         ref: tests/test_domain_invariants.py#test_ontology_relations_are_descriptive_metadata_and_cannot_change_mastery
         status: pass
     human_judgment: false
