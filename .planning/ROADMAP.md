@@ -91,7 +91,7 @@ This milestone delivers six vertical validation capabilities in dependency order
   3. Ambiguous responsibility or assistance is challenged until user-owned, team-owned, other-owned, Codex-assisted, and third-party work is separated or explicitly left unresolved.
   4. For each audited Contribution, the user can edit, confirm, or reject a conclusion that identifies the strongest established capability, the next-higher capability not established, its supporting basis, and every provisional or unresolved point.
 
-**Plans:** 3/3 plans executed
+**Plans:** 3/7 plans executed
 
 **Wave 0**
 
@@ -104,6 +104,22 @@ This milestone delivers six vertical validation capabilities in dependency order
 **Wave 2** *(after 03-02)*
 
 - [x] 03-03-PLAN.md — Produce immutable, user-reviewable capability-boundary conclusions and close the offline phase gate.
+
+**Wave 3** *(after 03-03)*
+
+- [ ] 03-04-PLAN.md — Repair lifecycle, attribution, reference, basis, and canonical conclusion-review semantics.
+
+**Wave 4** *(after 03-04)*
+
+- [ ] 03-05-PLAN.md — Enforce hash-linked custody, one-lock transactions, identity-first replay, CAS, and durable recovery.
+
+**Wave 5** *(after 03-04 and 03-05)*
+
+- [ ] 03-06-PLAN.md — Materialize and mark the original 28 plus nine gap behavioral pytest probes.
+
+**Wave 6** *(after 03-06)*
+
+- [ ] 03-07-PLAN.md — Prove the offline end-to-end journey and exact pytest collection/full quality gate.
 
 ### Phase 4: Contribution–Skill Assessment and Aggregation Calibration
 
