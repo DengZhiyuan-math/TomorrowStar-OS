@@ -27,6 +27,10 @@ class AuditStore:
 
     def _audit_root(self) -> Path:
         """Return the only directory allowed to hold audit custody files."""
+        try:
+            self.workspace.mkdir(mode=0o700, parents=True, exist_ok=True)
+        except OSError as exc:
+            raise AuditStorageError("workspace path is unsafe") from exc
         if self.workspace.is_symlink() or not self.workspace.is_dir():
             raise AuditStorageError("workspace path is unsafe")
         workspace = self.workspace.resolve()
