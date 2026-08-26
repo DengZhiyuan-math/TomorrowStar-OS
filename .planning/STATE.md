@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 03
 current_phase_name: Artifact-Aware Grill-Me and Attribution Workflow
 status: ready_to_execute
-stopped_at: Phase 03 holistic scope-reset repair planned; Plans 03-14 through 03-18 ready
-last_updated: "2026-08-27T01:19:38+02:00"
+stopped_at: Completed 03-14-PLAN.md; Phase 3 independent repair continues at 03-15
+last_updated: "2026-08-26T23:39:31.444Z"
 last_activity: 2026-08-27
-last_activity_desc: Phase 03 holistic scope-reset repair planned — 5 serial gap-closure plans ready
-state_head: 72d5e01026721eeee08fe00784b0582ec9d9513b
+last_activity_desc: Phase 03 Plan 14 scope and custody cleanup complete; Plan 03-15 is next
+state_head: 7beea676d159544562e9dc045bc5c373a0f96dbc
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 26
-  completed_plans: 21
+  completed_plans: 22
 milestone_name: milestone
 ---
 
@@ -29,18 +29,18 @@ See: .planning/PROJECT.md (updated 2026-07-30)
 ## Current Position
 
 Phase: 03 (Artifact-Aware Grill-Me and Attribution Workflow) — HOLISTIC REPAIR IN PROGRESS
-Plan: 13/18 executed; holistic repair in progress
+Plan: 14/18 executed; holistic repair continues at 03-15
 Status: Requirements-addressed only; independent completion pending
 Total Plans in Phase: 18
 Last activity: 2026-08-27 — holistic scope-reset repair planned
 
-Progress: [███░░░░░░░] 33%
+Progress: [███████░░░] 78%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 21
+- Total plans completed: 22
 - Average duration: -
 - Total execution time: 0 hours
 
@@ -50,7 +50,7 @@ Progress: [███░░░░░░░] 33%
 |-------|-------|-------|----------|
 | 01 | 2 | - | - |
 | 02 | 6 | - | - |
-| 03 | 13 | - | - |
+| 03 | 14 | - | - |
 
 **Recent Trend:**
 
@@ -73,6 +73,7 @@ Progress: [███░░░░░░░] 33%
 | Phase 03 P01 | 11min | 3 tasks | 8 files |
 | Phase 03 P02 | 18 min | 2 tasks | 6 files |
 | Phase 03 P03 | 25 | 3 tasks | 7 files |
+| Phase 03 P14 | 6 min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -109,6 +110,8 @@ Recent decisions affecting current work:
 - [Phase 03]: D-20 active — offline AUD user journeys on checkout source, not install-source authority or exact pytest-node counts, determine Phase 3 acceptance.
 - [Phase 03]: D-21 active — close the original question, boundary, skip, attribution, and conclusion-review gaps before independent verification.
 - [Phase 03]: Plans 03-14 through 03-18 form one serial repair round: freeze scope, simplify persistence, remove excess machinery, repair business semantics, then hand one unchanged revision to independent gates.
+- [Phase 03]: Phase 03 Plan 14: D-17 through D-21 make the single-user local audit and user journeys the active boundary.
+- [Phase 03]: Phase 03 Plan 14: Historical findings remain Git-custodied evidence and do not define active completion.
 
 ### Pending Todos
 
@@ -135,6 +138,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-26T20:21:23.559Z
-Stopped at: Phase 03 forensic investigation complete; holistic replanning in progress
-Resume file: .planning/forensics/report-20260826-221948.md
+Last session: 2026-08-26T23:39:31.380Z
+Stopped at: Completed 03-14-PLAN.md; Phase 3 independent repair continues at 03-15
+Resume file: .planning/phases/03-artifact-aware-grill-me-and-attribution-workflow/03-15-PLAN.md
