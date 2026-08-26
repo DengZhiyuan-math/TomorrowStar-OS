@@ -84,8 +84,8 @@ commit. Git blobs are the recovery authority; no archive copy is created.
 
 | Path | Git blob | SHA-256 | Proving commit(s) | Disposition |
 | --- | --- | --- | --- | --- |
-| pending Task 2 | pending | pending | pending | pending |
-| pending Task 3 | pending | pending | pending | pending |
+| `.planning/phases/03-artifact-aware-grill-me-and-attribution-workflow/03-REVIEW.md` | `fb9f4c84180ffdd85e1d76bcb68f8cffeedb89bf` | `ef8c3d27d2de7b8448fe1826a306956ed6476f5e1325ae92830786c427743158` | `72d5e01026721eeee08fe00784b0582ec9d9513b` | retired-expanded-scope |
+| `.planning/phases/03-artifact-aware-grill-me-and-attribution-workflow/03-VERIFICATION.md` | `e2431f52d27e3d545954baceae13d8ab972c3fc2` | `3f0aeb2f050ec7b19d9d9b247caec8e63f0a049602aa7e2a6d8d9453151a7855` | `72d5e01026721eeee08fe00784b0582ec9d9513b` | retired-expanded-scope |
 
 ## Acceptance authority
 
