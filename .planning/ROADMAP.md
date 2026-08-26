@@ -80,7 +80,7 @@ This milestone delivers six vertical validation capabilities in dependency order
 
 ### Phase 3: Artifact-Aware Grill-Me and Attribution Workflow
 
-**Goal:** A user can complete a resumable, artifact-aware audit of a selected Contribution and explicitly confirm what capability and responsibility the evidence establishes.
+**Goal:** As a career-evidence user, I want to complete and resume an artifact-aware audit of a selected Contribution and review its capability and responsibility conclusion, so that I retain a truthful, inspectable record of what the evidence establishes.
 **Mode:** mvp
 **Depends on:** Phase 2
 **Requirements:** AUD-01, AUD-02, AUD-03, AUD-04, AUD-05

@@ -62,6 +62,7 @@ GAP_NODE_IDS = (
     "tests/test_audit_workflow_regressions.py::test_review_actions_update_canonical_conclusion_state",
     "tests/test_audit_workflow_regressions.py::test_wrong_question_target_rejects_before_audit_workspace_write",
     "tests/test_audit_storage_regressions.py::test_complete_event_chain_rejects_historical_tampering",
+    "tests/test_audit_storage_regressions.py::test_symlinked_audit_root_rejects_before_external_writes",
     "tests/test_audit_storage_regressions.py::test_snapshot_event_publication_recovers_after_interruption",
     "tests/test_audit_storage_regressions.py::test_all_mutations_require_cas_and_competing_writer_loses",
     "tests/test_audit_storage_regressions.py::test_direct_update_requires_caller_held_head_and_rejects_stale_snapshot",
@@ -89,6 +90,6 @@ def _collect(marker: str, files: tuple[str, ...]) -> tuple[str, ...]:
     return node_ids
 
 
-def test_all_28_original_and_fourteen_gap_probes_are_collected() -> None:
+def test_all_28_original_and_fifteen_gap_probes_are_collected() -> None:
     assert _collect("phase03_original_probe", ORIGINAL_FILES) == ORIGINAL_NODE_IDS
     assert _collect("phase03_gap_probe", GAP_FILES) == GAP_NODE_IDS
