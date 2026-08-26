@@ -42,10 +42,10 @@ created: 2026-08-26
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 03-W0-01 | TBD | 0 | AUD-01 | T-03-01 | Inspection is bounded to pinned fixture sources; project documents never establish personal capability | unit + integration | `UV_CACHE_DIR=/tmp/career-evidence-uv-cache uv run --locked python scripts/run_pytest.py -q tests/test_audit_inspection.py` | ❌ W0 | ⬜ pending |
-| 03-W0-02 | TBD | 0 | AUD-02, AUD-03 | Invalid, repeated, multi-part, leading, and artifact-answerable transitions fail closed | unit + persistence | `UV_CACHE_DIR=/tmp/career-evidence-uv-cache uv run --locked python scripts/run_pytest.py -q tests/test_audit_policy.py tests/test_audit_store.py` | ❌ W0 | ⬜ pending |
-| 03-W0-03 | TBD | 0 | AUD-04 | Ownership and assistance stay separate; legacy assistance remains provenance-compatible | unit + migration | `UV_CACHE_DIR=/tmp/career-evidence-uv-cache uv run --locked python scripts/run_pytest.py -q tests/test_audit_attribution.py tests/test_assistance_migration.py` | ❌ W0 | ⬜ pending |
-| 03-W0-04 | TBD | 0 | AUD-05 | Review never overwrites the original proposal and rejects numeric score promotion | integration + CLI | `UV_CACHE_DIR=/tmp/career-evidence-uv-cache uv run --locked python scripts/run_pytest.py -q tests/test_audit_conclusion.py tests/test_audit_cli.py` | ❌ W0 | ⬜ pending |
+| 03-W0-01 | 03-01 | 0 | AUD-01 | T-03-01 | Inspection is bounded to pinned fixture sources; project documents never establish personal capability | unit + integration | `UV_CACHE_DIR=/tmp/career-evidence-uv-cache uv run --locked python scripts/run_pytest.py -q tests/test_audit_inspection.py` | ❌ W0 | ⬜ pending |
+| 03-W0-02 | 03-02 | 1 | AUD-02, AUD-03 | Invalid, repeated, multi-part, leading, and artifact-answerable transitions fail closed | unit + persistence | `UV_CACHE_DIR=/tmp/career-evidence-uv-cache uv run --locked python scripts/run_pytest.py -q tests/test_audit_policy.py tests/test_audit_store.py` | ❌ W0 | ⬜ pending |
+| 03-W0-03 | 03-02 | 1 | AUD-04 | Ownership and assistance stay separate; legacy assistance remains provenance-compatible | unit + migration | `UV_CACHE_DIR=/tmp/career-evidence-uv-cache uv run --locked python scripts/run_pytest.py -q tests/test_audit_attribution.py tests/test_assistance_migration.py` | ❌ W0 | ⬜ pending |
+| 03-W0-04 | 03-03 | 2 | AUD-05 | Review never overwrites the original proposal and rejects numeric score promotion | integration + CLI | `UV_CACHE_DIR=/tmp/career-evidence-uv-cache uv run --locked python scripts/run_pytest.py -q tests/test_audit_conclusion.py tests/test_audit_cli.py` | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 

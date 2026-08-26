@@ -91,7 +91,19 @@ This milestone delivers six vertical validation capabilities in dependency order
   3. Ambiguous responsibility or assistance is challenged until user-owned, team-owned, other-owned, Codex-assisted, and third-party work is separated or explicitly left unresolved.
   4. For each audited Contribution, the user can edit, confirm, or reject a conclusion that identifies the strongest established capability, the next-higher capability not established, its supporting basis, and every provisional or unresolved point.
 
-**Plans:** TBD
+**Plans:** 3 plans
+
+**Wave 0**
+
+- [ ] 03-01-PLAN.md — Restore the locked runtime gate and prove the sealed-Contribution audit tracer with bounded artifact inspection.
+
+**Wave 1** *(after 03-01)*
+
+- [ ] 03-02-PLAN.md — Enforce focused hard-to-simple questioning, resumable coverage, and separate provider-neutral attribution.
+
+**Wave 2** *(after 03-02)*
+
+- [ ] 03-03-PLAN.md — Produce immutable, user-reviewable capability-boundary conclusions and close the offline phase gate.
 
 ### Phase 4: Contribution–Skill Assessment and Aggregation Calibration
 
