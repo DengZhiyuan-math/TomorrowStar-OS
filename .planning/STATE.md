@@ -28,9 +28,9 @@ See: .planning/PROJECT.md (updated 2026-07-30)
 
 ## Current Position
 
-Phase: 03 (Artifact-Aware Grill-Me and Attribution Workflow) — READY TO EXECUTE
-Plan: 13 of 18 plans executed; Plans 03-14 through 03-18 ready
-Status: Ready to execute
+Phase: 03 (Artifact-Aware Grill-Me and Attribution Workflow) — HOLISTIC REPAIR IN PROGRESS
+Plan: 13/18 executed; holistic repair in progress
+Status: Requirements-addressed only; independent completion pending
 Total Plans in Phase: 18
 Last activity: 2026-08-27 — holistic scope-reset repair planned
 
@@ -103,7 +103,11 @@ Recent decisions affecting current work:
 - [Phase 03]: Phase 03-02: ownership and assistance are separate rounds with immutable unresolved conflicts and provider-neutral assistance migration.
 - [Phase 03]: Phase 03-03: conclusions require terminal coverage for all five areas and remain prose-only.
 - [Phase 03]: Phase 03-03: review authority preserves the immutable proposal plus ordered reviewer decisions and reasons; event-head concurrency tokens are superseded.
-- [Phase 03]: D-17 through D-21 restore a trusted-local, one-action-at-a-time audit; concurrency, WAL/journal/lock/replay, installed-package authority, exact probe counts, and active same-UID filesystem defense are removed from Phase 3.
+- [Phase 03]: D-17 active — trusted-local one-action audit is the current boundary; multi-process writers, event-head CAS, replay, transactions, journals, locks, and crash recovery are superseded history.
+- [Phase 03]: D-18 active — remove expanded concurrency, installed-package, exact-count, and same-UID filesystem-defense authority without a replacement database or storage engine.
+- [Phase 03]: D-19 active — retain one strict schema-versioned atomic snapshot with ordinary safe-ID, corrupt-record, and direct-path controls.
+- [Phase 03]: D-20 active — offline AUD user journeys on checkout source, not install-source authority or exact pytest-node counts, determine Phase 3 acceptance.
+- [Phase 03]: D-21 active — close the original question, boundary, skip, attribution, and conclusion-review gaps before independent verification.
 - [Phase 03]: Plans 03-14 through 03-18 form one serial repair round: freeze scope, simplify persistence, remove excess machinery, repair business semantics, then hand one unchanged revision to independent gates.
 
 ### Pending Todos
