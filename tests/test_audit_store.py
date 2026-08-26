@@ -28,6 +28,10 @@ def test_pause_and_resume_replace_one_snapshot_without_losing_business_history(
 ) -> None:
     started = _start(tmp_path)
     store = AuditStore(tmp_path)
+    answered = transition_audit(
+        store.read(started.audit_id), AuditAction(action="answer", answer="I designed it.")
+    )
+    store.replace(answered)
     paused = transition_audit(store.read(started.audit_id), AuditAction(action="pause"))
     store.replace(paused)
     resumed = transition_audit(store.read(started.audit_id), AuditAction(action="resume"))
@@ -36,13 +40,13 @@ def test_pause_and_resume_replace_one_snapshot_without_losing_business_history(
     restored = store.read(started.audit_id)
     assert restored == resumed
     assert restored.inspected_facts == started.inspected_facts
-    assert restored.questions == started.questions
-    assert restored.answers == started.answers
-    assert restored.coverage == started.coverage
-    assert restored.contradictions == started.contradictions
-    assert restored.attribution == started.attribution
-    assert restored.conclusion == started.conclusion
-    assert restored.conclusion_reviews == started.conclusion_reviews
+    assert restored.questions == answered.questions
+    assert restored.answers == answered.answers
+    assert restored.coverage == answered.coverage
+    assert restored.contradictions == answered.contradictions
+    assert restored.attribution == answered.attribution
+    assert restored.conclusion == answered.conclusion
+    assert restored.conclusion_reviews == answered.conclusion_reviews
 
 
 def test_store_rejects_duplicate_missing_corrupt_unsafe_and_directly_linked_records(

@@ -4,7 +4,6 @@ from pathlib import Path
 from uuid import uuid4
 
 from ..domain.fixtures import SealedFixtureRecord, load_sealed_fixture, verify_source_manifest
-from ..validation.hashing import canonical_json_bytes, sha256_digest
 from .models import (
     ArtifactFact,
     AssistanceRound,
@@ -108,7 +107,6 @@ def start_audit(
     manifest_path: Path,
     contribution_id: str,
     audit_id: str | None = None,
-    action_id: str | None = None,
 ) -> AuditSnapshot:
     facts, limitations = inspect_contribution(fixture_path, manifest_path, contribution_id)
     aid = audit_id or f"audit-{uuid4().hex[:12]}"
@@ -122,7 +120,7 @@ def start_audit(
         limitations=limitations,
         coverage=(AuditCoverage(area_id="implementation"),),
     )
-    AuditStore(workspace).save(snapshot, action_id=action_id)
+    AuditStore(workspace).create(snapshot)
     return snapshot
 
 
@@ -267,23 +265,9 @@ def _build_conclusion(snapshot: AuditSnapshot) -> AuditConclusion | None:
         "entries": [entry.model_dump(mode="json") for entry in entries],
         "whole_review": "pending",
     }
-    proposal_hash = sha256_digest(canonical_json_bytes(payload))
     return AuditConclusion(
         entries=tuple(entries),
-        original_proposal_hash=proposal_hash,
-        effective_conclusion_hash=proposal_hash,
         original_proposal=payload,
-    )
-
-
-def _effective_hash(entries: tuple[ConclusionEntry, ...], whole_review: str) -> str:
-    return sha256_digest(
-        canonical_json_bytes(
-            {
-                "entries": [entry.model_dump(mode="json") for entry in entries],
-                "whole_review": whole_review,
-            }
-        )
     )
 
 
@@ -347,8 +331,6 @@ def _review_conclusion(snapshot: AuditSnapshot, action: AuditAction) -> AuditSna
     conclusion = snapshot.conclusion
     if conclusion is None:
         raise AuditWorkflowError("coverage is incomplete; conclusion is not available")
-    if action.expected_effective_conclusion_hash != conclusion.effective_conclusion_hash:
-        raise AuditWorkflowError("stale expected effective conclusion hash")
     if action.action == "review-entry":
         entry = next((item for item in conclusion.entries if item.id == action.entry_id), None)
         if entry is None:
@@ -408,27 +390,19 @@ def _review_conclusion(snapshot: AuditSnapshot, action: AuditAction) -> AuditSna
         entries = conclusion.entries
         whole_review = "rejected"
         status = "rejected"
-    after_hash = _effective_hash(entries, whole_review)
     review = ConclusionReview(
         review_id=f"review-{uuid4().hex[:12]}",
         target="entry" if action.action == "review-entry" else "whole-conclusion",
         outcome=action.decision or "reject",
         reviewer_id=action.reviewer_id or "",
         reason=action.reason or "",
-        original_proposal_hash=conclusion.original_proposal_hash,
-        expected_event_hash=action.expected_event_hash,
-        expected_effective_conclusion_hash=action.expected_effective_conclusion_hash,
-        before_effective_hash=conclusion.effective_conclusion_hash,
-        after_effective_hash=after_hash,
         entry_id=action.entry_id,
         correction=action.correction,
-        original_proposal=conclusion.original_proposal,
     )
     updated_conclusion = conclusion.model_copy(
         update={
             "entries": entries,
             "whole_review": whole_review,
-            "effective_conclusion_hash": after_hash,
             "review_reason": action.reason,
         }
     )
@@ -437,15 +411,11 @@ def _review_conclusion(snapshot: AuditSnapshot, action: AuditAction) -> AuditSna
             "status": status,
             "conclusion": updated_conclusion,
             "conclusion_reviews": snapshot.conclusion_reviews + (review,),
-            "accepted_action_ids": snapshot.accepted_action_ids
-            + ((action.action_id,) if action.action_id else ()),
         }
     )
 
 
-def transition_audit(
-    store: AuditStore, snapshot: AuditSnapshot, action: AuditAction
-) -> AuditSnapshot:
+def transition_audit(snapshot: AuditSnapshot, action: AuditAction) -> AuditSnapshot:
     allowed_actions = {
         "active": {"answer", "skip", "pause"},
         "paused": {"resume"},
@@ -458,16 +428,8 @@ def transition_audit(
             "coverage is incomplete or action "
             f"{action.action} is not allowed while audit is {snapshot.status}"
         )
-    if action.action_id and action.action_id in snapshot.accepted_action_ids:
-        return snapshot
     if action.action in {"review-entry", "review-conclusion"}:
-        if not action.expected_event_hash:
-            raise AuditWorkflowError("review requires expected event hash")
         return _review_conclusion(snapshot, action)
-    if action.expected_snapshot_hash:
-        actual = sha256_digest(canonical_json_bytes(snapshot.model_dump(mode="json")))
-        if action.expected_snapshot_hash != actual:
-            raise AuditWorkflowError("stale audit snapshot; optimistic concurrency check failed")
     questions = list(snapshot.questions)
     answers = list(snapshot.answers)
     if action.action == "pause":
@@ -582,8 +544,6 @@ def transition_audit(
                 "responsibility_round": rr,
                 "assistance_round": ar,
                 "attribution_conflicts": tuple(conflicts),
-                "accepted_action_ids": snapshot.accepted_action_ids
-                + ((action.action_id,) if action.action_id else ()),
             }
         )
         conclusion = _build_conclusion(updated)

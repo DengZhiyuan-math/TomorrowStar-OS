@@ -63,9 +63,9 @@ def _emit(value: Any) -> None:
     )
 
 
-def _audit_result(snapshot: Any, event_hash: str) -> dict[str, Any]:
-    """The sole deterministic presentation for accepted and replayed audit results."""
-    return {"event_hash": event_hash, "snapshot": snapshot.model_dump(mode="json")}
+def _audit_result(snapshot: Any) -> dict[str, Any]:
+    """The deterministic presentation for one completed local audit action."""
+    return {"snapshot": snapshot.model_dump(mode="json")}
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -148,13 +148,10 @@ def _parser() -> argparse.ArgumentParser:
     start.add_argument("--manifest", default=None)
     start.add_argument("--contribution-id", required=True)
     start.add_argument("--audit-id")
-    start.add_argument("--action-id", required=True)
     for name in ("answer", "skip", "pause", "resume", "review-entry", "review-conclusion"):
         command = audit_commands.add_parser(name)
         command.add_argument("--workspace", required=True)
         command.add_argument("--audit-id", required=True)
-        command.add_argument("--action-id", required=True)
-        command.add_argument("--expected-event-hash", required=True)
         if name in {"answer", "skip"}:
             command.add_argument("--answer", required=True)
             command.add_argument("--question-id")
@@ -168,8 +165,6 @@ def _parser() -> argparse.ArgumentParser:
             command.add_argument("--decision", choices=("confirm", "reject"), required=True)
             command.add_argument("--reason", required=True)
             command.add_argument("--reviewer", required=True)
-        if name in {"review-entry", "review-conclusion"}:
-            command.add_argument("--expected-effective-conclusion-hash", required=True)
     inspect = audit_commands.add_parser("inspect")
     inspect.add_argument("--fixture", required=True)
     inspect.add_argument("--manifest", required=True)
@@ -342,16 +337,13 @@ def main(argv: list[str] | None = None) -> int:
                 manifest_path=manifest,
                 contribution_id=args.contribution_id,
                 audit_id=args.audit_id,
-                action_id=args.action_id,
             )
             _emit(
                 {
                     "audit_id": created.audit_id,
                     "question": created.questions[0],
                     "status": created.status,
-                    "event_hash": AuditStore(Path(args.workspace)).latest_event_hash(
-                        created.audit_id
-                    ),
+                    "snapshot": created,
                 }
             )
         elif args.command == "audit" and args.audit_command == "inspect":
@@ -374,13 +366,6 @@ def main(argv: list[str] | None = None) -> int:
                     payload[field] = getattr(args, field)
             if hasattr(args, "reviewer"):
                 payload["reviewer_id"] = args.reviewer
-            if hasattr(args, "expected_event_hash"):
-                payload["expected_event_hash"] = args.expected_event_hash
-            if hasattr(args, "expected_effective_conclusion_hash"):
-                payload["expected_effective_conclusion_hash"] = (
-                    args.expected_effective_conclusion_hash
-                )
-            payload["action_id"] = args.action_id
             try:
                 action = AuditAction.model_validate(payload)
             except ValidationError as exc:
@@ -392,10 +377,9 @@ def main(argv: list[str] | None = None) -> int:
                     }
                 )
                 return 2
-            updated, _replayed = store.transact(
-                args.audit_id, action, lambda current: transition_audit(store, current, action)
-            )
-            _emit(_audit_result(updated, store.latest_event_hash(args.audit_id)))
+            updated = transition_audit(store.read(args.audit_id), action)
+            store.replace(updated)
+            _emit(_audit_result(updated))
         return 0
     except AuditWorkflowError as exc:
         _emit_error({"valid": False, "error": "audit_workflow_error", "message": str(exc)})
