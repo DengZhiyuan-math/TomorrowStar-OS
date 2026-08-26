@@ -25,7 +25,7 @@ created: 2026-08-26
 | **Full suite command** | `UV_CACHE_DIR=/tmp/career-evidence-uv-cache uv run --locked python scripts/run_pytest.py -q` |
 | **Estimated runtime** | Target under 30 seconds for quick sampling; measure during Wave 0 |
 
-> Environment prerequisite: restore the locked Python 3.13.14 interpreter before execution. The current `.venv/bin/python` target is absent and the host `python3` is 3.14.5; do not change the project's `>=3.13,<3.14` range to bypass this gate.
+> Environment gate: Plan 03-01 Task 1 first performs read-only detection. If Python 3.13.14 is absent, execution stops at a blocking human-action checkpoint; `uv python install 3.13.14` may run only after explicit approval. All later commands require the exact-version check to pass.
 
 ---
 
@@ -42,10 +42,14 @@ created: 2026-08-26
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 03-W0-01 | 03-01 | 0 | AUD-01 | T-03-01 | Inspection is bounded to pinned fixture sources; project documents never establish personal capability | unit + integration | `UV_CACHE_DIR=/tmp/career-evidence-uv-cache uv run --locked python scripts/run_pytest.py -q tests/test_audit_inspection.py` | ❌ W0 | ⬜ pending |
-| 03-W0-02 | 03-02 | 1 | AUD-02, AUD-03 | Invalid, repeated, multi-part, leading, and artifact-answerable transitions fail closed | unit + persistence | `UV_CACHE_DIR=/tmp/career-evidence-uv-cache uv run --locked python scripts/run_pytest.py -q tests/test_audit_policy.py tests/test_audit_store.py` | ❌ W0 | ⬜ pending |
-| 03-W0-03 | 03-02 | 1 | AUD-04 | Ownership and assistance stay separate; legacy assistance remains provenance-compatible | unit + migration | `UV_CACHE_DIR=/tmp/career-evidence-uv-cache uv run --locked python scripts/run_pytest.py -q tests/test_audit_attribution.py tests/test_assistance_migration.py` | ❌ W0 | ⬜ pending |
-| 03-W0-04 | 03-03 | 2 | AUD-05 | Review never overwrites the original proposal and rejects numeric score promotion | integration + CLI | `UV_CACHE_DIR=/tmp/career-evidence-uv-cache uv run --locked python scripts/run_pytest.py -q tests/test_audit_conclusion.py tests/test_audit_cli.py` | ❌ W0 | ⬜ pending |
+| 03-01-01 | 03-01 | 0 | environment | — | Detect exact interpreter; conditionally stop for explicit install authority | preflight | `PY313_PATH="$(uv python find 3.13.14)" && test "$($PY313_PATH --version)" = "Python 3.13.14"` | n/a | ⬜ pending |
+| 03-01-02 | 03-01 | 0 | AUD-01..05 | T-03-01..04 | Offline tracer and strict contracts fail closed | integration | `UV_CACHE_DIR=/tmp/career-evidence-uv-cache uv run --locked python scripts/run_pytest.py -q tests/test_audit_cli.py tests/test_audit_models.py` | ❌ W0 | ⬜ pending |
+| 03-01-03 | 03-01 | 0 | AUD-01 | T-03-01..04 | Inspection remains pinned and non-personal | unit + integration | `UV_CACHE_DIR=/tmp/career-evidence-uv-cache uv run --locked python scripts/run_pytest.py -q tests/test_audit_inspection.py tests/test_audit_cli.py` | ❌ W0 | ⬜ pending |
+| 03-02-01 | 03-02 | 1 | AUD-02, AUD-03 | T-03-05 | Question transitions fail closed | unit | `UV_CACHE_DIR=/tmp/career-evidence-uv-cache uv run --locked python scripts/run_pytest.py -q tests/test_audit_policy.py` | later plan | ⬜ pending |
+| 03-02-02 | 03-02 | 1 | AUD-04 | T-03-06..07 | Attribution axes and migration remain distinct | unit + migration | `UV_CACHE_DIR=/tmp/career-evidence-uv-cache uv run --locked python scripts/run_pytest.py -q tests/test_audit_attribution.py tests/test_assistance_migration.py` | later plan | ⬜ pending |
+| 03-03-01 | 03-03 | 2 | AUD-05 | T-03-10 | Complete prose conclusion only | unit | `UV_CACHE_DIR=/tmp/career-evidence-uv-cache uv run --locked python scripts/run_pytest.py -q tests/test_audit_conclusion.py` | later plan | ⬜ pending |
+| 03-03-02 | 03-03 | 2 | AUD-05 | T-03-08..09 | Immutable review lineage | persistence | `UV_CACHE_DIR=/tmp/career-evidence-uv-cache uv run --locked python scripts/run_pytest.py -q tests/test_audit_conclusion.py tests/test_audit_store.py` | later plan | ⬜ pending |
+| 03-03-03 | 03-03 | 2 | AUD-05 | T-03-08..10 | CLI review and full phase gate | integration | `UV_CACHE_DIR=/tmp/career-evidence-uv-cache uv run --locked python scripts/run_pytest.py -q` | later plan | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -53,15 +57,47 @@ created: 2026-08-26
 
 ## Wave 0 Requirements
 
-- [ ] Restore or install the locked Python 3.13.14 interpreter and verify `uv run --locked python --version` reports Python 3.13.14.
+- [ ] Detect Python 3.13.14; if absent, pause for explicit approval before installing exactly that version; verify the resolved interpreter reports Python 3.13.14.
 - [ ] `tests/test_audit_models.py` — strict audit-contract rejection matrix.
 - [ ] `tests/test_audit_inspection.py` — sealed source-manifest/fixture boundary and reason traceability for AUD-01.
-- [ ] `tests/test_audit_policy.py` — one-question, relevance, hard-to-simple, same-level follow-up, anti-leading, and resume transition matrix for AUD-02/AUD-03.
-- [ ] `tests/test_audit_store.py` — atomic snapshots, invalid identifiers, corruption rejection, and history immutability for AUD-02.
-- [ ] `tests/test_audit_attribution.py` — separate responsibility/assistance rounds and conflict/unresolved flows for AUD-04.
-- [ ] `tests/test_assistance_migration.py` — legacy `codex_assisted` read compatibility without rewriting sealed fixture bytes.
-- [ ] `tests/test_audit_conclusion.py` — capability boundary plus immutable edit/confirm/reject lineage for AUD-05.
 - [ ] `tests/test_audit_cli.py` — complete offline start/answer/skip/pause/resume/inspect/review flow.
+
+Later-wave tests (`test_audit_policy.py`, `test_audit_attribution.py`, `test_assistance_migration.py`, `test_audit_store.py`, and `test_audit_conclusion.py`) are created by their owning Plan 03-02/03-03 tasks and are not Wave 0 prerequisites.
+
+## 28-Item Edge-Probe Matrix
+
+| # | Probe | Mapping |
+|---:|---|---|
+| 1 | AUD-01 duplicate/overlapping locators stay distinct | `test_inspection_preserves_duplicate_source_locators` |
+| 2 | AUD-01 missing Contribution | `test_inspection_rejects_missing_contribution` |
+| 3 | AUD-01 empty evidence links | `test_inspection_rejects_empty_linked_evidence` |
+| 4 | AUD-01 null/unverified manifest | `test_inspection_rejects_unverified_manifest` |
+| 5 | AUD-01 deterministic ordering | `test_inspection_order_is_stable` |
+| 6 | AUD-01 repeat start idempotency | `test_start_does_not_overwrite_existing_audit` |
+| 7 | AUD-01 interrupted/competing creation | `test_audit_creation_is_atomic_under_competition` |
+| 8 | AUD-02 one active question/order | `test_transition_has_exactly_one_active_question` |
+| 9 | AUD-02 blank/null answer | `test_blank_answer_fails_closed` |
+| 10 | AUD-02 duplicate action | `test_duplicate_action_is_idempotent` |
+| 11 | AUD-02 stale concurrent action | `test_stale_expected_hash_rejects_lost_update` |
+| 12 | AUD-02 pause/resume no repeat | `test_resume_returns_next_unanswered_question` |
+| 13 | AUD-03 one same-level follow-up | `test_only_one_same_level_followup` |
+| 14 | AUD-03 second incomplete descends | `test_second_incomplete_answer_descends` |
+| 15 | AUD-03 unknown descends | `test_dont_know_descends_without_penalty` |
+| 16 | AUD-03 exhausted/irrelevant area | `test_exhausted_or_irrelevant_area_emits_no_question` |
+| 17 | AUD-03 Unicode round trip | `test_unicode_answer_and_reason_round_trip_exactly` |
+| 18 | AUD-03 deterministic ladder order | `test_fixture_ladder_is_hard_to_simple_and_stable` |
+| 19 | AUD-04 ownership before assistance | `test_ownership_precedes_assistance` |
+| 20 | AUD-04 assistance cannot fill ownership | `test_assistance_never_fills_ownership` |
+| 21 | AUD-04 absent/Unicode/unresolved attribution | `test_attribution_values_round_trip_distinctly` |
+| 22 | AUD-04 conflicting attribution preserved | `test_conflict_preserves_documentary_and_user_claims` |
+| 23 | AUD-04 legacy read/canonical write | `test_legacy_codex_assisted_reads_and_new_write_is_canonical` |
+| 24 | AUD-05 incomplete coverage blocks proposal | `test_incomplete_coverage_blocks_conclusion` |
+| 25 | AUD-05 stable entry order/UTF-8 | `test_conclusion_order_and_unicode_are_stable` |
+| 26 | AUD-05 duplicate terminal review | `test_duplicate_terminal_review_is_idempotent` |
+| 27 | AUD-05 competing/tampered review | `test_stale_or_tampered_review_fails_closed` |
+| 28 | AUD-05 original proposal and no-score boundary | `test_review_preserves_original_and_emits_no_verified_numeric_score` |
+
+No-silent-drop gate: `test_validation_probe_matrix.py::test_all_28_edge_probes_are_collected` must assert exact set equality between these 28 names and collected probe IDs; additions or omissions fail.
 
 ---
 

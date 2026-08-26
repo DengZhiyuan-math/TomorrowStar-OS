@@ -292,22 +292,11 @@ class StrictModel(BaseModel):
 | A2 | A compact `audit/` package is the best exact module boundary. | Recommended Project Structure | Existing project conventions may favor another local organization. |
 | A3 | Hash-linked append-only audit events should accompany a current snapshot. | Pattern 1 | Could be more than MVP needs; planner must keep it minimal while preserving required history. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Exact audit schema/version and workspace layout**
-   - What we know: IDs, envelopes, and transitions are explicitly agent discretion; current formal-run paths are not automatically audit paths. [VERIFIED: .planning/phases/03-artifact-aware-grill-me-and-attribution-workflow/03-CONTEXT.md]
-   - What's unclear: The exact stable envelope/filename design.
-   - Recommendation: Plan the minimum explicit schema and a migration test before exposing write commands.
-
-2. **Exact capability ladders per STOA contribution**
-   - What we know: They must be relevant, hard-to-simple, neutral, and stop at a known boundary.
-   - What's unclear: The initial fixture-backed ladder text.
-   - Recommendation: Define deterministic fixture ladders in tests; defer generalized LLM question generation and all scoring.
-
-3. **Artifact inspection exposure**
-   - What we know: It must be available but cannot be a mandatory opening display.
-   - What's unclear: Command-only, conclusion packet, or both.
-   - Recommendation: Provide a read-only `inspect` command and include an artifact-record reference in conclusion output; this is the smallest independently inspectable MVP. [ASSUMED]
+1. **Schema and workspace:** Use frozen versioned JSON records (`audit-snapshot/v1`, `audit-conclusion/v1`) under one resolved `audits/<audit_id>/current.json` snapshot and append-only, hash-linked `events.jsonl`. IDs are allowlisted, snapshot replacement is atomic, and no database or second formal-run store is introduced. This is the minimum versioned JSON snapshot+event workspace consistent with D-07, D-15, AGENTS.md YAGNI, and the established `validation/store.py` pattern.
+2. **Capability ladders:** Define deterministic ladders only for relevant areas present in the sealed STOA fixture. Store stable level IDs and neutral hard-to-simple question text in fixture-backed test data; `tests/test_audit_policy.py` proves demanding-first descent, the single same-level follow-up, and the D-09 stop boundary. Generalized model-generated ladders and every scoring rule remain outside Phase 3.
+3. **Inspection exposure:** Provide a read-only `audit inspect` command and retain the inspection-record hash/reference in each question basis and conclusion entry. The command is optional and the audit still opens directly with the first reason-prefaced question, satisfying D-01 with the smallest independently inspectable exposure.
 
 ## Environment Availability
 
