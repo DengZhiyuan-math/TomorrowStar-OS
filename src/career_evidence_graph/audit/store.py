@@ -17,6 +17,8 @@ class AuditStorageError(RuntimeError):
 
 class AuditStore:
     def __init__(self, workspace: Path) -> None:
+        if workspace.is_symlink():
+            raise AuditStorageError("workspace path is unsafe")
         self.root = workspace.resolve() / "audits"
 
     @staticmethod
@@ -64,7 +66,13 @@ class AuditStore:
             value: Any = json.loads((path / "snapshot.json").read_text(encoding="utf-8"))
             snapshot = AuditSnapshot.model_validate(value)
             events = (path / "events.jsonl").read_text(encoding="utf-8")
-            expected = json.loads(events.splitlines()[-1])["hash"]
+            event_lines = events.splitlines()
+            if not event_lines:
+                raise AuditStorageError("audit event chain is empty")
+            records = [json.loads(line) for line in event_lines]
+            if any("hash" not in record or "event" not in record for record in records):
+                raise AuditStorageError("audit event chain is corrupt")
+            expected = records[-1]["hash"]
             actual = sha256_digest(canonical_json_bytes(value) + b"\n")
             if expected != actual:
                 raise AuditStorageError("audit snapshot hash mismatch")
@@ -72,10 +80,31 @@ class AuditStore:
         except (OSError, json.JSONDecodeError, KeyError, ValueError) as exc:
             raise AuditStorageError("audit snapshot is corrupt") from exc
 
-    def update(self, snapshot: AuditSnapshot) -> None:
+    def latest_event_hash(self, audit_id: str) -> str:
+        path = self.path(audit_id)
+        if path.is_symlink() or not path.is_dir() or path.resolve().parent != self.root.resolve():
+            raise AuditStorageError("audit path is unsafe")
+        try:
+            raw = (path / "events.jsonl").read_bytes()
+            lines = raw.splitlines()
+            if not lines:
+                raise AuditStorageError("audit event chain is empty")
+            record = json.loads(lines[-1])
+            if "hash" not in record or "event" not in record:
+                raise AuditStorageError("audit event chain is corrupt")
+            return sha256_digest(lines[-1] + b"\n")
+        except (OSError, json.JSONDecodeError, KeyError) as exc:
+            raise AuditStorageError("audit event chain is corrupt") from exc
+
+    def update(self, snapshot: AuditSnapshot, *, expected_event_hash: str | None = None) -> None:
         path = self.path(snapshot.audit_id)
         if not path.is_dir():
             raise AuditStorageError("audit does not exist")
+        if (
+            expected_event_hash is not None
+            and self.latest_event_hash(snapshot.audit_id) != expected_event_hash
+        ):
+            raise AuditStorageError("stale expected event hash")
         data = canonical_json_bytes(snapshot.model_dump(mode="json")) + b"\n"
         fd, name = tempfile.mkstemp(dir=path, prefix="snapshot.")
         try:
@@ -84,10 +113,8 @@ class AuditStore:
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(name, path / "snapshot.json")
+            record = {"event": "updated", "hash": sha256_digest(data)}
             with (path / "events.jsonl").open("a", encoding="utf-8") as events:
-                events.write(
-                    json.dumps({"hash": sha256_digest(data), "event": "updated"}, sort_keys=True)
-                    + "\n"
-                )
+                events.write(json.dumps(record, sort_keys=True) + "\n")
         finally:
             Path(name).unlink(missing_ok=True)

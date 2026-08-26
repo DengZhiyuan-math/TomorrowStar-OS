@@ -104,6 +104,7 @@ def test_duplicate_terminal_review_is_idempotent(tmp_path: Path):
         decision="confirm",
         reason="同意",
         reviewer_id="reviewer",
+        expected_event_hash=store.latest_event_hash(snap.audit_id),
     )
     updated = transition_audit(store, snap, action)
     repeated = transition_audit(store, updated, action)

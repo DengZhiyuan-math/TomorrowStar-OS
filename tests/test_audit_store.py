@@ -15,9 +15,20 @@ MANIFEST = FIXTURE.with_name("source-manifest.json")
 
 def _complete(tmp_path: Path):
     store = AuditStore(tmp_path)
-    snap = start_audit(workspace=tmp_path, fixture_path=FIXTURE, manifest_path=MANIFEST,
-                       contribution_id="contrib-stoa-authorization-boundary", audit_id="audit-store")
-    for answer in ("I designed it.", "I repaired it.", "I operated it.", "I owned it.", "没有外部协助"):
+    snap = start_audit(
+        workspace=tmp_path,
+        fixture_path=FIXTURE,
+        manifest_path=MANIFEST,
+        contribution_id="contrib-stoa-authorization-boundary",
+        audit_id="audit-store",
+    )
+    for answer in (
+        "I designed it.",
+        "I repaired it.",
+        "I operated it.",
+        "I owned it.",
+        "没有外部协助",
+    ):
         snap = transition_audit(store, snap, AuditAction(action="answer", answer=answer))
         store.update(snap)
     return store, store.read("audit-store")
@@ -27,9 +38,15 @@ def test_review_appends_immutable_lineage_and_preserves_original_bytes(tmp_path:
     store, snap = _complete(tmp_path)
     original = (store.path(snap.audit_id) / "snapshot.json").read_bytes()
     expected = store.latest_event_hash(snap.audit_id)
-    action = AuditAction(action="review-entry", entry_id="entry-implementation", decision="edit",
-                         correction="更正：由我完成。", reason="责任边界需要修正。", reviewer_id="审查者",
-                         expected_event_hash=expected)
+    action = AuditAction(
+        action="review-entry",
+        entry_id="entry-implementation",
+        decision="edit",
+        correction="更正：由我完成。",
+        reason="责任边界需要修正。",
+        reviewer_id="审查者",
+        expected_event_hash=expected,
+    )
     reviewed = transition_audit(store, snap, action)
     store.update(reviewed, expected_event_hash=expected)
     assert (store.path(snap.audit_id) / "snapshot.json").read_bytes() != original
@@ -40,13 +57,18 @@ def test_review_appends_immutable_lineage_and_preserves_original_bytes(tmp_path:
 
 def test_stale_or_tampered_review_fails_closed(tmp_path: Path):
     store, snap = _complete(tmp_path)
-    action = AuditAction(action="review-conclusion", decision="confirm", reason="确认", reviewer_id="r",
-                         expected_event_hash="sha256:" + "0" * 64)
+    action = AuditAction(
+        action="review-conclusion",
+        decision="confirm",
+        reason="确认",
+        reviewer_id="r",
+        expected_event_hash="sha256:" + "0" * 64,
+    )
     with pytest.raises(ValueError, match="event hash"):
         transition_audit(store, snap, action)
     events = store.path(snap.audit_id) / "events.jsonl"
     events.write_text(events.read_text(encoding="utf-8") + "{bad}\n", encoding="utf-8")
-    with pytest.raises(AuditStorageError, match="event"):
+    with pytest.raises(AuditStorageError, match="corrupt"):
         store.read(snap.audit_id)
 
 
@@ -56,4 +78,3 @@ def test_symlinked_workspace_fails_closed(tmp_path: Path):
     link.symlink_to(tmp_path, target_is_directory=True)
     with pytest.raises(AuditStorageError):
         AuditStore(link).read("audit-store")
-

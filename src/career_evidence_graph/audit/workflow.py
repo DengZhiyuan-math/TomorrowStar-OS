@@ -17,6 +17,7 @@ from .models import (
     AuditQuestion,
     AuditSnapshot,
     ConclusionEntry,
+    ConclusionReview,
     ResponsibilityRound,
 )
 from .store import AuditStore
@@ -251,6 +252,60 @@ def _build_conclusion(snapshot: AuditSnapshot) -> AuditConclusion | None:
 def transition_audit(
     store: AuditStore, snapshot: AuditSnapshot, action: AuditAction
 ) -> AuditSnapshot:
+    if action.action in {"review-entry", "review-conclusion"}:
+        if snapshot.conclusion is None:
+            raise ValueError("coverage is incomplete; conclusion is not available")
+        if not action.expected_event_hash:
+            raise ValueError("review requires expected event hash")
+        if store.latest_event_hash(snapshot.audit_id) != action.expected_event_hash:
+            raise ValueError("stale expected event hash")
+        if action.action_id and action.action_id in snapshot.accepted_action_ids:
+            return snapshot
+        if action.action == "review-entry" and not any(
+            entry.id == action.entry_id for entry in snapshot.conclusion.entries
+        ):
+            raise ValueError("review entry is missing")
+        terminal = next(
+            (
+                review
+                for review in snapshot.conclusion_reviews
+                if (
+                    (action.action == "review-entry" and review.entry_id == action.entry_id)
+                    or (
+                        action.action == "review-conclusion" and review.target == "whole-conclusion"
+                    )
+                )
+                and review.outcome in {"confirm", "reject"}
+            ),
+            None,
+        )
+        if terminal:
+            if (
+                terminal.outcome == action.decision
+                and terminal.reviewer_id == action.reviewer_id
+                and terminal.reason == action.reason
+            ):
+                return snapshot
+            raise ValueError("review target already has a terminal review")
+        review = ConclusionReview(
+            review_id=f"review-{uuid4().hex[:12]}",
+            target="entry" if action.action == "review-entry" else "whole-conclusion",
+            outcome=action.decision or "reject",
+            reviewer_id=action.reviewer_id or "",
+            reason=action.reason or "",
+            original_proposal_hash=snapshot.conclusion.original_proposal_hash,
+            expected_event_hash=action.expected_event_hash,
+            entry_id=action.entry_id,
+            correction=action.correction,
+            original_proposal=snapshot.conclusion.model_dump(mode="json"),
+        )
+        return snapshot.model_copy(
+            update={
+                "conclusion_reviews": snapshot.conclusion_reviews + (review,),
+                "accepted_action_ids": snapshot.accepted_action_ids
+                + ((action.action_id,) if action.action_id else ()),
+            }
+        )
     if action.expected_snapshot_hash:
         actual = sha256_digest(canonical_json_bytes(snapshot.model_dump(mode="json")))
         if action.expected_snapshot_hash != actual:
@@ -369,33 +424,4 @@ def transition_audit(
         )
         conclusion = _build_conclusion(updated)
         return updated.model_copy(update={"conclusion": conclusion})
-    if action.action == "review-entry" and snapshot.conclusion:
-        entries = list(snapshot.conclusion.entries)
-        entry = next(x for x in entries if x.id == action.entry_id)
-        entries[entries.index(entry)] = entry.model_copy(
-            update={
-                "review": {"confirm": "confirmed", "edit": "edited", "reject": "rejected"}[
-                    action.decision or "reject"
-                ],
-                "correction": action.correction,
-            }
-        )
-        return snapshot.model_copy(
-            update={
-                "conclusion": snapshot.conclusion.model_copy(update={"entries": tuple(entries)})
-            }
-        )
-    if action.action == "review-conclusion" and snapshot.conclusion:
-        return snapshot.model_copy(
-            update={
-                "conclusion": snapshot.conclusion.model_copy(
-                    update={
-                        "whole_review": "confirmed" if action.decision == "confirm" else "rejected",
-                        "review_reason": action.reason,
-                    }
-                )
-            }
-        )
-    if action.action == "review-conclusion" and snapshot.conclusion is None:
-        raise ValueError("coverage is incomplete; conclusion is not available")
     raise ValueError("invalid audit transition")
