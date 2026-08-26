@@ -27,6 +27,8 @@ addopts = ["-m", "not live_model"]
 markers = [
   "live: opt-in tests that may invoke an external model",
   "live_model: opt-in test that invokes an authenticated model runtime",
+  "phase03_original_probe: executable original Phase 3 acceptance probe",
+  "phase03_gap_probe: executable Phase 3 review or verification gap probe",
 ]
 
 [tool.ruff]

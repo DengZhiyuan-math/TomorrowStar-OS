@@ -7,6 +7,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).parents[1]
 LAUNCHER = ROOT / "scripts" / "run_career_evidence.py"
 FIXTURE = ROOT / "validation/fixtures/stoa/v1/known-good.json"
@@ -24,7 +26,8 @@ def run_cli(*args: str, env: dict[str, str] | None = None) -> subprocess.Complet
     )
 
 
-def test_audit_offline_tracer_starts_pauses_and_resumes(tmp_path: Path) -> None:
+@pytest.mark.phase03_original_probe
+def test_start_does_not_overwrite_existing_audit(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     started = run_cli(
         "audit",
@@ -89,6 +92,46 @@ def test_audit_offline_tracer_starts_pauses_and_resumes(tmp_path: Path) -> None:
     )
     assert resumed.returncode == 0, resumed.stderr
     assert json.loads(resumed.stdout)["snapshot"]["audit_id"] == audit_id
+    original = (workspace / "audits" / audit_id / "snapshot.json").read_bytes()
+    repeated = run_cli(
+        "audit",
+        "start",
+        "--workspace",
+        str(workspace),
+        "--fixture",
+        str(FIXTURE),
+        "--contribution-id",
+        "contrib-stoa-authorization-boundary",
+        "--audit-id",
+        audit_id,
+        "--action-id",
+        "action-start-repeat",
+    )
+    assert repeated.returncode == 2
+    assert (workspace / "audits" / audit_id / "snapshot.json").read_bytes() == original
+
+
+@pytest.mark.phase03_original_probe
+def test_audit_creation_is_atomic_under_competition(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    command = (
+        "audit",
+        "start",
+        "--workspace",
+        str(workspace),
+        "--fixture",
+        str(FIXTURE),
+        "--contribution-id",
+        "contrib-stoa-authorization-boundary",
+        "--audit-id",
+        "audit-race",
+        "--action-id",
+        "action-start-race",
+    )
+    first = run_cli(*command)
+    second = run_cli(*command[:-1], "action-start-race-two")
+    assert sorted((first.returncode, second.returncode)) == [0, 2]
+    assert (workspace / "audits" / "audit-race" / "snapshot.json").is_file()
 
 
 def test_audit_workflow_errors_are_structured_and_do_not_write(tmp_path: Path) -> None:
