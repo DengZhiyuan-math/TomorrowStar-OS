@@ -182,3 +182,17 @@ def test_entry_edits_preserve_proposal_and_require_current_effective_hash(tmp_pa
                 expected_effective_conclusion_hash=before_hash,
             ),
         )
+
+
+@pytest.mark.phase03_gap_probe
+def test_direct_reviews_require_current_effective_conclusion_hash(tmp_path: Path):
+    snap = _complete(tmp_path)
+    with pytest.raises(ValueError, match="effective conclusion hash"):
+        AuditAction(
+            action="review-entry",
+            entry_id="entry-implementation",
+            decision="confirm",
+            reason="review against the conclusion",
+            reviewer_id="reviewer",
+            expected_event_hash=AuditStore(tmp_path).latest_event_hash(snap.audit_id),
+        )

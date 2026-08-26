@@ -92,3 +92,22 @@ def test_symlinked_workspace_fails_closed(tmp_path: Path):
     link.symlink_to(tmp_path, target_is_directory=True)
     with pytest.raises(AuditStorageError):
         AuditStore(link).read("audit-store")
+
+
+@pytest.mark.phase03_gap_probe
+def test_stale_effective_review_hash_preserves_review_and_conclusion_bytes(tmp_path: Path):
+    store, snap = _complete(tmp_path)
+    audit_path = store.path(snap.audit_id)
+    custody_names = ("snapshot.json", "events.jsonl", "accepted-results.json")
+    before = {name: (audit_path / name).read_bytes() for name in custody_names}
+    with pytest.raises(ValueError, match="effective conclusion hash"):
+        AuditAction(
+            action="review-entry",
+            entry_id="entry-implementation",
+            decision="confirm",
+            reason="review stale projection",
+            reviewer_id="reviewer",
+            expected_event_hash=store.latest_event_hash(snap.audit_id),
+            expected_effective_conclusion_hash="sha256:" + "0" * 64,
+        )
+    assert before == {name: (audit_path / name).read_bytes() for name in custody_names}
