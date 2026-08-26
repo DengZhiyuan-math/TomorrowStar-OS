@@ -40,7 +40,7 @@ The audit now resumes through deterministic relevant-area coverage, hard-to-simp
 
 ## Verification
 
-- `UV_CACHE_DIR=/tmp/career-evidence-uv-cache uv run --locked python scripts/run_pytest.py -q` — 182 passed, 1 deselected.
+- `UV_CACHE_DIR=/tmp/career-evidence-uv-cache uv run --locked python scripts/run_pytest.py -q` — 183 passed, 1 deselected.
 - `UV_CACHE_DIR=/tmp/career-evidence-uv-cache uv run --locked ruff check src tests` — passed.
 
 ## Task Commits
@@ -49,6 +49,7 @@ The audit now resumes through deterministic relevant-area coverage, hard-to-simp
 2. `7b08135` — feat(03-02): enforce deterministic audit coverage policy
 3. `3cf7ba4` — feat(03-02): preserve attribution and assistance provenance
 4. `2d495a9` — test(03-02): cover separated attribution rounds
+5. `72665ed` — style(03-02): format attribution regression test
 
 ## Deviations from Plan
 
