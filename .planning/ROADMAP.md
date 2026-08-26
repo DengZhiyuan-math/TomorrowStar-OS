@@ -91,7 +91,7 @@ This milestone delivers six vertical validation capabilities in dependency order
   3. Ambiguous responsibility or assistance is challenged until user-owned, team-owned, other-owned, Codex-assisted, and third-party work is separated or explicitly left unresolved.
   4. For each audited Contribution, the user can edit, confirm, or reject a conclusion that identifies the strongest established capability, the next-higher capability not established, its supporting basis, and every provisional or unresolved point.
 
-**Plans:** 7/9 plans executed
+**Plans:** 9/10 plans executed
 
 **Wave 0**
 
@@ -107,27 +107,31 @@ This milestone delivers six vertical validation capabilities in dependency order
 
 **Wave 3** *(after 03-03)*
 
-- [ ] 03-04-PLAN.md — Repair lifecycle, attribution, reference, basis, and canonical conclusion-review semantics.
+- [x] 03-04-PLAN.md — Repair lifecycle, attribution, reference, basis, and canonical conclusion-review semantics.
 
 **Wave 4** *(after 03-04)*
 
-- [ ] 03-05-PLAN.md — Enforce hash-linked custody, one-lock transactions, identity-first replay, CAS, and durable recovery.
+- [x] 03-05-PLAN.md — Enforce hash-linked custody, one-lock transactions, identity-first replay, CAS, and durable recovery.
 
 **Wave 5** *(after 03-04 and 03-05)*
 
-- [ ] 03-06-PLAN.md — Materialize and mark the original 28 plus nine gap behavioral pytest probes.
+- [x] 03-06-PLAN.md — Materialize and mark the original 28 plus nine gap behavioral pytest probes.
 
 **Wave 6** *(after 03-06)*
 
-- [ ] 03-07-PLAN.md — Prove the offline end-to-end journey and exact pytest collection/full quality gate.
+- [x] 03-07-PLAN.md — Prove the offline end-to-end journey and exact pytest collection/full quality gate.
 
 **Wave 7** *(after 03-07)*
 
-- [ ] 03-08-PLAN.md — Enforce public storage CAS and migrate existing direct test callers to caller-held transactions.
+- [x] 03-08-PLAN.md — Enforce public storage CAS and migrate existing direct test callers to caller-held transactions.
 
 **Wave 8** *(after 03-08)*
 
-- [ ] 03-09-PLAN.md — Enforce review projection CAS, truthful unresolved attribution, scoped warning fixes, and final offline quality evidence.
+- [x] 03-09-PLAN.md — Enforce review projection CAS, truthful unresolved attribution, scoped warning fixes, and final offline quality evidence.
+
+**Wave 9** *(after 03-09)*
+
+- [ ] 03-10-PLAN.md — Close audit-root symbolic-link containment and restore canonical MVP goal metadata.
 
 ### Phase 4: Contribution–Skill Assessment and Aggregation Calibration
 
