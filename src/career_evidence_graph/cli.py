@@ -152,9 +152,15 @@ def _parser() -> argparse.ArgumentParser:
             command.add_argument("--entry-id", required=True)
             command.add_argument("--decision", choices=("confirm", "edit", "reject"), required=True)
             command.add_argument("--correction")
+            command.add_argument("--reason", required=True)
+            command.add_argument("--reviewer", required=True)
         if name == "review-conclusion":
             command.add_argument("--decision", choices=("confirm", "reject"), required=True)
             command.add_argument("--reason", required=True)
+            command.add_argument("--reviewer", required=True)
+        if name in {"review-entry", "review-conclusion"}:
+            command.add_argument("--expected-event-hash", required=True)
+            command.add_argument("--action-id")
     inspect = audit_commands.add_parser("inspect")
     inspect.add_argument("--fixture", required=True)
     inspect.add_argument("--manifest", required=True)
@@ -344,11 +350,28 @@ def main(argv: list[str] | None = None) -> int:
             store = AuditStore(Path(args.workspace))
             current = store.read(args.audit_id)
             payload = {"action": args.audit_command}
-            for field in ("answer", "entry_id", "decision", "correction", "reason"):
+            for field in (
+                "answer",
+                "entry_id",
+                "decision",
+                "correction",
+                "reason",
+            ):
                 if hasattr(args, field):
                     payload[field] = getattr(args, field)
+            if hasattr(args, "reviewer"):
+                payload["reviewer_id"] = args.reviewer
+            if hasattr(args, "expected_event_hash"):
+                payload["expected_event_hash"] = args.expected_event_hash
+            if hasattr(args, "action_id") and args.action_id:
+                payload["action_id"] = args.action_id
             updated = transition_audit(store, current, AuditAction.model_validate(payload))
-            store.update(updated)
+            store.update(
+                updated,
+                expected_event_hash=(
+                    args.expected_event_hash if hasattr(args, "expected_event_hash") else None
+                ),
+            )
             _emit(updated)
         return 0
     except FixtureValidationError as exc:
