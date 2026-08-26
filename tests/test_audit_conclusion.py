@@ -63,6 +63,7 @@ def test_incomplete_coverage_blocks_conclusion(tmp_path: Path):
                 decision="confirm",
                 reason="确认",
                 reviewer_id="reviewer",
+                expected_effective_conclusion_hash="sha256:" + "0" * 64,
             ),
         )
     assert snap.conclusion is None
@@ -134,7 +135,9 @@ def test_duplicate_terminal_review_is_idempotent(tmp_path: Path):
         decision="confirm",
         reason="同意",
         reviewer_id="reviewer",
+        action_id="duplicate-terminal-review",
         expected_event_hash=store.latest_event_hash(snap.audit_id),
+        expected_effective_conclusion_hash=snap.conclusion.effective_conclusion_hash,
     )
     updated = transition_audit(store, snap, action)
     repeated = transition_audit(store, updated, action)

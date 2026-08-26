@@ -127,6 +127,10 @@ class AuditAction(StrictModel):
             not self.decision or not self.reason or not self.reviewer_id
         ):
             raise ValueError("review requires decision, reviewer_id, and reason")
+        if self.action in {"review-entry", "review-conclusion"} and (
+            not self.expected_effective_conclusion_hash
+        ):
+            raise ValueError("review requires expected effective conclusion hash")
         if self.action == "review-entry" and self.decision == "edit" and not self.correction:
             raise ValueError("entry edit requires correction")
         return self

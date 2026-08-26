@@ -342,9 +342,7 @@ def _review_conclusion(snapshot: AuditSnapshot, action: AuditAction) -> AuditSna
     conclusion = snapshot.conclusion
     if conclusion is None:
         raise AuditWorkflowError("coverage is incomplete; conclusion is not available")
-    if action.expected_effective_conclusion_hash and (
-        action.expected_effective_conclusion_hash != conclusion.effective_conclusion_hash
-    ):
+    if action.expected_effective_conclusion_hash != conclusion.effective_conclusion_hash:
         raise AuditWorkflowError("stale expected effective conclusion hash")
     if action.action == "review-entry":
         entry = next((item for item in conclusion.entries if item.id == action.entry_id), None)

@@ -57,6 +57,7 @@ def test_review_appends_immutable_lineage_and_preserves_original_bytes(tmp_path:
         reviewer_id="审查者",
         action_id="store-review-implementation",
         expected_event_hash=expected,
+        expected_effective_conclusion_hash=snap.conclusion.effective_conclusion_hash,
     )
     reviewed, replayed = store.transact(
         snap.audit_id, action, lambda current: transition_audit(store, current, action)
@@ -77,6 +78,7 @@ def test_stale_or_tampered_review_fails_closed(tmp_path: Path):
         reason="确认",
         reviewer_id="r",
         expected_event_hash="sha256:" + "0" * 64,
+        expected_effective_conclusion_hash=snap.conclusion.effective_conclusion_hash,
     )
     with pytest.raises(ValueError, match="whole confirmation"):
         transition_audit(store, snap, action)
@@ -100,8 +102,7 @@ def test_stale_effective_review_hash_preserves_review_and_conclusion_bytes(tmp_p
     audit_path = store.path(snap.audit_id)
     custody_names = ("snapshot.json", "events.jsonl", "accepted-results.json")
     before = {name: (audit_path / name).read_bytes() for name in custody_names}
-    with pytest.raises(ValueError, match="effective conclusion hash"):
-        AuditAction(
+    action = AuditAction(
             action="review-entry",
             entry_id="entry-implementation",
             decision="confirm",
@@ -110,4 +111,6 @@ def test_stale_effective_review_hash_preserves_review_and_conclusion_bytes(tmp_p
             expected_event_hash=store.latest_event_hash(snap.audit_id),
             expected_effective_conclusion_hash="sha256:" + "0" * 64,
         )
+    with pytest.raises(ValueError, match="stale expected effective conclusion hash"):
+        transition_audit(store, snap, action)
     assert before == {name: (audit_path / name).read_bytes() for name in custody_names}
