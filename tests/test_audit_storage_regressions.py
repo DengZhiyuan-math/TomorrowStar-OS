@@ -29,6 +29,36 @@ def test_complete_event_chain_rejects_historical_tampering(tmp_path: Path) -> No
         AuditStore(tmp_path).read(snapshot.audit_id)
 
 
+@pytest.mark.phase03_gap_probe
+def test_symlinked_audit_root_rejects_before_external_writes(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    external = tmp_path / "external"
+    external.mkdir()
+    (external / "sentinel.txt").write_bytes(b"preserve this external directory")
+    (workspace / "audits").symlink_to(external, target_is_directory=True)
+    before = {
+        path.relative_to(external): path.read_bytes()
+        for path in external.rglob("*")
+        if path.is_file()
+    }
+
+    with pytest.raises(AuditStorageError, match="audit root is unsafe"):
+        start_audit(
+            workspace=workspace,
+            fixture_path=FIXTURE,
+            manifest_path=MANIFEST,
+            contribution_id="contrib-stoa-authorization-boundary",
+            audit_id="audit-root-escape",
+        )
+
+    assert {
+        path.relative_to(external): path.read_bytes()
+        for path in external.rglob("*")
+        if path.is_file()
+    } == before
+
+
 def test_complete_event_chain_rejects_deleted_earlier_record(tmp_path: Path) -> None:
     store = AuditStore(tmp_path)
     snapshot = start_audit(

@@ -23,9 +23,23 @@ class AuditStore:
     """One locked, verified authority for snapshots, event history, and replay results."""
 
     def __init__(self, workspace: Path) -> None:
-        if workspace.is_symlink():
+        self.workspace = workspace
+
+    def _audit_root(self) -> Path:
+        """Return the only directory allowed to hold audit custody files."""
+        if self.workspace.is_symlink() or not self.workspace.is_dir():
             raise AuditStorageError("workspace path is unsafe")
-        self.root = workspace.resolve() / "audits"
+        workspace = self.workspace.resolve()
+        root = workspace / "audits"
+        if root.is_symlink():
+            raise AuditStorageError("audit root is unsafe")
+        try:
+            root.mkdir(mode=0o700, exist_ok=True)
+        except OSError as exc:
+            raise AuditStorageError("audit root is unsafe") from exc
+        if not root.is_dir() or root.resolve().parent != workspace:
+            raise AuditStorageError("audit root escapes workspace")
+        return root
 
     @staticmethod
     def _safe(audit_id: str) -> None:
@@ -34,12 +48,12 @@ class AuditStore:
 
     def path(self, audit_id: str) -> Path:
         self._safe(audit_id)
-        return self.root / audit_id
+        return self._audit_root() / audit_id
 
     @contextmanager
     def _locked(self, audit_id: str) -> Iterator[None]:
         self._safe(audit_id)
-        locks = self.root / ".locks"
+        locks = self._audit_root() / ".locks"
         locks.mkdir(parents=True, exist_ok=True)
         lock = locks / f"{audit_id}.lock"
         if lock.is_symlink():
@@ -82,7 +96,11 @@ class AuditStore:
 
     def _audit_path(self, audit_id: str) -> Path:
         path = self.path(audit_id)
-        if path.is_symlink() or not path.is_dir() or path.resolve().parent != self.root.resolve():
+        if (
+            path.is_symlink()
+            or not path.is_dir()
+            or path.resolve().parent != self._audit_root().resolve()
+        ):
             raise AuditStorageError("audit path is unsafe")
         return path
 
@@ -159,7 +177,6 @@ class AuditStore:
             target = self.path(snapshot.audit_id)
             if target.exists():
                 raise AuditStorageError("audit already exists")
-            self.root.mkdir(parents=True, exist_ok=True)
             target.mkdir(mode=0o700)
             digest = sha256_digest(canonical_json_bytes({"action": "start"}))
             event = AuditEventRecord.create(
