@@ -91,7 +91,7 @@ This milestone delivers six vertical validation capabilities in dependency order
   3. Ambiguous responsibility or assistance is challenged until user-owned, team-owned, other-owned, Codex-assisted, and third-party work is separated or explicitly left unresolved.
   4. For each audited Contribution, the user can edit, confirm, or reject a conclusion that identifies the strongest established capability, the next-higher capability not established, its supporting basis, and every provisional or unresolved point.
 
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 
 **Wave 0**
 
@@ -99,7 +99,7 @@ This milestone delivers six vertical validation capabilities in dependency order
 
 **Wave 1** *(after 03-01)*
 
-- [ ] 03-02-PLAN.md — Enforce focused hard-to-simple questioning, resumable coverage, and separate provider-neutral attribution.
+- [x] 03-02-PLAN.md — Enforce focused hard-to-simple questioning, resumable coverage, and separate provider-neutral attribution.
 
 **Wave 2** *(after 03-02)*
 
@@ -160,7 +160,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 |-------|----------------|--------|-----------|
 | 1. Validation Charter, Provenance, and Technical Decision Gate | 2/2 | Complete    | 2026-07-30 |
 | 2. Domain Contracts, STOA Fixture, and Deterministic Invariants | 6/6 | Complete    | 2026-07-30 |
-| 3. Artifact-Aware Grill-Me and Attribution Workflow | 1/3 | In Progress|  |
+| 3. Artifact-Aware Grill-Me and Attribution Workflow | 2/3 | In Progress|  |
 | 4. Contribution–Skill Assessment and Aggregation Calibration | 0/TBD | Not started | - |
 | 5. JD Usefulness and Adversarial Evaluation | 0/TBD | Not started | - |
 | 6. Replication and Core-Hypothesis Decision | 0/TBD | Not started | - |
