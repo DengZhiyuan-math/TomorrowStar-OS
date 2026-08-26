@@ -133,6 +133,48 @@ def test_all_mutations_require_cas_and_competing_writer_loses(tmp_path: Path) ->
 
 
 @pytest.mark.phase03_gap_probe
+def test_direct_update_requires_caller_held_head_and_rejects_stale_snapshot(tmp_path: Path) -> None:
+    store = AuditStore(tmp_path)
+    snapshot = start_audit(
+        workspace=tmp_path,
+        fixture_path=FIXTURE,
+        manifest_path=MANIFEST,
+        contribution_id="contrib-stoa-authorization-boundary",
+        audit_id="audit-direct-update-cas",
+    )
+    with pytest.raises(AuditStorageError, match="expected event hash"):
+        store.update(snapshot)
+
+    head = store.latest_event_hash(snapshot.audit_id)
+    accepted = AuditAction(
+        action="answer",
+        answer="I designed it.",
+        action_id="direct-update-winner",
+        expected_event_hash=head,
+    )
+    updated, replayed = store.transact(
+        snapshot.audit_id,
+        accepted,
+        lambda current: transition_audit(store, current, accepted),
+    )
+    assert not replayed
+    path = store.path(snapshot.audit_id)
+    before_stale = {
+        name: (path / name).read_bytes()
+        for name in ("snapshot.json", "events.jsonl", "accepted-results.json")
+    }
+
+    with pytest.raises(AuditStorageError, match="stale"):
+        store.update(snapshot, expected_event_hash=head)
+
+    assert store.read(snapshot.audit_id) == updated
+    assert {
+        name: (path / name).read_bytes()
+        for name in ("snapshot.json", "events.jsonl", "accepted-results.json")
+    } == before_stale
+
+
+@pytest.mark.phase03_gap_probe
 def test_review_replay_resolves_identity_before_stale_head(tmp_path: Path) -> None:
     store = AuditStore(tmp_path)
     snapshot = start_audit(
