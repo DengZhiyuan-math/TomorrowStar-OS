@@ -477,6 +477,8 @@ def transition_audit(
         q = next((q for q in questions if q.status == "unanswered"), None)
         if q is None:
             raise AuditWorkflowError("no unanswered question")
+        if action.question_id is not None and action.question_id != q.id:
+            raise AuditWorkflowError("supplied question target does not match the active question")
         is_skip = action.action == "skip"
         questions[questions.index(q)] = q.model_copy(
             update={"status": "skipped" if is_skip else "answered"}

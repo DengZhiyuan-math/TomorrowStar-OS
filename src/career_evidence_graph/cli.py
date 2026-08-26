@@ -157,6 +157,7 @@ def _parser() -> argparse.ArgumentParser:
         command.add_argument("--expected-event-hash", required=True)
         if name in {"answer", "skip"}:
             command.add_argument("--answer", required=True)
+            command.add_argument("--question-id")
         if name == "review-entry":
             command.add_argument("--entry-id", required=True)
             command.add_argument("--decision", choices=("confirm", "edit", "reject"), required=True)
@@ -363,6 +364,7 @@ def main(argv: list[str] | None = None) -> int:
             payload = {"action": args.audit_command}
             for field in (
                 "answer",
+                "question_id",
                 "entry_id",
                 "decision",
                 "correction",
@@ -379,7 +381,17 @@ def main(argv: list[str] | None = None) -> int:
                     args.expected_effective_conclusion_hash
                 )
             payload["action_id"] = args.action_id
-            action = AuditAction.model_validate(payload)
+            try:
+                action = AuditAction.model_validate(payload)
+            except ValidationError as exc:
+                _emit_error(
+                    {
+                        "valid": False,
+                        "error": "invalid_audit_action",
+                        "message": str(exc),
+                    }
+                )
+                return 2
             updated, _replayed = store.transact(
                 args.audit_id, action, lambda current: transition_audit(store, current, action)
             )
