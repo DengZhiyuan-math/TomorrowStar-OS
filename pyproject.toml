@@ -23,6 +23,7 @@ dev = [
 
 [tool.pytest]
 testpaths = ["tests"]
+pythonpath = ["src"]
 addopts = ["-m", "not live_model"]
 markers = [
   "live: opt-in tests that may invoke an external model",
