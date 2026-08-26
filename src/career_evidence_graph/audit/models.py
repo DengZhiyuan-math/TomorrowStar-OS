@@ -54,10 +54,16 @@ class ConclusionEntry(StrictModel):
     strongest_capability: str = Field(min_length=1)
     next_higher_not_established: str = Field(min_length=1)
     basis: tuple[str, ...] = Field(min_length=1)
+    artifact_references: tuple[str, ...] = ()
+    answer_references: tuple[str, ...] = ()
+    source_type: Literal["artifact-and-answer", "answer-only", "artifact-only"] = (
+        "artifact-and-answer"
+    )
     responsibility_boundary: str = Field(min_length=1)
     assistance_boundary: str = Field(min_length=1)
     verification: Literal["audit-verified", "self-assessed-unverified", "unresolved"]
     conflicts: tuple[str, ...] = ()
+    unresolved_gaps: tuple[str, ...] = ()
     review: Literal["pending", "edited", "confirmed", "rejected"] = "pending"
     correction: str | None = None
 
@@ -70,6 +76,20 @@ class AuditConclusion(StrictModel):
     review_reason: str | None = None
 
 
+class ConclusionReview(StrictModel):
+    schema_version: Literal["audit-conclusion-review/v1"] = "audit-conclusion-review/v1"
+    review_id: str = Field(pattern=r"^review-[a-z0-9-]+$")
+    target: Literal["entry", "whole-conclusion"]
+    outcome: Literal["confirm", "edit", "reject"]
+    reviewer_id: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
+    original_proposal_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    expected_event_hash: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
+    entry_id: str | None = None
+    correction: str | None = None
+    original_proposal: dict[str, object] | None = None
+
+
 class AuditAction(StrictModel):
     schema_version: Literal["audit-action/v1"] = "audit-action/v1"
     action: Literal["answer", "skip", "pause", "resume", "review-entry", "review-conclusion"]
@@ -79,6 +99,8 @@ class AuditAction(StrictModel):
     decision: Literal["confirm", "edit", "reject"] | None = None
     correction: str | None = None
     reason: str | None = None
+    reviewer_id: str | None = None
+    expected_event_hash: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
     action_id: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9-]+$")
     expected_snapshot_hash: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
 
@@ -88,8 +110,12 @@ class AuditAction(StrictModel):
             raise ValueError("answer/skip requires answer")
         if self.action == "review-entry" and (not self.entry_id or not self.decision):
             raise ValueError("entry review requires entry_id and decision")
-        if self.action == "review-conclusion" and (not self.decision or not self.reason):
-            raise ValueError("conclusion review requires decision and reason")
+        if self.action in {"review-entry", "review-conclusion"} and (
+            not self.decision or not self.reason or not self.reviewer_id
+        ):
+            raise ValueError("review requires decision, reviewer_id, and reason")
+        if self.action == "review-entry" and self.decision == "edit" and not self.correction:
+            raise ValueError("entry edit requires correction")
         return self
 
 
@@ -110,6 +136,7 @@ class AuditSnapshot(StrictModel):
     responsibility_round: ResponsibilityRound | None = None
     assistance_round: AssistanceRound | None = None
     attribution_conflicts: tuple[AttributionConflict, ...] = ()
+    conclusion_reviews: tuple[ConclusionReview, ...] = ()
 
 
 class AuditCoverage(StrictModel):

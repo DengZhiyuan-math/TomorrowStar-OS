@@ -116,6 +116,7 @@ def _question(
         "The project record establishes bounded artifact facts, but personal capability "
         "remains unverified."
     )
+
     prompts = {
         (
             "implementation",
@@ -166,6 +167,84 @@ def _question(
         difficulty=difficulty,
         inspection_reference=reference,
         follow_up_count=follow_up,
+    )
+
+
+_AREA_ORDER = ("implementation", "debugging", "operation", "responsibility", "assistance")
+
+
+def _build_conclusion(snapshot: AuditSnapshot) -> AuditConclusion | None:
+    """Build the Phase 3 prose proposal only after every area has a terminal state."""
+    coverage = {item.area_id: item for item in snapshot.coverage}
+    if any(
+        coverage.get(area) is None or coverage[area].status == "pending" for area in _AREA_ORDER
+    ):
+        return None
+    entries: list[ConclusionEntry] = []
+    artifact_refs = tuple(f.evidence_id for f in snapshot.inspected_facts)
+    for area in _AREA_ORDER:
+        item = coverage[area]
+        answer_refs = tuple(
+            answer.question_id
+            for answer in snapshot.answers
+            if answer.question_id.startswith(f"question-{area}-")
+        )
+        level = item.difficulty_reached or "unresolved"
+        if item.status == "verified":
+            strongest = (
+                f"The user established {level}-level {area} capability for this Contribution."
+            )
+            verification = "audit-verified"
+        elif item.status == "skipped":
+            strongest = "No audited capability was established; the user skipped this area."
+            verification = "self-assessed-unverified"
+        else:
+            strongest = f"No {area} capability was established from the available answers."
+            verification = "unresolved"
+        basis = tuple(dict.fromkeys((*answer_refs, *artifact_refs))) or ("unresolved",)
+        responsibility = (
+            snapshot.responsibility_round.ownership
+            if snapshot.responsibility_round
+            else "unresolved"
+        )
+        assistance = (
+            snapshot.assistance_round.assistance if snapshot.assistance_round else "unresolved"
+        )
+        conflicts = (
+            tuple(c.user_claim for c in snapshot.attribution_conflicts)
+            if area == "responsibility"
+            else ()
+        )
+        gaps = tuple(snapshot.limitations) + ((item.self_rating,) if item.self_rating else ())
+        entries.append(
+            ConclusionEntry(
+                id=f"entry-{area}",
+                area=area,
+                strongest_capability=strongest,
+                next_higher_not_established=(
+                    f"The next higher {area} capability is not established by this audit."
+                ),
+                basis=basis,
+                artifact_references=artifact_refs,
+                answer_references=answer_refs,
+                source_type="artifact-and-answer"
+                if artifact_refs and answer_refs
+                else ("artifact-only" if artifact_refs else "answer-only"),
+                responsibility_boundary=(
+                    f"Responsibility is {responsibility}; it is not inferred "
+                    "from artifact proximity."
+                ),
+                assistance_boundary=(
+                    f"Assistance is {assistance}; assistance does not establish mastery."
+                ),
+                verification=verification,
+                conflicts=conflicts,
+                unresolved_gaps=gaps,
+            )
+        )
+    payload = {"entries": [entry.model_dump(mode="json") for entry in entries]}
+    return AuditConclusion(
+        entries=tuple(entries), original_proposal_hash=sha256_digest(canonical_json_bytes(payload))
     )
 
 
@@ -275,23 +354,7 @@ def transition_audit(
                     artifact_claim=snapshot.inspected_facts[0].statement, user_claim=text
                 )
             )
-        entry = ConclusionEntry(
-            id="entry-implementation",
-            area="implementation",
-            strongest_capability="The user's boundary requires review.",
-            next_higher_not_established="A higher capability is not established.",
-            basis=tuple(f.evidence_id for f in snapshot.inspected_facts) or ("user-answer",),
-            responsibility_boundary="Unresolved pending separate attribution turns.",
-            assistance_boundary="Unresolved pending separate assistance turn.",
-            verification="unresolved",
-        )
-        conclusion = AuditConclusion(
-            entries=(entry,),
-            original_proposal_hash=sha256_digest(
-                canonical_json_bytes(entry.model_dump(mode="json"))
-            ),
-        )
-        return snapshot.model_copy(
+        updated = snapshot.model_copy(
             update={
                 "questions": tuple(questions),
                 "answers": tuple(answers),
@@ -300,11 +363,12 @@ def transition_audit(
                 "responsibility_round": rr,
                 "assistance_round": ar,
                 "attribution_conflicts": tuple(conflicts),
-                "conclusion": conclusion,
                 "accepted_action_ids": snapshot.accepted_action_ids
                 + ((action.action_id,) if action.action_id else ()),
             }
         )
+        conclusion = _build_conclusion(updated)
+        return updated.model_copy(update={"conclusion": conclusion})
     if action.action == "review-entry" and snapshot.conclusion:
         entries = list(snapshot.conclusion.entries)
         entry = next(x for x in entries if x.id == action.entry_id)
@@ -332,4 +396,6 @@ def transition_audit(
                 )
             }
         )
+    if action.action == "review-conclusion" and snapshot.conclusion is None:
+        raise ValueError("coverage is incomplete; conclusion is not available")
     raise ValueError("invalid audit transition")

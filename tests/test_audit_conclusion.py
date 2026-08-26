@@ -29,7 +29,7 @@ def _complete(tmp_path: Path):
         "responsibility": "I owned the decisions and acceptance.",
         "assistance": "没有外部协助。",
     }
-    for area, answer in answers.items():
+    for _area, answer in answers.items():
         snap = transition_audit(store, snap, AuditAction(action="answer", answer=answer))
         store.update(snap)
     return store.read("audit-conclusion")
@@ -44,14 +44,27 @@ def test_incomplete_coverage_blocks_conclusion(tmp_path: Path):
         audit_id="audit-incomplete",
     )
     with pytest.raises(ValueError, match="coverage"):
-        transition_audit(AuditStore(tmp_path), snap, AuditAction(action="review-conclusion", decision="confirm", reason="确认"))
+        transition_audit(
+            AuditStore(tmp_path),
+            snap,
+            AuditAction(
+                action="review-conclusion",
+                decision="confirm",
+                reason="确认",
+                reviewer_id="reviewer",
+            ),
+        )
     assert snap.conclusion is None
 
 
 def test_conclusion_order_and_unicode_are_stable(tmp_path: Path):
     snap = _complete(tmp_path)
     assert [entry.area for entry in snap.conclusion.entries] == [
-        "implementation", "debugging", "operation", "responsibility", "assistance"
+        "implementation",
+        "debugging",
+        "operation",
+        "responsibility",
+        "assistance",
     ]
     assert all(entry.basis for entry in snap.conclusion.entries)
     assert all(entry.next_higher_not_established for entry in snap.conclusion.entries)
@@ -62,10 +75,15 @@ def test_conclusion_order_and_unicode_are_stable(tmp_path: Path):
 
 def test_skipped_self_rating_is_opaque_unverified_text(tmp_path: Path):
     snap = start_audit(
-        workspace=tmp_path, fixture_path=FIXTURE, manifest_path=MANIFEST,
-        contribution_id="contrib-stoa-authorization-boundary", audit_id="audit-skip",
+        workspace=tmp_path,
+        fixture_path=FIXTURE,
+        manifest_path=MANIFEST,
+        contribution_id="contrib-stoa-authorization-boundary",
+        audit_id="audit-skip",
     )
-    snap = transition_audit(AuditStore(tmp_path), snap, AuditAction(action="skip", answer="自评 7/10 — 不确定"))
+    snap = transition_audit(
+        AuditStore(tmp_path), snap, AuditAction(action="skip", answer="自评 7/10 — 不确定")
+    )
     assert snap.coverage[0].self_rating == "自评 7/10 — 不确定"
     assert snap.conclusion is None
 
@@ -80,8 +98,13 @@ def test_no_numeric_assessment_dimension_in_verified_entry(tmp_path: Path):
 def test_duplicate_terminal_review_is_idempotent(tmp_path: Path):
     snap = _complete(tmp_path)
     store = AuditStore(tmp_path)
-    action = AuditAction(action="review-entry", entry_id="entry-implementation", decision="confirm", reason="同意", reviewer_id="reviewer")
+    action = AuditAction(
+        action="review-entry",
+        entry_id="entry-implementation",
+        decision="confirm",
+        reason="同意",
+        reviewer_id="reviewer",
+    )
     updated = transition_audit(store, snap, action)
     repeated = transition_audit(store, updated, action)
     assert repeated == updated
-
