@@ -32,13 +32,15 @@ def _start(tmp_path: Path, audit_id: str = "audit-regression"):
 def _complete(tmp_path: Path, audit_id: str = "audit-complete"):
     store = AuditStore(tmp_path)
     snapshot = _start(tmp_path, audit_id)
-    for index, answer in enumerate((
-        "I designed and verified the boundary.",
-        "I isolated and repaired the failure.",
-        "I operated and checked the dependency failure.",
-        "I owned the decisions and acceptance.",
-        "No outside assistance.",
-    )):
+    for index, answer in enumerate(
+        (
+            "I designed and verified the boundary.",
+            "I isolated and repaired the failure.",
+            "I operated and checked the dependency failure.",
+            "I owned the decisions and acceptance.",
+            "No outside assistance.",
+        )
+    ):
         action = AuditAction(
             action="answer",
             answer=answer,

@@ -217,7 +217,12 @@ def _build_conclusion(snapshot: AuditSnapshot) -> AuditConclusion | None:
             strongest = "No audited capability was established; the user skipped this area."
             verification = "self-assessed-unverified"
         else:
-            strongest = f"No {area} capability was established from the available answers."
+            strongest = (
+                f"No {area} capability was established from the available answers; "
+                "the attribution boundary remains unresolved."
+                if area in {"responsibility", "assistance"}
+                else f"No {area} capability was established from the available answers."
+            )
             verification = "unresolved"
         basis = answer_refs or ("unresolved",)
         responsibility = (
@@ -494,6 +499,8 @@ def transition_audit(
             current = AuditCoverage(area_id=q.area)
             coverage.append(current)
         text = action.answer or "skipped"
+        ownership = _classify_ownership(text) if q.area == "responsibility" else None
+        assistance = _classify_assistance(text) if q.area == "assistance" else None
         incomplete = any(
             token in text.lower()
             for token in ("不知道", "不清楚", "不完整", "不确定", "don't know")
@@ -525,7 +532,14 @@ def transition_audit(
                 questions.append(_question(q.area, lower, 0, snapshot.inspected_facts))
         else:
             coverage[coverage.index(current)] = current.model_copy(
-                update={"status": "verified", "difficulty_reached": q.difficulty}
+                update={
+                    "status": (
+                        "unresolved"
+                        if ownership == "unresolved" or assistance == "unresolved"
+                        else "verified"
+                    ),
+                    "difficulty_reached": q.difficulty,
+                }
             )
             if q.area == "implementation":
                 questions.append(_question("debugging", "hard", 0, snapshot.inspected_facts))
@@ -537,17 +551,16 @@ def transition_audit(
                 questions.append(_question("assistance", "hard", 0, snapshot.inspected_facts))
         attribution = snapshot.attribution
         if q.area == "responsibility":
-            ownership = _classify_ownership(text)
             rr = ResponsibilityRound(answer=text, ownership=ownership)
             attribution = AuditAttribution(ownership=ownership, assistance="unresolved")
         else:
             rr = snapshot.responsibility_round
         ar = snapshot.assistance_round
         if q.area == "assistance":
-            kind = _classify_assistance(text)
-            ar = AssistanceRound(answer=text, assistance=kind)
+            ar = AssistanceRound(answer=text, assistance=assistance)
             attribution = AuditAttribution(
-                ownership=(attribution.ownership if attribution else "unresolved"), assistance=kind
+                ownership=attribution.ownership if attribution else "unresolved",
+                assistance=assistance,
             )
         conflicts = list(snapshot.attribution_conflicts)
         if (

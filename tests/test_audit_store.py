@@ -22,13 +22,15 @@ def _complete(tmp_path: Path):
         contribution_id="contrib-stoa-authorization-boundary",
         audit_id="audit-store",
     )
-    for index, answer in enumerate((
-        "I designed it.",
-        "I repaired it.",
-        "I operated it.",
-        "I owned it.",
-        "没有外部协助",
-    )):
+    for index, answer in enumerate(
+        (
+            "I designed it.",
+            "I repaired it.",
+            "I operated it.",
+            "I owned it.",
+            "没有外部协助",
+        )
+    ):
         action = AuditAction(
             action="answer",
             answer=answer,
@@ -96,21 +98,20 @@ def test_symlinked_workspace_fails_closed(tmp_path: Path):
         AuditStore(link).read("audit-store")
 
 
-@pytest.mark.phase03_gap_probe
 def test_stale_effective_review_hash_preserves_review_and_conclusion_bytes(tmp_path: Path):
     store, snap = _complete(tmp_path)
     audit_path = store.path(snap.audit_id)
     custody_names = ("snapshot.json", "events.jsonl", "accepted-results.json")
     before = {name: (audit_path / name).read_bytes() for name in custody_names}
     action = AuditAction(
-            action="review-entry",
-            entry_id="entry-implementation",
-            decision="confirm",
-            reason="review stale projection",
-            reviewer_id="reviewer",
-            expected_event_hash=store.latest_event_hash(snap.audit_id),
-            expected_effective_conclusion_hash="sha256:" + "0" * 64,
-        )
+        action="review-entry",
+        entry_id="entry-implementation",
+        decision="confirm",
+        reason="review stale projection",
+        reviewer_id="reviewer",
+        expected_event_hash=store.latest_event_hash(snap.audit_id),
+        expected_effective_conclusion_hash="sha256:" + "0" * 64,
+    )
     with pytest.raises(ValueError, match="stale expected effective conclusion hash"):
         transition_audit(store, snap, action)
     assert before == {name: (audit_path / name).read_bytes() for name in custody_names}

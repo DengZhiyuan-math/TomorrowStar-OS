@@ -64,6 +64,7 @@ GAP_NODE_IDS = (
     "tests/test_audit_storage_regressions.py::test_complete_event_chain_rejects_historical_tampering",
     "tests/test_audit_storage_regressions.py::test_snapshot_event_publication_recovers_after_interruption",
     "tests/test_audit_storage_regressions.py::test_all_mutations_require_cas_and_competing_writer_loses",
+    "tests/test_audit_storage_regressions.py::test_direct_update_requires_caller_held_head_and_rejects_stale_snapshot",
     "tests/test_audit_storage_regressions.py::test_review_replay_resolves_identity_before_stale_head",
     "tests/test_audit_conclusion.py::test_direct_reviews_require_current_effective_conclusion_hash",
     "tests/test_audit_cli.py::test_malformed_audit_action_has_json_diagnostic_and_no_workspace_writes",
