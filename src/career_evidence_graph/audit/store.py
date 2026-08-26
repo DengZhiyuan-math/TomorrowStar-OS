@@ -38,10 +38,13 @@ class AuditStore:
             data = canonical_json_bytes(snapshot.model_dump(mode="json")) + b"\n"
             fd, name = tempfile.mkstemp(dir=temporary, prefix="snapshot.")
             with os.fdopen(fd, "wb") as handle:
-                handle.write(data); handle.flush(); os.fsync(handle.fileno())
+                handle.write(data)
+                handle.flush()
+                os.fsync(handle.fileno())
             os.replace(name, temporary / "snapshot.json")
             (temporary / "events.jsonl").write_text(
-                json.dumps({"hash": sha256_digest(data), "event": "created"}, sort_keys=True) + "\n",
+                json.dumps({"hash": sha256_digest(data), "event": "created"}, sort_keys=True)
+                + "\n",
                 encoding="utf-8",
             )
             os.rename(temporary, destination)
@@ -49,7 +52,8 @@ class AuditStore:
             raise AuditStorageError("audit already exists") from exc
         finally:
             if temporary.exists():
-                for child in temporary.iterdir(): child.unlink(missing_ok=True)
+                for child in temporary.iterdir():
+                    child.unlink(missing_ok=True)
                 temporary.rmdir()
 
     def read(self, audit_id: str) -> AuditSnapshot:
@@ -62,19 +66,28 @@ class AuditStore:
             events = (path / "events.jsonl").read_text(encoding="utf-8")
             expected = json.loads(events.splitlines()[-1])["hash"]
             actual = sha256_digest(canonical_json_bytes(value) + b"\n")
-            if expected != actual: raise AuditStorageError("audit snapshot hash mismatch")
+            if expected != actual:
+                raise AuditStorageError("audit snapshot hash mismatch")
             return snapshot
         except (OSError, json.JSONDecodeError, KeyError, ValueError) as exc:
             raise AuditStorageError("audit snapshot is corrupt") from exc
 
     def update(self, snapshot: AuditSnapshot) -> None:
         path = self.path(snapshot.audit_id)
-        if not path.is_dir(): raise AuditStorageError("audit does not exist")
+        if not path.is_dir():
+            raise AuditStorageError("audit does not exist")
         data = canonical_json_bytes(snapshot.model_dump(mode="json")) + b"\n"
         fd, name = tempfile.mkstemp(dir=path, prefix="snapshot.")
         try:
-            with os.fdopen(fd, "wb") as handle: handle.write(data); handle.flush(); os.fsync(handle.fileno())
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(data)
+                handle.flush()
+                os.fsync(handle.fileno())
             os.replace(name, path / "snapshot.json")
             with (path / "events.jsonl").open("a", encoding="utf-8") as events:
-                events.write(json.dumps({"hash": sha256_digest(data), "event": "updated"}, sort_keys=True) + "\n")
-        finally: Path(name).unlink(missing_ok=True)
+                events.write(
+                    json.dumps({"hash": sha256_digest(data), "event": "updated"}, sort_keys=True)
+                    + "\n"
+                )
+        finally:
+            Path(name).unlink(missing_ok=True)

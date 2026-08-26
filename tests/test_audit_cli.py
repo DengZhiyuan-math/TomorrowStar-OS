@@ -40,7 +40,16 @@ def test_audit_offline_tracer_starts_pauses_and_resumes(tmp_path: Path) -> None:
     assert first["question"]["prompt"]
     audit_id = first["audit_id"]
 
-    answered = run_cli("audit", "answer", "--workspace", str(workspace), "--audit-id", audit_id, "--answer", "I chose and verified the boundary.")
+    answered = run_cli(
+        "audit",
+        "answer",
+        "--workspace",
+        str(workspace),
+        "--audit-id",
+        audit_id,
+        "--answer",
+        "I chose and verified the boundary.",
+    )
     assert answered.returncode == 0, answered.stderr
     paused = run_cli("audit", "pause", "--workspace", str(workspace), "--audit-id", audit_id)
     assert paused.returncode == 0, paused.stderr
