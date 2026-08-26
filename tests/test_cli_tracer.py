@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import csv
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -11,9 +12,20 @@ import sys
 import zipfile
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 LAUNCHER = ROOT / "scripts" / "run_career_evidence.py"
 PYTEST_LAUNCHER = ROOT / "scripts" / "run_pytest.py"
+
+
+def _build_editable_wheel(destination: Path) -> Path:
+    backend_path = ROOT / "_career_evidence_build.py"
+    spec = importlib.util.spec_from_file_location("career_evidence_build_test", backend_path)
+    assert spec is not None and spec.loader is not None
+    backend = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(backend)
+    return destination / backend.build_editable(str(destination))
 
 
 def test_explicit_checkout_launcher_resolves_the_repository_src_package() -> None:
@@ -154,6 +166,34 @@ def test_built_wheel_is_self_contained_outside_the_checkout(tmp_path: Path) -> N
     assert virtualenv.resolve() in Path(installed_paths["package_path"]).resolve().parents
     assert virtualenv.resolve() in Path(installed_paths["cli_path"]).resolve().parents
     assert installed_paths["entry_points"] == ["career_evidence_graph.cli:main"]
+
+
+@pytest.mark.phase03_gap_probe
+def test_editable_wheel_uses_package_scoped_source_proxy_without_embedded_modules(
+    tmp_path: Path,
+) -> None:
+    """PEP 660 must point only this package at the checkout source."""
+    editable_wheel = _build_editable_wheel(tmp_path)
+
+    with zipfile.ZipFile(editable_wheel) as archive:
+        members = archive.namelist()
+        package_members = [
+            name
+            for name in members
+            if name.startswith("career_evidence_graph/") and name.endswith(".py")
+        ]
+        assert package_members == ["career_evidence_graph/__init__.py"]
+        assert not any(name.endswith(".pth") for name in members)
+        assert "sitecustomize.py" not in members
+
+        proxy = archive.read("career_evidence_graph/__init__.py")
+        source_package = (ROOT / "src" / "career_evidence_graph").resolve()
+        assert str(source_package).encode("utf-8") in proxy
+        assert b"submodule_search_locations" in proxy
+        assert b"exec(" in proxy
+
+        entry_points = archive.read("career_evidence_graph-0.1.0.dist-info/entry_points.txt")
+        assert entry_points == b"[console_scripts]\ncareer-evidence = career_evidence_graph.cli:main\n"
 
 
 def _run(*args: str) -> subprocess.CompletedProcess[str]:
