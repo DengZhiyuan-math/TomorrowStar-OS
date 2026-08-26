@@ -32,15 +32,25 @@ def _start(tmp_path: Path, audit_id: str = "audit-regression"):
 def _complete(tmp_path: Path, audit_id: str = "audit-complete"):
     store = AuditStore(tmp_path)
     snapshot = _start(tmp_path, audit_id)
-    for answer in (
+    for index, answer in enumerate((
         "I designed and verified the boundary.",
         "I isolated and repaired the failure.",
         "I operated and checked the dependency failure.",
         "I owned the decisions and acceptance.",
         "No outside assistance.",
-    ):
-        snapshot = transition_audit(store, snapshot, AuditAction(action="answer", answer=answer))
-        store.update(snapshot)
+    )):
+        action = AuditAction(
+            action="answer",
+            answer=answer,
+            action_id=f"workflow-answer-{index}",
+            expected_event_hash=store.latest_event_hash(snapshot.audit_id),
+        )
+        snapshot, replayed = store.transact(
+            snapshot.audit_id,
+            action,
+            lambda current, action=action: transition_audit(store, current, action),
+        )
+        assert not replayed
     return store, snapshot
 
 
@@ -58,20 +68,22 @@ def test_paused_and_terminal_lifecycle_actions_fail_closed(tmp_path: Path):
     store, reviewing = _complete(tmp_path, "audit-terminal")
     assert reviewing.status == "reviewing"
     for entry in reviewing.conclusion.entries:
-        reviewing = transition_audit(
-            store,
-            reviewing,
-            AuditAction(
-                action="review-entry",
-                entry_id=entry.id,
-                decision="confirm",
-                reason="entry accepted",
-                reviewer_id="reviewer",
-                expected_event_hash=store.latest_event_hash(reviewing.audit_id),
-                expected_effective_conclusion_hash=reviewing.conclusion.effective_conclusion_hash,
-            ),
+        action = AuditAction(
+            action="review-entry",
+            entry_id=entry.id,
+            decision="confirm",
+            reason="entry accepted",
+            reviewer_id="reviewer",
+            action_id=f"terminal-review-{entry.id.removeprefix('entry-')}",
+            expected_event_hash=store.latest_event_hash(reviewing.audit_id),
+            expected_effective_conclusion_hash=reviewing.conclusion.effective_conclusion_hash,
         )
-        store.update(reviewing)
+        reviewing, replayed = store.transact(
+            reviewing.audit_id,
+            action,
+            lambda current, action=action: transition_audit(store, current, action),
+        )
+        assert not replayed
     completed = transition_audit(
         store,
         reviewing,

@@ -29,9 +29,19 @@ def _complete(tmp_path: Path):
         "responsibility": "I owned the decisions and acceptance.",
         "assistance": "没有外部协助。",
     }
-    for _area, answer in answers.items():
-        snap = transition_audit(store, snap, AuditAction(action="answer", answer=answer))
-        store.update(snap)
+    for area, answer in answers.items():
+        action = AuditAction(
+            action="answer",
+            answer=answer,
+            action_id=f"conclusion-answer-{area}",
+            expected_event_hash=store.latest_event_hash(snap.audit_id),
+        )
+        snap, replayed = store.transact(
+            snap.audit_id,
+            action,
+            lambda current, action=action: transition_audit(store, current, action),
+        )
+        assert not replayed
     return store.read("audit-conclusion")
 
 
