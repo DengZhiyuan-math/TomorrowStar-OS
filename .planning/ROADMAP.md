@@ -133,12 +133,15 @@ This milestone delivers six vertical validation capabilities in dependency order
 
 - [x] 03-10-PLAN.md — Close audit-root symbolic-link containment and restore canonical MVP goal metadata.
 
-**Wave 10** *(after 03-10; plans run in parallel)*
+**Wave 10** *(after 03-10)*
 
 - [ ] 03-11-PLAN.md — Make the installed editable CLI resolve the current checkout without embedding a stale package copy.
+
+**Wave 11** *(after 03-11)*
+
 - [ ] 03-12-PLAN.md — Anchor every audit lock, read, recovery, transaction, and publication to verified directory descriptors.
 
-**Wave 11** *(after 03-11 and 03-12)*
+**Wave 12** *(after 03-12)*
 
 - [ ] 03-13-PLAN.md — Prove fresh installed-CLI containment and close the exact executable Phase 3 quality gate.
 
