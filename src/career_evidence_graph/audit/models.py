@@ -7,6 +7,9 @@ from pydantic import Field, model_validator
 from ..validation.models import StrictModel
 
 AuditStatus = Literal["active", "paused", "completed", "rejected"]
+AuditArea = Literal["implementation", "debugging", "operation", "responsibility", "assistance"]
+Difficulty = Literal["hard", "intermediate", "simple"]
+CoverageStatus = Literal["pending", "verified", "skipped", "unresolved"]
 
 
 class ArtifactFact(StrictModel):
@@ -21,8 +24,12 @@ class AuditQuestion(StrictModel):
     id: str = Field(pattern=r"^question-[a-z0-9-]+$")
     reason: str = Field(min_length=1)
     prompt: str = Field(min_length=1)
-    area: Literal["implementation", "debugging", "operation", "responsibility", "assistance"]
+    area: AuditArea
     status: Literal["unanswered", "answered", "skipped"] = "unanswered"
+    area_id: str | None = None
+    difficulty: Difficulty = "hard"
+    inspection_reference: str | None = None
+    follow_up_count: int = Field(default=0, ge=0, le=1)
 
 
 class AuditAnswer(StrictModel):
@@ -72,6 +79,8 @@ class AuditAction(StrictModel):
     decision: Literal["confirm", "edit", "reject"] | None = None
     correction: str | None = None
     reason: str | None = None
+    action_id: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9-]+$")
+    expected_snapshot_hash: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
 
     @model_validator(mode="after")
     def valid_payload(self) -> AuditAction:
@@ -96,3 +105,37 @@ class AuditSnapshot(StrictModel):
     contradictions: tuple[str, ...] = ()
     attribution: AuditAttribution | None = None
     conclusion: AuditConclusion | None = None
+    coverage: tuple["AuditCoverage", ...] = ()
+    accepted_action_ids: tuple[str, ...] = ()
+    responsibility_round: "ResponsibilityRound | None" = None
+    assistance_round: "AssistanceRound | None" = None
+    attribution_conflicts: tuple["AttributionConflict", ...] = ()
+
+
+class AuditCoverage(StrictModel):
+    schema_version: Literal["audit-coverage/v1"] = "audit-coverage/v1"
+    area_id: str = Field(min_length=1)
+    status: CoverageStatus = "pending"
+    difficulty_reached: Difficulty | None = None
+    self_rating: str | None = None
+
+
+class ResponsibilityRound(StrictModel):
+    schema_version: Literal["responsibility-round/v1"] = "responsibility-round/v1"
+    answer: str = Field(min_length=1)
+    ownership: Literal["user-owned", "team-owned", "other-person-owned", "unresolved"]
+
+
+class AssistanceRound(StrictModel):
+    schema_version: Literal["assistance-round/v1"] = "assistance-round/v1"
+    answer: str = Field(min_length=1)
+    assistance: Literal["none", "coding-agent-assisted", "third-party-assisted", "unresolved"]
+    tool: str | None = None
+    model: str | None = None
+
+
+class AttributionConflict(StrictModel):
+    schema_version: Literal["attribution-conflict/v1"] = "attribution-conflict/v1"
+    artifact_claim: str = Field(min_length=1)
+    user_claim: str = Field(min_length=1)
+    resolution: Literal["unresolved"] = "unresolved"
