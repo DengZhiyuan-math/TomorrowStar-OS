@@ -13,7 +13,7 @@ from pydantic import ValidationError
 
 from .audit.models import AuditAction
 from .audit.store import AuditStorageError, AuditStore
-from .audit.workflow import inspect_contribution, start_audit, transition_audit
+from .audit.workflow import AuditWorkflowError, inspect_contribution, start_audit, transition_audit
 from .domain import (
     KNOWN_BAD_CASE_IDS,
     FixtureMutationError,
@@ -374,6 +374,9 @@ def main(argv: list[str] | None = None) -> int:
             )
             _emit(updated)
         return 0
+    except AuditWorkflowError as exc:
+        _emit_error({"valid": False, "error": "audit_workflow_error", "message": str(exc)})
+        return 2
     except FixtureValidationError as exc:
         _emit_error(
             {

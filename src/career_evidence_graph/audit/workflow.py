@@ -23,6 +23,10 @@ from .models import (
 from .store import AuditStore
 
 
+class AuditWorkflowError(ValueError):
+    """A rejected audit action or selected-fixture reference."""
+
+
 def canonical_assistance(value: str) -> str:
     """Map vendor-era labels to the stable provider-neutral audit vocabulary."""
     return {
@@ -51,15 +55,27 @@ def inspect_contribution(
     fixture = _fixture(fixture_path)
     contribution = next((x for x in fixture.contributions if x.id == contribution_id), None)
     if contribution is None:
-        raise ValueError("selected Contribution is missing")
+        raise AuditWorkflowError("selected Contribution is missing")
     claims = {x.id: x for x in fixture.claims}
-    links = [x for x in fixture.claim_evidence_links if x.claim_id in contribution.claim_ids]
     evidence = {x.id: x for x in fixture.evidence}
+    missing_claims = [claim_id for claim_id in contribution.claim_ids if claim_id not in claims]
+    if missing_claims:
+        raise AuditWorkflowError(
+            f"selected Contribution references missing claim: {missing_claims[0]}"
+        )
+    links = [x for x in fixture.claim_evidence_links if x.claim_id in contribution.claim_ids]
     if not links:
-        raise ValueError("Contribution has no linked evidence")
+        raise AuditWorkflowError("Contribution has no linked evidence")
+    for link in links:
+        if link.claim_id not in claims:
+            raise AuditWorkflowError(f"selected link references missing claim: {link.claim_id}")
+        if link.evidence_id not in evidence:
+            raise AuditWorkflowError(
+                f"selected link references missing evidence: {link.evidence_id}"
+            )
     identities = [(link.evidence_id, link.section_locator) for link in links]
     if len(identities) != len(set(identities)):
-        raise ValueError("duplicate evidence link")
+        raise AuditWorkflowError("duplicate evidence link")
     facts = tuple(
         sorted(
             (
@@ -202,7 +218,7 @@ def _build_conclusion(snapshot: AuditSnapshot) -> AuditConclusion | None:
         else:
             strongest = f"No {area} capability was established from the available answers."
             verification = "unresolved"
-        basis = tuple(dict.fromkeys((*answer_refs, *artifact_refs))) or ("unresolved",)
+        basis = answer_refs or ("unresolved",)
         responsibility = (
             snapshot.responsibility_round.ownership
             if snapshot.responsibility_round
@@ -228,9 +244,7 @@ def _build_conclusion(snapshot: AuditSnapshot) -> AuditConclusion | None:
                 basis=basis,
                 artifact_references=artifact_refs,
                 answer_references=answer_refs,
-                source_type="artifact-and-answer"
-                if artifact_refs and answer_refs
-                else ("artifact-only" if artifact_refs else "answer-only"),
+                source_type="answer-only" if answer_refs else "documentary-context-only",
                 responsibility_boundary=(
                     f"Responsibility is {responsibility}; it is not inferred "
                     "from artifact proximity."
@@ -243,87 +257,229 @@ def _build_conclusion(snapshot: AuditSnapshot) -> AuditConclusion | None:
                 unresolved_gaps=gaps,
             )
         )
-    payload = {"entries": [entry.model_dump(mode="json") for entry in entries]}
+    payload = {
+        "entries": [entry.model_dump(mode="json") for entry in entries],
+        "whole_review": "pending",
+    }
+    proposal_hash = sha256_digest(canonical_json_bytes(payload))
     return AuditConclusion(
-        entries=tuple(entries), original_proposal_hash=sha256_digest(canonical_json_bytes(payload))
+        entries=tuple(entries),
+        original_proposal_hash=proposal_hash,
+        effective_conclusion_hash=proposal_hash,
+        original_proposal=payload,
+    )
+
+
+def _effective_hash(entries: tuple[ConclusionEntry, ...], whole_review: str) -> str:
+    return sha256_digest(
+        canonical_json_bytes(
+            {
+                "entries": [entry.model_dump(mode="json") for entry in entries],
+                "whole_review": whole_review,
+            }
+        )
+    )
+
+
+def _classify_ownership(text: str) -> str:
+    value = text.casefold()
+    if "不是我" in value:
+        return "other-person-owned"
+    matches = {
+        "user-owned": any(
+            token in value
+            for token in (
+                "i owned",
+                "i implemented",
+                "i was responsible",
+                "i did",
+                "我负责",
+                "我做",
+                "我实现",
+            )
+        ),
+        "team-owned": any(
+            token in value for token in ("team owned", "team did", "the team", "团队负责", "团队做")
+        ),
+        "other-person-owned": any(
+            token in value
+            for token in ("not me", "someone else", "other person", "不是我", "他人负责", "别人做")
+        ),
+    }
+    found = [kind for kind, matched in matches.items() if matched]
+    return found[0] if len(found) == 1 else "unresolved"
+
+
+def _classify_assistance(text: str) -> str:
+    value = text.casefold()
+    matches = {
+        "none": any(
+            token in value
+            for token in (
+                "no outside assistance",
+                "no assistance",
+                "without assistance",
+                "没有外部协助",
+                "没有协助",
+                "无协助",
+            )
+        ),
+        "coding-agent-assisted": any(
+            token in value
+            for token in ("coding agent", "codex", "chatgpt", "gpt", "编码代理", "代码代理")
+        ),
+        "third-party-assisted": any(
+            token in value
+            for token in ("third party", "external consultant", "第三方协助", "外部顾问")
+        ),
+    }
+    found = [kind for kind, matched in matches.items() if matched]
+    return found[0] if len(found) == 1 else "unresolved"
+
+
+def _review_conclusion(snapshot: AuditSnapshot, action: AuditAction) -> AuditSnapshot:
+    conclusion = snapshot.conclusion
+    if conclusion is None:
+        raise AuditWorkflowError("coverage is incomplete; conclusion is not available")
+    if action.expected_effective_conclusion_hash and (
+        action.expected_effective_conclusion_hash != conclusion.effective_conclusion_hash
+    ):
+        raise AuditWorkflowError("stale expected effective conclusion hash")
+    if action.action == "review-entry":
+        entry = next((item for item in conclusion.entries if item.id == action.entry_id), None)
+        if entry is None:
+            raise AuditWorkflowError("review entry is missing")
+        if entry.review in {"confirmed", "rejected"}:
+            terminal = next(
+                (
+                    review
+                    for review in reversed(snapshot.conclusion_reviews)
+                    if review.target == "entry" and review.entry_id == entry.id
+                ),
+                None,
+            )
+            if terminal and (
+                terminal.outcome == action.decision
+                and terminal.reviewer_id == action.reviewer_id
+                and terminal.reason == action.reason
+            ):
+                return snapshot
+            raise AuditWorkflowError("review target already has a terminal review")
+        entries = tuple(
+            item.model_copy(
+                update={
+                    "review": {
+                        "edit": "edited",
+                        "confirm": "confirmed",
+                        "reject": "rejected",
+                    }[action.decision or "reject"],
+                    "correction": action.correction
+                    if action.decision == "edit"
+                    else item.correction,
+                }
+            )
+            if item.id == entry.id
+            else item
+            for item in conclusion.entries
+        )
+        whole_review = conclusion.whole_review
+        status = "reviewing"
+    elif action.decision == "confirm":
+        reviewed_entries = {
+            review.entry_id
+            for review in snapshot.conclusion_reviews
+            if review.target == "entry" and review.outcome in {"confirm", "edit"}
+        }
+        if any(
+            entry.review not in {"confirmed", "edited"} and entry.id not in reviewed_entries
+            for entry in conclusion.entries
+        ):
+            raise AuditWorkflowError(
+                "whole confirmation requires every entry to be confirmed or edited"
+            )
+        entries = conclusion.entries
+        whole_review = "confirmed"
+        status = "completed"
+    else:
+        entries = conclusion.entries
+        whole_review = "rejected"
+        status = "rejected"
+    after_hash = _effective_hash(entries, whole_review)
+    review = ConclusionReview(
+        review_id=f"review-{uuid4().hex[:12]}",
+        target="entry" if action.action == "review-entry" else "whole-conclusion",
+        outcome=action.decision or "reject",
+        reviewer_id=action.reviewer_id or "",
+        reason=action.reason or "",
+        original_proposal_hash=conclusion.original_proposal_hash,
+        expected_event_hash=action.expected_event_hash,
+        expected_effective_conclusion_hash=action.expected_effective_conclusion_hash,
+        before_effective_hash=conclusion.effective_conclusion_hash,
+        after_effective_hash=after_hash,
+        entry_id=action.entry_id,
+        correction=action.correction,
+        original_proposal=conclusion.original_proposal,
+    )
+    updated_conclusion = conclusion.model_copy(
+        update={
+            "entries": entries,
+            "whole_review": whole_review,
+            "effective_conclusion_hash": after_hash,
+            "review_reason": action.reason,
+        }
+    )
+    return snapshot.model_copy(
+        update={
+            "status": status,
+            "conclusion": updated_conclusion,
+            "conclusion_reviews": snapshot.conclusion_reviews + (review,),
+            "accepted_action_ids": snapshot.accepted_action_ids
+            + ((action.action_id,) if action.action_id else ()),
+        }
     )
 
 
 def transition_audit(
     store: AuditStore, snapshot: AuditSnapshot, action: AuditAction
 ) -> AuditSnapshot:
+    allowed_actions = {
+        "active": {"answer", "skip", "pause"},
+        "paused": {"resume"},
+        "reviewing": {"review-entry", "review-conclusion"},
+        "completed": set(),
+        "rejected": set(),
+    }
+    if action.action not in allowed_actions[snapshot.status]:
+        raise AuditWorkflowError(
+            "coverage is incomplete or action "
+            f"{action.action} is not allowed while audit is {snapshot.status}"
+        )
+    if action.action_id and action.action_id in snapshot.accepted_action_ids:
+        return snapshot
     if action.action in {"review-entry", "review-conclusion"}:
-        if snapshot.conclusion is None:
-            raise ValueError("coverage is incomplete; conclusion is not available")
         if not action.expected_event_hash:
-            raise ValueError("review requires expected event hash")
+            raise AuditWorkflowError("review requires expected event hash")
         if store.latest_event_hash(snapshot.audit_id) != action.expected_event_hash:
-            raise ValueError("stale expected event hash")
-        if action.action_id and action.action_id in snapshot.accepted_action_ids:
-            return snapshot
-        if action.action == "review-entry" and not any(
-            entry.id == action.entry_id for entry in snapshot.conclusion.entries
-        ):
-            raise ValueError("review entry is missing")
-        terminal = next(
-            (
-                review
-                for review in snapshot.conclusion_reviews
-                if (
-                    (action.action == "review-entry" and review.entry_id == action.entry_id)
-                    or (
-                        action.action == "review-conclusion" and review.target == "whole-conclusion"
-                    )
-                )
-                and review.outcome in {"confirm", "reject"}
-            ),
-            None,
-        )
-        if terminal:
-            if (
-                terminal.outcome == action.decision
-                and terminal.reviewer_id == action.reviewer_id
-                and terminal.reason == action.reason
-            ):
-                return snapshot
-            raise ValueError("review target already has a terminal review")
-        review = ConclusionReview(
-            review_id=f"review-{uuid4().hex[:12]}",
-            target="entry" if action.action == "review-entry" else "whole-conclusion",
-            outcome=action.decision or "reject",
-            reviewer_id=action.reviewer_id or "",
-            reason=action.reason or "",
-            original_proposal_hash=snapshot.conclusion.original_proposal_hash,
-            expected_event_hash=action.expected_event_hash,
-            entry_id=action.entry_id,
-            correction=action.correction,
-            original_proposal=snapshot.conclusion.model_dump(mode="json"),
-        )
-        return snapshot.model_copy(
-            update={
-                "conclusion_reviews": snapshot.conclusion_reviews + (review,),
-                "accepted_action_ids": snapshot.accepted_action_ids
-                + ((action.action_id,) if action.action_id else ()),
-            }
-        )
+            raise AuditWorkflowError("stale expected event hash")
+        return _review_conclusion(snapshot, action)
     if action.expected_snapshot_hash:
         actual = sha256_digest(canonical_json_bytes(snapshot.model_dump(mode="json")))
         if action.expected_snapshot_hash != actual:
-            raise ValueError("stale audit snapshot; optimistic concurrency check failed")
-    if action.action_id and action.action_id in snapshot.accepted_action_ids:
-        return snapshot
+            raise AuditWorkflowError("stale audit snapshot; optimistic concurrency check failed")
     questions = list(snapshot.questions)
     answers = list(snapshot.answers)
     if action.action == "pause":
+        if snapshot.conclusion is not None or not any(q.status == "unanswered" for q in questions):
+            raise AuditWorkflowError("pause requires unfinished coverage without a conclusion")
         return snapshot.model_copy(update={"status": "paused"})
     if action.action == "resume":
-        if snapshot.status != "paused":
-            raise ValueError("audit is not paused")
+        if snapshot.conclusion is not None or not any(q.status == "unanswered" for q in questions):
+            raise AuditWorkflowError("resume requires unfinished coverage without a conclusion")
         return snapshot.model_copy(update={"status": "active"})
     if action.action in {"answer", "skip"}:
         q = next((q for q in questions if q.status == "unanswered"), None)
         if q is None:
-            raise ValueError("no unanswered question")
+            raise AuditWorkflowError("no unanswered question")
         is_skip = action.action == "skip"
         questions[questions.index(q)] = q.model_copy(
             update={"status": "skipped" if is_skip else "answered"}
@@ -347,6 +503,14 @@ def transition_audit(
             coverage[coverage.index(current)] = current.model_copy(
                 update={"status": "skipped", "self_rating": text}
             )
+            next_area = {
+                "implementation": "debugging",
+                "debugging": "operation",
+                "operation": "responsibility",
+                "responsibility": "assistance",
+            }.get(q.area)
+            if next_area:
+                questions.append(_question(next_area, "hard", 0, snapshot.inspected_facts))
         elif incomplete and q.follow_up_count == 0:
             follow = _question(q.area, q.difficulty, 1, snapshot.inspected_facts)
             questions.append(follow)
@@ -374,36 +538,24 @@ def transition_audit(
                 questions.append(_question("assistance", "hard", 0, snapshot.inspected_facts))
         attribution = snapshot.attribution
         if q.area == "responsibility":
-            ownership = (
-                "other-person-owned"
-                if "不是我" in text
-                else (
-                    "team-owned"
-                    if "团队" in text
-                    else ("user-owned" if "我" in text else "unresolved")
-                )
-            )
+            ownership = _classify_ownership(text)
             rr = ResponsibilityRound(answer=text, ownership=ownership)
             attribution = AuditAttribution(ownership=ownership, assistance="unresolved")
         else:
             rr = snapshot.responsibility_round
         ar = snapshot.assistance_round
         if q.area == "assistance":
-            kind = (
-                "coding-agent-assisted"
-                if any(x in text.lower() for x in ("agent", "codex", "gpt", "coding"))
-                else (
-                    "third-party-assisted"
-                    if "第三方" in text
-                    else ("none" if "没有" in text or "无" in text else "unresolved")
-                )
-            )
+            kind = _classify_assistance(text)
             ar = AssistanceRound(answer=text, assistance=kind)
             attribution = AuditAttribution(
                 ownership=(attribution.ownership if attribution else "unresolved"), assistance=kind
             )
         conflicts = list(snapshot.attribution_conflicts)
-        if q.area == "responsibility" and "不是我" in text and snapshot.inspected_facts:
+        if (
+            q.area == "responsibility"
+            and ownership == "other-person-owned"
+            and snapshot.inspected_facts
+        ):
             conflicts.append(
                 AttributionConflict(
                     artifact_claim=snapshot.inspected_facts[0].statement, user_claim=text
@@ -423,5 +575,7 @@ def transition_audit(
             }
         )
         conclusion = _build_conclusion(updated)
-        return updated.model_copy(update={"conclusion": conclusion})
-    raise ValueError("invalid audit transition")
+        return updated.model_copy(
+            update={"conclusion": conclusion, "status": "reviewing" if conclusion else "active"}
+        )
+    raise AuditWorkflowError("invalid audit transition")

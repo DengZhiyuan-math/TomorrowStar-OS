@@ -6,7 +6,7 @@ from pydantic import Field, model_validator
 
 from ..validation.models import StrictModel
 
-AuditStatus = Literal["active", "paused", "completed", "rejected"]
+AuditStatus = Literal["active", "paused", "reviewing", "completed", "rejected"]
 AuditArea = Literal["implementation", "debugging", "operation", "responsibility", "assistance"]
 Difficulty = Literal["hard", "intermediate", "simple"]
 CoverageStatus = Literal["pending", "verified", "skipped", "unresolved"]
@@ -56,9 +56,7 @@ class ConclusionEntry(StrictModel):
     basis: tuple[str, ...] = Field(min_length=1)
     artifact_references: tuple[str, ...] = ()
     answer_references: tuple[str, ...] = ()
-    source_type: Literal["artifact-and-answer", "answer-only", "artifact-only"] = (
-        "artifact-and-answer"
-    )
+    source_type: Literal["answer-only", "documentary-context-only"] = "answer-only"
     responsibility_boundary: str = Field(min_length=1)
     assistance_boundary: str = Field(min_length=1)
     verification: Literal["audit-verified", "self-assessed-unverified", "unresolved"]
@@ -73,6 +71,8 @@ class AuditConclusion(StrictModel):
     entries: tuple[ConclusionEntry, ...] = Field(min_length=1)
     whole_review: Literal["pending", "confirmed", "rejected"] = "pending"
     original_proposal_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    effective_conclusion_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    original_proposal: dict[str, object]
     review_reason: str | None = None
 
 
@@ -84,6 +84,11 @@ class ConclusionReview(StrictModel):
     reviewer_id: str = Field(min_length=1)
     reason: str = Field(min_length=1)
     original_proposal_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    expected_effective_conclusion_hash: str | None = Field(
+        default=None, pattern=r"^sha256:[0-9a-f]{64}$"
+    )
+    before_effective_hash: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
+    after_effective_hash: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
     expected_event_hash: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
     entry_id: str | None = None
     correction: str | None = None
@@ -103,6 +108,9 @@ class AuditAction(StrictModel):
     expected_event_hash: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
     action_id: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9-]+$")
     expected_snapshot_hash: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
+    expected_effective_conclusion_hash: str | None = Field(
+        default=None, pattern=r"^sha256:[0-9a-f]{64}$"
+    )
 
     @model_validator(mode="after")
     def valid_payload(self) -> AuditAction:
