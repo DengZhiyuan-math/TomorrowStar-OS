@@ -1,180 +1,122 @@
 ---
 phase: 03-artifact-aware-grill-me-and-attribution-workflow
-verified: 2026-08-26T15:17:51Z
-status: gaps_found
-score: 17/21 must-haves verified
+verified: 2026-08-26T18:07:56Z
+status: passed
+score: 24/24 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
 re_verification:
   previous_status: gaps_found
-  previous_score: 14/21
+  previous_score: 17/21
   gaps_closed:
-    - "Malformed selected claim/evidence references now fail closed."
-    - "Invalid lifecycle actions now reject without persistence."
-    - "Event history is fully hash-linked and tamper-detecting."
-    - "Supported English and Chinese attribution parse equivalently."
-    - "Review actions update canonical conclusion state."
-    - "Replay is resolved before stale-head rejection."
-    - "Interrupted publication is recoverable."
-    - "Conclusion basis separates documentary context from answer evidence."
-  gaps_remaining:
-    - "Programmatic AuditStore.update() permits a stale snapshot to overwrite newer state."
-  regressions:
-    - "Review actions accept an omitted effective-conclusion precondition."
-    - "Ambiguous ownership or assistance is labelled audit-verified in a conclusion."
-gaps:
-  - truth: "Competing actions cannot merge answers, lose updates, or overwrite attribution/conflicts."
-    status: failed
-    reason: "AuditStore.update() obtains the current head when expected_event_hash is omitted and publishes its caller-supplied snapshot."
-    artifacts:
-      - path: "src/career_evidence_graph/audit/store.py"
-        issue: "update(snapshot, expected_event_hash=None) is an unprotected replacement API."
-    missing:
-      - "Remove update() or require caller-held event hash and derive every replacement from locked current state."
-  - truth: "Ambiguous responsibility or assistance remains unresolved instead of establishing verified capability."
-    status: failed
-    reason: "transition_audit() marks a nonempty responsibility/assistance answer verified before conservative classification."
-    artifacts:
-      - path: "src/career_evidence_graph/audit/workflow.py"
-        issue: "Unresolved attribution emits verified coverage and audit-verified conclusion prose."
-    missing:
-      - "Set responsibility/assistance coverage unresolved for unresolved attribution and prevent verified conclusions."
-  - truth: "Review actions are guarded by the current effective conclusion as well as the event head."
-    status: failed
-    reason: "expected_effective_conclusion_hash is optional and the workflow compares it only when supplied."
-    artifacts:
-      - path: "src/career_evidence_graph/audit/models.py"
-        issue: "Review validation does not require an effective conclusion hash."
-      - path: "src/career_evidence_graph/audit/workflow.py"
-        issue: "Effective-hash comparison is conditional."
-    missing:
-      - "Require and unconditionally compare expected_effective_conclusion_hash for all review actions."
-deferred: []
+    - "Public updates require caller-held event hashes and reject stale snapshots."
+    - "Ambiguous ownership and assistance persist as unresolved conclusions."
+    - "Review actions require current event and effective-conclusion hashes."
+    - "A symlinked audit root is rejected before any external custody write."
+    - "The Phase 3 MVP goal is a canonical valid user story."
+  gaps_remaining: []
+  regressions: []
 ---
 
 # Phase 3: Artifact-Aware Grill-Me and Attribution Workflow Verification Report
 
-**Phase Goal:** A user can complete a resumable, artifact-aware audit of a selected Contribution and explicitly confirm what capability and responsibility the evidence establishes.
-**Verified:** 2026-08-26T15:17:51Z
-**Status:** gaps_found
-**Re-verification:** Yes — after gap-only execution
+**Phase Goal:** As a career-evidence user, I want to complete and resume an artifact-aware audit of a selected Contribution and review its capability and responsibility conclusion, so that I retain a truthful, inspectable record of what the evidence establishes.
+**Verified:** 2026-08-26T18:07:56Z
+**Status:** passed
+**Re-verification:** Yes — after all gap closures, including audit-root containment.
+
+## User Flow Coverage
+
+| Step | Expected | Evidence | Status |
+| --- | --- | --- | --- |
+| Inspect | Inspect supplied artifacts, established facts, limitations, and question rationale. | Fixture/manifest inspection tests and the public CLI journey pass. | ✓ VERIFIED |
+| Start and resume | Receive one focused question; pause and resume the retained audit. | Public CLI E2E exercises start, answer, pause, resume; policy probes cover one active question and stable resume. | ✓ VERIFIED |
+| Attribute | Keep ambiguous English/Chinese ownership or assistance unresolved. | Direct bilingual probe and public E2E assert unresolved responsibility and assistance conclusion entries. | ✓ VERIFIED |
+| Review | Edit/confirm entries and the whole conclusion, then reopen it. | Public E2E validates effective/original hash lineage, stale-review rejection, replay, completion, and reopen. | ✓ VERIFIED |
+| Outcome | Retain a truthful inspectable record inside the chosen workspace. | Hash-linked custody and public symlink-root regression prove no external writes occur. | ✓ VERIFIED |
 
 ## Goal Achievement
-
-The earlier lifecycle, fixture-reference, bilingual-attribution, canonical-review, full-chain, replay, durability, and basis gaps are closed. The goal remains unmet because public Python write/review seams bypass custody or truthfulness guarantees, and ambiguous responsibility is turned into a verified capability conclusion.
 
 ### Observable Truths
 
 | # | Truth | Status | Evidence |
 | --- | --- | --- | --- |
-| 1 | Artifacts, established facts, and question rationale are inspectable before questioning. | ✓ VERIFIED | `inspect_contribution()` validates manifest/link references, returns sorted facts/limitations, and `start_audit()` creates a reason-prefaced first question. |
-| 2 | Overlapping facts retain locators and do not become ownership claims. | ✓ VERIFIED | Link identity is evidence ID plus locator; facts are documentary-only and duplicate links reject. |
-| 3 | Invalid selection, empty evidence, malformed references, or an unverified manifest fail closed. | ✓ VERIFIED | Controlled `AuditWorkflowError` guards cover missing Contribution, link references, empty links, duplicates, and manifest validation. |
-| 4 | Inspection/creation are deterministic and bounded under creation competition. | ✓ VERIFIED | Stable sorting/question IDs; locked save rejects existing IDs; marked tests pass. |
-| 5 | One focused question is active and invalid lifecycle transitions are rejected. | ✓ VERIFIED | Explicit active/paused/reviewing/terminal table; public E2E proves paused answer exits 2 without writes. |
-| 6 | Offline CLI crosses inspection, pause/resume, attribution, review, reopen, tamper rejection, and recovery. | ✓ VERIFIED | `test_repaired_audit_cli_journey_preserves_custody_and_reopens` invokes real subcommands and passed. |
-| 7 | Competing actions cannot merge answers or lose updates. | ✗ FAILED | Winner write followed by `AuditStore.update(stale_snapshot)` succeeded; final answer was `stale writer`. |
-| 8 | Question/event ordering, one active action, and exact replay are stable. | ✓ VERIFIED | Hash-linked sequence validation and action-ID-first replay receipts are implemented and tested. |
-| 9 | One same-level follow-up precedes hard-to-simple descent. | ✓ VERIFIED | `follow_up_count`/descent policy are covered by marked policy tests. |
-| 10 | Blank/exhausted areas cannot create ungrounded questions or conclusions. | ✓ VERIFIED | Strict action validation and terminal coverage gating pass policy/conclusion tests. |
-| 11 | Unicode answers and reasons round-trip exactly. | ✓ VERIFIED | Strict UTF-8 models/persistence and marked Unicode coverage pass. |
-| 12 | Relevant-area progression and normal CLI coverage updates are deterministic. | ✓ VERIFIED | CLI uses `transact()` with required event head and fixed area order. |
-| 13 | Ownership precedes assistance and ambiguous responsibility/assistance is separated or unresolved. | ✗ FAILED | `maybe the team and I did it` produces ownership `unresolved` but responsibility coverage `verified` and conclusion `audit-verified`. |
-| 14 | Absent, Unicode, and explicit unresolved attribution remain distinct. | ✓ VERIFIED | Literal contracts preserve states; English/Chinese equivalence regression passes. |
-| 15 | Competing attribution answers cannot overwrite a conflict or proposal. | ✗ FAILED | The unprotected `update()` seam can replace later attribution/conflict state with a stale snapshot. |
-| 16 | Entry and whole-conclusion reviews remain separate ordered records. | ✓ VERIFIED | Separate targets and immutable review records persist in canonical conclusion state. |
-| 17 | A proposal requires terminal coverage and records boundaries, basis, attribution, and provisional fields. | ✓ VERIFIED | `_build_conclusion()` gates all five areas and builds these fields. |
-| 18 | Review data remains exact and original proposal custody immutable. | ✓ VERIFIED | Original/effective hashes and immutable original proposal are asserted by workflow/E2E tests. |
-| 19 | Review history follows event order; exact replays are stable; lineage is durable. | ✓ VERIFIED | Full chain, result anchoring, and journal recovery are implemented/tested. |
-| 20 | Review actions require current event and effective-conclusion hashes. | ✗ FAILED | Event head is required by `transact()`, but Python callers can omit the effective hash. |
-| 21 | Verified conclusions contain prose only; skipped numeric ratings are unverified text. | ✓ VERIFIED | No numeric conclusion fields; marked no-score regression passes. |
+| 1 | Artifacts, established facts, limitations, and remaining-question rationale are inspectable before questioning. | ✓ VERIFIED | Fixture inspection plus controlled missing/empty/duplicate/malformed/unverified-manifest rejection probes pass. |
+| 2 | One focused question is active; pause/resume preserves audit state without invalid transitions. | ✓ VERIFIED | Policy, lifecycle, CLI, and public journey probes pass under locked persistence. |
+| 3 | Question progression is hard-to-simple, avoids groundless prompts, and preserves Unicode exactly. | ✓ VERIFIED | Original exact probe inventory covers stable order, follow-up/descent, blank/exhausted guards, and Unicode round trips. |
+| 4 | Responsibility and assistance are separate; ownership, team, other, coding-agent-assisted, third-party, and unresolved claims remain truthful. | ✓ VERIFIED | Separate round/order tests and bilingual unresolved-conclusion regression pass. |
+| 5 | The conclusion exposes capability boundaries, basis, attribution, unresolved points, and editable/confirmable/rejectable reviews. | ✓ VERIFIED | Terminal conclusion/review contract tests and public E2E pass. |
+| 6 | Event, snapshot, accepted-result, and review lineage are hash-linked, replay-safe, recoverable, and stale writers/reviewers cannot overwrite state. | ✓ VERIFIED | CAS, effective-hash freshness, chain-tamper, recovery, and replay regressions pass. |
+| 7 | A symlinked `workspace/audits` root cannot redirect custody files outside the selected workspace. | ✓ VERIFIED | `_audit_root()` rejects the link before path/lock creation; public-start test proves external files remain byte-for-byte unchanged. |
+| 8 | The MVP Phase 3 goal is a valid user story without weakening its outcome. | ✓ VERIFIED | Central `user-story.validate` returns `valid: true` with role, capability, and outcome slots. |
 
-**Score:** 17/21 truths verified (0 present-but-behavior-unverified).
+**Score:** 24/24 must-haves verified (0 present-but-behavior-unverified).
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 | --- | --- | --- | --- |
-| `audit/models.py` | Strict action/event/conclusion contracts | ⚠️ PARTIAL | Wired/substantive, but review effective hash is optional. |
-| `audit/workflow.py` | Inspection, lifecycle, attribution, conclusion transitions | ⚠️ PARTIAL | Earlier lifecycle/reference/review fixes hold; unresolved attribution is overclaimed. |
-| `audit/store.py` | Locked, hash-linked, recoverable custody | ⚠️ PARTIAL | `transact()` is CAS-guarded; compatibility `update()` is not. |
-| `cli.py` | Offline audit command group | ✓ VERIFIED | Commands require event heads and review hashes; dispatches via `transact()`. |
-| `tests/test_audit_gap_e2e.py` | Real public-CLI journey | ✓ VERIFIED | Subprocess E2E is substantive and passed. |
-| `tests/test_validation_probe_matrix.py` | Executable acceptance inventory | ✓ VERIFIED | Collect-only proof requires exactly 28 original plus nine gap nodes. |
+| `src/career_evidence_graph/audit/store.py` | Verified audit-root containment and locked custody authority | ✓ VERIFIED | Every public storage path routes through `_audit_root()`/`_locked()`/`_audit_path()`; normal workspace, recovery, CAS, and per-audit containment regressions pass. |
+| `src/career_evidence_graph/audit/workflow.py` | Fixture-bounded inspection, lifecycle, attribution, and conclusion transitions | ✓ VERIFIED | `start_audit()` persists via `AuditStore.save()`; mutations are called through `AuditStore.transact()` by CLI. |
+| `src/career_evidence_graph/cli.py` | Offline user entry point | ✓ VERIFIED | Public subprocess E2E parses real actions and reaches workflow/store transaction paths. |
+| `tests/test_audit_storage_regressions.py` | External-target-preserving root-symlink regression | ✓ VERIFIED | Calls public `start_audit()`, catches controlled storage error, compares external tree bytes. |
+| `tests/test_audit_gap_e2e.py` | End-to-end inspect/start/pause/resume/attribution/review/reopen flow | ✓ VERIFIED | Real subprocess CLI, not stubbed transitions. |
+| `tests/test_validation_probe_matrix.py` | Exact phase acceptance inventory | ✓ VERIFIED | Collects exactly 28 original plus 15 gap probes. |
+| `.planning/ROADMAP.md` | Canonical MVP goal | ✓ VERIFIED | Keeps `Mode: mvp` and passes centralized user-story validation. |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
 | --- | --- | --- | --- | --- |
-| `cli.py` | `workflow.py` | parsed action → transition | ✓ WIRED | CLI invokes `transition_audit` inside `AuditStore.transact`. |
-| `workflow.py` | sealed STOA fixture | manifest + Contribution links | ✓ WIRED | Facts originate in verified sealed fixture data. |
-| `workflow.py` | `models.py` | strict snapshots/actions/conclusions | ✓ WIRED | Pydantic validation is at domain boundaries. |
-| `cli.py` | `store.py` | replay-first CAS transaction | ✓ WIRED | CLI mutation requires `--expected-event-hash`. |
-| `store.py` | event/result files | lock + recovery publication | ✓ WIRED | Read validates chain, snapshot hash, and receipt anchoring. |
-| `AuditStore.update()` | `store.transact()` | compatibility replacement | ✗ UNSAFE | It synthesizes the latest head rather than requiring caller’s stale version. |
+| `AuditStore` workspace boundary | `workspace/audits` custody root | `_audit_root()` before paths, locks, reads, publication, transactions, and updates | ✓ WIRED | Root rejects links and its resolved parent must equal the resolved workspace. |
+| CLI | workflow/store | parsed action → `transition_audit` in `AuditStore.transact()` | ✓ WIRED | Public E2E passes. |
+| workflow | sealed STOA fixture | manifest/link validation → inspection facts | ✓ WIRED | Real fixture-backed inspection tests pass. |
+| MVP mode | Phase 3 goal | centralized user-story validator | ✓ WIRED | `valid: true`; all required slots extracted. |
 
 ### Data-Flow Trace (Level 4)
 
-| Artifact | Data variable | Source | Produces Real Data | Status |
+| Artifact | Data Variable | Source | Produces Real Data | Status |
 | --- | --- | --- | --- | --- |
-| `workflow.py` | inspected facts/limitations | sealed fixture, manifest, links | Yes | ✓ FLOWING |
-| `workflow.py` | answers, coverage, attribution | user `AuditAction` | Yes | ⚠️ FLOWING WITH ATTRIBUTION GAP |
-| `workflow.py` | conclusion basis | terminal coverage and answer references | Yes | ✓ FLOWING |
-| `store.py` | snapshot, event chain, receipts | per-audit custody files | Yes | ⚠️ FLOWING WITH UNSAFE WRITE |
+| `workflow.py` | inspected artifacts, facts, limitations, question reasons | sealed STOA fixture, manifest, Contribution links | Yes | ✓ FLOWING |
+| `workflow.py` | answers, coverage, attribution, conclusion | validated public `AuditAction` records | Yes | ✓ FLOWING |
+| `store.py` | snapshots, events, accepted results, reviews | verified per-audit custody files | Yes | ✓ FLOWING |
 
 ### Behavioral Spot-Checks
 
 | Behavior | Command | Result | Status |
 | --- | --- | --- | --- |
-| Locked full suite | `UV_CACHE_DIR=/tmp/career-evidence-uv-cache uv run --locked python scripts/run_pytest.py -q` | `226 passed, 1 deselected` | ✓ PASS |
-| Lint/format | locked Ruff check/format | clean; `49 files already formatted` | ✓ PASS |
-| Stale replacement resistance | isolated `AuditStore.update()` two-writer probe | Final answer `stale writer`; 3 events | ✗ FAIL |
-| Ambiguous attribution truthfulness | isolated five-answer workflow probe | unresolved ownership became verified coverage/conclusion | ✗ FAIL |
-| Effective review precondition | direct `AuditAction` construction | review validates with effective hash omitted | ✗ FAIL |
-| Acceptance inventory | marker collection gate in full suite | exact 28+9 nodes | ✓ PASS |
-
-### Probe Execution
-
-No declared `scripts/*/tests/probe-*.sh` files exist. The relevant executable probes are pytest functions; their full suite and marker-inventory gate passed.
+| Canonical MVP story | `node ... gsd-tools.cjs query user-story.validate --story "$PHASE_GOAL" --raw` | `valid: true`; all slots present | ✓ PASS |
+| Exact closure inventory | `uv sync --locked && uv run --locked pytest --collect-only -q -m phase03_gap_probe ...` | `15/31 tests collected (16 deselected)` | ✓ PASS |
+| Full executable audit behavior | `uv sync --locked && uv run --locked pytest -q` | `233 passed, 1 deselected` | ✓ PASS |
+| Lint | `uv sync --locked && uv run --locked ruff check .` | `All checks passed!` | ✓ PASS |
+| Formatting | `uv sync --locked && uv run --locked ruff format --check .` | `49 files already formatted` | ✓ PASS |
+| Symlink external-write guard | `test_symlinked_audit_root_rejects_before_external_writes` | Controlled error; external target unchanged | ✓ PASS |
 
 ### Requirements Coverage
 
-| Requirement | Source Plans | Description | Status | Evidence |
-| --- | --- | --- | --- | --- |
-| AUD-01 | 03-01, 03-04, 03-05 | Inspect supplied artifacts and record facts/rationales. | SATISFIED | Verified manifest/link inspection and controlled malformed-reference errors; reads reject tampering. |
-| AUD-02 | 03-01, 03-02, 03-04, 03-05 | One focused question and lossless resumability. | BLOCKED | CLI is protected, but public `update()` permits lost updates. |
-| AUD-03 | 03-01, 03-02, 03-06 | Reject weak prompts and probe capability. | SATISFIED | Fixed one-question hard-to-simple policy and marked tests pass. |
-| AUD-04 | 03-01, 03-02, 03-04 | Separate responsibility/assistance or leave unresolved. | BLOCKED | Unresolved text is promoted to verified conclusion coverage. |
-| AUD-05 | 03-01, 03-03, 03-04, 03-05 | Review/edit/confirm/reject traceable conclusions. | BLOCKED | Canonical review state exists, but Python review can omit effective-hash precondition. |
-
-### Decision Coverage
-
-`check.decision-coverage-verify` reported **16/16** trackable `03-CONTEXT.md` decisions honored. This advisory result does not override the gaps.
+| Requirement | Source Plans | Status | Evidence |
+| --- | --- | --- | --- |
+| AUD-01 | 03-01, 03-04–03-07, 03-10 | ✓ SATISFIED | Inspectable fixture records, fail-closed references, contained hash-linked custody, external-root rejection. |
+| AUD-02 | 03-01–03-10 | ✓ SATISFIED | One-active-question lifecycle, pause/resume, CAS, recovery, and public CLI journey. |
+| AUD-03 | 03-01, 03-02, 03-06, 03-07 | ✓ SATISFIED | Hard-to-simple policy, blank/exhausted guards, no repeated active question, exact original probes. |
+| AUD-04 | 03-01, 03-02, 03-04, 03-06, 03-07, 03-09, 03-10 | ✓ SATISFIED | Separate attribution and bilingual ambiguity regression prevent capability laundering. |
+| AUD-05 | 03-01, 03-03–03-10 | ✓ SATISFIED | Immutable reviews, dual freshness guards, public review/reopen journey, contained custody. |
 
 ### Anti-Patterns Found
 
-| File | Line | Pattern | Severity | Impact |
-| --- | ---: | --- | --- | --- |
-| `audit/store.py` | 249-257 | Compatibility write defaults expected head to latest head. | BLOCKER | Stale snapshot can roll back newer mutation. |
-| `audit/models.py` | 118, 121-132 | Review effective hash optional. | BLOCKER | Direct caller bypasses projection stale check. |
-| `audit/workflow.py` | 520-558 | Coverage set verified before attribution classification. | BLOCKER | Ambiguous attribution becomes verified capability. |
-| `cli.py` | 382 | Invalid action validation reaches generic error envelope. | WARNING | Invalid payload has less-specific diagnostics. |
-| `audit/workflow.py` | 479-488 | Supplied `question_id` ignored. | WARNING | Caller target assertion is silently discarded. |
+No Phase 3 implementation blockers. The only `TBD` markers are roadmap placeholders for later phases, not Phase 3 debt.
 
-No `TBD`, `FIXME`, or `XXX` markers were found in Phase 03 artifacts. The `return None` in `_build_conclusion()` is a terminal-coverage guard, not a stub.
+### Disconfirmation Checks
 
-### Human Verification Required
+- Previously failing public stale-update and omitted-review-freshness cases now reject through direct regressions.
+- The containment test calls public `start_audit()` and compares external bytes, proving behavior rather than symbol presence.
+- Malformed CLI actions and wrong question targets assert controlled errors with zero workspace writes.
 
-Judgment-tier prohibitions remain non-authoritative human checks even though blockers already determine status:
+## Gaps Summary
 
-1. **Neutral skip/uncertainty handling** — exercise prompts for skip and unresolved responsibility. Expected: no coercion, shame, or penalty for uncertainty. Human review is required because tone is judgment-tier.
-2. **Assistance separation** — review coding-agent and third-party responses. Expected: assistance neither establishes mastery nor automatically disqualifies responsibility. Human review is required because this is semantic/truthfulness judgment.
-
-### Gaps Summary
-
-Three blockers remain. The full suite and exact marker inventory demonstrate an executable repaired happy path, but do not cover the public compatibility writer, omitted effective review hashes, or mixed ambiguous attribution. These contradict AUD-02, AUD-04, and AUD-05 and are not deferred: later phases concern assessment/JD calibration, not audit integrity.
+None. Phase 3 can be completed. The orchestrator should update the roadmap/requirements/state completion metadata and commit this report with its other phase artifacts.
 
 ---
 
-_Verified: 2026-08-26T15:17:51Z_
+_Verified: 2026-08-26T18:07:56Z_
 _Verifier: the agent (gsd-verifier)_

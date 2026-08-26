@@ -13,7 +13,7 @@ This milestone delivers six vertical validation capabilities in dependency order
 
 - [x] **Phase 1: Validation Charter, Provenance, and Technical Decision Gate** - Evaluators can begin a falsifiable, reproducible study with explicit upstream and implementation boundaries. (completed 2026-07-30)
 - [x] **Phase 2: Domain Contracts, STOA Fixture, and Deterministic Invariants** - Users and evaluators can represent Contribution-grounded career evidence and reject invalid assessment states. (completed 2026-07-30)
-- [ ] **Phase 3: Artifact-Aware Grill-Me and Attribution Workflow** - A user can complete and resume a focused Contribution audit with inspectable ownership and conclusions.
+- [x] **Phase 3: Artifact-Aware Grill-Me and Attribution Workflow** - A user can complete and resume a focused Contribution audit with inspectable ownership and conclusions. (completed 2026-08-26)
 - [ ] **Phase 4: Contribution–Skill Assessment and Aggregation Calibration** - Reviewers can calibrate traceable Skill judgments and replaceable aggregation policies without score inflation.
 - [ ] **Phase 5: JD Usefulness and Adversarial Evaluation** - Users can compare a stable Skill graph with contrasting JDs, and evaluators can test whether the results are truthful and more useful than baselines.
 - [ ] **Phase 6: Replication and Core-Hypothesis Decision** - Evaluators can test held-out behavior, state generalization limits, and decide whether downstream product expansion is justified.
@@ -91,7 +91,7 @@ This milestone delivers six vertical validation capabilities in dependency order
   3. Ambiguous responsibility or assistance is challenged until user-owned, team-owned, other-owned, Codex-assisted, and third-party work is separated or explicitly left unresolved.
   4. For each audited Contribution, the user can edit, confirm, or reject a conclusion that identifies the strongest established capability, the next-higher capability not established, its supporting basis, and every provisional or unresolved point.
 
-**Plans:** 9/10 plans executed
+**Plans:** 10/10 plans complete
 
 **Wave 0**
 
@@ -131,7 +131,7 @@ This milestone delivers six vertical validation capabilities in dependency order
 
 **Wave 9** *(after 03-09)*
 
-- [ ] 03-10-PLAN.md — Close audit-root symbolic-link containment and restore canonical MVP goal metadata.
+- [x] 03-10-PLAN.md — Close audit-root symbolic-link containment and restore canonical MVP goal metadata.
 
 ### Phase 4: Contribution–Skill Assessment and Aggregation Calibration
 
@@ -188,7 +188,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 |-------|----------------|--------|-----------|
 | 1. Validation Charter, Provenance, and Technical Decision Gate | 2/2 | Complete    | 2026-07-30 |
 | 2. Domain Contracts, STOA Fixture, and Deterministic Invariants | 6/6 | Complete    | 2026-07-30 |
-| 3. Artifact-Aware Grill-Me and Attribution Workflow | 3/7 | In Progress| Gap-closure plans 03-04 through 03-07 pending |
+| 3. Artifact-Aware Grill-Me and Attribution Workflow | 10/10 | Complete    | 2026-08-26 |
 | 4. Contribution–Skill Assessment and Aggregation Calibration | 0/TBD | Not started | - |
 | 5. JD Usefulness and Adversarial Evaluation | 0/TBD | Not started | - |
 | 6. Replication and Core-Hypothesis Decision | 0/TBD | Not started | - |
