@@ -193,7 +193,49 @@ def test_editable_wheel_uses_package_scoped_source_proxy_without_embedded_module
         assert b"exec(" in proxy
 
         entry_points = archive.read("career_evidence_graph-0.1.0.dist-info/entry_points.txt")
-        assert entry_points == b"[console_scripts]\ncareer-evidence = career_evidence_graph.cli:main\n"
+        assert entry_points == (
+            b"[console_scripts]\ncareer-evidence = career_evidence_graph.cli:main\n"
+        )
+
+
+@pytest.mark.phase03_gap_probe
+def test_locked_editable_entrypoint_imports_checkout_source() -> None:
+    """The installed command and package root both resolve to this checkout."""
+    entry_point = subprocess.run(
+        ["uv", "run", "--locked", "career-evidence", "implementation-path"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    package_root = subprocess.run(
+        [
+            "uv",
+            "run",
+            "--locked",
+            "python",
+            "-c",
+            (
+                "import json; import career_evidence_graph; "
+                "print(json.dumps({'package_path': career_evidence_graph.__file__}))"
+            ),
+        ],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert entry_point.returncode == 0, entry_point.stderr
+    assert package_root.returncode == 0, package_root.stderr
+    assert (
+        Path(json.loads(entry_point.stdout)["package_path"]).resolve()
+        == (ROOT / "src" / "career_evidence_graph" / "cli.py").resolve()
+    )
+    assert (
+        Path(json.loads(package_root.stdout)["package_path"]).resolve()
+        == (ROOT / "src" / "career_evidence_graph" / "__init__.py").resolve()
+    )
 
 
 def _run(*args: str) -> subprocess.CompletedProcess[str]:
