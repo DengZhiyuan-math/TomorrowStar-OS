@@ -84,7 +84,7 @@ def _editable_package_proxy() -> bytes:
         "    __spec__.submodule_search_locations[:] = __path__\n"
         "exec(compile(_source_initializer.read_bytes(), __file__, 'exec'), globals(), globals())\n"
         "del _Path, _source_initializer, _source_package\n"
-    ).encode("utf-8")
+    ).encode()
 
 
 def _record_value(contents: bytes) -> tuple[str, str]:
