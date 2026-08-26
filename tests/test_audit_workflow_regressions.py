@@ -44,6 +44,7 @@ def _complete(tmp_path: Path, audit_id: str = "audit-complete"):
     return store, snapshot
 
 
+@pytest.mark.phase03_gap_probe
 def test_paused_and_terminal_lifecycle_actions_fail_closed(tmp_path: Path):
     store = AuditStore(tmp_path)
     active = _start(tmp_path)
@@ -88,6 +89,7 @@ def test_paused_and_terminal_lifecycle_actions_fail_closed(tmp_path: Path):
         transition_audit(store, completed, AuditAction(action="pause"))
 
 
+@pytest.mark.phase03_gap_probe
 def test_supported_english_and_chinese_attribution_are_equivalent(tmp_path: Path):
     store = AuditStore(tmp_path)
     english = _start(tmp_path, "audit-english")
@@ -107,10 +109,7 @@ def test_supported_english_and_chinese_attribution_are_equivalent(tmp_path: Path
     assert english.attribution.assistance == "none"
 
 
-def test_bilingual_attribution_is_equivalent(tmp_path: Path):
-    test_supported_english_and_chinese_attribution_are_equivalent(tmp_path)
-
-
+@pytest.mark.phase03_gap_probe
 def test_conclusion_basis_separates_documentary_context(tmp_path: Path):
     store = AuditStore(tmp_path)
     snapshot = _start(tmp_path)
@@ -129,10 +128,7 @@ def test_conclusion_basis_separates_documentary_context(tmp_path: Path):
     assert skipped.source_type == "answer-only"
 
 
-def test_area_basis_separates_documentary_context(tmp_path: Path):
-    test_conclusion_basis_separates_documentary_context(tmp_path)
-
-
+@pytest.mark.phase03_gap_probe
 def test_missing_claim_or_evidence_reference_fails_closed(tmp_path: Path, monkeypatch):
     fixture = workflow._fixture(FIXTURE)
     contribution = fixture.contributions[0].model_copy(
@@ -146,10 +142,7 @@ def test_missing_claim_or_evidence_reference_fails_closed(tmp_path: Path, monkey
         inspect_contribution(FIXTURE, MANIFEST, "contrib-stoa-authorization-boundary")
 
 
-def test_missing_reference_fails_closed(tmp_path: Path, monkeypatch):
-    test_missing_claim_or_evidence_reference_fails_closed(tmp_path, monkeypatch)
-
-
+@pytest.mark.phase03_gap_probe
 def test_review_actions_update_canonical_conclusion_state(tmp_path: Path):
     store, snapshot = _complete(tmp_path, "audit-canonical-review")
     proposal = snapshot.conclusion.original_proposal
