@@ -56,3 +56,25 @@ def test_audit_offline_tracer_starts_pauses_and_resumes(tmp_path: Path) -> None:
     resumed = run_cli("audit", "resume", "--workspace", str(workspace), "--audit-id", audit_id)
     assert resumed.returncode == 0, resumed.stderr
     assert json.loads(resumed.stdout)["audit_id"] == audit_id
+
+
+def test_audit_workflow_errors_are_structured_and_do_not_write(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    started = run_cli(
+        "audit",
+        "start",
+        "--workspace",
+        str(workspace),
+        "--fixture",
+        str(FIXTURE),
+        "--contribution-id",
+        "contrib-stoa-authorization-boundary",
+    )
+    audit_id = json.loads(started.stdout)["audit_id"]
+    snapshot_path = workspace / "audits" / audit_id / "snapshot.json"
+    before = snapshot_path.read_bytes()
+    rejected = run_cli("audit", "resume", "--workspace", str(workspace), "--audit-id", audit_id)
+    assert rejected.returncode == 2
+    assert json.loads(rejected.stderr)["error"] == "audit_workflow_error"
+    assert "Traceback" not in rejected.stderr
+    assert snapshot_path.read_bytes() == before
