@@ -4,11 +4,11 @@ milestone: v1.0
 current_phase: 03
 current_phase_name: Artifact-Aware Grill-Me and Attribution Workflow
 status: planning
-stopped_at: Final code review found Phase 03 audit-root CLI and TOCTOU containment gaps
-last_updated: "2026-08-26T18:32:00Z"
+stopped_at: Final code review found Phase 03 workspace-ancestor and lock-directory replacement containment gaps
+last_updated: "2026-08-26T19:15:00Z"
 last_activity: 2026-08-26
-last_activity_desc: Phase 03 completion reversed after independently reproduced audit-root containment gaps
-state_head: d3397e8
+last_activity_desc: Phase 03 verification found workspace-ancestor and lock-directory replacement containment gaps after 03-11 through 03-13
+state_head: eea5324
 progress:
   total_phases: 6
   completed_phases: 1
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-07-30)
 ## Current Position
 
 Phase: 03 — Artifact-Aware Grill-Me and Attribution Workflow
-Plan: 10 plans executed; gap closure required
+Plan: 13 plans executed; gap closure required
 Status: Needs gap planning
-Total Plans in Phase: 10
-Last activity: 2026-08-26 — completion reversed after independently reproduced audit-root containment gaps
+Total Plans in Phase: 13
+Last activity: 2026-08-26 — verification found workspace-ancestor and lock-directory replacement containment gaps
 
 Progress: [███░░░░░░░] 33%
 
@@ -130,5 +130,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-08-26T12:41:35.437Z
-Stopped at: Final code review found Phase 03 audit-root CLI and TOCTOU containment gaps
+Stopped at: Final code review found Phase 03 workspace-ancestor and lock-directory replacement containment gaps
 Resume file: None
