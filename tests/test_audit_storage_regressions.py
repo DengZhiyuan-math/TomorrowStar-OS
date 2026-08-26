@@ -4,10 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from career_evidence_graph.audit.store import AuditStorageError, AuditStore
 from career_evidence_graph.audit.models import AuditAction
-from career_evidence_graph.audit.workflow import transition_audit
-from career_evidence_graph.audit.workflow import start_audit
+from career_evidence_graph.audit.store import AuditStorageError, AuditStore
+from career_evidence_graph.audit.workflow import start_audit, transition_audit
 
 ROOT = Path(__file__).parents[1]
 FIXTURE = ROOT / "validation/fixtures/stoa/v1/known-good.json"

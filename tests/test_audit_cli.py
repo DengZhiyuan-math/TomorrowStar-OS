@@ -124,3 +124,55 @@ def test_audit_workflow_errors_are_structured_and_do_not_write(tmp_path: Path) -
     assert json.loads(rejected.stderr)["error"] == "audit_workflow_error"
     assert "Traceback" not in rejected.stderr
     assert snapshot_path.read_bytes() == before
+
+
+def test_exact_action_replay_is_byte_identical_and_stale_new_action_fails(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    started = run_cli(
+        "audit",
+        "start",
+        "--workspace",
+        str(workspace),
+        "--fixture",
+        str(FIXTURE),
+        "--contribution-id",
+        "contrib-stoa-authorization-boundary",
+        "--action-id",
+        "action-start-replay",
+    )
+    first = json.loads(started.stdout)
+    command = (
+        "audit",
+        "answer",
+        "--workspace",
+        str(workspace),
+        "--audit-id",
+        first["audit_id"],
+        "--answer",
+        "I chose and verified the boundary.",
+        "--action-id",
+        "action-answer-replay",
+        "--expected-event-hash",
+        first["event_hash"],
+    )
+    accepted = run_cli(*command)
+    snapshot_path = workspace / "audits" / first["audit_id"] / "snapshot.json"
+    after_accept = snapshot_path.read_bytes()
+    replayed = run_cli(*command)
+    assert accepted.returncode == replayed.returncode == 0
+    assert accepted.stdout == replayed.stdout
+    assert snapshot_path.read_bytes() == after_accept
+    stale = run_cli(
+        "audit",
+        "pause",
+        "--workspace",
+        str(workspace),
+        "--audit-id",
+        first["audit_id"],
+        "--action-id",
+        "action-pause-stale",
+        "--expected-event-hash",
+        first["event_hash"],
+    )
+    assert stale.returncode == 2
+    assert "stale expected event hash" in stale.stderr
