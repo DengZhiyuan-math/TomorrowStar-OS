@@ -84,3 +84,31 @@ def test_conflict_preserves_documentary_and_user_claims(tmp_path):
     assert snapshot.responsibility_round.ownership == "other-person-owned"
     assert snapshot.attribution_conflicts
     assert snapshot.assistance_round is None
+
+
+@pytest.mark.phase03_gap_probe
+def test_bilingual_ambiguous_attribution_persists_as_unresolved_conclusion(tmp_path):
+    store, snapshot = _answer_until_responsibility(tmp_path, "audit-bilingual-unresolved")
+    snapshot = transition_audit(
+        store,
+        snapshot,
+        AuditAction(action="answer", answer="Maybe 团队和我一起负责。"),
+    )
+    snapshot = transition_audit(
+        store,
+        snapshot,
+        AuditAction(action="answer", answer="编码代理或第三方协助了实现。"),
+    )
+    assert snapshot.responsibility_round.ownership == "unresolved"
+    assert snapshot.assistance_round.assistance == "unresolved"
+    assert {item.area: item.verification for item in snapshot.conclusion.entries} == {
+        "implementation": "audit-verified",
+        "debugging": "audit-verified",
+        "operation": "audit-verified",
+        "responsibility": "unresolved",
+        "assistance": "unresolved",
+    }
+    for area in ("responsibility", "assistance"):
+        entry = next(item for item in snapshot.conclusion.entries if item.area == area)
+        assert "unresolved" in entry.strongest_capability
+        assert "unresolved" in entry.responsibility_boundary + entry.assistance_boundary

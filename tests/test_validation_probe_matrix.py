@@ -20,6 +20,9 @@ ORIGINAL_FILES = (
 GAP_FILES = (
     "tests/test_audit_workflow_regressions.py",
     "tests/test_audit_storage_regressions.py",
+    "tests/test_audit_conclusion.py",
+    "tests/test_audit_cli.py",
+    "tests/test_audit_attribution.py",
 )
 ORIGINAL_NODE_IDS = (
     "tests/test_audit_cli.py::test_start_does_not_overwrite_existing_audit",
@@ -57,10 +60,14 @@ GAP_NODE_IDS = (
     "tests/test_audit_workflow_regressions.py::test_conclusion_basis_separates_documentary_context",
     "tests/test_audit_workflow_regressions.py::test_missing_claim_or_evidence_reference_fails_closed",
     "tests/test_audit_workflow_regressions.py::test_review_actions_update_canonical_conclusion_state",
+    "tests/test_audit_workflow_regressions.py::test_wrong_question_target_rejects_before_audit_workspace_write",
     "tests/test_audit_storage_regressions.py::test_complete_event_chain_rejects_historical_tampering",
     "tests/test_audit_storage_regressions.py::test_snapshot_event_publication_recovers_after_interruption",
     "tests/test_audit_storage_regressions.py::test_all_mutations_require_cas_and_competing_writer_loses",
     "tests/test_audit_storage_regressions.py::test_review_replay_resolves_identity_before_stale_head",
+    "tests/test_audit_conclusion.py::test_direct_reviews_require_current_effective_conclusion_hash",
+    "tests/test_audit_cli.py::test_malformed_audit_action_has_json_diagnostic_and_no_workspace_writes",
+    "tests/test_audit_attribution.py::test_bilingual_ambiguous_attribution_persists_as_unresolved_conclusion",
 )
 NODE_ID = re.compile(r"^tests/[a-z0-9_]+\.py::test_[a-z0-9_]+$")
 
@@ -81,6 +88,6 @@ def _collect(marker: str, files: tuple[str, ...]) -> tuple[str, ...]:
     return node_ids
 
 
-def test_all_28_original_and_nine_gap_probes_are_collected() -> None:
+def test_all_28_original_and_fourteen_gap_probes_are_collected() -> None:
     assert _collect("phase03_original_probe", ORIGINAL_FILES) == ORIGINAL_NODE_IDS
     assert _collect("phase03_gap_probe", GAP_FILES) == GAP_NODE_IDS

@@ -127,8 +127,8 @@ def test_repaired_audit_cli_journey_preserves_custody_and_reopens(tmp_path: Path
     for action_id, answer in (
         ("answer-debugging", "I isolated and repaired the dependency failure."),
         ("answer-operation", "I operated and checked the recovery path."),
-        ("answer-responsibility", "I owned the implementation decisions and acceptance."),
-        ("answer-assistance", "编码代理协助了实现。"),
+        ("answer-responsibility", "Maybe 团队和我一起负责。"),
+        ("answer-assistance", "编码代理或第三方协助了实现。"),
     ):
         accepted = _mutate(workspace, audit_id, "answer", action_id, head, "--answer", answer)
         head = str(accepted["event_hash"])
@@ -136,13 +136,15 @@ def test_repaired_audit_cli_journey_preserves_custody_and_reopens(tmp_path: Path
     reviewing = accepted["snapshot"]
     assert reviewing["status"] == "reviewing"
     assert reviewing["attribution"] == {
-        "assistance": "coding-agent-assisted",
+        "assistance": "unresolved",
         "model": None,
-        "ownership": "user-owned",
+        "ownership": "unresolved",
         "schema_version": "audit-attribution/v1",
         "tool": None,
     }
     conclusion = reviewing["conclusion"]
+    unresolved = {entry["area"]: entry["verification"] for entry in conclusion["entries"]}
+    assert unresolved["responsibility"] == unresolved["assistance"] == "unresolved"
     original_proposal = conclusion["original_proposal"]
     original_hash = conclusion["original_proposal_hash"]
     effective_hash = conclusion["effective_conclusion_hash"]
