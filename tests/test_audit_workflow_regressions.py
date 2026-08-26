@@ -197,3 +197,26 @@ def test_review_actions_update_canonical_conclusion_state(tmp_path: Path):
                 expected_effective_conclusion_hash=before_hash,
             ),
         )
+
+
+@pytest.mark.phase03_gap_probe
+def test_wrong_question_target_rejects_before_audit_workspace_write(tmp_path: Path):
+    store = AuditStore(tmp_path)
+    snapshot = _start(tmp_path, "audit-question-target")
+    audit_path = store.path(snapshot.audit_id)
+    custody_names = ("snapshot.json", "events.jsonl", "accepted-results.json")
+    before = {name: (audit_path / name).read_bytes() for name in custody_names}
+    action = AuditAction(
+        action="answer",
+        answer="I designed and verified it.",
+        question_id="question-debugging-hard-0",
+        action_id="wrong-question-target",
+        expected_event_hash=store.latest_event_hash(snapshot.audit_id),
+    )
+    with pytest.raises(AuditWorkflowError, match="active question"):
+        store.transact(
+            snapshot.audit_id,
+            action,
+            lambda current: transition_audit(store, current, action),
+        )
+    assert before == {name: (audit_path / name).read_bytes() for name in custody_names}

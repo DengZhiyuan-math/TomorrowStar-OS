@@ -219,3 +219,43 @@ def test_exact_action_replay_is_byte_identical_and_stale_new_action_fails(tmp_pa
     )
     assert stale.returncode == 2
     assert "stale expected event hash" in stale.stderr
+
+
+@pytest.mark.phase03_gap_probe
+def test_malformed_audit_action_has_json_diagnostic_and_no_workspace_writes(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    started = run_cli(
+        "audit",
+        "start",
+        "--workspace",
+        str(workspace),
+        "--fixture",
+        str(FIXTURE),
+        "--contribution-id",
+        "contrib-stoa-authorization-boundary",
+        "--audit-id",
+        "audit-malformed-action",
+        "--action-id",
+        "start-malformed-action",
+    )
+    audit_id = json.loads(started.stdout)["audit_id"]
+    audit_path = workspace / "audits" / audit_id
+    custody_names = ("snapshot.json", "events.jsonl", "accepted-results.json")
+    before = {name: (audit_path / name).read_bytes() for name in custody_names}
+    malformed = run_cli(
+        "audit",
+        "pause",
+        "--workspace",
+        str(workspace),
+        "--audit-id",
+        audit_id,
+        "--action-id",
+        "malformed-action",
+        "--expected-event-hash",
+        "not-a-sha256-hash",
+    )
+    assert malformed.returncode == 2
+    diagnostic = json.loads(malformed.stderr)
+    assert diagnostic["error"] == "invalid_audit_action"
+    assert "Traceback" not in malformed.stderr
+    assert before == {name: (audit_path / name).read_bytes() for name in custody_names}
