@@ -35,6 +35,7 @@ def _complete(tmp_path: Path):
     return store.read("audit-conclusion")
 
 
+@pytest.mark.phase03_original_probe
 def test_incomplete_coverage_blocks_conclusion(tmp_path: Path):
     snap = start_audit(
         workspace=tmp_path,
@@ -57,6 +58,7 @@ def test_incomplete_coverage_blocks_conclusion(tmp_path: Path):
     assert snap.conclusion is None
 
 
+@pytest.mark.phase03_original_probe
 def test_conclusion_order_and_unicode_are_stable(tmp_path: Path):
     snap = _complete(tmp_path)
     assert [entry.area for entry in snap.conclusion.entries] == [
@@ -88,13 +90,31 @@ def test_skipped_self_rating_is_opaque_unverified_text(tmp_path: Path):
     assert snap.conclusion is None
 
 
-def test_no_numeric_assessment_dimension_in_verified_entry(tmp_path: Path):
+@pytest.mark.phase03_original_probe
+def test_review_preserves_original_and_emits_no_verified_numeric_score(tmp_path: Path):
     snap = _complete(tmp_path)
+    original = snap.conclusion.original_proposal
+    reviewed = transition_audit(
+        AuditStore(tmp_path),
+        snap,
+        AuditAction(
+            action="review-entry",
+            entry_id="entry-implementation",
+            decision="edit",
+            correction="Corrected capability boundary.",
+            reason="clarify scope",
+            reviewer_id="reviewer",
+            expected_event_hash=AuditStore(tmp_path).latest_event_hash(snap.audit_id),
+            expected_effective_conclusion_hash=snap.conclusion.effective_conclusion_hash,
+        ),
+    )
+    assert reviewed.conclusion.original_proposal == original
     for entry in snap.conclusion.entries:
         assert not hasattr(entry, "mastery")
         assert entry.verification == "audit-verified"
 
 
+@pytest.mark.phase03_original_probe
 def test_duplicate_terminal_review_is_idempotent(tmp_path: Path):
     snap = _complete(tmp_path)
     store = AuditStore(tmp_path)

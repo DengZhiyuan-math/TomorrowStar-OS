@@ -55,6 +55,7 @@ def test_review_appends_immutable_lineage_and_preserves_original_bytes(tmp_path:
     assert reread.conclusion_reviews[0].correction == "更正：由我完成。"
 
 
+@pytest.mark.phase03_original_probe
 def test_stale_or_tampered_review_fails_closed(tmp_path: Path):
     store, snap = _complete(tmp_path)
     action = AuditAction(
