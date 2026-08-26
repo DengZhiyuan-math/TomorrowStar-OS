@@ -11,6 +11,9 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from .audit.models import AuditAction
+from .audit.store import AuditStorageError, AuditStore
+from .audit.workflow import inspect_contribution, start_audit, transition_audit
 from .domain import (
     KNOWN_BAD_CASE_IDS,
     FixtureMutationError,
@@ -29,9 +32,6 @@ from .domain import (
 from .validation.provenance import ProvenanceValidationError, verify_provenance_registry
 from .validation.replay import replay_recorded_response
 from .validation.store import FormalRunStorageError, FormalRunStore, load_charter
-from .audit.models import AuditAction
-from .audit.store import AuditStorageError, AuditStore
-from .audit.workflow import start_audit, transition_audit, inspect_contribution
 
 
 def _json_file(path: str) -> Any:
@@ -46,8 +46,20 @@ def _emit(value: Any) -> None:
     if hasattr(value, "model_dump"):
         value = value.model_dump(mode="json")
     elif isinstance(value, dict):
-        value = {key: (item.model_dump(mode="json") if hasattr(item, "model_dump") else item) for key, item in value.items()}
-    print(json.dumps(value, ensure_ascii=False, sort_keys=True))
+        value = {
+            key: (item.model_dump(mode="json") if hasattr(item, "model_dump") else item)
+            for key, item in value.items()
+        }
+    print(
+        json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            default=lambda item: (
+                item.model_dump(mode="json") if hasattr(item, "model_dump") else str(item)
+            ),
+        )
+    )
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -125,15 +137,28 @@ def _parser() -> argparse.ArgumentParser:
     audit = commands.add_parser("audit")
     audit_commands = audit.add_subparsers(dest="audit_command", required=True)
     start = audit_commands.add_parser("start")
-    start.add_argument("--workspace", required=True); start.add_argument("--fixture", required=True)
-    start.add_argument("--manifest", default=None); start.add_argument("--contribution-id", required=True); start.add_argument("--audit-id")
+    start.add_argument("--workspace", required=True)
+    start.add_argument("--fixture", required=True)
+    start.add_argument("--manifest", default=None)
+    start.add_argument("--contribution-id", required=True)
+    start.add_argument("--audit-id")
     for name in ("answer", "skip", "pause", "resume", "review-entry", "review-conclusion"):
-        command = audit_commands.add_parser(name); command.add_argument("--workspace", required=True); command.add_argument("--audit-id", required=True)
-        if name in {"answer", "skip"}: command.add_argument("--answer", required=True)
+        command = audit_commands.add_parser(name)
+        command.add_argument("--workspace", required=True)
+        command.add_argument("--audit-id", required=True)
+        if name in {"answer", "skip"}:
+            command.add_argument("--answer", required=True)
         if name == "review-entry":
-            command.add_argument("--entry-id", required=True); command.add_argument("--decision", choices=("confirm", "edit", "reject"), required=True); command.add_argument("--correction")
-        if name == "review-conclusion": command.add_argument("--decision", choices=("confirm", "reject"), required=True); command.add_argument("--reason", required=True)
-    inspect = audit_commands.add_parser("inspect"); inspect.add_argument("--fixture", required=True); inspect.add_argument("--manifest", required=True); inspect.add_argument("--contribution-id", required=True)
+            command.add_argument("--entry-id", required=True)
+            command.add_argument("--decision", choices=("confirm", "edit", "reject"), required=True)
+            command.add_argument("--correction")
+        if name == "review-conclusion":
+            command.add_argument("--decision", choices=("confirm", "reject"), required=True)
+            command.add_argument("--reason", required=True)
+    inspect = audit_commands.add_parser("inspect")
+    inspect.add_argument("--fixture", required=True)
+    inspect.add_argument("--manifest", required=True)
+    inspect.add_argument("--contribution-id", required=True)
     return parser
 
 
@@ -291,18 +316,40 @@ def main(argv: list[str] | None = None) -> int:
             )
             _emit(manifest)
         elif args.command == "audit" and args.audit_command == "start":
-            manifest = Path(args.manifest) if args.manifest else Path(args.fixture).with_name("source-manifest.json")
-            created = start_audit(workspace=Path(args.workspace), fixture_path=Path(args.fixture), manifest_path=manifest, contribution_id=args.contribution_id, audit_id=args.audit_id)
-            _emit({"audit_id": created.audit_id, "question": created.questions[0], "status": created.status})
+            manifest = (
+                Path(args.manifest)
+                if args.manifest
+                else Path(args.fixture).with_name("source-manifest.json")
+            )
+            created = start_audit(
+                workspace=Path(args.workspace),
+                fixture_path=Path(args.fixture),
+                manifest_path=manifest,
+                contribution_id=args.contribution_id,
+                audit_id=args.audit_id,
+            )
+            _emit(
+                {
+                    "audit_id": created.audit_id,
+                    "question": created.questions[0],
+                    "status": created.status,
+                }
+            )
         elif args.command == "audit" and args.audit_command == "inspect":
-            facts, limitations = inspect_contribution(Path(args.fixture), Path(args.manifest), args.contribution_id)
+            facts, limitations = inspect_contribution(
+                Path(args.fixture), Path(args.manifest), args.contribution_id
+            )
             _emit({"facts": facts, "limitations": limitations})
         elif args.command == "audit":
-            store = AuditStore(Path(args.workspace)); current = store.read(args.audit_id)
+            store = AuditStore(Path(args.workspace))
+            current = store.read(args.audit_id)
             payload = {"action": args.audit_command}
             for field in ("answer", "entry_id", "decision", "correction", "reason"):
-                if hasattr(args, field): payload[field] = getattr(args, field)
-            updated = transition_audit(store, current, AuditAction.model_validate(payload)); store.update(updated); _emit(updated)
+                if hasattr(args, field):
+                    payload[field] = getattr(args, field)
+            updated = transition_audit(store, current, AuditAction.model_validate(payload))
+            store.update(updated)
+            _emit(updated)
         return 0
     except FixtureValidationError as exc:
         _emit_error(
