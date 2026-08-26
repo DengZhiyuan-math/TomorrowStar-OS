@@ -112,6 +112,8 @@ class AuditStore:
             }
             if len(results) != len(raw_results):
                 raise AuditStorageError("accepted action IDs are duplicated")
+            if set(results) != {event.action_id for event in events}:
+                raise AuditStorageError("accepted result index is incomplete")
             by_hash = {event.event_hash: event for event in events}
             for result in results.values():
                 event = by_hash.get(result.event_hash)
