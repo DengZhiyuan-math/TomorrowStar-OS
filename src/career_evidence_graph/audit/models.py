@@ -105,11 +105,11 @@ class AuditSnapshot(StrictModel):
     contradictions: tuple[str, ...] = ()
     attribution: AuditAttribution | None = None
     conclusion: AuditConclusion | None = None
-    coverage: tuple["AuditCoverage", ...] = ()
+    coverage: tuple[AuditCoverage, ...] = ()
     accepted_action_ids: tuple[str, ...] = ()
-    responsibility_round: "ResponsibilityRound | None" = None
-    assistance_round: "AssistanceRound | None" = None
-    attribution_conflicts: tuple["AttributionConflict", ...] = ()
+    responsibility_round: ResponsibilityRound | None = None
+    assistance_round: AssistanceRound | None = None
+    attribution_conflicts: tuple[AttributionConflict, ...] = ()
 
 
 class AuditCoverage(StrictModel):

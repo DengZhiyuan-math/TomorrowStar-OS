@@ -30,7 +30,11 @@ ExperienceType = Literal[
     "related",
 ]
 ResponsibilityKind = Literal["user", "team", "other_person", "non_responsibility"]
-AssistanceKind = Literal["none", "codex_assisted", "third_party"]
+# ``codex_assisted`` remains accepted only for sealed legacy fixture reads.
+# New audit records use the provider-neutral vocabulary in audit.models.
+AssistanceKind = Literal[
+    "none", "codex_assisted", "third_party", "coding-agent-assisted", "third-party-assisted"
+]
 ConfirmationStatus = Literal["confirmed", "unconfirmed", "rejected"]
 CompletionStatus = Literal["delivered", "partial", "planned_only", "unresolved"]
 EvidenceKind = Literal["plan", "handoff", "acceptance_record", "audit", "user_confirmation"]

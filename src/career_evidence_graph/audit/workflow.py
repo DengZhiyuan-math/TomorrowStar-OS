@@ -7,19 +7,35 @@ from ..domain.fixtures import SealedFixtureRecord, load_sealed_fixture, verify_s
 from ..validation.hashing import canonical_json_bytes, sha256_digest
 from .models import (
     ArtifactFact,
+    AssistanceRound,
+    AttributionConflict,
     AuditAction,
     AuditAnswer,
     AuditAttribution,
-    AuditCoverage,
     AuditConclusion,
+    AuditCoverage,
     AuditQuestion,
     AuditSnapshot,
-    AssistanceRound,
-    AttributionConflict,
-    ResponsibilityRound,
     ConclusionEntry,
+    ResponsibilityRound,
 )
 from .store import AuditStore
+
+
+def canonical_assistance(value: str) -> str:
+    """Map vendor-era labels to the stable provider-neutral audit vocabulary."""
+    return {
+        "none": "none",
+        "codex_assisted": "coding-agent-assisted",
+        "coding-agent-assisted": "coding-agent-assisted",
+        "third_party": "third-party-assisted",
+        "third-party-assisted": "third-party-assisted",
+    }.get(value, "unresolved")
+
+
+def parse_assistance(value: str) -> str:
+    """Read legacy bytes without rewriting them; callers choose canonical writes."""
+    return canonical_assistance(value)
 
 
 def _fixture(path: Path):
@@ -92,32 +108,74 @@ def start_audit(
     return snapshot
 
 
-def _question(area: str, difficulty: str, follow_up: int, facts: tuple[ArtifactFact, ...]) -> AuditQuestion:
+def _question(
+    area: str, difficulty: str, follow_up: int, facts: tuple[ArtifactFact, ...]
+) -> AuditQuestion:
     reference = facts[0].source_locator if facts else "selected Contribution"
     reason = (
         "The project record establishes bounded artifact facts, but personal capability "
         "remains unverified."
     )
     prompts = {
-        ("implementation", "hard"): "What design trade-off did you personally make, and how did you verify the result under failure conditions?",
-        ("implementation", "intermediate"): "What implementation change did you personally make, and how did you check its result?",
+        (
+            "implementation",
+            "hard",
+        ): (
+            "What design trade-off did you personally make, and how did you verify "
+            "the result under failure conditions?"
+        ),
+        (
+            "implementation",
+            "intermediate",
+        ): "What implementation change did you personally make, and how did you check its result?",
         ("implementation", "simple"): "Which implementation step did you personally complete?",
-        ("debugging", "hard"): "How did you isolate and repair the most difficult failure in this Contribution?",
-        ("debugging", "intermediate"): "What symptom did you investigate, and what change fixed it?",
-        ("operation", "hard"): "How would you operate and verify this Contribution when its external dependency fails?",
-        ("operation", "intermediate"): "What operational check did you personally run after delivery?",
-        ("responsibility", "hard"): "Which decisions, integration, and acceptance of this result were yours?",
-        ("assistance", "hard"): "Did a coding agent or third party assist with decisions, generation, modification, debugging, testing, or acceptance?",
+        (
+            "debugging",
+            "hard",
+        ): "How did you isolate and repair the most difficult failure in this Contribution?",
+        (
+            "debugging",
+            "intermediate",
+        ): "What symptom did you investigate, and what change fixed it?",
+        (
+            "operation",
+            "hard",
+        ): "How would you operate and verify this Contribution when its external dependency fails?",
+        (
+            "operation",
+            "intermediate",
+        ): "What operational check did you personally run after delivery?",
+        (
+            "responsibility",
+            "hard",
+        ): "Which decisions, integration, and acceptance of this result were yours?",
+        (
+            "assistance",
+            "hard",
+        ): (
+            "Did a coding agent or third party assist with decisions, generation, "
+            "modification, debugging, testing, or acceptance?"
+        ),
     }
-    return AuditQuestion(id=f"question-{area}-{difficulty}-{follow_up}", reason=reason,
-                         prompt=prompts[(area, difficulty)], area=area, area_id=area,
-                         difficulty=difficulty, inspection_reference=reference,
-                         follow_up_count=follow_up)
+    return AuditQuestion(
+        id=f"question-{area}-{difficulty}-{follow_up}",
+        reason=reason,
+        prompt=prompts[(area, difficulty)],
+        area=area,
+        area_id=area,
+        difficulty=difficulty,
+        inspection_reference=reference,
+        follow_up_count=follow_up,
+    )
 
 
 def transition_audit(
     store: AuditStore, snapshot: AuditSnapshot, action: AuditAction
 ) -> AuditSnapshot:
+    if action.expected_snapshot_hash:
+        actual = sha256_digest(canonical_json_bytes(snapshot.model_dump(mode="json")))
+        if action.expected_snapshot_hash != actual:
+            raise ValueError("stale audit snapshot; optimistic concurrency check failed")
     if action.action_id and action.action_id in snapshot.accepted_action_ids:
         return snapshot
     questions = list(snapshot.questions)
@@ -133,7 +191,9 @@ def transition_audit(
         if q is None:
             raise ValueError("no unanswered question")
         is_skip = action.action == "skip"
-        questions[questions.index(q)] = q.model_copy(update={"status": "skipped" if is_skip else "answered"})
+        questions[questions.index(q)] = q.model_copy(
+            update={"status": "skipped" if is_skip else "answered"}
+        )
         answers.append(
             AuditAnswer(
                 question_id=q.id, answer=action.answer or "skipped", skipped=action.action == "skip"
@@ -145,20 +205,31 @@ def transition_audit(
             current = AuditCoverage(area_id=q.area)
             coverage.append(current)
         text = action.answer or "skipped"
-        incomplete = any(token in text.lower() for token in ("不知道", "不清楚", "不完整", "不确定", "don't know"))
+        incomplete = any(
+            token in text.lower()
+            for token in ("不知道", "不清楚", "不完整", "不确定", "don't know")
+        )
         if is_skip:
-            coverage[coverage.index(current)] = current.model_copy(update={"status": "skipped", "self_rating": text})
+            coverage[coverage.index(current)] = current.model_copy(
+                update={"status": "skipped", "self_rating": text}
+            )
         elif incomplete and q.follow_up_count == 0:
             follow = _question(q.area, q.difficulty, 1, snapshot.inspected_facts)
             questions.append(follow)
         elif incomplete:
-            lower = {"hard": "intermediate", "intermediate": "simple", "simple": "simple"}[q.difficulty]
+            lower = {"hard": "intermediate", "intermediate": "simple", "simple": "simple"}[
+                q.difficulty
+            ]
             if lower == "simple" and q.difficulty == "simple":
-                coverage[coverage.index(current)] = current.model_copy(update={"status": "unresolved", "difficulty_reached": q.difficulty})
+                coverage[coverage.index(current)] = current.model_copy(
+                    update={"status": "unresolved", "difficulty_reached": q.difficulty}
+                )
             else:
                 questions.append(_question(q.area, lower, 0, snapshot.inspected_facts))
         else:
-            coverage[coverage.index(current)] = current.model_copy(update={"status": "verified", "difficulty_reached": q.difficulty})
+            coverage[coverage.index(current)] = current.model_copy(
+                update={"status": "verified", "difficulty_reached": q.difficulty}
+            )
             if q.area == "implementation":
                 questions.append(_question("debugging", "hard", 0, snapshot.inspected_facts))
             elif q.area == "debugging":
@@ -169,19 +240,41 @@ def transition_audit(
                 questions.append(_question("assistance", "hard", 0, snapshot.inspected_facts))
         attribution = snapshot.attribution
         if q.area == "responsibility":
-            ownership = "other-person-owned" if "不是我" in text else ("team-owned" if "团队" in text else ("user-owned" if "我" in text else "unresolved"))
+            ownership = (
+                "other-person-owned"
+                if "不是我" in text
+                else (
+                    "team-owned"
+                    if "团队" in text
+                    else ("user-owned" if "我" in text else "unresolved")
+                )
+            )
             rr = ResponsibilityRound(answer=text, ownership=ownership)
             attribution = AuditAttribution(ownership=ownership, assistance="unresolved")
         else:
             rr = snapshot.responsibility_round
         ar = snapshot.assistance_round
         if q.area == "assistance":
-            kind = "coding-agent-assisted" if any(x in text.lower() for x in ("agent", "codex", "gpt", "coding")) else ("third-party-assisted" if "第三方" in text else ("none" if "没有" in text or "无" in text else "unresolved"))
+            kind = (
+                "coding-agent-assisted"
+                if any(x in text.lower() for x in ("agent", "codex", "gpt", "coding"))
+                else (
+                    "third-party-assisted"
+                    if "第三方" in text
+                    else ("none" if "没有" in text or "无" in text else "unresolved")
+                )
+            )
             ar = AssistanceRound(answer=text, assistance=kind)
-            attribution = AuditAttribution(ownership=(attribution.ownership if attribution else "unresolved"), assistance=kind)
+            attribution = AuditAttribution(
+                ownership=(attribution.ownership if attribution else "unresolved"), assistance=kind
+            )
         conflicts = list(snapshot.attribution_conflicts)
         if q.area == "responsibility" and "不是我" in text and snapshot.inspected_facts:
-            conflicts.append(AttributionConflict(artifact_claim=snapshot.inspected_facts[0].statement, user_claim=text))
+            conflicts.append(
+                AttributionConflict(
+                    artifact_claim=snapshot.inspected_facts[0].statement, user_claim=text
+                )
+            )
         entry = ConclusionEntry(
             id="entry-implementation",
             area="implementation",
@@ -208,7 +301,8 @@ def transition_audit(
                 "assistance_round": ar,
                 "attribution_conflicts": tuple(conflicts),
                 "conclusion": conclusion,
-                "accepted_action_ids": snapshot.accepted_action_ids + ((action.action_id,) if action.action_id else ()),
+                "accepted_action_ids": snapshot.accepted_action_ids
+                + ((action.action_id,) if action.action_id else ()),
             }
         )
     if action.action == "review-entry" and snapshot.conclusion:
