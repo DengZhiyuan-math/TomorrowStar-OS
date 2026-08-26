@@ -91,7 +91,7 @@ This milestone delivers six vertical validation capabilities in dependency order
   3. Ambiguous responsibility or assistance is challenged until user-owned, team-owned, other-owned, Codex-assisted, and third-party work is separated or explicitly left unresolved.
   4. For each audited Contribution, the user can edit, confirm, or reject a conclusion that identifies the strongest established capability, the next-higher capability not established, its supporting basis, and every provisional or unresolved point.
 
-**Plans:** 10/10 plans executed; verification gaps found
+**Plans:** 10/13 plans executed; 3 gap closure plans planned
 
 **Wave 0**
 
@@ -132,6 +132,15 @@ This milestone delivers six vertical validation capabilities in dependency order
 **Wave 9** *(after 03-09)*
 
 - [x] 03-10-PLAN.md — Close audit-root symbolic-link containment and restore canonical MVP goal metadata.
+
+**Wave 10** *(after 03-10; plans run in parallel)*
+
+- [ ] 03-11-PLAN.md — Make the installed editable CLI resolve the current checkout without embedding a stale package copy.
+- [ ] 03-12-PLAN.md — Anchor every audit lock, read, recovery, transaction, and publication to verified directory descriptors.
+
+**Wave 11** *(after 03-11 and 03-12)*
+
+- [ ] 03-13-PLAN.md — Prove fresh installed-CLI containment and close the exact executable Phase 3 quality gate.
 
 ### Phase 4: Contribution–Skill Assessment and Aggregation Calibration
 
@@ -188,7 +197,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 |-------|----------------|--------|-----------|
 | 1. Validation Charter, Provenance, and Technical Decision Gate | 2/2 | Complete    | 2026-07-30 |
 | 2. Domain Contracts, STOA Fixture, and Deterministic Invariants | 6/6 | Complete    | 2026-07-30 |
-| 3. Artifact-Aware Grill-Me and Attribution Workflow | 10/10 | Gaps Found | Audit-root CLI package and TOCTOU containment gaps |
+| 3. Artifact-Aware Grill-Me and Attribution Workflow | 10/13 | Gaps Planned | Editable CLI authority and descriptor-contained audit storage |
 | 4. Contribution–Skill Assessment and Aggregation Calibration | 0/TBD | Not started | - |
 | 5. JD Usefulness and Adversarial Evaluation | 0/TBD | Not started | - |
 | 6. Replication and Core-Hypothesis Decision | 0/TBD | Not started | - |
