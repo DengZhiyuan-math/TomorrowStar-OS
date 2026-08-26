@@ -3,11 +3,9 @@ from __future__ import annotations
 import os
 import re
 import subprocess
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
-PYTEST_RUNNER = ROOT / "scripts" / "run_pytest.py"
 ORIGINAL_FILES = (
     "tests/test_audit_cli.py",
     "tests/test_audit_inspection.py",
@@ -23,6 +21,8 @@ GAP_FILES = (
     "tests/test_audit_conclusion.py",
     "tests/test_audit_cli.py",
     "tests/test_audit_attribution.py",
+    "tests/test_cli_tracer.py",
+    "tests/test_audit_installation_regressions.py",
 )
 ORIGINAL_NODE_IDS = (
     "tests/test_audit_cli.py::test_start_does_not_overwrite_existing_audit",
@@ -63,6 +63,8 @@ GAP_NODE_IDS = (
     "tests/test_audit_workflow_regressions.py::test_wrong_question_target_rejects_before_audit_workspace_write",
     "tests/test_audit_storage_regressions.py::test_complete_event_chain_rejects_historical_tampering",
     "tests/test_audit_storage_regressions.py::test_symlinked_audit_root_rejects_before_external_writes",
+    "tests/test_audit_storage_regressions.py::test_audit_root_swap_after_descriptor_open_never_writes_external",
+    "tests/test_audit_storage_regressions.py::test_external_hard_link_aliases_fail_closed_without_external_mutation",
     "tests/test_audit_storage_regressions.py::test_snapshot_event_publication_recovers_after_interruption",
     "tests/test_audit_storage_regressions.py::test_all_mutations_require_cas_and_competing_writer_loses",
     "tests/test_audit_storage_regressions.py::test_direct_update_requires_caller_held_head_and_rejects_stale_snapshot",
@@ -70,13 +72,16 @@ GAP_NODE_IDS = (
     "tests/test_audit_conclusion.py::test_direct_reviews_require_current_effective_conclusion_hash",
     "tests/test_audit_cli.py::test_malformed_audit_action_has_json_diagnostic_and_no_workspace_writes",
     "tests/test_audit_attribution.py::test_bilingual_ambiguous_attribution_persists_as_unresolved_conclusion",
+    "tests/test_cli_tracer.py::test_editable_wheel_uses_package_scoped_source_proxy_without_embedded_modules",
+    "tests/test_cli_tracer.py::test_locked_editable_entrypoint_imports_checkout_source",
+    "tests/test_audit_installation_regressions.py::test_fresh_locked_installed_cli_preserves_audit_root_containment",
 )
 NODE_ID = re.compile(r"^tests/[a-z0-9_]+\.py::test_[a-z0-9_]+$")
 
 
 def _collect(marker: str, files: tuple[str, ...]) -> tuple[str, ...]:
     completed = subprocess.run(
-        [sys.executable, str(PYTEST_RUNNER), "--collect-only", "-q", "-m", marker, *files],
+        ["uv", "run", "--locked", "pytest", "--collect-only", "-q", "-m", marker, *files],
         cwd=ROOT,
         env=os.environ | {"UV_CACHE_DIR": "/tmp/career-evidence-uv-cache"},
         capture_output=True,
@@ -90,6 +95,6 @@ def _collect(marker: str, files: tuple[str, ...]) -> tuple[str, ...]:
     return node_ids
 
 
-def test_all_28_original_and_fifteen_gap_probes_are_collected() -> None:
+def test_all_28_original_and_twenty_gap_probes_are_collected() -> None:
     assert _collect("phase03_original_probe", ORIGINAL_FILES) == ORIGINAL_NODE_IDS
     assert _collect("phase03_gap_probe", GAP_FILES) == GAP_NODE_IDS
