@@ -6,7 +6,7 @@ import pytest
 
 from career_evidence_graph.audit.models import AuditAction
 from career_evidence_graph.audit.store import AuditStore
-from career_evidence_graph.audit.workflow import start_audit, transition_audit
+from career_evidence_graph.audit.workflow import AuditWorkflowError, start_audit, transition_audit
 
 ROOT = Path(__file__).parents[1]
 FIXTURE = ROOT / "validation/fixtures/stoa/v1/known-good.json"
@@ -109,3 +109,46 @@ def test_duplicate_terminal_review_is_idempotent(tmp_path: Path):
     updated = transition_audit(store, snap, action)
     repeated = transition_audit(store, updated, action)
     assert repeated == updated
+
+
+def test_entry_edits_preserve_proposal_and_require_current_effective_hash(tmp_path: Path):
+    snap = _complete(tmp_path)
+    store = AuditStore(tmp_path)
+    original_proposal = snap.conclusion.original_proposal
+    original_hash = snap.conclusion.original_proposal_hash
+    before_hash = snap.conclusion.effective_conclusion_hash
+    edited = transition_audit(
+        store,
+        snap,
+        AuditAction(
+            action="review-entry",
+            entry_id="entry-implementation",
+            decision="edit",
+            correction="Corrected boundary.",
+            reason="clarify the established capability",
+            reviewer_id="reviewer",
+            expected_event_hash=store.latest_event_hash(snap.audit_id),
+            expected_effective_conclusion_hash=before_hash,
+        ),
+    )
+    assert edited.status == "reviewing"
+    assert edited.conclusion.original_proposal == original_proposal
+    assert edited.conclusion.original_proposal_hash == original_hash
+    assert edited.conclusion.effective_conclusion_hash != before_hash
+    review = edited.conclusion_reviews[-1]
+    assert review.before_effective_hash == before_hash
+    assert review.after_effective_hash == edited.conclusion.effective_conclusion_hash
+    with pytest.raises(AuditWorkflowError, match="effective conclusion hash"):
+        transition_audit(
+            store,
+            edited,
+            AuditAction(
+                action="review-entry",
+                entry_id="entry-debugging",
+                decision="confirm",
+                reason="stale review",
+                reviewer_id="reviewer",
+                expected_event_hash=store.latest_event_hash(snap.audit_id),
+                expected_effective_conclusion_hash=before_hash,
+            ),
+        )
