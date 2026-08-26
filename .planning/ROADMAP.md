@@ -176,7 +176,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 |-------|----------------|--------|-----------|
 | 1. Validation Charter, Provenance, and Technical Decision Gate | 2/2 | Complete    | 2026-07-30 |
 | 2. Domain Contracts, STOA Fixture, and Deterministic Invariants | 6/6 | Complete    | 2026-07-30 |
-| 3. Artifact-Aware Grill-Me and Attribution Workflow | 3/3 | In Progress|  |
+| 3. Artifact-Aware Grill-Me and Attribution Workflow | 3/7 | In Progress| Gap-closure plans 03-04 through 03-07 pending |
 | 4. Contribution–Skill Assessment and Aggregation Calibration | 0/TBD | Not started | - |
 | 5. JD Usefulness and Adversarial Evaluation | 0/TBD | Not started | - |
 | 6. Replication and Core-Hypothesis Decision | 0/TBD | Not started | - |
