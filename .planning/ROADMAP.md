@@ -91,7 +91,7 @@ This milestone delivers six vertical validation capabilities in dependency order
   3. Ambiguous responsibility or assistance is challenged until user-owned, team-owned, other-owned, Codex-assisted, and third-party work is separated or explicitly left unresolved.
   4. For each audited Contribution, the user can edit, confirm, or reject a conclusion that identifies the strongest established capability, the next-higher capability not established, its supporting basis, and every provisional or unresolved point.
 
-**Plans:** 13/13 plans executed; verification gaps found
+**Plans:** 13/18 plans executed; holistic scope-reset repair planned
 
 **Wave 0**
 
@@ -144,6 +144,28 @@ This milestone delivers six vertical validation capabilities in dependency order
 **Wave 12** *(after 03-12)*
 
 - [x] 03-13-PLAN.md — Prove fresh installed-CLI containment and close the exact executable Phase 3 quality gate.
+
+> Historical scope note: Plans 03-05 through 03-13 remain checked as executed Git history, but their concurrency, installed-package-authority, exact-test-count, and same-UID adversarial-filesystem claims are superseded for active Phase 3 acceptance by D-17 through D-20. Plans 03-14 through 03-18 are one frozen serial repair round.
+
+**Wave 13** *(after 03-13)*
+
+- [ ] 03-14-PLAN.md — Freeze every requirement/decision disposition, Git-custody and retire expanded-scope reports, and remove only byte-proven stale copies.
+
+**Wave 14** *(after 03-14)*
+
+- [ ] 03-15-PLAN.md — Restore one strict atomic AuditSnapshot and the minimal one-action source-checkout CLI contract.
+
+**Wave 15** *(after 03-15)*
+
+- [ ] 03-16-PLAN.md — Remove event/race/install/count authority and restore ordinary packaging while retaining user-behavior tests.
+
+**Wave 16** *(after 03-16)*
+
+- [ ] 03-17-PLAN.md — Repair relevant hard-to-simple questions, real boundary decisions, both skip paths, and mandatory ownership-then-assistance turns.
+
+**Wave 17** *(after 03-17)*
+
+- [ ] 03-18-PLAN.md — Complete immutable conclusions, prove all offline user journeys, and hand one unchanged revision to independent gates.
 
 ### Phase 4: Contribution–Skill Assessment and Aggregation Calibration
 
@@ -200,7 +222,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 |-------|----------------|--------|-----------|
 | 1. Validation Charter, Provenance, and Technical Decision Gate | 2/2 | Complete    | 2026-07-30 |
 | 2. Domain Contracts, STOA Fixture, and Deterministic Invariants | 6/6 | Complete    | 2026-07-30 |
-| 3. Artifact-Aware Grill-Me and Attribution Workflow | 13/13 | Gaps Found | Workspace-ancestor and lock-directory replacement containment gaps |
+| 3. Artifact-Aware Grill-Me and Attribution Workflow | 13/18 | Repair planned | Scope reset accepted; Plans 03-14 through 03-18 pending |
 | 4. Contribution–Skill Assessment and Aggregation Calibration | 0/TBD | Not started | - |
 | 5. JD Usefulness and Adversarial Evaluation | 0/TBD | Not started | - |
 | 6. Replication and Core-Hypothesis Decision | 0/TBD | Not started | - |

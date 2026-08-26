@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v1.0
 current_phase: 03
 current_phase_name: Artifact-Aware Grill-Me and Attribution Workflow
-status: planning
-stopped_at: Final code review found Phase 03 workspace-ancestor and lock-directory replacement containment gaps
-last_updated: "2026-08-26T19:15:00Z"
-last_activity: 2026-08-26
-last_activity_desc: Phase 03 verification found workspace-ancestor and lock-directory replacement containment gaps after 03-11 through 03-13
-state_head: eea5324
+status: ready_to_execute
+stopped_at: Phase 03 holistic scope-reset repair planned; Plans 03-14 through 03-18 ready
+last_updated: "2026-08-27T01:19:38+02:00"
+last_activity: 2026-08-27
+last_activity_desc: Phase 03 holistic scope-reset repair planned — 5 serial gap-closure plans ready
+state_head: 72d5e01026721eeee08fe00784b0582ec9d9513b
 progress:
   total_phases: 6
-  completed_phases: 1
-  total_plans: 18
-  completed_plans: 18
+  completed_phases: 2
+  total_plans: 26
+  completed_plans: 21
 milestone_name: milestone
 ---
 
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-07-30)
 
 ## Current Position
 
-Phase: 03 — Artifact-Aware Grill-Me and Attribution Workflow
-Plan: 13 plans executed; gap closure required
-Status: Needs gap planning
-Total Plans in Phase: 13
-Last activity: 2026-08-26 — verification found workspace-ancestor and lock-directory replacement containment gaps
+Phase: 03 (Artifact-Aware Grill-Me and Attribution Workflow) — READY TO EXECUTE
+Plan: 13 of 18 plans executed; Plans 03-14 through 03-18 ready
+Status: Ready to execute
+Total Plans in Phase: 18
+Last activity: 2026-08-27 — holistic scope-reset repair planned
 
 Progress: [███░░░░░░░] 33%
 
@@ -40,7 +40,7 @@ Progress: [███░░░░░░░] 33%
 
 **Velocity:**
 
-- Total plans completed: 18
+- Total plans completed: 21
 - Average duration: -
 - Total execution time: 0 hours
 
@@ -50,7 +50,7 @@ Progress: [███░░░░░░░] 33%
 |-------|-------|-------|----------|
 | 01 | 2 | - | - |
 | 02 | 6 | - | - |
-| 03 | 10 | - | - |
+| 03 | 13 | - | - |
 
 **Recent Trend:**
 
@@ -98,11 +98,13 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 02: Known-bad variants are closed deep-copy operations over sealed truth; no generic patch/write surface is exposed.
 - [Phase ?]: Phase 02: Fixture suite results are contract rejections only and make no calibration, aggregation, JD, or effectiveness claim.
 - [Phase 03]: Phase 03-01: first audit output is a reason-prefaced question while inspection remains explicit and inspectable.
-- [Phase 03]: Phase 03-01: audit snapshots are atomic and events are redacted hash-linked records.
+- [Phase 03]: Phase 03-01: audit snapshots are atomic; event-log custody was later superseded by the single-snapshot scope reset.
 - [Phase 03]: Phase 03-02: deterministic hard-to-simple question coverage uses one same-level follow-up then descent.
 - [Phase 03]: Phase 03-02: ownership and assistance are separate rounds with immutable unresolved conflicts and provider-neutral assistance migration.
 - [Phase 03]: Phase 03-03: conclusions require terminal coverage for all five areas and remain prose-only.
-- [Phase 03]: Phase 03-03: review authority is append-only and requires reviewer, reason, and expected event hash.
+- [Phase 03]: Phase 03-03: review authority preserves the immutable proposal plus ordered reviewer decisions and reasons; event-head concurrency tokens are superseded.
+- [Phase 03]: D-17 through D-21 restore a trusted-local, one-action-at-a-time audit; concurrency, WAL/journal/lock/replay, installed-package authority, exact probe counts, and active same-UID filesystem defense are removed from Phase 3.
+- [Phase 03]: Plans 03-14 through 03-18 form one serial repair round: freeze scope, simplify persistence, remove excess machinery, repair business semantics, then hand one unchanged revision to independent gates.
 
 ### Pending Todos
 
@@ -129,6 +131,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-26T12:41:35.437Z
-Stopped at: Final code review found Phase 03 workspace-ancestor and lock-directory replacement containment gaps
-Resume file: None
+Last session: 2026-08-26T20:21:23.559Z
+Stopped at: Phase 03 forensic investigation complete; holistic replanning in progress
+Resume file: .planning/forensics/report-20260826-221948.md
