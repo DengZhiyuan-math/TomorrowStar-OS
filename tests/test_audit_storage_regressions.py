@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -64,3 +65,25 @@ def test_event_and_result_tampering_fail_closed(tmp_path: Path) -> None:
     result.write_text("[]\n", encoding="utf-8")
     with pytest.raises(AuditStorageError, match="incomplete"):
         AuditStore(tmp_path).read(snapshot.audit_id)
+
+
+def test_snapshot_event_publication_recovers_after_interruption(tmp_path: Path) -> None:
+    snapshot = start_audit(
+        workspace=tmp_path,
+        fixture_path=FIXTURE,
+        manifest_path=MANIFEST,
+        contribution_id="contrib-stoa-authorization-boundary",
+        audit_id="audit-recovery",
+    )
+    path = AuditStore(tmp_path).path(snapshot.audit_id)
+    staged = {
+        name: (path / name).read_bytes().hex()
+        for name in ("snapshot.json", "events.jsonl", "accepted-results.json")
+    }
+    (path / "snapshot.json").write_text("{}", encoding="utf-8")
+    (path / "publication-journal.json").write_bytes(
+        json.dumps(staged, sort_keys=True).encode("utf-8")
+    )
+    recovered = AuditStore(tmp_path).read(snapshot.audit_id)
+    assert recovered.audit_id == snapshot.audit_id
+    assert not (path / "publication-journal.json").exists()

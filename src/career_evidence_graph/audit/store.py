@@ -86,11 +86,34 @@ class AuditStore:
             raise AuditStorageError("audit path is unsafe")
         return path
 
+    def _recover_locked(self, path: Path) -> None:
+        journal = path / "publication-journal.json"
+        if not journal.exists():
+            return
+        try:
+            staged = json.loads(journal.read_bytes())
+            for name in ("snapshot.json", "events.jsonl", "accepted-results.json"):
+                self._atomic(path / name, bytes.fromhex(staged[name]))
+        except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
+            raise AuditStorageError("audit publication journal is corrupt") from exc
+        journal.unlink()
+
+    def _publish_locked(self, path: Path, snapshot: bytes, events: bytes, results: bytes) -> None:
+        journal = path / "publication-journal.json"
+        staged = {
+            "snapshot.json": snapshot.hex(),
+            "events.jsonl": events.hex(),
+            "accepted-results.json": results.hex(),
+        }
+        self._atomic(journal, canonical_json_bytes(staged) + b"\n")
+        self._recover_locked(path)
+
     def _read_locked(
         self, audit_id: str
     ) -> tuple[AuditSnapshot, list[AuditEventRecord], dict[str, AcceptedActionResult]]:
         path = self._audit_path(audit_id)
         try:
+            self._recover_locked(path)
             snapshot = AuditSnapshot.model_validate_json((path / "snapshot.json").read_bytes())
             lines = (path / "events.jsonl").read_bytes().splitlines()
             if not lines:
@@ -154,12 +177,10 @@ class AuditStore:
                 result_snapshot_hash=event.snapshot_hash,
                 result_snapshot=snapshot.model_dump(mode="json"),
             )
-            self._atomic(target / "snapshot.json", self._snapshot_bytes(snapshot))
-            self._atomic(
-                target / "events.jsonl", canonical_json_bytes(event.model_dump(mode="json")) + b"\n"
-            )
-            self._atomic(
-                target / "accepted-results.json",
+            self._publish_locked(
+                target,
+                self._snapshot_bytes(snapshot),
+                canonical_json_bytes(event.model_dump(mode="json")) + b"\n",
                 canonical_json_bytes([result.model_dump(mode="json")]) + b"\n",
             )
 
@@ -209,17 +230,20 @@ class AuditStore:
                 result_snapshot=updated.model_dump(mode="json"),
             )
             path = self._audit_path(audit_id)
-            self._atomic(path / "snapshot.json", self._snapshot_bytes(updated))
-            self._atomic(
-                path / "events.jsonl",
+            event_bytes = (
                 (path / "events.jsonl").read_bytes()
                 + canonical_json_bytes(event.model_dump(mode="json"))
-                + b"\n",
+                + b"\n"
             )
             all_results = [item.model_dump(mode="json") for item in results.values()] + [
                 result.model_dump(mode="json")
             ]
-            self._atomic(path / "accepted-results.json", canonical_json_bytes(all_results) + b"\n")
+            self._publish_locked(
+                path,
+                self._snapshot_bytes(updated),
+                event_bytes,
+                canonical_json_bytes(all_results) + b"\n",
+            )
             return updated, False
 
     def update(self, snapshot: AuditSnapshot, *, expected_event_hash: str | None = None) -> None:
