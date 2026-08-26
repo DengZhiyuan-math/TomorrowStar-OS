@@ -86,6 +86,9 @@ commit. Git blobs are the recovery authority; no archive copy is created.
 | --- | --- | --- | --- | --- |
 | `.planning/phases/03-artifact-aware-grill-me-and-attribution-workflow/03-REVIEW.md` | `fb9f4c84180ffdd85e1d76bcb68f8cffeedb89bf` | `ef8c3d27d2de7b8448fe1826a306956ed6476f5e1325ae92830786c427743158` | `72d5e01026721eeee08fe00784b0582ec9d9513b` | retired-expanded-scope |
 | `.planning/phases/03-artifact-aware-grill-me-and-attribution-workflow/03-VERIFICATION.md` | `e2431f52d27e3d545954baceae13d8ab972c3fc2` | `3f0aeb2f050ec7b19d9d9b247caec8e63f0a049602aa7e2a6d8d9453151a7855` | `72d5e01026721eeee08fe00784b0582ec9d9513b` | retired-expanded-scope |
+| `.planning/phases/03-artifact-aware-grill-me-and-attribution-workflow/03-REVIEW 2.md` | `778f812753a439921ea49fe29b6ef907faea9468` | `0cae6ae7025410d3077ad5ee3339c0077b2d7d85e79e2bd68b254bdbce99e31b` | `72d5e01026721eeee08fe00784b0582ec9d9513b`, `2690124793d74914ed31a0ec0fc78e56d8d4a9aa` | deleted-duplicate |
+| `.planning/phases/03-artifact-aware-grill-me-and-attribution-workflow/03-VERIFICATION 2.md` | `fdd66c9e5118fb736e830d4232c16785ecb430ed` | `d5edde5a14073f60d3ed4142b22390448d64ff2e1b745ffedbeae6e7d050d1c7` | `72d5e01026721eeee08fe00784b0582ec9d9513b`, `2690124793d74914ed31a0ec0fc78e56d8d4a9aa` | deleted-duplicate |
+| `src/career_evidence_graph/audit/store 2.py` | `386318af9fd6be325cf36c81339d78eb2d21ea78` | `daa39cb4a81284d134a92e64cecbfaaafaa1b4410863d59403a287f321a85dfe` | `f8b3519a9dbe9dea82fbbba5c14a5a2b5d336a9c`, `6d9881f2b797f39efc9a047c3f99fb1a7c632693` | deleted-duplicate |
 
 ## Acceptance authority
 
