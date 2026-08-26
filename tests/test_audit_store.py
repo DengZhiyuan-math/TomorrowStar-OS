@@ -13,105 +13,76 @@ FIXTURE = ROOT / "validation/fixtures/stoa/v1/known-good.json"
 MANIFEST = FIXTURE.with_name("source-manifest.json")
 
 
-def _complete(tmp_path: Path):
-    store = AuditStore(tmp_path)
-    snap = start_audit(
-        workspace=tmp_path,
+def _start(workspace: Path, audit_id: str = "audit-store"):
+    return start_audit(
+        workspace=workspace,
         fixture_path=FIXTURE,
         manifest_path=MANIFEST,
         contribution_id="contrib-stoa-authorization-boundary",
-        audit_id="audit-store",
+        audit_id=audit_id,
     )
-    for index, answer in enumerate(
-        (
-            "I designed it.",
-            "I repaired it.",
-            "I operated it.",
-            "I owned it.",
-            "没有外部协助",
-        )
-    ):
-        action = AuditAction(
-            action="answer",
-            answer=answer,
-            action_id=f"store-answer-{index}",
-            expected_event_hash=store.latest_event_hash(snap.audit_id),
-        )
-        snap, replayed = store.transact(
-            snap.audit_id,
-            action,
-            lambda current, action=action: transition_audit(store, current, action),
-        )
-        assert not replayed
-    return store, store.read("audit-store")
 
 
-def test_review_appends_immutable_lineage_and_preserves_original_bytes(tmp_path: Path):
-    store, snap = _complete(tmp_path)
-    original = (store.path(snap.audit_id) / "snapshot.json").read_bytes()
-    expected = store.latest_event_hash(snap.audit_id)
-    action = AuditAction(
-        action="review-entry",
-        entry_id="entry-implementation",
-        decision="edit",
-        correction="更正：由我完成。",
-        reason="责任边界需要修正。",
-        reviewer_id="审查者",
-        action_id="store-review-implementation",
-        expected_event_hash=expected,
-        expected_effective_conclusion_hash=snap.conclusion.effective_conclusion_hash,
-    )
-    reviewed, replayed = store.transact(
-        snap.audit_id, action, lambda current: transition_audit(store, current, action)
-    )
-    assert not replayed
-    assert (store.path(snap.audit_id) / "snapshot.json").read_bytes() != original
-    reread = store.read(snap.audit_id)
-    assert reread.conclusion_reviews[0].reviewer_id == "审查者"
-    assert reread.conclusion_reviews[0].correction == "更正：由我完成。"
+def test_pause_and_resume_replace_one_snapshot_without_losing_business_history(
+    tmp_path: Path,
+) -> None:
+    started = _start(tmp_path)
+    store = AuditStore(tmp_path)
+    paused = transition_audit(store.read(started.audit_id), AuditAction(action="pause"))
+    store.replace(paused)
+    resumed = transition_audit(store.read(started.audit_id), AuditAction(action="resume"))
+    store.replace(resumed)
+
+    restored = store.read(started.audit_id)
+    assert restored == resumed
+    assert restored.inspected_facts == started.inspected_facts
+    assert restored.questions == started.questions
+    assert restored.answers == started.answers
+    assert restored.coverage == started.coverage
+    assert restored.contradictions == started.contradictions
+    assert restored.attribution == started.attribution
+    assert restored.conclusion == started.conclusion
+    assert restored.conclusion_reviews == started.conclusion_reviews
 
 
-@pytest.mark.phase03_original_probe
-def test_stale_or_tampered_review_fails_closed(tmp_path: Path):
-    store, snap = _complete(tmp_path)
-    action = AuditAction(
-        action="review-conclusion",
-        decision="confirm",
-        reason="确认",
-        reviewer_id="r",
-        expected_event_hash="sha256:" + "0" * 64,
-        expected_effective_conclusion_hash=snap.conclusion.effective_conclusion_hash,
-    )
-    with pytest.raises(ValueError, match="whole confirmation"):
-        transition_audit(store, snap, action)
-    events = store.path(snap.audit_id) / "events.jsonl"
-    events.write_text(events.read_text(encoding="utf-8") + "{bad}\n", encoding="utf-8")
+def test_store_rejects_duplicate_missing_corrupt_unsafe_and_directly_linked_records(
+    tmp_path: Path,
+) -> None:
+    started = _start(tmp_path)
+    store = AuditStore(tmp_path)
+
+    with pytest.raises(AuditStorageError, match="already exists"):
+        store.create(started)
+    with pytest.raises(AuditStorageError, match="missing"):
+        store.read("audit-missing")
+    with pytest.raises(AuditStorageError, match="unsafe"):
+        store.read("../../audit-escape")
+
+    path = store.path(started.audit_id)
+    path.write_text('{"unexpected": true}', encoding="utf-8")
     with pytest.raises(AuditStorageError, match="corrupt"):
-        store.read(snap.audit_id)
+        store.read(started.audit_id)
+
+    linked_id = "audit-linked"
+    linked_path = store.path_for(linked_id)
+    linked_path.parent.mkdir(parents=True, exist_ok=True)
+    linked_path.symlink_to(path)
+    with pytest.raises(AuditStorageError, match="linked"):
+        store.read(linked_id)
 
 
-def test_symlinked_workspace_fails_closed(tmp_path: Path):
-    store, _ = _complete(tmp_path)
-    link = tmp_path / "alias"
-    link.symlink_to(tmp_path, target_is_directory=True)
-    with pytest.raises(AuditStorageError):
-        AuditStore(link).read("audit-store")
+def test_failed_replacement_preserves_the_prior_complete_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    started = _start(tmp_path)
+    store = AuditStore(tmp_path)
+    before = store.path(started.audit_id).read_bytes()
+    paused = transition_audit(store.read(started.audit_id), AuditAction(action="pause"))
 
+    def interrupted_replace(*_args: object, **_kwargs: object) -> None:
+        raise OSError("interrupted")
 
-def test_stale_effective_review_hash_preserves_review_and_conclusion_bytes(tmp_path: Path):
-    store, snap = _complete(tmp_path)
-    audit_path = store.path(snap.audit_id)
-    custody_names = ("snapshot.json", "events.jsonl", "accepted-results.json")
-    before = {name: (audit_path / name).read_bytes() for name in custody_names}
-    action = AuditAction(
-        action="review-entry",
-        entry_id="entry-implementation",
-        decision="confirm",
-        reason="review stale projection",
-        reviewer_id="reviewer",
-        expected_event_hash=store.latest_event_hash(snap.audit_id),
-        expected_effective_conclusion_hash="sha256:" + "0" * 64,
-    )
-    with pytest.raises(ValueError, match="stale expected effective conclusion hash"):
-        transition_audit(store, snap, action)
-    assert before == {name: (audit_path / name).read_bytes() for name in custody_names}
+    monkeypatch.setattr("career_evidence_graph.audit.store.os.replace", interrupted_replace)
+    with pytest.raises(AuditStorageError, match="replacement"):
+        store.replace(paused)
+    assert store.path(started.audit_id).read_bytes() == before
