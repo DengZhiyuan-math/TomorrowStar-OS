@@ -247,12 +247,13 @@ class AuditStore:
             return updated, False
 
     def update(self, snapshot: AuditSnapshot, *, expected_event_hash: str | None = None) -> None:
-        """Compatibility for existing direct workflow tests; CLI always calls transact."""
-        head = expected_event_hash or self.latest_event_hash(snapshot.audit_id)
+        """Publish a caller-prepared replacement only at the caller-held event head."""
+        if not expected_event_hash:
+            raise AuditStorageError("expected event hash is required")
         action = AuditAction(
             action="answer",
             answer="legacy update",
             action_id=f"legacy-{self._snapshot_hash(snapshot)[7:19]}",
-            expected_event_hash=head,
+            expected_event_hash=expected_event_hash,
         )
         self.transact(snapshot.audit_id, action, lambda _current: snapshot)

@@ -22,15 +22,25 @@ def _complete(tmp_path: Path):
         contribution_id="contrib-stoa-authorization-boundary",
         audit_id="audit-store",
     )
-    for answer in (
+    for index, answer in enumerate((
         "I designed it.",
         "I repaired it.",
         "I operated it.",
         "I owned it.",
         "没有外部协助",
-    ):
-        snap = transition_audit(store, snap, AuditAction(action="answer", answer=answer))
-        store.update(snap)
+    )):
+        action = AuditAction(
+            action="answer",
+            answer=answer,
+            action_id=f"store-answer-{index}",
+            expected_event_hash=store.latest_event_hash(snap.audit_id),
+        )
+        snap, replayed = store.transact(
+            snap.audit_id,
+            action,
+            lambda current, action=action: transition_audit(store, current, action),
+        )
+        assert not replayed
     return store, store.read("audit-store")
 
 
@@ -45,10 +55,13 @@ def test_review_appends_immutable_lineage_and_preserves_original_bytes(tmp_path:
         correction="更正：由我完成。",
         reason="责任边界需要修正。",
         reviewer_id="审查者",
+        action_id="store-review-implementation",
         expected_event_hash=expected,
     )
-    reviewed = transition_audit(store, snap, action)
-    store.update(reviewed, expected_event_hash=expected)
+    reviewed, replayed = store.transact(
+        snap.audit_id, action, lambda current: transition_audit(store, current, action)
+    )
+    assert not replayed
     assert (store.path(snap.audit_id) / "snapshot.json").read_bytes() != original
     reread = store.read(snap.audit_id)
     assert reread.conclusion_reviews[0].reviewer_id == "审查者"
