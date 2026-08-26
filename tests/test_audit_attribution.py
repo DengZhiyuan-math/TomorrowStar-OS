@@ -17,7 +17,12 @@ def test_ownership_round_precedes_assistance_and_conflict_is_retained(tmp_path):
         audit_id="audit-attribution",
     )
     store = AuditStore(tmp_path)
-    answers = ("我做了设计并验证了结果", "我定位并修复了故障", "我完成了运行检查", "这部分不是我做的")
+    answers = (
+        "我做了设计并验证了结果",
+        "我定位并修复了故障",
+        "我完成了运行检查",
+        "这部分不是我做的",
+    )
     for answer in answers:
         snapshot = transition_audit(store, snapshot, AuditAction(action="answer", answer=answer))
     assert snapshot.responsibility_round is not None
