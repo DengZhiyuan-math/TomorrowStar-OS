@@ -108,6 +108,7 @@ def start_audit(
     manifest_path: Path,
     contribution_id: str,
     audit_id: str | None = None,
+    action_id: str | None = None,
 ) -> AuditSnapshot:
     facts, limitations = inspect_contribution(fixture_path, manifest_path, contribution_id)
     aid = audit_id or f"audit-{uuid4().hex[:12]}"
@@ -121,7 +122,7 @@ def start_audit(
         limitations=limitations,
         coverage=(AuditCoverage(area_id="implementation"),),
     )
-    AuditStore(workspace).save(snapshot)
+    AuditStore(workspace).save(snapshot, action_id=action_id)
     return snapshot
 
 
@@ -459,8 +460,6 @@ def transition_audit(
     if action.action in {"review-entry", "review-conclusion"}:
         if not action.expected_event_hash:
             raise AuditWorkflowError("review requires expected event hash")
-        if store.latest_event_hash(snapshot.audit_id) != action.expected_event_hash:
-            raise AuditWorkflowError("stale expected event hash")
         return _review_conclusion(snapshot, action)
     if action.expected_snapshot_hash:
         actual = sha256_digest(canonical_json_bytes(snapshot.model_dump(mode="json")))

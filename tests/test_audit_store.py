@@ -64,7 +64,7 @@ def test_stale_or_tampered_review_fails_closed(tmp_path: Path):
         reviewer_id="r",
         expected_event_hash="sha256:" + "0" * 64,
     )
-    with pytest.raises(ValueError, match="event hash"):
+    with pytest.raises(ValueError, match="whole confirmation"):
         transition_audit(store, snap, action)
     events = store.path(snap.audit_id) / "events.jsonl"
     events.write_text(events.read_text(encoding="utf-8") + "{bad}\n", encoding="utf-8")

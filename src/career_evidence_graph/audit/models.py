@@ -1,15 +1,22 @@
+# ruff: noqa: E501
+
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field, model_validator
 
+from ..validation.hashing import canonical_json_bytes, sha256_digest
 from ..validation.models import StrictModel
 
 AuditStatus = Literal["active", "paused", "reviewing", "completed", "rejected"]
 AuditArea = Literal["implementation", "debugging", "operation", "responsibility", "assistance"]
 Difficulty = Literal["hard", "intermediate", "simple"]
 CoverageStatus = Literal["pending", "verified", "skipped", "unresolved"]
+AuditEventAction = Literal[
+    "start", "answer", "skip", "pause", "resume", "review-entry", "review-conclusion"
+]
+_HASH = r"^sha256:[0-9a-f]{64}$"
 
 
 class ArtifactFact(StrictModel):
@@ -108,9 +115,7 @@ class AuditAction(StrictModel):
     expected_event_hash: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
     action_id: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9-]+$")
     expected_snapshot_hash: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
-    expected_effective_conclusion_hash: str | None = Field(
-        default=None, pattern=r"^sha256:[0-9a-f]{64}$"
-    )
+    expected_effective_conclusion_hash: str | None = Field(default=None, pattern=_HASH)
 
     @model_validator(mode="after")
     def valid_payload(self) -> AuditAction:
@@ -124,6 +129,79 @@ class AuditAction(StrictModel):
             raise ValueError("review requires decision, reviewer_id, and reason")
         if self.action == "review-entry" and self.decision == "edit" and not self.correction:
             raise ValueError("entry edit requires correction")
+        return self
+
+    def semantic_digest(self) -> str:
+        payload = self.model_dump(
+            mode="json",
+            exclude={
+                "schema_version",
+                "action_id",
+                "expected_event_hash",
+                "expected_snapshot_hash",
+                "expected_effective_conclusion_hash",
+            },
+        )
+        return sha256_digest(canonical_json_bytes(payload))
+
+
+class AuditEventRecord(StrictModel):
+    schema_version: Literal["audit-event/2"] = "audit-event/2"
+    sequence: int = Field(ge=0)
+    action_type: AuditEventAction
+    action_id: str = Field(pattern=r"^[a-z][a-z0-9-]+$")
+    action_digest: str = Field(pattern=_HASH)
+    snapshot_hash: str = Field(pattern=_HASH)
+    prev_event_hash: str | None = Field(default=None, pattern=_HASH)
+    event_hash: str = Field(pattern=_HASH)
+
+    @model_validator(mode="after")
+    def valid_lineage_and_hash(self) -> AuditEventRecord:
+        genesis = self.sequence == 0
+        if genesis != (self.action_type == "start") or genesis != (self.prev_event_hash is None):
+            raise ValueError("invalid event genesis")
+        expected = sha256_digest(
+            canonical_json_bytes(self.model_dump(mode="json", exclude={"event_hash"}))
+        )
+        if self.event_hash != expected:
+            raise ValueError("event hash mismatch")
+        return self
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        sequence: int,
+        action_type: AuditEventAction,
+        action_id: str,
+        action_digest: str,
+        snapshot_hash: str,
+        prev_event_hash: str | None,
+    ) -> AuditEventRecord:
+        payload = {
+            "schema_version": "audit-event/2",
+            "sequence": sequence,
+            "action_type": action_type,
+            "action_id": action_id,
+            "action_digest": action_digest,
+            "snapshot_hash": snapshot_hash,
+            "prev_event_hash": prev_event_hash,
+        }
+        return cls(**payload, event_hash=sha256_digest(canonical_json_bytes(payload)))
+
+
+class AcceptedActionResult(StrictModel):
+    schema_version: Literal["accepted-action-result/1"] = "accepted-action-result/1"
+    action_id: str = Field(pattern=r"^[a-z][a-z0-9-]+$")
+    action_digest: str = Field(pattern=_HASH)
+    event_hash: str = Field(pattern=_HASH)
+    result_snapshot_hash: str = Field(pattern=_HASH)
+    result_snapshot: dict[str, Any]
+
+    @model_validator(mode="after")
+    def result_matches_hash(self) -> AcceptedActionResult:
+        if self.result_snapshot_hash != sha256_digest(canonical_json_bytes(self.result_snapshot)):
+            raise ValueError("accepted result snapshot hash mismatch")
         return self
 
 

@@ -1,3 +1,5 @@
+# ruff: noqa: E501
+
 from __future__ import annotations
 
 import json
@@ -33,12 +35,15 @@ def test_audit_offline_tracer_starts_pauses_and_resumes(tmp_path: Path) -> None:
         str(FIXTURE),
         "--contribution-id",
         "contrib-stoa-authorization-boundary",
+        "--action-id",
+        "action-start-one",
     )
     assert started.returncode == 0, started.stderr
     first = json.loads(started.stdout)
     assert first["question"]["reason"]
     assert first["question"]["prompt"]
     audit_id = first["audit_id"]
+    head = first["event_hash"]
 
     answered = run_cli(
         "audit",
@@ -49,13 +54,41 @@ def test_audit_offline_tracer_starts_pauses_and_resumes(tmp_path: Path) -> None:
         audit_id,
         "--answer",
         "I chose and verified the boundary.",
+        "--action-id",
+        "action-answer-one",
+        "--expected-event-hash",
+        head,
     )
     assert answered.returncode == 0, answered.stderr
-    paused = run_cli("audit", "pause", "--workspace", str(workspace), "--audit-id", audit_id)
+    answer_head = json.loads(answered.stdout)["event_hash"]
+    paused = run_cli(
+        "audit",
+        "pause",
+        "--workspace",
+        str(workspace),
+        "--audit-id",
+        audit_id,
+        "--action-id",
+        "action-pause-one",
+        "--expected-event-hash",
+        answer_head,
+    )
     assert paused.returncode == 0, paused.stderr
-    resumed = run_cli("audit", "resume", "--workspace", str(workspace), "--audit-id", audit_id)
+    pause_head = json.loads(paused.stdout)["event_hash"]
+    resumed = run_cli(
+        "audit",
+        "resume",
+        "--workspace",
+        str(workspace),
+        "--audit-id",
+        audit_id,
+        "--action-id",
+        "action-resume-one",
+        "--expected-event-hash",
+        pause_head,
+    )
     assert resumed.returncode == 0, resumed.stderr
-    assert json.loads(resumed.stdout)["audit_id"] == audit_id
+    assert json.loads(resumed.stdout)["snapshot"]["audit_id"] == audit_id
 
 
 def test_audit_workflow_errors_are_structured_and_do_not_write(tmp_path: Path) -> None:
@@ -69,11 +102,24 @@ def test_audit_workflow_errors_are_structured_and_do_not_write(tmp_path: Path) -
         str(FIXTURE),
         "--contribution-id",
         "contrib-stoa-authorization-boundary",
+        "--action-id",
+        "action-start-invalid",
     )
     audit_id = json.loads(started.stdout)["audit_id"]
     snapshot_path = workspace / "audits" / audit_id / "snapshot.json"
     before = snapshot_path.read_bytes()
-    rejected = run_cli("audit", "resume", "--workspace", str(workspace), "--audit-id", audit_id)
+    rejected = run_cli(
+        "audit",
+        "resume",
+        "--workspace",
+        str(workspace),
+        "--audit-id",
+        audit_id,
+        "--action-id",
+        "action-resume-invalid",
+        "--expected-event-hash",
+        json.loads(started.stdout)["event_hash"],
+    )
     assert rejected.returncode == 2
     assert json.loads(rejected.stderr)["error"] == "audit_workflow_error"
     assert "Traceback" not in rejected.stderr

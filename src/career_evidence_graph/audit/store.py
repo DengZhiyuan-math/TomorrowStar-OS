@@ -1,14 +1,18 @@
+# ruff: noqa: E501
+
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import re
 import tempfile
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
 
 from ..validation.hashing import canonical_json_bytes, sha256_digest
-from .models import AuditSnapshot
+from .models import AcceptedActionResult, AuditAction, AuditEventRecord, AuditSnapshot
 
 
 class AuditStorageError(RuntimeError):
@@ -16,6 +20,8 @@ class AuditStorageError(RuntimeError):
 
 
 class AuditStore:
+    """One locked, verified authority for snapshots, event history, and replay results."""
+
     def __init__(self, workspace: Path) -> None:
         if workspace.is_symlink():
             raise AuditStorageError("workspace path is unsafe")
@@ -30,91 +36,197 @@ class AuditStore:
         self._safe(audit_id)
         return self.root / audit_id
 
-    def save(self, snapshot: AuditSnapshot) -> None:
-        destination = self.path(snapshot.audit_id)
-        self.root.mkdir(parents=True, exist_ok=True)
-        if destination.exists():
-            raise AuditStorageError("audit already exists")
-        temporary = Path(tempfile.mkdtemp(dir=self.root, prefix=f".{snapshot.audit_id}."))
+    @contextmanager
+    def _locked(self, audit_id: str) -> Iterator[None]:
+        self._safe(audit_id)
+        locks = self.root / ".locks"
+        locks.mkdir(parents=True, exist_ok=True)
+        lock = locks / f"{audit_id}.lock"
+        if lock.is_symlink():
+            raise AuditStorageError("audit lock is unsafe")
+        if not lock.exists():
+            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            os.close(fd)
+        os.chmod(lock, 0o600)
+        with lock.open("a+b") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+    @staticmethod
+    def _snapshot_hash(snapshot: AuditSnapshot) -> str:
+        return sha256_digest(canonical_json_bytes(snapshot.model_dump(mode="json")))
+
+    @staticmethod
+    def _snapshot_bytes(snapshot: AuditSnapshot) -> bytes:
+        return canonical_json_bytes(snapshot.model_dump(mode="json")) + b"\n"
+
+    @staticmethod
+    def _atomic(path: Path, data: bytes) -> None:
+        fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
         try:
-            data = canonical_json_bytes(snapshot.model_dump(mode="json")) + b"\n"
-            fd, name = tempfile.mkstemp(dir=temporary, prefix="snapshot.")
             with os.fdopen(fd, "wb") as handle:
                 handle.write(data)
                 handle.flush()
                 os.fsync(handle.fileno())
-            os.replace(name, temporary / "snapshot.json")
-            (temporary / "events.jsonl").write_text(
-                json.dumps({"hash": sha256_digest(data), "event": "created"}, sort_keys=True)
-                + "\n",
-                encoding="utf-8",
-            )
-            os.rename(temporary, destination)
-        except FileExistsError as exc:
-            raise AuditStorageError("audit already exists") from exc
+            os.replace(temporary, path)
+            directory = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
         finally:
-            if temporary.exists():
-                for child in temporary.iterdir():
-                    child.unlink(missing_ok=True)
-                temporary.rmdir()
+            Path(temporary).unlink(missing_ok=True)
 
-    def read(self, audit_id: str) -> AuditSnapshot:
+    def _audit_path(self, audit_id: str) -> Path:
         path = self.path(audit_id)
         if path.is_symlink() or not path.is_dir() or path.resolve().parent != self.root.resolve():
             raise AuditStorageError("audit path is unsafe")
-        try:
-            value: Any = json.loads((path / "snapshot.json").read_text(encoding="utf-8"))
-            snapshot = AuditSnapshot.model_validate(value)
-            events = (path / "events.jsonl").read_text(encoding="utf-8")
-            event_lines = events.splitlines()
-            if not event_lines:
-                raise AuditStorageError("audit event chain is empty")
-            records = [json.loads(line) for line in event_lines]
-            if any("hash" not in record or "event" not in record for record in records):
-                raise AuditStorageError("audit event chain is corrupt")
-            expected = records[-1]["hash"]
-            actual = sha256_digest(canonical_json_bytes(value) + b"\n")
-            if expected != actual:
-                raise AuditStorageError("audit snapshot hash mismatch")
-            return snapshot
-        except (OSError, json.JSONDecodeError, KeyError, ValueError) as exc:
-            raise AuditStorageError("audit snapshot is corrupt") from exc
+        return path
 
-    def latest_event_hash(self, audit_id: str) -> str:
-        path = self.path(audit_id)
-        if path.is_symlink() or not path.is_dir() or path.resolve().parent != self.root.resolve():
-            raise AuditStorageError("audit path is unsafe")
+    def _read_locked(
+        self, audit_id: str
+    ) -> tuple[AuditSnapshot, list[AuditEventRecord], dict[str, AcceptedActionResult]]:
+        path = self._audit_path(audit_id)
         try:
-            raw = (path / "events.jsonl").read_bytes()
-            lines = raw.splitlines()
+            snapshot = AuditSnapshot.model_validate_json((path / "snapshot.json").read_bytes())
+            lines = (path / "events.jsonl").read_bytes().splitlines()
             if not lines:
                 raise AuditStorageError("audit event chain is empty")
-            record = json.loads(lines[-1])
-            if "hash" not in record or "event" not in record:
-                raise AuditStorageError("audit event chain is corrupt")
-            return sha256_digest(lines[-1] + b"\n")
-        except (OSError, json.JSONDecodeError, KeyError) as exc:
-            raise AuditStorageError("audit event chain is corrupt") from exc
+            events = [AuditEventRecord.model_validate_json(line) for line in lines]
+            for sequence, event in enumerate(events):
+                if event.sequence != sequence or (
+                    sequence and event.prev_event_hash != events[sequence - 1].event_hash
+                ):
+                    raise AuditStorageError("audit event chain is corrupt")
+            if events[-1].snapshot_hash != self._snapshot_hash(snapshot):
+                raise AuditStorageError("audit snapshot hash mismatch")
+            raw_results = json.loads((path / "accepted-results.json").read_bytes())
+            if not isinstance(raw_results, list):
+                raise AuditStorageError("accepted result index is corrupt")
+            results = {
+                item.action_id: item
+                for item in map(AcceptedActionResult.model_validate, raw_results)
+            }
+            if len(results) != len(raw_results):
+                raise AuditStorageError("accepted action IDs are duplicated")
+            by_hash = {event.event_hash: event for event in events}
+            for result in results.values():
+                event = by_hash.get(result.event_hash)
+                if (
+                    event is None
+                    or event.action_id != result.action_id
+                    or event.action_digest != result.action_digest
+                    or event.snapshot_hash != result.result_snapshot_hash
+                ):
+                    raise AuditStorageError("accepted result is not event anchored")
+            return snapshot, events, results
+        except (OSError, ValueError, json.JSONDecodeError, TypeError) as exc:
+            if isinstance(exc, AuditStorageError):
+                raise
+            raise AuditStorageError("audit snapshot is corrupt") from exc
+
+    def save(self, snapshot: AuditSnapshot, *, action_id: str | None = None) -> None:
+        action_id = action_id or f"start-{snapshot.audit_id.removeprefix('audit-')}"
+        with self._locked(snapshot.audit_id):
+            target = self.path(snapshot.audit_id)
+            if target.exists():
+                raise AuditStorageError("audit already exists")
+            self.root.mkdir(parents=True, exist_ok=True)
+            target.mkdir(mode=0o700)
+            digest = sha256_digest(canonical_json_bytes({"action": "start"}))
+            event = AuditEventRecord.create(
+                sequence=0,
+                action_type="start",
+                action_id=action_id,
+                action_digest=digest,
+                snapshot_hash=self._snapshot_hash(snapshot),
+                prev_event_hash=None,
+            )
+            result = AcceptedActionResult(
+                action_id=action_id,
+                action_digest=digest,
+                event_hash=event.event_hash,
+                result_snapshot_hash=event.snapshot_hash,
+                result_snapshot=snapshot.model_dump(mode="json"),
+            )
+            self._atomic(target / "snapshot.json", self._snapshot_bytes(snapshot))
+            self._atomic(
+                target / "events.jsonl", canonical_json_bytes(event.model_dump(mode="json")) + b"\n"
+            )
+            self._atomic(
+                target / "accepted-results.json",
+                canonical_json_bytes([result.model_dump(mode="json")]) + b"\n",
+            )
+
+    def read_versioned(self, audit_id: str) -> tuple[AuditSnapshot, str]:
+        with self._locked(audit_id):
+            snapshot, events, _ = self._read_locked(audit_id)
+            return snapshot, events[-1].event_hash
+
+    def read(self, audit_id: str) -> AuditSnapshot:
+        return self.read_versioned(audit_id)[0]
+
+    def latest_event_hash(self, audit_id: str) -> str:
+        return self.read_versioned(audit_id)[1]
+
+    def transact(
+        self,
+        audit_id: str,
+        action: AuditAction,
+        transition: Callable[[AuditSnapshot], AuditSnapshot],
+    ) -> tuple[AuditSnapshot, bool]:
+        if not action.action_id or not action.expected_event_hash:
+            raise AuditStorageError("audit action ID and expected event hash are required")
+        with self._locked(audit_id):
+            snapshot, events, results = self._read_locked(audit_id)
+            digest = action.semantic_digest()
+            old = results.get(action.action_id)
+            if old:
+                if old.action_digest != digest:
+                    raise AuditStorageError("audit action ID digest collision")
+                return AuditSnapshot.model_validate(old.result_snapshot), True
+            if action.expected_event_hash != events[-1].event_hash:
+                raise AuditStorageError("stale expected event hash")
+            updated = transition(snapshot)
+            event = AuditEventRecord.create(
+                sequence=len(events),
+                action_type=action.action,
+                action_id=action.action_id,
+                action_digest=digest,
+                snapshot_hash=self._snapshot_hash(updated),
+                prev_event_hash=events[-1].event_hash,
+            )
+            result = AcceptedActionResult(
+                action_id=action.action_id,
+                action_digest=digest,
+                event_hash=event.event_hash,
+                result_snapshot_hash=event.snapshot_hash,
+                result_snapshot=updated.model_dump(mode="json"),
+            )
+            path = self._audit_path(audit_id)
+            self._atomic(path / "snapshot.json", self._snapshot_bytes(updated))
+            self._atomic(
+                path / "events.jsonl",
+                (path / "events.jsonl").read_bytes()
+                + canonical_json_bytes(event.model_dump(mode="json"))
+                + b"\n",
+            )
+            all_results = [item.model_dump(mode="json") for item in results.values()] + [
+                result.model_dump(mode="json")
+            ]
+            self._atomic(path / "accepted-results.json", canonical_json_bytes(all_results) + b"\n")
+            return updated, False
 
     def update(self, snapshot: AuditSnapshot, *, expected_event_hash: str | None = None) -> None:
-        path = self.path(snapshot.audit_id)
-        if not path.is_dir():
-            raise AuditStorageError("audit does not exist")
-        if (
-            expected_event_hash is not None
-            and self.latest_event_hash(snapshot.audit_id) != expected_event_hash
-        ):
-            raise AuditStorageError("stale expected event hash")
-        data = canonical_json_bytes(snapshot.model_dump(mode="json")) + b"\n"
-        fd, name = tempfile.mkstemp(dir=path, prefix="snapshot.")
-        try:
-            with os.fdopen(fd, "wb") as handle:
-                handle.write(data)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(name, path / "snapshot.json")
-            record = {"event": "updated", "hash": sha256_digest(data)}
-            with (path / "events.jsonl").open("a", encoding="utf-8") as events:
-                events.write(json.dumps(record, sort_keys=True) + "\n")
-        finally:
-            Path(name).unlink(missing_ok=True)
+        """Compatibility for existing direct workflow tests; CLI always calls transact."""
+        head = expected_event_hash or self.latest_event_hash(snapshot.audit_id)
+        action = AuditAction(
+            action="answer",
+            answer="legacy update",
+            action_id=f"legacy-{self._snapshot_hash(snapshot)[7:19]}",
+            expected_event_hash=head,
+        )
+        self.transact(snapshot.audit_id, action, lambda _current: snapshot)
