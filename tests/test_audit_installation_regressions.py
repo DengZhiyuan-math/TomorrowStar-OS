@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "validation/fixtures/stoa/v1/known-good.json"
 MANIFEST = FIXTURE.with_name("source-manifest.json")
@@ -35,7 +34,9 @@ def _tree_snapshot(root: Path) -> dict[Path, tuple[str, int, bytes | str]]:
     return captured
 
 
-def _public_command(environment: dict[str, str], *arguments: str) -> subprocess.CompletedProcess[str]:
+def _public_command(
+    environment: dict[str, str], *arguments: str
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["uv", "run", "--locked", "--project", str(ROOT), "career-evidence", *arguments],
         cwd=ROOT,
@@ -65,9 +66,10 @@ def test_fresh_locked_installed_cli_preserves_audit_root_containment(tmp_path: P
 
     implementation = _public_command(environment, "implementation-path")
     assert implementation.returncode == 0, implementation.stderr
-    assert Path(json.loads(implementation.stdout)["package_path"]).resolve() == (
-        ROOT / "src/career_evidence_graph/cli.py"
-    ).resolve()
+    assert (
+        Path(json.loads(implementation.stdout)["package_path"]).resolve()
+        == (ROOT / "src/career_evidence_graph/cli.py").resolve()
+    )
 
     workspace = tmp_path / "normal-workspace"
     normal = _public_command(
