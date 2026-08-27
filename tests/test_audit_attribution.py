@@ -1,114 +1,70 @@
-from pathlib import Path
+from __future__ import annotations
 
-import pytest
+from test_audit_policy import _start
 
 from career_evidence_graph.audit.models import AuditAction
-from career_evidence_graph.audit.store import AuditStore
-from career_evidence_graph.audit.workflow import start_audit, transition_audit
-
-FIXTURE = Path("validation/fixtures/stoa/v1/known-good.json")
-MANIFEST = FIXTURE.parent / "source-manifest.json"
+from career_evidence_graph.audit.workflow import transition_audit
 
 
-def _start(tmp_path, audit_id="audit-attribution"):
-    return start_audit(
-        workspace=tmp_path,
-        fixture_path=FIXTURE,
-        manifest_path=MANIFEST,
-        contribution_id="contrib-stoa-authorization-boundary",
-        audit_id=audit_id,
+def _establish(snapshot, port):
+    return transition_audit(
+        snapshot,
+        AuditAction(action="answer", answer="I can explain the authorization trade-off"),
+        decision_port=port,
     )
 
 
-def _answer_until_responsibility(tmp_path, audit_id="audit-attribution"):
-    snapshot = _start(tmp_path, audit_id)
-    store = AuditStore(tmp_path)
-    for answer in ("I designed it.", "I debugged it.", "I operated it."):
-        snapshot = transition_audit(store, snapshot, AuditAction(action="answer", answer=answer))
-    return store, snapshot
+def test_ordinary_established_path_requires_ownership_then_assistance(tmp_path) -> None:
+    snapshot, port = _start(tmp_path)
+    snapshot = _establish(snapshot, port)
+    assert snapshot.coverage[0].status == "pending"
+    assert snapshot.questions[-1].turn == "ownership"
 
+    snapshot = transition_audit(snapshot, AuditAction(action="answer", answer="I owned it."))
+    assert snapshot.questions[-1].turn == "assistance"
+    assert snapshot.coverage[0].status == "pending"
 
-@pytest.mark.phase03_original_probe
-def test_ownership_precedes_assistance(tmp_path):
-    store, snapshot = _answer_until_responsibility(tmp_path)
-    assert snapshot.questions[-1].area == "responsibility"
-    assert snapshot.assistance_round is None
-    snapshot = transition_audit(store, snapshot, AuditAction(action="answer", answer="I owned it."))
-    assert snapshot.responsibility_round.ownership == "user-owned"
-    assert snapshot.questions[-1].area == "assistance"
-
-
-@pytest.mark.phase03_original_probe
-def test_assistance_never_fills_ownership(tmp_path):
-    store, snapshot = _answer_until_responsibility(tmp_path)
-    snapshot = transition_audit(store, snapshot, AuditAction(action="answer", answer="not me"))
     snapshot = transition_audit(
-        store, snapshot, AuditAction(action="answer", answer="A coding agent helped.")
+        snapshot,
+        AuditAction(action="answer", answer="Codex assisted debugging and testing."),
     )
-    assert snapshot.attribution.ownership == "other-person-owned"
-    assert snapshot.attribution.assistance == "coding-agent-assisted"
+    record = snapshot.attribution_records[0]
+    assert snapshot.coverage[0].status == "verified"
+    assert record.ownership == "user-owned"
+    assert record.assistance == "coding-agent-assisted"
+    assert record.assistance_scope == ("debugging", "testing")
+    assert record.tool == "Codex"
 
 
-@pytest.mark.phase03_original_probe
-def test_attribution_values_round_trip_distinctly(tmp_path):
-    cases = (
-        ("I owned it.", "No outside assistance.", "user-owned", "none"),
-        ("团队负责", "编码代理协助", "team-owned", "coding-agent-assisted"),
-        ("not me", "external consultant", "other-person-owned", "third-party-assisted"),
+def test_early_attribution_signal_uses_same_two_turn_sequence_then_resumes(tmp_path) -> None:
+    snapshot, port = _start(tmp_path)
+    snapshot = transition_audit(
+        snapshot,
+        AuditAction(action="answer", answer="this was not my work"),
+        decision_port=port,
     )
-    for index, (ownership, assistance, expected_owner, expected_help) in enumerate(cases):
-        store, snapshot = _answer_until_responsibility(tmp_path, f"audit-attribution-{index}")
-        snapshot = transition_audit(store, snapshot, AuditAction(action="answer", answer=ownership))
-        snapshot = transition_audit(
-            store, snapshot, AuditAction(action="answer", answer=assistance)
-        )
-        assert (snapshot.attribution.ownership, snapshot.attribution.assistance) == (
-            expected_owner,
-            expected_help,
-        )
+    assert snapshot.questions[-1].turn == "ownership"
+    assert snapshot.coverage[0].status == "pending"
 
-
-@pytest.mark.phase03_original_probe
-def test_conflict_preserves_documentary_and_user_claims(tmp_path):
-    snapshot = _start(tmp_path)
-    store = AuditStore(tmp_path)
-    answers = (
-        "我做了设计并验证了结果",
-        "我定位并修复了故障",
-        "我完成了运行检查",
-        "这部分不是我做的",
-    )
-    for answer in answers:
-        snapshot = transition_audit(store, snapshot, AuditAction(action="answer", answer=answer))
-    assert snapshot.responsibility_round is not None
-    assert snapshot.responsibility_round.ownership == "other-person-owned"
+    snapshot = transition_audit(snapshot, AuditAction(action="answer", answer="not me"))
+    assert snapshot.questions[-1].turn == "assistance"
+    snapshot = transition_audit(snapshot, AuditAction(action="answer", answer="unresolved"))
+    assert snapshot.questions[-1].turn == "capability"
+    assert snapshot.attribution_records[0].ownership == "other-person-owned"
+    assert snapshot.attribution_records[0].assistance == "unresolved"
     assert snapshot.attribution_conflicts
-    assert snapshot.assistance_round is None
 
 
-@pytest.mark.phase03_gap_probe
-def test_bilingual_ambiguous_attribution_persists_as_unresolved_conclusion(tmp_path):
-    store, snapshot = _answer_until_responsibility(tmp_path, "audit-bilingual-unresolved")
-    snapshot = transition_audit(
-        store,
-        snapshot,
-        AuditAction(action="answer", answer="Maybe 团队和我一起负责。"),
-    )
-    snapshot = transition_audit(
-        store,
-        snapshot,
-        AuditAction(action="answer", answer="编码代理或第三方协助了实现。"),
-    )
-    assert snapshot.responsibility_round.ownership == "unresolved"
-    assert snapshot.assistance_round.assistance == "unresolved"
-    assert {item.area: item.verification for item in snapshot.conclusion.entries} == {
-        "implementation": "audit-verified",
-        "debugging": "audit-verified",
-        "operation": "audit-verified",
-        "responsibility": "unresolved",
-        "assistance": "unresolved",
-    }
-    for area in ("responsibility", "assistance"):
-        entry = next(item for item in snapshot.conclusion.entries if item.area == area)
-        assert "unresolved" in entry.strongest_capability
-        assert "unresolved" in entry.responsibility_boundary + entry.assistance_boundary
+def test_unresolved_attribution_is_truthful_and_pause_restores_next_turn(tmp_path) -> None:
+    snapshot, port = _start(tmp_path)
+    snapshot = _establish(snapshot, port)
+    snapshot = transition_audit(snapshot, AuditAction(action="answer", answer="unclear"))
+    assert snapshot.questions[-1].turn == "assistance"
+    paused = transition_audit(snapshot, AuditAction(action="pause"))
+    resumed = transition_audit(paused, AuditAction(action="resume"))
+    assert resumed.questions[-1] == snapshot.questions[-1]
+
+    complete = transition_audit(resumed, AuditAction(action="answer", answer="unclear"))
+    assert complete.attribution_records[0].ownership == "unresolved"
+    assert complete.attribution_records[0].assistance == "unresolved"
+    assert complete.coverage[0].status == "verified"

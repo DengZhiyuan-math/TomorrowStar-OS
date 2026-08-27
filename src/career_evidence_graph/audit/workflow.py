@@ -1,29 +1,44 @@
+"""Artifact-aware, single-Contribution capability interview transitions."""
+
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from uuid import uuid4
 
 from ..domain.fixtures import SealedFixtureRecord, load_sealed_fixture, verify_source_manifest
+from .decision import (
+    AuditDecisionPort,
+    FakeDecisionPort,
+    validate_boundary_decision,
+    validate_probe_plan,
+)
 from .models import (
     ArtifactFact,
-    AssistanceRound,
     AttributionConflict,
+    AttributionRecord,
     AuditAction,
     AuditAnswer,
     AuditAttribution,
-    AuditConclusion,
     AuditCoverage,
     AuditQuestion,
     AuditSnapshot,
-    ConclusionEntry,
-    ConclusionReview,
-    ResponsibilityRound,
+    ProbeArea,
 )
 from .store import AuditStore
 
 
 class AuditWorkflowError(ValueError):
     """A rejected audit action or selected-fixture reference."""
+
+
+_PROMPT_NORMALIZATION = re.compile(r"\W+", flags=re.UNICODE)
+_UNSAFE_PROMPT = re.compile(
+    r"\b(isn't it|is it true|clearly|obviously|according to (?:the )?(?:record|artifact)|"
+    r"what does (?:the )?(?:record|artifact|document) (?:say|show))\b",
+    flags=re.IGNORECASE,
+)
+_DIFFICULTY_ORDER = {"hard": "intermediate", "intermediate": "simple", "simple": None}
 
 
 def canonical_assistance(value: str) -> str:
@@ -52,29 +67,26 @@ def inspect_contribution(
 ) -> tuple[tuple[ArtifactFact, ...], tuple[str, ...]]:
     verify_source_manifest(manifest_path)
     fixture = _fixture(fixture_path)
-    contribution = next((x for x in fixture.contributions if x.id == contribution_id), None)
+    contribution = next(
+        (item for item in fixture.contributions if item.id == contribution_id), None
+    )
     if contribution is None:
         raise AuditWorkflowError("selected Contribution is missing")
-    claims = {x.id: x for x in fixture.claims}
-    evidence = {x.id: x for x in fixture.evidence}
+    claims = {claim.id: claim for claim in fixture.claims}
+    evidence = {item.id: item for item in fixture.evidence}
     missing_claims = [claim_id for claim_id in contribution.claim_ids if claim_id not in claims]
     if missing_claims:
         raise AuditWorkflowError(
             f"selected Contribution references missing claim: {missing_claims[0]}"
         )
-    links = [x for x in fixture.claim_evidence_links if x.claim_id in contribution.claim_ids]
+    links = [
+        item for item in fixture.claim_evidence_links if item.claim_id in contribution.claim_ids
+    ]
     if not links:
         raise AuditWorkflowError("Contribution has no linked evidence")
     for link in links:
-        if link.claim_id not in claims:
-            raise AuditWorkflowError(f"selected link references missing claim: {link.claim_id}")
         if link.evidence_id not in evidence:
-            raise AuditWorkflowError(
-                f"selected link references missing evidence: {link.evidence_id}"
-            )
-    identities = [(link.evidence_id, link.section_locator) for link in links]
-    if len(identities) != len(set(identities)):
-        raise AuditWorkflowError("duplicate evidence link")
+            raise AuditWorkflowError("selected link references missing evidence")
     facts = tuple(
         sorted(
             (
@@ -85,7 +97,7 @@ def inspect_contribution(
                 )
                 for link in links
             ),
-            key=lambda x: (x.evidence_id, x.source_locator),
+            key=lambda item: (item.evidence_id, item.source_locator),
         )
     )
     limitations = tuple(
@@ -100,6 +112,207 @@ def inspect_contribution(
     return facts, limitations
 
 
+def _prompt_key(prompt: str) -> str:
+    return _PROMPT_NORMALIZATION.sub("", prompt).casefold()
+
+
+def _validate_new_question(question: AuditQuestion, previous: tuple[AuditQuestion, ...]) -> None:
+    if question.prompt.count("?") + question.prompt.count("？") > 1:
+        raise AuditWorkflowError("audit question must contain one focused question")
+    if _UNSAFE_PROMPT.search(question.prompt):
+        raise AuditWorkflowError("audit question is leading or artifact-answerable")
+    if not question.inspection_reference or not question.reason.strip():
+        raise AuditWorkflowError("audit question needs an inspected fact and reason")
+    if _prompt_key(question.prompt) in {_prompt_key(item.prompt) for item in previous}:
+        raise AuditWorkflowError("audit question repeats an earlier prompt")
+
+
+def _area_for(snapshot: AuditSnapshot, area_id: str) -> ProbeArea:
+    if snapshot.probe_plan is None:
+        raise AuditWorkflowError("audit snapshot has no validated probe plan")
+    area = next((item for item in snapshot.probe_plan.areas if item.area_id == area_id), None)
+    if area is None:
+        raise AuditWorkflowError("active capability area is not in the probe plan")
+    return area
+
+
+def _fact_for(snapshot: AuditSnapshot, area: ProbeArea) -> ArtifactFact:
+    facts = {fact.evidence_id: fact for fact in snapshot.inspected_facts}
+    try:
+        return facts[area.inspected_fact_ids[0]]
+    except KeyError as exc:
+        raise AuditWorkflowError("probe plan fact is absent from the audit snapshot") from exc
+
+
+def _capability_prompt(area: ProbeArea, difficulty: str) -> str:
+    return {
+        "hard": area.demanding_prompt,
+        "intermediate": area.intermediate_prompt,
+        "simple": area.simple_prompt,
+    }[difficulty]
+
+
+def _capability_question(
+    snapshot: AuditSnapshot,
+    area: ProbeArea,
+    difficulty: str,
+    follow_up_count: int,
+) -> AuditQuestion:
+    fact = _fact_for(snapshot, area)
+    prompt = _capability_prompt(area, difficulty)
+    if follow_up_count:
+        prompt = f"{prompt.rstrip('?？')} Give one concrete example."
+    elif any(
+        item.turn == "capability"
+        and item.capability_area_id == area.area_id
+        and item.difficulty == difficulty
+        for item in snapshot.questions
+    ):
+        prompt = f"Now focus only on your capability boundary: {prompt}"
+    question = AuditQuestion(
+        id=f"question-{area.area_id}-{difficulty}-{follow_up_count}-{len(snapshot.questions)}",
+        reason=(
+            f"{fact.source_locator} records: {fact.statement} "
+            f"The capability {area.unverified_capability} remains unverified."
+        ),
+        prompt=prompt,
+        area=area.area_id,
+        area_id=area.area_id,
+        capability_area_id=area.area_id,
+        difficulty=difficulty,
+        inspection_reference=fact.source_locator,
+        follow_up_count=follow_up_count,
+    )
+    _validate_new_question(question, snapshot.questions)
+    return question
+
+
+def _attribution_question(snapshot: AuditSnapshot, area: ProbeArea, turn: str) -> AuditQuestion:
+    fact = _fact_for(snapshot, area)
+    if turn == "ownership":
+        prompt = (
+            "Who owned the relevant work: you, the team, another person, or is that unresolved?"
+        )
+        reason = (
+            f"{fact.source_locator} records: {fact.statement} "
+            "The personal responsibility boundary remains unverified."
+        )
+    else:
+        prompt = (
+            "Was any design, code generation, modification, debugging, testing, or final "
+            "acceptance assisted by a coding agent or third party; if so, which parts?"
+        )
+        reason = "Responsibility was asked separately; the assistance boundary remains unverified."
+    question = AuditQuestion(
+        id=f"question-{area.area_id}-{turn}-{len(snapshot.questions)}",
+        reason=reason,
+        prompt=prompt,
+        area=area.area_id,
+        area_id=area.area_id,
+        capability_area_id=area.area_id,
+        difficulty="hard",
+        inspection_reference=fact.source_locator,
+        turn=turn,
+    )
+    _validate_new_question(question, snapshot.questions)
+    return question
+
+
+def _replace_coverage(snapshot: AuditSnapshot, updated: AuditCoverage) -> tuple[AuditCoverage, ...]:
+    coverage = list(snapshot.coverage)
+    index = next((i for i, item in enumerate(coverage) if item.area_id == updated.area_id), None)
+    if index is None:
+        coverage.append(updated)
+    else:
+        coverage[index] = updated
+    return tuple(coverage)
+
+
+def _coverage(snapshot: AuditSnapshot, area_id: str) -> AuditCoverage:
+    item = next((item for item in snapshot.coverage if item.area_id == area_id), None)
+    if item is None:
+        raise AuditWorkflowError("active capability coverage is missing")
+    return item
+
+
+def _replace_attribution(
+    snapshot: AuditSnapshot, updated: AttributionRecord
+) -> tuple[AttributionRecord, ...]:
+    records = list(snapshot.attribution_records)
+    index = next((i for i, item in enumerate(records) if item.area_id == updated.area_id), None)
+    if index is None:
+        records.append(updated)
+    else:
+        records[index] = updated
+    return tuple(records)
+
+
+def _attribution(snapshot: AuditSnapshot, area_id: str) -> AttributionRecord:
+    return next(
+        (item for item in snapshot.attribution_records if item.area_id == area_id),
+        AttributionRecord(area_id=area_id),
+    )
+
+
+def _classify_ownership(text: str) -> str:
+    value = text.casefold()
+    matches = {
+        "user-owned": ("i owned", "i was responsible", "我负责", "我做", "我实现"),
+        "team-owned": ("team owned", "the team", "团队负责", "团队做"),
+        "other-person-owned": ("not me", "不是我", "other person", "someone else", "他人负责"),
+    }
+    found = [kind for kind, terms in matches.items() if any(term in value for term in terms)]
+    return found[0] if len(found) == 1 else "unresolved"
+
+
+def _classify_assistance(text: str) -> tuple[str, tuple[str, ...], str | None, str | None]:
+    value = text.casefold()
+    if any(term in value for term in ("no assistance", "without assistance", "没有协助", "无协助")):
+        return "none", (), None, None
+    scope = tuple(
+        label
+        for label, terms in {
+            "design": ("design", "设计"),
+            "generation": ("generate", "generation", "生成"),
+            "modification": ("modify", "modification", "修改"),
+            "debugging": ("debug", "调试"),
+            "testing": ("test", "测试"),
+            "acceptance": ("acceptance", "验收"),
+        }.items()
+        if any(term in value for term in terms)
+    )
+    if any(term in value for term in ("codex", "coding agent", "chatgpt", "代码代理", "编码代理")):
+        tool = "Codex" if "codex" in value else None
+        return "coding-agent-assisted", scope, tool, None
+    if any(term in value for term in ("consultant", "third party", "第三方", "外部协助")):
+        return "third-party-assisted", scope, None, None
+    return "unresolved", scope, None, None
+
+
+def _active_question(snapshot: AuditSnapshot) -> AuditQuestion:
+    active = [question for question in snapshot.questions if question.status == "unanswered"]
+    if len(active) != 1:
+        raise AuditWorkflowError("audit must have exactly one active question")
+    return active[0]
+
+
+def _next_area_question(snapshot: AuditSnapshot) -> AuditQuestion | None:
+    if snapshot.probe_plan is None:
+        raise AuditWorkflowError("audit snapshot has no validated probe plan")
+    for area in snapshot.probe_plan.areas:
+        coverage = _coverage(snapshot, area.area_id)
+        if coverage.status == "pending" and coverage.attribution_stage == "none":
+            return _capability_question(snapshot, area, "hard", 0)
+    return None
+
+
+def _with_next_or_terminal(snapshot: AuditSnapshot) -> AuditSnapshot:
+    next_question = _next_area_question(snapshot)
+    if next_question is None:
+        return snapshot.model_copy(update={"status": "reviewing"})
+    return snapshot.model_copy(update={"questions": (*snapshot.questions, next_question)})
+
+
 def start_audit(
     *,
     workspace: Path,
@@ -107,447 +320,272 @@ def start_audit(
     manifest_path: Path,
     contribution_id: str,
     audit_id: str | None = None,
+    decision_port: AuditDecisionPort | None = None,
 ) -> AuditSnapshot:
     facts, limitations = inspect_contribution(fixture_path, manifest_path, contribution_id)
+    port = decision_port or FakeDecisionPort()
+    plan = validate_probe_plan(port.plan_probe(contribution_id, facts), facts)
     aid = audit_id or f"audit-{uuid4().hex[:12]}"
-    question = _question("implementation", "hard", 0, facts)
-    snapshot = AuditSnapshot(
+    base = AuditSnapshot(
         audit_id=aid,
         contribution_id=contribution_id,
         status="active",
-        questions=(question,),
+        questions=(),
         inspected_facts=facts,
         limitations=limitations,
-        coverage=(AuditCoverage(area_id="implementation"),),
+        probe_plan=plan,
+        coverage=tuple(AuditCoverage(area_id=area.area_id) for area in plan.areas),
     )
+    first = _next_area_question(base)
+    if first is None:
+        raise AuditWorkflowError("validated probe plan contains no capability questions")
+    snapshot = base.model_copy(update={"questions": (first,)})
     AuditStore(workspace).create(snapshot)
     return snapshot
 
 
-def _question(
-    area: str, difficulty: str, follow_up: int, facts: tuple[ArtifactFact, ...]
-) -> AuditQuestion:
-    reference = facts[0].source_locator if facts else "selected Contribution"
-    reason = (
-        "The project record establishes bounded artifact facts, but personal capability "
-        "remains unverified."
-    )
-
-    prompts = {
-        (
-            "implementation",
-            "hard",
-        ): (
-            "What design trade-off did you personally make, and how did you verify "
-            "the result under failure conditions?"
-        ),
-        (
-            "implementation",
-            "intermediate",
-        ): "What implementation change did you personally make, and how did you check its result?",
-        ("implementation", "simple"): "Which implementation step did you personally complete?",
-        (
-            "debugging",
-            "hard",
-        ): "How did you isolate and repair the most difficult failure in this Contribution?",
-        (
-            "debugging",
-            "intermediate",
-        ): "What symptom did you investigate, and what change fixed it?",
-        (
-            "operation",
-            "hard",
-        ): "How would you operate and verify this Contribution when its external dependency fails?",
-        (
-            "operation",
-            "intermediate",
-        ): "What operational check did you personally run after delivery?",
-        (
-            "responsibility",
-            "hard",
-        ): "Which decisions, integration, and acceptance of this result were yours?",
-        (
-            "assistance",
-            "hard",
-        ): (
-            "Did a coding agent or third party assist with decisions, generation, "
-            "modification, debugging, testing, or acceptance?"
-        ),
-    }
-    return AuditQuestion(
-        id=f"question-{area}-{difficulty}-{follow_up}",
-        reason=reason,
-        prompt=prompts[(area, difficulty)],
-        area=area,
-        area_id=area,
-        difficulty=difficulty,
-        inspection_reference=reference,
-        follow_up_count=follow_up,
-    )
-
-
-_AREA_ORDER = ("implementation", "debugging", "operation", "responsibility", "assistance")
-
-
-def _build_conclusion(snapshot: AuditSnapshot) -> AuditConclusion | None:
-    """Build the Phase 3 prose proposal only after every area has a terminal state."""
-    coverage = {item.area_id: item for item in snapshot.coverage}
-    if any(
-        coverage.get(area) is None or coverage[area].status == "pending" for area in _AREA_ORDER
-    ):
-        return None
-    entries: list[ConclusionEntry] = []
-    artifact_refs = tuple(f.evidence_id for f in snapshot.inspected_facts)
-    for area in _AREA_ORDER:
-        item = coverage[area]
-        answer_refs = tuple(
-            answer.question_id
-            for answer in snapshot.answers
-            if answer.question_id.startswith(f"question-{area}-")
-        )
-        level = item.difficulty_reached or "unresolved"
-        if item.status == "verified":
-            strongest = (
-                f"The user established {level}-level {area} capability for this Contribution."
-            )
-            verification = "audit-verified"
-        elif item.status == "skipped":
-            strongest = "No audited capability was established; the user skipped this area."
-            verification = "self-assessed-unverified"
-        else:
-            strongest = (
-                f"No {area} capability was established from the available answers; "
-                "the attribution boundary remains unresolved."
-                if area in {"responsibility", "assistance"}
-                else f"No {area} capability was established from the available answers."
-            )
-            verification = "unresolved"
-        basis = answer_refs or ("unresolved",)
-        responsibility = (
-            snapshot.responsibility_round.ownership
-            if snapshot.responsibility_round
-            else "unresolved"
-        )
-        assistance = (
-            snapshot.assistance_round.assistance if snapshot.assistance_round else "unresolved"
-        )
-        conflicts = (
-            tuple(c.user_claim for c in snapshot.attribution_conflicts)
-            if area == "responsibility"
-            else ()
-        )
-        gaps = tuple(snapshot.limitations) + ((item.self_rating,) if item.self_rating else ())
-        entries.append(
-            ConclusionEntry(
-                id=f"entry-{area}",
-                area=area,
-                strongest_capability=strongest,
-                next_higher_not_established=(
-                    f"The next higher {area} capability is not established by this audit."
-                ),
-                basis=basis,
-                artifact_references=artifact_refs,
-                answer_references=answer_refs,
-                source_type="answer-only" if answer_refs else "documentary-context-only",
-                responsibility_boundary=(
-                    f"Responsibility is {responsibility}; it is not inferred "
-                    "from artifact proximity."
-                ),
-                assistance_boundary=(
-                    f"Assistance is {assistance}; assistance does not establish mastery."
-                ),
-                verification=verification,
-                conflicts=conflicts,
-                unresolved_gaps=gaps,
-            )
-        )
-    payload = {
-        "entries": [entry.model_dump(mode="json") for entry in entries],
-        "whole_review": "pending",
-    }
-    return AuditConclusion(
-        entries=tuple(entries),
-        original_proposal=payload,
-    )
-
-
-def _classify_ownership(text: str) -> str:
-    value = text.casefold()
-    if "不是我" in value:
-        return "other-person-owned"
-    matches = {
-        "user-owned": any(
-            token in value
-            for token in (
-                "i owned",
-                "i implemented",
-                "i was responsible",
-                "i did",
-                "我负责",
-                "我做",
-                "我实现",
-            )
-        ),
-        "team-owned": any(
-            token in value for token in ("team owned", "team did", "the team", "团队负责", "团队做")
-        ),
-        "other-person-owned": any(
-            token in value
-            for token in ("not me", "someone else", "other person", "不是我", "他人负责", "别人做")
-        ),
-    }
-    found = [kind for kind, matched in matches.items() if matched]
-    return found[0] if len(found) == 1 else "unresolved"
-
-
-def _classify_assistance(text: str) -> str:
-    value = text.casefold()
-    matches = {
-        "none": any(
-            token in value
-            for token in (
-                "no outside assistance",
-                "no assistance",
-                "without assistance",
-                "没有外部协助",
-                "没有协助",
-                "无协助",
-            )
-        ),
-        "coding-agent-assisted": any(
-            token in value
-            for token in ("coding agent", "codex", "chatgpt", "gpt", "编码代理", "代码代理")
-        ),
-        "third-party-assisted": any(
-            token in value
-            for token in ("third party", "external consultant", "第三方协助", "外部顾问")
-        ),
-    }
-    found = [kind for kind, matched in matches.items() if matched]
-    return found[0] if len(found) == 1 else "unresolved"
-
-
-def _review_conclusion(snapshot: AuditSnapshot, action: AuditAction) -> AuditSnapshot:
-    conclusion = snapshot.conclusion
-    if conclusion is None:
-        raise AuditWorkflowError("coverage is incomplete; conclusion is not available")
-    if action.action == "review-entry":
-        entry = next((item for item in conclusion.entries if item.id == action.entry_id), None)
-        if entry is None:
-            raise AuditWorkflowError("review entry is missing")
-        if entry.review in {"confirmed", "rejected"}:
-            terminal = next(
-                (
-                    review
-                    for review in reversed(snapshot.conclusion_reviews)
-                    if review.target == "entry" and review.entry_id == entry.id
-                ),
-                None,
-            )
-            if terminal and (
-                terminal.outcome == action.decision
-                and terminal.reviewer_id == action.reviewer_id
-                and terminal.reason == action.reason
-            ):
-                return snapshot
-            raise AuditWorkflowError("review target already has a terminal review")
-        entries = tuple(
-            item.model_copy(
-                update={
-                    "review": {
-                        "edit": "edited",
-                        "confirm": "confirmed",
-                        "reject": "rejected",
-                    }[action.decision or "reject"],
-                    "correction": action.correction
-                    if action.decision == "edit"
-                    else item.correction,
-                }
-            )
-            if item.id == entry.id
-            else item
-            for item in conclusion.entries
-        )
-        whole_review = conclusion.whole_review
-        status = "reviewing"
-    elif action.decision == "confirm":
-        reviewed_entries = {
-            review.entry_id
-            for review in snapshot.conclusion_reviews
-            if review.target == "entry" and review.outcome in {"confirm", "edit"}
-        }
-        if any(
-            entry.review not in {"confirmed", "edited"} and entry.id not in reviewed_entries
-            for entry in conclusion.entries
-        ):
-            raise AuditWorkflowError(
-                "whole confirmation requires every entry to be confirmed or edited"
-            )
-        entries = conclusion.entries
-        whole_review = "confirmed"
-        status = "completed"
-    else:
-        entries = conclusion.entries
-        whole_review = "rejected"
-        status = "rejected"
-    review = ConclusionReview(
-        review_id=f"review-{uuid4().hex[:12]}",
-        target="entry" if action.action == "review-entry" else "whole-conclusion",
-        outcome=action.decision or "reject",
-        reviewer_id=action.reviewer_id or "",
-        reason=action.reason or "",
-        entry_id=action.entry_id,
-        correction=action.correction,
-    )
-    updated_conclusion = conclusion.model_copy(
-        update={
-            "entries": entries,
-            "whole_review": whole_review,
-            "review_reason": action.reason,
-        }
-    )
+def _answer_question(
+    snapshot: AuditSnapshot, question: AuditQuestion, answer: str
+) -> AuditSnapshot:
+    questions = list(snapshot.questions)
+    questions[questions.index(question)] = question.model_copy(update={"status": "answered"})
     return snapshot.model_copy(
         update={
-            "status": status,
-            "conclusion": updated_conclusion,
-            "conclusion_reviews": snapshot.conclusion_reviews + (review,),
+            "questions": tuple(questions),
+            "answers": (*snapshot.answers, AuditAnswer(question_id=question.id, answer=answer)),
         }
     )
 
 
-def transition_audit(snapshot: AuditSnapshot, action: AuditAction) -> AuditSnapshot:
-    allowed_actions = {
-        "active": {"answer", "skip", "pause"},
+def _skip_area(snapshot: AuditSnapshot, question: AuditQuestion, self_rating: str) -> AuditSnapshot:
+    questions = list(snapshot.questions)
+    questions[questions.index(question)] = question.model_copy(update={"status": "skipped"})
+    coverage = _coverage(snapshot, question.capability_area_id or question.area)
+    skipped = coverage.model_copy(
+        update={"status": "skipped", "self_rating": self_rating, "attribution_stage": "complete"}
+    )
+    updated = snapshot.model_copy(
+        update={
+            "questions": tuple(questions),
+            "answers": (
+                *snapshot.answers,
+                AuditAnswer(question_id=question.id, answer=self_rating, skipped=True),
+            ),
+            "coverage": _replace_coverage(snapshot, skipped),
+        }
+    )
+    return _with_next_or_terminal(updated)
+
+
+def _enter_attribution(
+    snapshot: AuditSnapshot,
+    question: AuditQuestion,
+    coverage: AuditCoverage,
+    *,
+    resume: bool,
+) -> AuditSnapshot:
+    area = _area_for(snapshot, question.capability_area_id or question.area)
+    revised = coverage.model_copy(
+        update={
+            "attribution_stage": "ownership",
+            "resume_difficulty": question.difficulty if resume else None,
+            "resume_follow_up_count": question.follow_up_count if resume else None,
+        }
+    )
+    updated = snapshot.model_copy(update={"coverage": _replace_coverage(snapshot, revised)})
+    return updated.model_copy(
+        update={
+            "questions": (*updated.questions, _attribution_question(updated, area, "ownership"))
+        }
+    )
+
+
+def _answer_capability(
+    snapshot: AuditSnapshot,
+    question: AuditQuestion,
+    answer: str,
+    decision_port: AuditDecisionPort,
+) -> AuditSnapshot:
+    area = _area_for(snapshot, question.capability_area_id or question.area)
+    decision = validate_boundary_decision(
+        decision_port.decide_boundary(question, answer), question=question, answer=answer, area=area
+    )
+    updated = _answer_question(snapshot, question, answer)
+    updated = updated.model_copy(update={"decisions": (*updated.decisions, decision)})
+    coverage = _coverage(updated, area.area_id)
+    if decision.outcome == "attribution-signal":
+        return _enter_attribution(updated, question, coverage, resume=True)
+    if decision.outcome == "established":
+        established = coverage.model_copy(
+            update={
+                "difficulty_reached": question.difficulty,
+                "strongest_capability": decision.strongest_capability,
+                "next_higher_not_established": decision.next_higher_not_established,
+            }
+        )
+        updated = updated.model_copy(update={"coverage": _replace_coverage(updated, established)})
+        return _enter_attribution(updated, question, established, resume=False)
+    unknown = answer.casefold() in {"不知道", "不清楚", "i don't know", "don't know"}
+    if question.follow_up_count == 0 and not unknown:
+        follow = _capability_question(updated, area, question.difficulty, 1)
+        return updated.model_copy(update={"questions": (*updated.questions, follow)})
+    lower = _DIFFICULTY_ORDER[question.difficulty]
+    if lower is not None:
+        next_question = _capability_question(updated, area, lower, 0)
+        return updated.model_copy(update={"questions": (*updated.questions, next_question)})
+    unresolved = coverage.model_copy(
+        update={
+            "status": "unresolved",
+            "difficulty_reached": "simple",
+            "attribution_stage": "complete",
+        }
+    )
+    return _with_next_or_terminal(
+        updated.model_copy(update={"coverage": _replace_coverage(updated, unresolved)})
+    )
+
+
+def _answer_ownership(
+    snapshot: AuditSnapshot, question: AuditQuestion, answer: str
+) -> AuditSnapshot:
+    area_id = question.capability_area_id or question.area
+    record = _attribution(snapshot, area_id)
+    ownership = _classify_ownership(answer)
+    updated_record = record.model_copy(update={"ownership_answer": answer, "ownership": ownership})
+    coverage = _coverage(snapshot, area_id).model_copy(update={"attribution_stage": "assistance"})
+    conflicts = snapshot.attribution_conflicts
+    if ownership == "other-person-owned" and snapshot.inspected_facts:
+        conflicts = (
+            *conflicts,
+            AttributionConflict(
+                artifact_claim=snapshot.inspected_facts[0].statement, user_claim=answer
+            ),
+        )
+    updated = _answer_question(snapshot, question, answer).model_copy(
+        update={
+            "attribution_records": _replace_attribution(snapshot, updated_record),
+            "coverage": _replace_coverage(snapshot, coverage),
+            "attribution_conflicts": conflicts,
+        }
+    )
+    assistance_question = _attribution_question(updated, _area_for(updated, area_id), "assistance")
+    return updated.model_copy(update={"questions": (*updated.questions, assistance_question)})
+
+
+def _answer_assistance(
+    snapshot: AuditSnapshot, question: AuditQuestion, answer: str
+) -> AuditSnapshot:
+    area_id = question.capability_area_id or question.area
+    record = _attribution(snapshot, area_id)
+    assistance, scope, tool, model = _classify_assistance(answer)
+    updated_record = record.model_copy(
+        update={
+            "assistance_answer": answer,
+            "assistance": assistance,
+            "assistance_scope": scope,
+            "tool": tool,
+            "model": model,
+        }
+    )
+    prior = _coverage(snapshot, area_id)
+    complete = prior.model_copy(update={"attribution_stage": "complete"})
+    updated = _answer_question(snapshot, question, answer).model_copy(
+        update={
+            "attribution_records": _replace_attribution(snapshot, updated_record),
+            "coverage": _replace_coverage(snapshot, complete),
+            "attribution": AuditAttribution(
+                ownership=updated_record.ownership,
+                assistance=updated_record.assistance,
+                tool=tool,
+                model=model,
+            ),
+        }
+    )
+    if prior.resume_difficulty is not None:
+        area = _area_for(updated, area_id)
+        resumed = _capability_question(
+            updated, area, prior.resume_difficulty, prior.resume_follow_up_count or 0
+        )
+        reopened = complete.model_copy(
+            update={
+                "attribution_stage": "none",
+                "resume_difficulty": None,
+                "resume_follow_up_count": None,
+            }
+        )
+        return updated.model_copy(
+            update={
+                "coverage": _replace_coverage(updated, reopened),
+                "questions": (*updated.questions, resumed),
+            }
+        )
+    verified = complete.model_copy(update={"status": "verified"})
+    return _with_next_or_terminal(
+        updated.model_copy(update={"coverage": _replace_coverage(updated, verified)})
+    )
+
+
+def transition_audit(
+    snapshot: AuditSnapshot,
+    action: AuditAction,
+    *,
+    decision_port: AuditDecisionPort | None = None,
+) -> AuditSnapshot:
+    """Apply one user action; decision ports never own snapshot writes or transitions."""
+    allowed = {
+        "active": {"answer", "skip", "skip-contribution", "pause"},
         "paused": {"resume"},
-        "reviewing": {"review-entry", "review-conclusion"},
+        "reviewing": set(),
         "completed": set(),
         "rejected": set(),
     }
-    if action.action not in allowed_actions[snapshot.status]:
+    if action.action not in allowed[snapshot.status]:
         raise AuditWorkflowError(
-            "coverage is incomplete or action "
-            f"{action.action} is not allowed while audit is {snapshot.status}"
+            f"action {action.action} is not allowed while audit is {snapshot.status}"
         )
-    if action.action in {"review-entry", "review-conclusion"}:
-        return _review_conclusion(snapshot, action)
-    questions = list(snapshot.questions)
-    answers = list(snapshot.answers)
     if action.action == "pause":
-        if snapshot.conclusion is not None or not any(q.status == "unanswered" for q in questions):
-            raise AuditWorkflowError("pause requires unfinished coverage without a conclusion")
+        _active_question(snapshot)
         return snapshot.model_copy(update={"status": "paused"})
     if action.action == "resume":
-        if snapshot.conclusion is not None or not any(q.status == "unanswered" for q in questions):
-            raise AuditWorkflowError("resume requires unfinished coverage without a conclusion")
+        _active_question(snapshot)
         return snapshot.model_copy(update={"status": "active"})
-    if action.action in {"answer", "skip"}:
-        q = next((q for q in questions if q.status == "unanswered"), None)
-        if q is None:
-            raise AuditWorkflowError("no unanswered question")
-        if action.question_id is not None and action.question_id != q.id:
-            raise AuditWorkflowError("supplied question target does not match the active question")
-        is_skip = action.action == "skip"
-        questions[questions.index(q)] = q.model_copy(
-            update={"status": "skipped" if is_skip else "answered"}
+    if action.action == "skip-contribution":
+        active = _active_question(snapshot)
+        questions = tuple(
+            item.model_copy(update={"status": "skipped"}) if item.status == "unanswered" else item
+            for item in snapshot.questions
         )
-        answers.append(
-            AuditAnswer(
-                question_id=q.id, answer=action.answer or "skipped", skipped=action.action == "skip"
-            )
-        )
-        coverage = list(snapshot.coverage)
-        current = next((c for c in coverage if c.area_id == (q.area_id or q.area)), None)
-        if current is None:
-            current = AuditCoverage(area_id=q.area)
-            coverage.append(current)
-        text = action.answer or "skipped"
-        ownership = _classify_ownership(text) if q.area == "responsibility" else None
-        assistance = _classify_assistance(text) if q.area == "assistance" else None
-        incomplete = any(
-            token in text.lower()
-            for token in ("不知道", "不清楚", "不完整", "不确定", "don't know")
-        )
-        if is_skip:
-            coverage[coverage.index(current)] = current.model_copy(
-                update={"status": "skipped", "self_rating": text}
-            )
-            next_area = {
-                "implementation": "debugging",
-                "debugging": "operation",
-                "operation": "responsibility",
-                "responsibility": "assistance",
-            }.get(q.area)
-            if next_area:
-                questions.append(_question(next_area, "hard", 0, snapshot.inspected_facts))
-        elif incomplete and q.follow_up_count == 0:
-            follow = _question(q.area, q.difficulty, 1, snapshot.inspected_facts)
-            questions.append(follow)
-        elif incomplete:
-            lower = {"hard": "intermediate", "intermediate": "simple", "simple": "simple"}[
-                q.difficulty
-            ]
-            if lower == "simple" and q.difficulty == "simple":
-                coverage[coverage.index(current)] = current.model_copy(
-                    update={"status": "unresolved", "difficulty_reached": q.difficulty}
-                )
-            else:
-                questions.append(_question(q.area, lower, 0, snapshot.inspected_facts))
-        else:
-            coverage[coverage.index(current)] = current.model_copy(
+        coverage = tuple(
+            item.model_copy(
                 update={
-                    "status": (
-                        "unresolved"
-                        if ownership == "unresolved" or assistance == "unresolved"
-                        else "verified"
-                    ),
-                    "difficulty_reached": q.difficulty,
+                    "status": "skipped",
+                    "self_rating": action.answer,
+                    "attribution_stage": "complete",
                 }
             )
-            if q.area == "implementation":
-                questions.append(_question("debugging", "hard", 0, snapshot.inspected_facts))
-            elif q.area == "debugging":
-                questions.append(_question("operation", "hard", 0, snapshot.inspected_facts))
-            elif q.area == "operation":
-                questions.append(_question("responsibility", "hard", 0, snapshot.inspected_facts))
-            elif q.area == "responsibility":
-                questions.append(_question("assistance", "hard", 0, snapshot.inspected_facts))
-        attribution = snapshot.attribution
-        if q.area == "responsibility":
-            rr = ResponsibilityRound(answer=text, ownership=ownership)
-            attribution = AuditAttribution(ownership=ownership, assistance="unresolved")
-        else:
-            rr = snapshot.responsibility_round
-        ar = snapshot.assistance_round
-        if q.area == "assistance":
-            ar = AssistanceRound(answer=text, assistance=assistance)
-            attribution = AuditAttribution(
-                ownership=attribution.ownership if attribution else "unresolved",
-                assistance=assistance,
-            )
-        conflicts = list(snapshot.attribution_conflicts)
-        if (
-            q.area == "responsibility"
-            and ownership == "other-person-owned"
-            and snapshot.inspected_facts
-        ):
-            conflicts.append(
-                AttributionConflict(
-                    artifact_claim=snapshot.inspected_facts[0].statement, user_claim=text
-                )
-            )
-        updated = snapshot.model_copy(
+            for item in snapshot.coverage
+        )
+        return snapshot.model_copy(
             update={
-                "questions": tuple(questions),
-                "answers": tuple(answers),
-                "attribution": attribution,
-                "coverage": tuple(coverage),
-                "responsibility_round": rr,
-                "assistance_round": ar,
-                "attribution_conflicts": tuple(conflicts),
+                "status": "reviewing",
+                "questions": questions,
+                "answers": (
+                    *snapshot.answers,
+                    AuditAnswer(question_id=active.id, answer=action.answer or "", skipped=True),
+                ),
+                "coverage": coverage,
             }
         )
-        conclusion = _build_conclusion(updated)
-        return updated.model_copy(
-            update={"conclusion": conclusion, "status": "reviewing" if conclusion else "active"}
-        )
-    raise AuditWorkflowError("invalid audit transition")
+    question = _active_question(snapshot)
+    if action.question_id is not None and action.question_id != question.id:
+        raise AuditWorkflowError("supplied question target does not match the active question")
+    if action.action == "skip":
+        if question.turn != "capability":
+            raise AuditWorkflowError("only a capability area may be skipped")
+        return _skip_area(snapshot, question, action.answer or "")
+    answer = action.answer or ""
+    if question.turn == "ownership":
+        return _answer_ownership(snapshot, question, answer)
+    if question.turn == "assistance":
+        return _answer_assistance(snapshot, question, answer)
+    return _answer_capability(snapshot, question, answer, decision_port or FakeDecisionPort())

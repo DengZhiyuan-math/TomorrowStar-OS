@@ -148,11 +148,19 @@ def _parser() -> argparse.ArgumentParser:
     start.add_argument("--manifest", default=None)
     start.add_argument("--contribution-id", required=True)
     start.add_argument("--audit-id")
-    for name in ("answer", "skip", "pause", "resume", "review-entry", "review-conclusion"):
+    for name in (
+        "answer",
+        "skip",
+        "skip-contribution",
+        "pause",
+        "resume",
+        "review-entry",
+        "review-conclusion",
+    ):
         command = audit_commands.add_parser(name)
         command.add_argument("--workspace", required=True)
         command.add_argument("--audit-id", required=True)
-        if name in {"answer", "skip"}:
+        if name in {"answer", "skip", "skip-contribution"}:
             command.add_argument("--answer", required=True)
             command.add_argument("--question-id")
         if name == "review-entry":

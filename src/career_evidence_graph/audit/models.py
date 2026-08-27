@@ -9,7 +9,17 @@ from pydantic import Field, model_validator
 from ..validation.models import StrictModel
 
 AuditStatus = Literal["active", "paused", "reviewing", "completed", "rejected"]
-AuditArea = Literal["implementation", "debugging", "operation", "responsibility", "assistance"]
+AuditArea = Literal[
+    "technical-design",
+    "implementation",
+    "research-development",
+    "debugging",
+    "operation",
+    "organization",
+    "collaboration",
+    "responsibility",
+    "assistance",
+]
 Difficulty = Literal["hard", "intermediate", "simple"]
 CoverageStatus = Literal["pending", "verified", "skipped", "unresolved"]
 CapabilityArea = Literal[
@@ -41,6 +51,8 @@ class AuditQuestion(StrictModel):
     difficulty: Difficulty = "hard"
     inspection_reference: str | None = None
     follow_up_count: int = Field(default=0, ge=0, le=1)
+    turn: Literal["capability", "ownership", "assistance"] = "capability"
+    capability_area_id: CapabilityArea | None = None
 
 
 class ProbeArea(StrictModel):
@@ -153,7 +165,15 @@ class ConclusionReview(StrictModel):
 
 class AuditAction(StrictModel):
     schema_version: Literal["audit-action/v1"] = "audit-action/v1"
-    action: Literal["answer", "skip", "pause", "resume", "review-entry", "review-conclusion"]
+    action: Literal[
+        "answer",
+        "skip",
+        "skip-contribution",
+        "pause",
+        "resume",
+        "review-entry",
+        "review-conclusion",
+    ]
     answer: str | None = None
     question_id: str | None = None
     entry_id: str | None = None
@@ -164,7 +184,7 @@ class AuditAction(StrictModel):
 
     @model_validator(mode="after")
     def valid_payload(self) -> AuditAction:
-        if self.action in {"answer", "skip"} and not self.answer:
+        if self.action in {"answer", "skip", "skip-contribution"} and not self.answer:
             raise ValueError("answer/skip requires answer")
         if self.action == "review-entry" and (not self.entry_id or not self.decision):
             raise ValueError("entry review requires entry_id and decision")
@@ -182,7 +202,7 @@ class AuditSnapshot(StrictModel):
     audit_id: str = Field(pattern=r"^audit-[a-z0-9-]+$")
     contribution_id: str = Field(pattern=r"^contrib-stoa-[a-z0-9-]+$")
     status: AuditStatus
-    questions: tuple[AuditQuestion, ...] = Field(min_length=1)
+    questions: tuple[AuditQuestion, ...] = ()
     answers: tuple[AuditAnswer, ...] = ()
     inspected_facts: tuple[ArtifactFact, ...] = ()
     limitations: tuple[str, ...] = ()
@@ -190,6 +210,9 @@ class AuditSnapshot(StrictModel):
     attribution: AuditAttribution | None = None
     conclusion: AuditConclusion | None = None
     coverage: tuple[AuditCoverage, ...] = ()
+    probe_plan: ProbePlan | None = None
+    decisions: tuple[BoundaryDecision, ...] = ()
+    attribution_records: tuple[AttributionRecord, ...] = ()
     responsibility_round: ResponsibilityRound | None = None
     assistance_round: AssistanceRound | None = None
     attribution_conflicts: tuple[AttributionConflict, ...] = ()
@@ -202,6 +225,29 @@ class AuditCoverage(StrictModel):
     status: CoverageStatus = "pending"
     difficulty_reached: Difficulty | None = None
     self_rating: str | None = None
+    strongest_capability: str | None = None
+    next_higher_not_established: str | None = None
+    attribution_stage: Literal["none", "ownership", "assistance", "complete"] = "none"
+    resume_difficulty: Difficulty | None = None
+    resume_follow_up_count: int | None = Field(default=None, ge=0, le=1)
+
+
+class AttributionRecord(StrictModel):
+    """Separate per-capability ownership then assistance evidence."""
+
+    schema_version: Literal["audit-attribution-record/v1"] = "audit-attribution-record/v1"
+    area_id: CapabilityArea
+    ownership_answer: str | None = None
+    ownership: Literal["user-owned", "team-owned", "other-person-owned", "unresolved"] = (
+        "unresolved"
+    )
+    assistance_answer: str | None = None
+    assistance: Literal["none", "coding-agent-assisted", "third-party-assisted", "unresolved"] = (
+        "unresolved"
+    )
+    assistance_scope: tuple[str, ...] = ()
+    tool: str | None = None
+    model: str | None = None
 
 
 class ResponsibilityRound(StrictModel):
