@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["question_id", "answer", "outcome", "rationale"],
+  "properties": {
+    "schema_version": {"const": "audit-boundary-decision/v1"},
+    "question_id": {"type": "string", "pattern": "^question-[a-z0-9-]+$"},
+    "answer": {"type": "string", "minLength": 1},
+    "outcome": {"enum": ["established", "incomplete", "attribution-signal"]},
+    "rationale": {"type": "string", "minLength": 1},
+    "strongest_capability": {"type": "string", "minLength": 1},
+    "next_higher_not_established": {"type": "string", "minLength": 1}
+  }
+}

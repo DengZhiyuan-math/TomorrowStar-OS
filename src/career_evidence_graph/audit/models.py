@@ -12,6 +12,17 @@ AuditStatus = Literal["active", "paused", "reviewing", "completed", "rejected"]
 AuditArea = Literal["implementation", "debugging", "operation", "responsibility", "assistance"]
 Difficulty = Literal["hard", "intermediate", "simple"]
 CoverageStatus = Literal["pending", "verified", "skipped", "unresolved"]
+CapabilityArea = Literal[
+    "technical-design",
+    "implementation",
+    "research-development",
+    "debugging",
+    "operation",
+    "organization",
+    "collaboration",
+]
+
+
 class ArtifactFact(StrictModel):
     schema_version: Literal["audit-artifact-fact/v1"] = "audit-artifact-fact/v1"
     evidence_id: str = Field(pattern=r"^[a-z][a-z0-9-]+$")
@@ -30,6 +41,61 @@ class AuditQuestion(StrictModel):
     difficulty: Difficulty = "hard"
     inspection_reference: str | None = None
     follow_up_count: int = Field(default=0, ge=0, le=1)
+
+
+class ProbeArea(StrictModel):
+    """One fact-grounded capability ladder selected for a Contribution."""
+
+    schema_version: Literal["audit-probe-area/v1"] = "audit-probe-area/v1"
+    area_id: CapabilityArea
+    inspected_fact_ids: tuple[str, ...] = Field(min_length=1)
+    unverified_capability: str = Field(min_length=1)
+    demanding_prompt: str = Field(min_length=1)
+    intermediate_prompt: str = Field(min_length=1)
+    simple_prompt: str = Field(min_length=1)
+    immediately_higher_capability: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def distinct_ladder_prompts(self) -> ProbeArea:
+        prompts = (self.demanding_prompt, self.intermediate_prompt, self.simple_prompt)
+        if len(set(prompts)) != len(prompts):
+            raise ValueError("capability ladder prompts must be distinct")
+        return self
+
+
+class ProbePlan(StrictModel):
+    """Validated set of only Contribution-relevant capability questions."""
+
+    schema_version: Literal["audit-probe-plan/v1"] = "audit-probe-plan/v1"
+    contribution_id: str = Field(pattern=r"^contrib-stoa-[a-z0-9-]+$")
+    areas: tuple[ProbeArea, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def unique_capability_areas(self) -> ProbePlan:
+        if len({area.area_id for area in self.areas}) != len(self.areas):
+            raise ValueError("capability areas must be unique")
+        return self
+
+
+class BoundaryDecision(StrictModel):
+    """A data-only decision bound to the exact displayed question and answer."""
+
+    schema_version: Literal["audit-boundary-decision/v1"] = "audit-boundary-decision/v1"
+    question_id: str = Field(pattern=r"^question-[a-z0-9-]+$")
+    answer: str = Field(min_length=1)
+    outcome: Literal["established", "incomplete", "attribution-signal"]
+    rationale: str = Field(min_length=1)
+    strongest_capability: str | None = None
+    next_higher_not_established: str | None = None
+
+    @model_validator(mode="after")
+    def capability_boundary_only_on_established(self) -> BoundaryDecision:
+        fields = (self.strongest_capability, self.next_higher_not_established)
+        if self.outcome == "established" and not all(fields):
+            raise ValueError("established decision requires both capability boundaries")
+        if self.outcome != "established" and any(fields):
+            raise ValueError("only established decisions may include capability boundaries")
+        return self
 
 
 class AuditAnswer(StrictModel):
