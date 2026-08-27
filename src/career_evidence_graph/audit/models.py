@@ -134,9 +134,9 @@ class ConclusionEntry(StrictModel):
     basis: tuple[str, ...] = Field(min_length=1)
     artifact_references: tuple[str, ...] = ()
     answer_references: tuple[str, ...] = ()
-    source_type: Literal[
-        "artifact-and-answer", "answer-only", "documentary-context-only"
-    ] = "answer-only"
+    source_type: Literal["artifact-and-answer", "answer-only", "documentary-context-only"] = (
+        "answer-only"
+    )
     responsibility_boundary: str = Field(min_length=1)
     assistance_boundary: str = Field(min_length=1)
     verification: Literal["audit-verified", "self-assessed-unverified", "unresolved"]

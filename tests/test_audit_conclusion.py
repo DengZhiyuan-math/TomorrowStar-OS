@@ -23,9 +23,7 @@ def _port() -> RecordedDecisionPort:
         simple_prompt="Which authorization implementation step did you complete?",
         immediately_higher_capability="independently defending authorization failures",
     )
-    plan = ProbePlan(
-        contribution_id="contrib-stoa-authorization-boundary", areas=(area,)
-    )
+    plan = ProbePlan(contribution_id="contrib-stoa-authorization-boundary", areas=(area,))
     return RecordedDecisionPort(plan=plan, decisions={})
 
 
@@ -143,9 +141,7 @@ def test_reviews_preserve_immutable_proposal_and_append_ordered_lineage(tmp_path
 def test_whole_contribution_skip_is_verbatim_self_assessed_and_unverified(tmp_path: Path):
     snapshot = _started(tmp_path, "audit-whole-skip")
     rating = "自评 7/10 — 我不想进行访谈"
-    skipped = transition_audit(
-        snapshot, AuditAction(action="skip-contribution", answer=rating)
-    )
+    skipped = transition_audit(snapshot, AuditAction(action="skip-contribution", answer=rating))
     entry = skipped.conclusion.entries[0]
     assert skipped.status == "reviewing"
     assert entry.verification == "self-assessed-unverified"

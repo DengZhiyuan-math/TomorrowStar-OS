@@ -335,9 +335,7 @@ def _conflict_messages(snapshot: AuditSnapshot) -> tuple[str, ...]:
 
 def _entry_basis(snapshot: AuditSnapshot, area_id: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
     questions = tuple(
-        question
-        for question in snapshot.questions
-        if question.capability_area_id == area_id
+        question for question in snapshot.questions if question.capability_area_id == area_id
     )
     answer_ids = {answer.question_id for answer in snapshot.answers}
     answer_references = tuple(
@@ -427,9 +425,7 @@ def _conclusion_entry(snapshot: AuditSnapshot, coverage: AuditCoverage) -> Concl
     )
 
 
-def _effective_hash(
-    entries: tuple[ConclusionEntry, ...], whole_review: str
-) -> str:
+def _effective_hash(entries: tuple[ConclusionEntry, ...], whole_review: str) -> str:
     return sha256_digest(
         canonical_json_bytes(
             {
@@ -766,16 +762,20 @@ def transition_audit(
             )
             for item in snapshot.coverage
         )
-        return _enter_reviewing(snapshot.model_copy(
-            update={
-                "questions": questions,
-                "answers": (
-                    *snapshot.answers,
-                    AuditAnswer(question_id=active.id, answer=action.answer or "", skipped=True),
-                ),
-                "coverage": coverage,
-            }
-        ))
+        return _enter_reviewing(
+            snapshot.model_copy(
+                update={
+                    "questions": questions,
+                    "answers": (
+                        *snapshot.answers,
+                        AuditAnswer(
+                            question_id=active.id, answer=action.answer or "", skipped=True
+                        ),
+                    ),
+                    "coverage": coverage,
+                }
+            )
+        )
     if action.action == "review-entry":
         return _append_review(
             snapshot,
