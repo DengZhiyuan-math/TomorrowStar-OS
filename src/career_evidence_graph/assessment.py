@@ -49,10 +49,20 @@ class AssessmentRun(StrictModel):
     def validate_links(self) -> AssessmentRun:
         if self.admission.assessment_id != self.proposal.id:
             raise ValueError("admission must reference proposal")
+        if self.admission.admission_status != "admitted":
+            raise ValueError("persisted result requires an admitted proposal")
         if self.result.baseline_assessment_id != self.proposal.id:
             raise ValueError("result baseline must reference proposal")
+        if self.result.admitted_assessment_ids != (self.proposal.id,):
+            raise ValueError("result admitted assessments must exactly match the proposal")
         if self.result.policy_version != self.admission.policy_version:
             raise ValueError("result and admission policy must match")
+        if self.result.skill_id != self.proposal.skill_id:
+            raise ValueError("result Skill must match the proposal")
+        if self.result.mastery != self.proposal.demonstrated_mastery:
+            raise ValueError("result mastery must match the admitted proposal")
+        if self.result.source_envelope != self.proposal.source_envelope:
+            raise ValueError("result source envelope must match the proposal")
         return self
 
 

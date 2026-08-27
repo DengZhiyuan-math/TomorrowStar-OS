@@ -81,7 +81,7 @@ def test_inspect_rejects_cross_linked_records_without_leaking_a_raw_answer(tmp_p
     payload["proposal"]["context"] = "RAW_INTERVIEW_SENTINEL"
     store.path(run_id).write_text(json.dumps(payload), encoding="utf-8")
 
-    with pytest.raises(AssessmentStorageError, match="does not match the proposal"):
+    with pytest.raises(AssessmentStorageError, match="corrupt"):
         store.read(run_id)
 
     inspected = _run("assessment", "inspect", "--workspace", str(tmp_path), "--run-id", run_id)
