@@ -5,7 +5,7 @@ status: verified
 threats_open: 0
 asvs_level: 1
 created: 2026-08-27
-source_revision: 8715846
+source_revision: 2f79607
 ---
 
 # Phase 03 — Security
@@ -53,6 +53,7 @@ source_revision: 8715846
 | Audit Date | Threats Total | Closed | Open | Run By |
 |------------|---------------|--------|------|--------|
 | 2026-08-27 | 19 | 19 | 0 | gsd-security-auditor (retroactive STRIDE) |
+| 2026-08-27 | 19 | 19 | 0 | gsd-security-auditor (final source/test refresh `2f79607`) |
 
 ## Sign-Off
 
