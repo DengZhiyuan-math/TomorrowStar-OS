@@ -1,12 +1,9 @@
 import json
 from pathlib import Path
 
-import pytest
-
 from career_evidence_graph.audit.workflow import canonical_assistance, parse_assistance
 
 
-@pytest.mark.phase03_original_probe
 def test_legacy_codex_assisted_reads_and_new_write_is_canonical():
     path = Path("validation/fixtures/stoa/v1/known-good.json")
     raw = path.read_bytes()

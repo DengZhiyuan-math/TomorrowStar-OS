@@ -15,7 +15,6 @@ FIXTURE = ROOT / "validation/fixtures/stoa/v1/known-good.json"
 MANIFEST = ROOT / "validation/fixtures/stoa/v1/source-manifest.json"
 
 
-@pytest.mark.phase03_original_probe
 def test_inspection_order_is_stable() -> None:
     facts, limitations = inspect_contribution(
         FIXTURE, MANIFEST, "contrib-stoa-authorization-boundary"
@@ -25,7 +24,6 @@ def test_inspection_order_is_stable() -> None:
     assert all("ownership" not in fact.statement.lower() for fact in facts)
 
 
-@pytest.mark.phase03_original_probe
 def test_inspection_preserves_duplicate_source_locators(monkeypatch: pytest.MonkeyPatch) -> None:
     fixture = workflow._fixture(FIXTURE)
     links = fixture.claim_evidence_links
@@ -41,13 +39,11 @@ def test_inspection_preserves_duplicate_source_locators(monkeypatch: pytest.Monk
     assert sum(fact.source_locator == links[0].section_locator for fact in facts) == 2
 
 
-@pytest.mark.phase03_original_probe
 def test_inspection_rejects_missing_contribution() -> None:
     with pytest.raises(AuditWorkflowError, match="Contribution is missing"):
         inspect_contribution(FIXTURE, MANIFEST, "contrib-stoa-does-not-exist")
 
 
-@pytest.mark.phase03_original_probe
 def test_inspection_rejects_empty_linked_evidence(monkeypatch: pytest.MonkeyPatch) -> None:
     fixture = workflow._fixture(FIXTURE)
     contribution = fixture.contributions[0]
@@ -68,7 +64,6 @@ def test_inspection_rejects_empty_linked_evidence(monkeypatch: pytest.MonkeyPatc
         inspect_contribution(FIXTURE, MANIFEST, contribution.id)
 
 
-@pytest.mark.phase03_original_probe
 def test_inspection_rejects_unverified_manifest(tmp_path: Path) -> None:
     manifest = tmp_path / "source-manifest.json"
     manifest.write_text("{}", encoding="utf-8")
