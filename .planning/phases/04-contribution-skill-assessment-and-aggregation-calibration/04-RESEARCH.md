@@ -70,7 +70,7 @@
 
 Phase 4 should be implemented as a deterministic, provider-neutral assessment and calibration layer over the existing Phase 2 domain contracts and completed Phase 3 audit snapshots. The repository already has frozen strict models, deterministic hashing, a reviewable skill normalizer, three independent assessment fields, one-view-per-Skill invariants, immutable audit proposal/review lineage, and atomic JSON stores. [VERIFIED: src/career_evidence_graph/validation/models.py:12-15] [VERIFIED: src/career_evidence_graph/domain/models.py:161-172] [VERIFIED: src/career_evidence_graph/domain/models.py:196-233] [VERIFIED: src/career_evidence_graph/audit/models.py:181-232] [VERIFIED: src/career_evidence_graph/audit/store.py:73-109]
 
-Do not put calibrated results into the sealed Phase 2 STOA fixture. Its collections are explicitly allowed to remain empty, and its existing user view says verbatim `expectation_status: "fixture-test-expectation"` and `policy_marker: "fixture-test-expectation"`; Phase 4 needs policy-bearing, versioned sidecar records that reference the sealed fixture and accepted audit lineage rather than mutating either source. [VERIFIED: src/career_evidence_graph/domain/models.py:220-246] The checked-in STOA fixture contains no Phase 4 assessment or user-Skill results, while the existing Phase 3 end-to-end audit is generated in `tmp_path`; Wave 0 therefore needs a checked-in calibration corpus with completed audits and deliberately adversarial counterfactuals. [VERIFIED: validation/fixtures/stoa/v1/known-good.json:1] [VERIFIED: tests/test_audit_gap_e2e.py:116-242]
+Do not put calibrated results into the sealed Phase 2 STOA fixture. Its collections are explicitly allowed to remain empty, and its existing user view says verbatim `expectation_status: "fixture-test-expectation"` and `policy_marker: "fixture-test-expectation"`; Phase 4 needs policy-bearing, versioned sidecar records that reference the sealed fixture and accepted audit lineage rather than mutating either source. [VERIFIED: src/career_evidence_graph/domain/models.py:220-246] The checked-in STOA fixture contains no Phase 4 assessment or user-Skill results, while the accepted Phase 3 end-to-end audit is generated in `tmp_path`. The sole completed/confirmed real tracer currently available is the deterministic `audit-e2e` journey for `contrib-stoa-authorization-boundary`; on the accepted checkout it produces AuditStore bytes with SHA-256 `7b7e1cf31f4fd5e492ef6a4d774afc4f386cc597a464bef705c7b5f1adc3047e`, `conclusion_lineage_hash` `sha256:33616b2f6b6e776ce4217a65489dd0328a63f14ef53d786a2bc059fd0888ec25`, and effective conclusion hash `sha256:e9494b027e4f1bd66ad9f3fe900ec85a605a9158d48b2a09af1c903f36c947bb`. Wave 0 therefore needs a checked-in minimum corpus that captures this completed audit without changing it, plus deliberately labeled deterministic derived/counterfactual cases. [VERIFIED: validation/fixtures/stoa/v1/known-good.json:1] [VERIFIED: tests/test_audit_gap_e2e.py:116-242] [VERIFIED: local deterministic replay, 2026-08-27]
 
 Aggregation must be intentionally boring: group admitted assessments by exact Skill, choose the strongest admitted assessment as the baseline, and leave it unchanged unless a distinct, reviewable cross-Contribution decision proves the next anchor. Never let a count, average, sum, duplicate, centrality value, or confidence value become an implicit mastery promotion. [VERIFIED: .planning/PROJECT.md:79-96] Candidate admission/aggregation policies should run on the same immutable inputs, retain disagreements and deltas, and require an explicit activation record; NIST's AI RMF Measure guidance supports documented, repeatable testing, uncertainty measurement, benchmark comparison, independent review, and recalibration, but does not prescribe this project's scoring formula. [CITED: https://airc.nist.gov/airmf-resources/airmf/5-sec-core/]
 
@@ -484,29 +484,52 @@ Use the same identity helper for source envelopes, policy versions, immutable pr
 | A3 | A deterministic proposer is sufficient for Phase 4 calibration and no optional model invocation is needed for acceptance. | Standard Stack | Medium: if real calibration demonstrates deterministic proposal quality is inadequate, the existing provider seam may be used without changing domain authority. |
 | A4 | No convenience composite is needed in Phase 4 because no acceptance criterion requires it. | Anti-Patterns | Low: it can be added later as a derived display value without changing the three authoritative dimensions. |
 
-No confidence/admission threshold is assumed here. The planner must make candidate thresholds policy data and place explicit human calibration/activation after comparative evidence. [VERIFIED: .planning/phases/04-contribution-skill-assessment-and-aggregation-calibration/04-CONTEXT.md:54-59]
+Confidence/admission thresholds remain candidate calibration policy rather than product truth. The resolved comparison set below serializes two concrete candidates and reserves activation to the named human authority after comparative evidence. [VERIFIED: .planning/phases/04-contribution-skill-assessment-and-aggregation-calibration/04-CONTEXT.md:54-59]
 
-## Open Questions
+## Resolved Planning Decisions
 
-1. **Which concrete STOA Skills and completed audits form the first calibration corpus?**
-   - What we know: the sealed fixture has four Contributions, evidence, and only a placeholder Skill; assessment and user-Skill collections are empty. [VERIFIED: validation/fixtures/stoa/v1/known-good.json:1]
-   - What's unclear: no checked-in completed audit snapshots map those Contributions to a reviewed specific-Skill catalog.
-   - Recommendation: Wave 0 should select at least two concrete Skills from real completed/reviewed STOA audits, bind them to exact fixture/audit hashes, and add synthetic negative/counterfactual variants separately.
+### RESOLVED 1 — Initial hash-bound STOA corpus
 
-2. **What candidate confidence threshold should define `pending-confirmation`?**
-   - What we know: it must be replaceable policy data; high-mastery/low-confidence cases are excluded pending substantive review. [VERIFIED: .planning/phases/04-contribution-skill-assessment-and-aggregation-calibration/04-CONTEXT.md:42-45]
-   - What's unclear: neither the threshold nor “high mastery” cutoff is frozen.
-   - Recommendation: do not choose it in a model default. Include at least two candidate policies and a boundary-case matrix, compare admission flips, then require an explicit human activation checkpoint.
+The minimum checked-in tracer corpus uses exactly one real completed/confirmed Phase 3 audit because that is all the repository currently establishes:
 
-3. **How much cross-context evidence is enough for a higher anchor?**
-   - What we know: promotion is allowed only when combined credible behavior satisfies the next anchor, with explicit behavior and assessment references. [VERIFIED: .planning/phases/04-contribution-skill-assessment-and-aggregation-calibration/04-CONTEXT.md:49-50]
-   - What's unclear: each anchor's operational rubric for distinct behavior/context and repeatability needs calibration.
-   - Recommendation: encode anchor-specific required observable conditions as versioned policy/rubric data, test allowed and denied promotions, and keep the reviewer decision inspectable.
+- Sealed input: `validation/fixtures/stoa/v1/known-good.json`, file SHA-256 `5b9cf494e08e97384168ccfa9d4b134ff35bb48d85038de82fcb6a148ce8011d`, sealed `confirmed_result_hash` `sha256:f393c1034a6d604ae915a18dac3bd206ce146e9c050b4e938048eb10a6378242`.
+- Source manifest: `validation/fixtures/stoa/v1/source-manifest.json`, file SHA-256 `3592600977b6fe54d9817ae9928878d849e791dc64d5ef2ff6a2139ba34ed219`, sealed manifest identity `sha256:79a56725a413a40ecc5f86f1cd6df9944ed7697ecc40afb5c7f2755265b2f066`.
+- Completed audit: deterministic `tests/test_audit_gap_e2e.py::test_offline_checkout_source_journeys_cover_aud_requirements` path `audit-e2e`, source commit `28f48973ff74734a7a82565b5bb5ed9c8f6c08f7`, verified Phase 3 source revision `2f79607`, Contribution `contrib-stoa-authorization-boundary`, AuditStore-byte SHA-256 `7b7e1cf31f4fd5e492ef6a4d774afc4f386cc597a464bef705c7b5f1adc3047e`, `conclusion_lineage_hash` `sha256:33616b2f6b6e776ce4217a65489dd0328a63f14ef53d786a2bc059fd0888ec25`, and effective conclusion hash `sha256:e9494b027e4f1bd66ad9f3fe900ec85a605a9158d48b2a09af1c903f36c947bb`.
+- Existing Skill record: `skill-stoa-reviewed-fixture` / `STOA reviewed fixture`. It is a fixture marker, not an independently verifiable capability, so it is a negative normalization/control case and MUST NOT receive mastery per D-01.
+- Positive tracer candidate: `skill.authorization-boundary-verification` / `Authorization boundary implementation and verification`, derived directly from the accepted conclusion's strongest capability. It is stored with `authority_kind: derived-counterfactual`, `source_audit_id: audit-e2e`, and D-03 `review-required` Skill-resolution provenance; it is not represented as an existing reviewed user Skill or silently added to the sealed fixture.
 
-4. **Should the existing immutable `FormalRunStore` be extended or used only as a pattern?**
-   - What we know: it atomically creates immutable bundles, verifies exact payload sets and ancestry, and hashes seven reproducibility inputs. [VERIFIED: src/career_evidence_graph/validation/store.py:92-218] [VERIFIED: src/career_evidence_graph/validation/store.py:252-338]
-   - What's unclear: its fixed payload filenames are Phase 1 formal-run vocabulary and may not fit Phase 4 assessment history directly.
-   - Recommendation: reuse its hashing/write/verification pattern and manifest concepts; extend it only if doing so remains clearer than a minimal Phase 4 store. Do not force assessment records into misleading `raw_response` or model fields.
+Plan 04-01 checks in this minimum corpus before scoring code. The larger case matrix in Plan 04-05 extends it only with deterministic cases labeled `derived-counterfactual` or `synthetic-negative`, each naming its parent case and transform. No nonexistent audit, second real STOA Skill, or broad-calibration claim is permitted.
+
+### RESOLVED 2 — Candidate confidence policies and activation authority
+
+Both candidates define `high_mastery_min: 70` because 70 is the accepted first anchor requiring independent complex problem handling and defended decisions. They differ only in the evidence-confidence boundary:
+
+- `policy-04-baseline-60`: `pending-confirmation` when `demonstrated_mastery >= 70` and `evidence_confidence < 60`.
+- `policy-04-conservative-70`: `pending-confirmation` when `demonstrated_mastery >= 70` and `evidence_confidence < 70`.
+
+Threshold comparison is integer-exact and includes equality cases at mastery 69/70 and confidence 59/60/69/70. Regardless of score, disputed results, unresolved responsibility, unresolved assistance, and `self-assessed-unverified` origins remain excluded until D-10 substantive review. Comparison criteria are: false admission of an insufficient case, false deferral of a substantively supported case, admission flips, anchor-band changes, reviewer disagreement, deterministic repeat variance, no-inflation regressions, and preservation of all source lineage. Neither candidate is product truth merely because it passes deterministic tests.
+
+Only the human project owner acting as the Phase 4 calibration reviewer (`reviewer_id: zhdeng`, asserted local provenance rather than authenticated identity) may activate one candidate. Activation occurs at the blocking Plan 04-05 decision checkpoint after the same-input comparison; it requires the chosen policy/result/comparison hashes, reason, limitations, and expected prior active policy. The executor, tests, model/provider, or comparison routine may not auto-select or auto-activate a policy. The human may reject both, which leaves Phase 4 unactivated and prevents completion rather than inventing a default.
+
+### RESOLVED 3 — Exact cross-context next-anchor promotion rubric
+
+Every promotion first satisfies all common gates: the target is exactly the immediate next anchor; at least two current `admitted` assessments for the same exact Skill come from distinct Contribution IDs and distinct real context IDs; repeated Evidence or duplicated relationships do not establish distinctness; every target behavior is cited to an assessment's accepted audit basis; responsibility and assistance are resolved; and a separate rationale names the assessment, behavior, and context links. The promoted score is the target anchor's lower bound unless a separately reviewed exact-score basis supports a higher integer inside that band.
+
+The target-anchor behavior set is exact:
+
+- 20–39: fundamentals are explained and one simple task is completed with explicit guidance.
+- 40–54: one bounded practical task is completed and the used documentation or guidance is named.
+- 55–69: one common, well-bounded practical task is completed independently; counts of guided tasks cannot establish independence.
+- 70–79: a complex problem is handled independently and the relevant decisions are both explained and defended.
+- 80–89: complete module/system ownership is shown across delivery, failure handling, trade-offs, and maintenance.
+- 90–95: advanced responsibility is demonstrated at least twice across at least two real contexts, and at least one cited behavior shows guiding another person.
+- 96–100: at least three admitted Contributions across at least three real contexts show sustained breadth, advanced responsibility, failure/trade-off/maintenance ownership, guidance of others, and strongly verified expert behavior; the verified duration and independent evidence establishing `sustained` remain separately inspectable.
+
+If the union of cited behaviors does not cover every condition for the target anchor, or if multiplicity is the only new fact, mastery remains exactly the strongest admitted baseline. These are candidate rubric semantics stored in policy data and compared before human activation, not universal product truth.
+
+### RESOLVED 4 — Minimal sidecar store, with FormalRunStore as pattern only
+
+Phase 4 adds one minimal schema-versioned `AssessmentStore` sidecar for proposal/review/admission/aggregate state, directly reusing the accepted `AuditStore` validate → canonical bytes → temp file → fsync → atomic replace pattern. Immutable policy-run/comparison/activation bundles adapt the `FormalRunStore` manifest, content-hash, exact-inventory, and ancestry verification concepts, but `FormalRunStore` itself is neither extended nor used as the Phase 4 container because its fixed prompt/model/raw-response vocabulary would create misleading fields. No event log, replay engine, lock/transaction layer, database, or second canonicalizer is added.
 
 ## Environment Availability
 
@@ -657,7 +680,7 @@ OWASP ASVS 5.0.0 is the stable release, and its current category numbering diffe
 - Standard stack: HIGH — installed versions, lock/config, and source files were verified; no new dependency is proposed.
 - Architecture: HIGH — recommendations follow locked D-01 through D-16 and reuse inspected domain/audit/storage seams.
 - Pitfalls: HIGH — most are demonstrated by current source boundaries or explicit requirements; Pydantic update behavior is confirmed by official documentation.
-- Calibration thresholds: LOW / deliberately unresolved — exact thresholds require fixture-based human calibration and explicit activation.
+- Calibration thresholds: MEDIUM — two concrete candidate policies and their boundary matrix are resolved for comparison, while product activation remains deliberately human-gated and not preselected.
 
 **Research date:** 2026-08-27
 

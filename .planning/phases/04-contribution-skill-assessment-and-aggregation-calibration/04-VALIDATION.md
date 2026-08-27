@@ -40,14 +40,14 @@ created: 2026-08-27
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 04-W0-ASS01 | TBD | 0 | ASS-01 | T-04-01 / T-04-05 | Strict source envelope; only completed audited Contributions propose a specific Skill | integration | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_assessment_proposal.py` | ❌ W0 | ⬜ pending |
-| 04-W0-ASS02 | TBD | 0 | ASS-02 | T-04-01 | Mastery, centrality, and confidence remain independent and strictly validated | unit/golden | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_assessment_models.py -k independent` | ❌ W0 | ⬜ pending |
-| 04-W0-ASS03 | TBD | 0 | ASS-03 | T-04-02 | Exact score cannot escape its stored observable anchor | invariant/golden | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_mastery_anchors.py` | ❌ W0 | ⬜ pending |
-| 04-W0-ASS04 | TBD | 0 | ASS-04 | Low-confidence high-mastery proposals fail closed as pending until substantive review | workflow | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_assessment_admission.py` | ❌ W0 | ⬜ pending |
-| 04-W0-AGG01 | TBD | 0 | AGG-01 | One policy-bearing, traceable result exists per exact Skill | invariant/integration | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_skill_aggregation.py -k traceable` | ❌ W0 | ⬜ pending |
-| 04-W0-AGG02 | TBD | 0 | AGG-02 | Duplicate Evidence, Contributions, assessments, and incidental volume are mastery-neutral | metamorphic | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_skill_aggregation.py -k no_inflation` | ❌ W0 | ⬜ pending |
-| 04-W0-AGG03 | TBD | 0 | AGG-03 | Promotion requires explicit proof that combined behavior satisfies the next anchor | golden | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_anchor_promotion.py` | ❌ W0 | ⬜ pending |
-| 04-W0-AGG04 | TBD | 0 | AGG-04 | Policy history, reviewer disagreement, variance, activation, and regressions remain inspectable | integration/golden | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_policy_calibration.py` | ❌ W0 | ⬜ pending |
+| 04-W0-ASS01 | 04-01 | 0 | ASS-01 | T-04-01 / T-04-05 | Strict source envelope; only completed audited Contributions propose a specific Skill | integration | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_assessment_proposal.py` | ❌ W0 | ⬜ pending |
+| 04-W0-ASS02 | 04-01 | 0 | ASS-02 | T-04-01 | Mastery, centrality, and confidence remain independent and strictly validated | unit/golden | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_assessment_models.py -k independent` | ❌ W0 | ⬜ pending |
+| 04-W0-ASS03 | 04-01 | 0 | ASS-03 | T-04-02 | Exact score cannot escape its stored observable anchor | invariant/golden | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_mastery_anchors.py` | ❌ W0 | ⬜ pending |
+| 04-W0-ASS04 | 04-01 | 0 | ASS-04 | Low-confidence high-mastery proposals fail closed as pending until substantive review | workflow | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_assessment_admission.py` | ❌ W0 | ⬜ pending |
+| 04-W0-AGG01 | 04-01 | 0 | AGG-01 | One policy-bearing, traceable result exists per exact Skill | invariant/integration | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_skill_aggregation.py -k traceable` | ❌ W0 | ⬜ pending |
+| 04-W0-AGG02 | 04-01 | 0 | AGG-02 | Duplicate Evidence, Contributions, assessments, and incidental volume are mastery-neutral | metamorphic | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_skill_aggregation.py -k no_inflation` | ❌ W0 | ⬜ pending |
+| 04-W0-AGG03 | 04-01 | 0 | AGG-03 | Promotion requires explicit proof that combined behavior satisfies the next anchor | golden | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_anchor_promotion.py` | ❌ W0 | ⬜ pending |
+| 04-W0-AGG04 | 04-01 | 0 | AGG-04 | Policy history, reviewer disagreement, variance, activation, and regressions remain inspectable | integration/golden | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_policy_calibration.py` | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
