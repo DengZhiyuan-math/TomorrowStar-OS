@@ -193,14 +193,87 @@ class AssessmentLineage(StrictModel):
     contribution_id: Identifier = Field(pattern=ID_PATTERN)
 
 
+class MasteryAnchor(StrictModel):
+    """One accepted, schema-versioned capability anchor from the project contract."""
+
+    schema_version: Literal["mastery-anchor/v1"] = "mastery-anchor/v1"
+    anchor_id: str = Field(pattern=r"^anchor-[0-9]{1,3}-[0-9]{1,3}$")
+    inclusive_range: tuple[int, int]
+    capability_text: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_identity_and_range(self) -> MasteryAnchor:
+        low, high = self.inclusive_range
+        if not 0 <= low <= high <= 100:
+            raise ValueError("inclusive_range must be inside 0 through 100")
+        if self.anchor_id != f"anchor-{low}-{high}":
+            raise ValueError("anchor_id must name inclusive_range")
+        return self
+
+
+MASTERY_ANCHORS: tuple[MasteryAnchor, ...] = (
+    MasteryAnchor(
+        anchor_id="anchor-0-19",
+        inclusive_range=(0, 19),
+        capability_text="Exposure only; cannot complete a practical task",
+    ),
+    MasteryAnchor(
+        anchor_id="anchor-20-39",
+        inclusive_range=(20, 39),
+        capability_text=(
+            "Understands fundamentals; can complete simple tasks with explicit guidance"
+        ),
+    ),
+    MasteryAnchor(
+        anchor_id="anchor-40-54",
+        inclusive_range=(40, 54),
+        capability_text="Can complete bounded practical tasks with documentation or guidance",
+    ),
+    MasteryAnchor(
+        anchor_id="anchor-55-69",
+        inclusive_range=(55, 69),
+        capability_text="Can independently complete common, well-bounded practical tasks",
+    ),
+    MasteryAnchor(
+        anchor_id="anchor-70-79",
+        inclusive_range=(70, 79),
+        capability_text=(
+            "Can independently handle complex problems and explain and defend decisions"
+        ),
+    ),
+    MasteryAnchor(
+        anchor_id="anchor-80-89",
+        inclusive_range=(80, 89),
+        capability_text=(
+            "Can own a complete module or system, including failures, trade-offs, and maintenance"
+        ),
+    ),
+    MasteryAnchor(
+        anchor_id="anchor-90-95",
+        inclusive_range=(90, 95),
+        capability_text=(
+            "Has repeatedly carried advanced responsibility in multiple real contexts "
+            "and can guide others"
+        ),
+    ),
+    MasteryAnchor(
+        anchor_id="anchor-96-100",
+        inclusive_range=(96, 100),
+        capability_text="Rare; sustained, broad, and strongly verified expert capability",
+    ),
+)
+
+
 class MasteryAnchorFit(StrictModel):
     """Observable capability anchor and the score selected within it."""
 
     schema_version: Literal["mastery-anchor-fit/v1"] = "mastery-anchor-fit/v1"
     anchor_id: str = Field(pattern=r"^anchor-[0-9]{1,3}-[0-9]{1,3}$")
     anchor_range: tuple[int, int]
+    anchor_text: str = Field(min_length=1)
     anchor_basis: str = Field(min_length=1)
     exact_score_basis: str = Field(min_length=1)
+    next_anchor_not_established: str = Field(min_length=1)
 
     @model_validator(mode="after")
     def validate_range(self) -> MasteryAnchorFit:
@@ -209,6 +282,36 @@ class MasteryAnchorFit(StrictModel):
             raise ValueError("anchor_range must be inside 0 through 100")
         if self.anchor_id != f"anchor-{low}-{high}":
             raise ValueError("anchor_id must name anchor_range")
+        expected = next(
+            (item for item in MASTERY_ANCHORS if item.anchor_id == self.anchor_id), None
+        )
+        if expected is None or expected.inclusive_range != self.anchor_range:
+            raise ValueError("anchor_id must be an accepted mastery anchor")
+        if self.anchor_text != expected.capability_text:
+            raise ValueError("anchor_text must exactly match the accepted anchor")
+        for value in (self.anchor_basis, self.exact_score_basis, self.next_anchor_not_established):
+            if not value.strip():
+                raise ValueError("mastery anchor bases cannot be blank")
+        return self
+
+
+class AssessmentJudgmentBasis(StrictModel):
+    """Independent observable bases for the three non-interchangeable judgments."""
+
+    schema_version: Literal["assessment-judgment-basis/v1"] = "assessment-judgment-basis/v1"
+    demonstrated_mastery_basis: str = Field(min_length=1)
+    skill_centrality_basis: str = Field(min_length=1)
+    evidence_confidence_basis: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def reject_blank_bases(self) -> AssessmentJudgmentBasis:
+        for value in (
+            self.demonstrated_mastery_basis,
+            self.skill_centrality_basis,
+            self.evidence_confidence_basis,
+        ):
+            if not value.strip():
+                raise ValueError("assessment judgment bases cannot be blank")
         return self
 
 
@@ -309,6 +412,7 @@ class ContributionSkillAssessment(StrictModel):
     assessment_status: Literal["partial", "unresolved", "reviewed", "derived-counterfactual"]
     mastery_anchor_fit: MasteryAnchorFit | None = None
     exact_score_basis: str | None = None
+    judgment_basis: AssessmentJudgmentBasis | None = None
     source_envelope: AssessmentSourceEnvelope | None = None
 
     @model_validator(mode="after")
@@ -318,7 +422,12 @@ class ContributionSkillAssessment(StrictModel):
         if not self.context.strip():
             raise ValueError("context cannot be blank")
         _unique_ids(self.basis_claim_ids, "basis_claim_ids")
-        effective_fields = (self.mastery_anchor_fit, self.exact_score_basis, self.source_envelope)
+        effective_fields = (
+            self.mastery_anchor_fit,
+            self.exact_score_basis,
+            self.judgment_basis,
+            self.source_envelope,
+        )
         if any(value is not None for value in effective_fields) and not all(
             value is not None for value in effective_fields
         ):

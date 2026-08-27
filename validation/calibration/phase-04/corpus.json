@@ -77,9 +77,17 @@
       "schema_version": "mastery-anchor-fit/v1",
       "anchor_id": "anchor-55-69",
       "anchor_range": [55, 69],
+      "anchor_text": "Can independently complete common, well-bounded practical tasks",
       "anchor_basis": "The audited Contribution establishes a bounded authorization implementation and verification capability.",
-      "exact_score_basis": "60 stays inside the independently completing common bounded tasks anchor."
+      "exact_score_basis": "60 stays inside the independently completing common bounded tasks anchor.",
+      "next_anchor_not_established": "Independently handling complex authorization failures and defending the resulting decisions was not established."
     },
-    "exact_score_basis": "60 stays inside the independently completing common bounded tasks anchor."
+    "exact_score_basis": "60 stays inside the independently completing common bounded tasks anchor.",
+    "judgment_basis": {
+      "schema_version": "assessment-judgment-basis/v1",
+      "demonstrated_mastery_basis": "The confirmed audit establishes bounded authorization implementation and verification, without evidence for independently handling complex failures.",
+      "skill_centrality_basis": "The synthetic calibration candidate treats authorization-boundary verification as central to the selected Contribution.",
+      "evidence_confidence_basis": "The synthetic calibration derives confidence from the sealed fixture, completed audit lineage, and retained source limits."
+    }
   }
 }

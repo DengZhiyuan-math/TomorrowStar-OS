@@ -20,6 +20,7 @@ from .domain.invariants import _normalized_text, normalize_skill_metadata
 from .domain.models import (
     AdmissionDecision,
     AggregationPolicy,
+    AssessmentJudgmentBasis,
     AssessmentLineage,
     AssessmentSourceEnvelope,
     CalibratedUserSkillResult,
@@ -441,6 +442,7 @@ def propose_assessment(
             assessment_status="derived-counterfactual",
             mastery_anchor_fit=MasteryAnchorFit.model_validate(candidate["mastery_anchor_fit"]),
             exact_score_basis=str(candidate["exact_score_basis"]),
+            judgment_basis=AssessmentJudgmentBasis.model_validate(candidate["judgment_basis"]),
             source_envelope=source,
         )
     except (KeyError, TypeError, ValueError, ValidationError) as exc:

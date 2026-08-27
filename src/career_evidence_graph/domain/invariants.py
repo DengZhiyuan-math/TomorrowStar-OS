@@ -10,14 +10,39 @@ from pydantic import ValidationError
 
 from ..validation.hashing import canonical_json_bytes, sha256_digest
 from .models import (
+    MASTERY_ANCHORS,
     CareerEvidenceFixture,
     FixtureValidationResult,
     InvariantViolation,
+    MasteryAnchor,
+    MasteryAnchorFit,
     OntologyRelation,
     Skill,
     SkillAlias,
     SkillNormalizationRecord,
 )
+
+
+def validate_mastery_anchor_fit(score: int, fit: MasteryAnchorFit) -> MasteryAnchor:
+    """Fail closed unless one accepted anchor contains this exact integer score."""
+    matching = tuple(
+        anchor
+        for anchor in MASTERY_ANCHORS
+        if anchor.inclusive_range[0] <= score <= anchor.inclusive_range[1]
+    )
+    if len(matching) != 1:
+        raise ValueError("score must map to exactly one accepted mastery anchor")
+    anchor = matching[0]
+    if fit.anchor_id != anchor.anchor_id or fit.anchor_range != anchor.inclusive_range:
+        raise ValueError("demonstrated mastery must fall inside its anchor")
+    if fit.anchor_text != anchor.capability_text:
+        raise ValueError("mastery anchor text does not match the accepted anchor")
+    if not fit.anchor_basis.strip() or not fit.exact_score_basis.strip():
+        raise ValueError("mastery anchor requires observable and exact-score bases")
+    if not fit.next_anchor_not_established.strip():
+        raise ValueError("mastery anchor requires the next anchor not established")
+    return anchor
+
 
 DIRECT_MASTERY_SOURCES = frozenset(
     {

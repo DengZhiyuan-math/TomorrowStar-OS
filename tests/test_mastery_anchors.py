@@ -13,7 +13,9 @@ from career_evidence_graph.domain.models import (
 )
 
 
-def _fit(anchor_id: str, score_basis: str = "The bounded task was independently completed.") -> MasteryAnchorFit:
+def _fit(
+    anchor_id: str, score_basis: str = "The bounded task was independently completed."
+) -> MasteryAnchorFit:
     anchor = next(item for item in MASTERY_ANCHORS if item.anchor_id == anchor_id)
     return MasteryAnchorFit(
         anchor_id=anchor.anchor_id,
@@ -63,7 +65,7 @@ def test_anchor_fit_rejects_wrong_text_missing_next_anchor_and_higher_band_misma
         _fit("anchor-70-79").model_copy(update={"anchor_text": "wrong text"}).model_validate(
             _fit("anchor-70-79").model_copy(update={"anchor_text": "wrong text"}).model_dump()
         )
-    with pytest.raises(ValidationError, match="next_anchor_not_established"):
+    with pytest.raises(ValidationError, match="cannot be blank"):
         MasteryAnchorFit(
             anchor_id=fit.anchor_id,
             anchor_range=fit.anchor_range,
