@@ -156,6 +156,14 @@ def test_question_guard_rejects_repeated_multipart_and_leading_prompt(tmp_path) 
         workflow._validate_new_question(
             question.model_copy(update={"prompt": "What changed? Why did it change?"}), ()
         )
+    with pytest.raises(AuditWorkflowError, match="focused"):
+        workflow._validate_new_question(
+            question.model_copy(update={"prompt": "Describe the authorization change."}), ()
+        )
+    with pytest.raises(AuditWorkflowError, match="focused"):
+        workflow._validate_new_question(
+            question.model_copy(update={"prompt": "List the implementation steps."}), ()
+        )
     with pytest.raises(AuditWorkflowError, match="leading"):
         workflow._validate_new_question(
             question.model_copy(update={"prompt": "Clearly you owned this, isn't it?"}), ()

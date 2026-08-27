@@ -122,7 +122,7 @@ def _prompt_key(prompt: str) -> str:
 
 
 def _validate_new_question(question: AuditQuestion, previous: tuple[AuditQuestion, ...]) -> None:
-    if question.prompt.count("?") + question.prompt.count("？") > 1:
+    if question.prompt.count("?") + question.prompt.count("？") != 1:
         raise AuditWorkflowError("audit question must contain one focused question")
     if _UNSAFE_PROMPT.search(question.prompt):
         raise AuditWorkflowError("audit question is leading or artifact-answerable")
@@ -166,7 +166,7 @@ def _capability_question(
     fact = _fact_for(snapshot, area)
     prompt = _capability_prompt(area, difficulty)
     if follow_up_count:
-        prompt = f"{prompt.rstrip('?？')} Give one concrete example."
+        prompt = f"Can you give one concrete example that clarifies this: {prompt.rstrip('?？')}?"
     elif any(
         item.turn == "capability"
         and item.capability_area_id == area.area_id
