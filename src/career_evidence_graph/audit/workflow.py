@@ -7,6 +7,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from ..domain.fixtures import SealedFixtureRecord, load_sealed_fixture, verify_source_manifest
+from ..validation.hashing import canonical_json_bytes, sha256_digest
 from .decision import (
     AuditDecisionPort,
     FakeDecisionPort,
@@ -20,9 +21,12 @@ from .models import (
     AuditAction,
     AuditAnswer,
     AuditAttribution,
+    AuditConclusion,
     AuditCoverage,
     AuditQuestion,
     AuditSnapshot,
+    ConclusionEntry,
+    ConclusionReview,
     ProbeArea,
 )
 from .store import AuditStore
@@ -267,7 +271,16 @@ def _classify_ownership(text: str) -> str:
 
 def _classify_assistance(text: str) -> tuple[str, tuple[str, ...], str | None, str | None]:
     value = text.casefold()
-    if any(term in value for term in ("no assistance", "without assistance", "没有协助", "无协助")):
+    if any(
+        term in value
+        for term in (
+            "no assistance",
+            "no outside assistance",
+            "without assistance",
+            "没有协助",
+            "无协助",
+        )
+    ):
         return "none", (), None, None
     scope = tuple(
         label
@@ -309,8 +322,196 @@ def _next_area_question(snapshot: AuditSnapshot) -> AuditQuestion | None:
 def _with_next_or_terminal(snapshot: AuditSnapshot) -> AuditSnapshot:
     next_question = _next_area_question(snapshot)
     if next_question is None:
-        return snapshot.model_copy(update={"status": "reviewing"})
+        return _enter_reviewing(snapshot)
     return snapshot.model_copy(update={"questions": (*snapshot.questions, next_question)})
+
+
+def _conflict_messages(snapshot: AuditSnapshot) -> tuple[str, ...]:
+    return tuple(
+        f"Artifact says: {conflict.artifact_claim}; user says: {conflict.user_claim}"
+        for conflict in snapshot.attribution_conflicts
+    )
+
+
+def _entry_basis(snapshot: AuditSnapshot, area_id: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    questions = tuple(
+        question
+        for question in snapshot.questions
+        if question.capability_area_id == area_id
+    )
+    answer_ids = {answer.question_id for answer in snapshot.answers}
+    answer_references = tuple(
+        f"answer:{question.id}" for question in questions if question.id in answer_ids
+    )
+    area = _area_for(snapshot, area_id)
+    artifact_references = tuple(
+        _fact_for(snapshot, area).source_locator for _ in area.inspected_fact_ids[:1]
+    )
+    return artifact_references, answer_references
+
+
+def _conclusion_entry(snapshot: AuditSnapshot, coverage: AuditCoverage) -> ConclusionEntry:
+    artifact_references, answer_references = _entry_basis(snapshot, coverage.area_id)
+    conflicts = _conflict_messages(snapshot)
+    record = _attribution(snapshot, coverage.area_id)
+    if coverage.status == "verified":
+        if (
+            coverage.attribution_stage != "complete"
+            or record.ownership_answer is None
+            or record.assistance_answer is None
+            or coverage.strongest_capability is None
+            or coverage.next_higher_not_established is None
+        ):
+            raise AuditWorkflowError(
+                "verified conclusion requires terminal boundary plus ownership and assistance"
+            )
+        return ConclusionEntry(
+            id=f"entry-{coverage.area_id}",
+            area=coverage.area_id,
+            strongest_capability=coverage.strongest_capability,
+            next_higher_not_established=coverage.next_higher_not_established,
+            basis=(*artifact_references, *answer_references),
+            artifact_references=artifact_references,
+            answer_references=answer_references,
+            source_type="artifact-and-answer",
+            responsibility_boundary=f"{record.ownership}: {record.ownership_answer}",
+            assistance_boundary=f"{record.assistance}: {record.assistance_answer}",
+            verification="audit-verified",
+            conflicts=conflicts,
+            unresolved_gaps=tuple(
+                limitation for limitation in snapshot.limitations if limitation not in conflicts
+            ),
+        )
+    if coverage.status == "skipped":
+        rating = coverage.self_rating or ""
+        return ConclusionEntry(
+            id=f"entry-{coverage.area_id}",
+            area=coverage.area_id,
+            basis=answer_references or ("self-rating supplied without an audit answer",),
+            artifact_references=artifact_references,
+            answer_references=answer_references,
+            source_type="answer-only",
+            responsibility_boundary="unresolved: Contribution interview was skipped",
+            assistance_boundary="unresolved: Contribution interview was skipped",
+            verification="self-assessed-unverified",
+            conflicts=conflicts,
+            unresolved_gaps=(
+                "No capability boundary was audited.",
+                "Responsibility and assistance were not established.",
+            ),
+            self_rating=rating,
+        )
+    return ConclusionEntry(
+        id=f"entry-{coverage.area_id}",
+        area=coverage.area_id,
+        basis=answer_references or ("no terminal capability answer",),
+        artifact_references=artifact_references,
+        answer_references=answer_references,
+        source_type="answer-only",
+        responsibility_boundary=(
+            f"{record.ownership}: {record.ownership_answer}"
+            if record.ownership_answer
+            else "unresolved: no ownership answer"
+        ),
+        assistance_boundary=(
+            f"{record.assistance}: {record.assistance_answer}"
+            if record.assistance_answer
+            else "unresolved: no assistance answer"
+        ),
+        verification="unresolved",
+        conflicts=conflicts,
+        unresolved_gaps=(
+            "No capability boundary was established.",
+            "Attribution remains unresolved where no separate turn was completed.",
+        ),
+    )
+
+
+def _effective_hash(
+    entries: tuple[ConclusionEntry, ...], whole_review: str
+) -> str:
+    return sha256_digest(
+        canonical_json_bytes(
+            {
+                "entries": [entry.model_dump(mode="json") for entry in entries],
+                "whole_review": whole_review,
+            }
+        )
+    )
+
+
+def _enter_reviewing(snapshot: AuditSnapshot) -> AuditSnapshot:
+    entries = tuple(_conclusion_entry(snapshot, coverage) for coverage in snapshot.coverage)
+    original_proposal = {
+        "entries": [entry.model_dump(mode="json") for entry in entries],
+        "whole_review": "pending",
+    }
+    original_hash = sha256_digest(canonical_json_bytes(original_proposal))
+    conclusion = AuditConclusion(
+        entries=entries,
+        original_proposal=original_proposal,
+        original_proposal_hash=original_hash,
+        effective_conclusion_hash=_effective_hash(entries, "pending"),
+    )
+    return snapshot.model_copy(update={"status": "reviewing", "conclusion": conclusion})
+
+
+def _append_review(
+    snapshot: AuditSnapshot,
+    *,
+    target: str,
+    outcome: str,
+    reviewer_id: str,
+    reason: str,
+    entry_id: str | None = None,
+    correction: str | None = None,
+) -> AuditSnapshot:
+    if snapshot.conclusion is None:
+        raise AuditWorkflowError("review requires a conclusion")
+    before_hash = snapshot.conclusion.effective_conclusion_hash
+    entries = list(snapshot.conclusion.entries)
+    whole_review = snapshot.conclusion.whole_review
+    if target == "entry":
+        index = next((i for i, entry in enumerate(entries) if entry.id == entry_id), None)
+        if index is None:
+            raise AuditWorkflowError("selected conclusion entry is missing")
+        review = {"confirm": "confirmed", "edit": "edited", "reject": "rejected"}[outcome]
+        entries[index] = entries[index].model_copy(
+            update={"review": review, "correction": correction}
+        )
+    else:
+        whole_review = {"confirm": "confirmed", "reject": "rejected"}[outcome]
+    ordered_entries = tuple(entries)
+    after_hash = _effective_hash(ordered_entries, whole_review)
+    conclusion = snapshot.conclusion.model_copy(
+        update={
+            "entries": ordered_entries,
+            "whole_review": whole_review,
+            "effective_conclusion_hash": after_hash,
+        }
+    )
+    review = ConclusionReview(
+        review_id=f"review-{len(snapshot.conclusion_reviews) + 1}",
+        target=target,
+        outcome=outcome,
+        reviewer_id=reviewer_id,
+        reason=reason,
+        entry_id=entry_id,
+        correction=correction,
+        sequence=len(snapshot.conclusion_reviews) + 1,
+        before_effective_hash=before_hash,
+        after_effective_hash=after_hash,
+    )
+    status = snapshot.status
+    if target == "whole-conclusion":
+        status = "completed" if outcome == "confirm" else "rejected"
+    return snapshot.model_copy(
+        update={
+            "status": status,
+            "conclusion": conclusion,
+            "conclusion_reviews": (*snapshot.conclusion_reviews, review),
+        }
+    )
 
 
 def start_audit(
@@ -362,7 +563,7 @@ def _skip_area(snapshot: AuditSnapshot, question: AuditQuestion, self_rating: st
     questions[questions.index(question)] = question.model_copy(update={"status": "skipped"})
     coverage = _coverage(snapshot, question.capability_area_id or question.area)
     skipped = coverage.model_copy(
-        update={"status": "skipped", "self_rating": self_rating, "attribution_stage": "complete"}
+        update={"status": "skipped", "self_rating": self_rating, "attribution_stage": "none"}
     )
     updated = snapshot.model_copy(
         update={
@@ -535,7 +736,7 @@ def transition_audit(
     allowed = {
         "active": {"answer", "skip", "skip-contribution", "pause"},
         "paused": {"resume"},
-        "reviewing": set(),
+        "reviewing": {"review-entry", "review-conclusion"},
         "completed": set(),
         "rejected": set(),
     }
@@ -560,14 +761,13 @@ def transition_audit(
                 update={
                     "status": "skipped",
                     "self_rating": action.answer,
-                    "attribution_stage": "complete",
+                    "attribution_stage": "none",
                 }
             )
             for item in snapshot.coverage
         )
-        return snapshot.model_copy(
+        return _enter_reviewing(snapshot.model_copy(
             update={
-                "status": "reviewing",
                 "questions": questions,
                 "answers": (
                     *snapshot.answers,
@@ -575,6 +775,24 @@ def transition_audit(
                 ),
                 "coverage": coverage,
             }
+        ))
+    if action.action == "review-entry":
+        return _append_review(
+            snapshot,
+            target="entry",
+            outcome=action.decision or "",
+            entry_id=action.entry_id,
+            correction=action.correction,
+            reviewer_id=action.reviewer_id or "",
+            reason=action.reason or "",
+        )
+    if action.action == "review-conclusion":
+        return _append_review(
+            snapshot,
+            target="whole-conclusion",
+            outcome=action.decision or "",
+            reviewer_id=action.reviewer_id or "",
+            reason=action.reason or "",
         )
     question = _active_question(snapshot)
     if action.question_id is not None and action.question_id != question.id:

@@ -129,12 +129,14 @@ class ConclusionEntry(StrictModel):
     schema_version: Literal["audit-conclusion-entry/v1"] = "audit-conclusion-entry/v1"
     id: str = Field(pattern=r"^entry-[a-z0-9-]+$")
     area: str = Field(min_length=1)
-    strongest_capability: str = Field(min_length=1)
-    next_higher_not_established: str = Field(min_length=1)
+    strongest_capability: str | None = Field(default=None, min_length=1)
+    next_higher_not_established: str | None = Field(default=None, min_length=1)
     basis: tuple[str, ...] = Field(min_length=1)
     artifact_references: tuple[str, ...] = ()
     answer_references: tuple[str, ...] = ()
-    source_type: Literal["answer-only", "documentary-context-only"] = "answer-only"
+    source_type: Literal[
+        "artifact-and-answer", "answer-only", "documentary-context-only"
+    ] = "answer-only"
     responsibility_boundary: str = Field(min_length=1)
     assistance_boundary: str = Field(min_length=1)
     verification: Literal["audit-verified", "self-assessed-unverified", "unresolved"]
@@ -142,6 +144,19 @@ class ConclusionEntry(StrictModel):
     unresolved_gaps: tuple[str, ...] = ()
     review: Literal["pending", "edited", "confirmed", "rejected"] = "pending"
     correction: str | None = None
+    self_rating: str | None = None
+
+    @model_validator(mode="after")
+    def truthful_verification_boundary(self) -> ConclusionEntry:
+        boundary = (self.strongest_capability, self.next_higher_not_established)
+        if self.verification == "audit-verified" and not all(boundary):
+            raise ValueError("verified entries require both capability boundaries")
+        if self.verification == "self-assessed-unverified":
+            if not self.self_rating:
+                raise ValueError("self-assessed entries require the verbatim self-rating")
+            if any(boundary):
+                raise ValueError("self-assessed entries cannot manufacture capability boundaries")
+        return self
 
 
 class AuditConclusion(StrictModel):
@@ -149,7 +164,8 @@ class AuditConclusion(StrictModel):
     entries: tuple[ConclusionEntry, ...] = Field(min_length=1)
     whole_review: Literal["pending", "confirmed", "rejected"] = "pending"
     original_proposal: dict[str, object]
-    review_reason: str | None = None
+    original_proposal_hash: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
+    effective_conclusion_hash: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
 
 
 class ConclusionReview(StrictModel):
@@ -161,6 +177,9 @@ class ConclusionReview(StrictModel):
     reason: str = Field(min_length=1)
     entry_id: str | None = None
     correction: str | None = None
+    sequence: int = Field(ge=1)
+    before_effective_hash: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
+    after_effective_hash: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
 
 
 class AuditAction(StrictModel):
@@ -194,6 +213,8 @@ class AuditAction(StrictModel):
             raise ValueError("review requires decision, reviewer_id, and reason")
         if self.action == "review-entry" and self.decision == "edit" and not self.correction:
             raise ValueError("entry edit requires correction")
+        if self.action == "review-conclusion" and self.decision == "edit":
+            raise ValueError("whole-conclusion review may only confirm or reject")
         return self
 
 

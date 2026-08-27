@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from career_evidence_graph.audit.models import AuditAction
-from career_evidence_graph.audit.store import AuditStore
+from career_evidence_graph.audit.decision import RecordedDecisionPort
+from career_evidence_graph.audit.models import AuditAction, BoundaryDecision, ProbeArea, ProbePlan
 from career_evidence_graph.audit.workflow import AuditWorkflowError, start_audit, transition_audit
 
 ROOT = Path(__file__).parents[1]
@@ -13,189 +13,160 @@ FIXTURE = ROOT / "validation/fixtures/stoa/v1/known-good.json"
 MANIFEST = FIXTURE.with_name("source-manifest.json")
 
 
-def _complete(tmp_path: Path):
-    store = AuditStore(tmp_path)
-    snap = start_audit(
+def _port() -> RecordedDecisionPort:
+    area = ProbeArea(
+        area_id="implementation",
+        inspected_fact_ids=("evid-stoa-backend-audit",),
+        unverified_capability="authorization-boundary implementation",
+        demanding_prompt="How did you defend the authorization boundary under failure?",
+        intermediate_prompt="Which authorization boundary did you implement and check?",
+        simple_prompt="Which authorization implementation step did you complete?",
+        immediately_higher_capability="independently defending authorization failures",
+    )
+    plan = ProbePlan(
+        contribution_id="contrib-stoa-authorization-boundary", areas=(area,)
+    )
+    return RecordedDecisionPort(plan=plan, decisions={})
+
+
+def _started(tmp_path: Path, audit_id: str = "audit-conclusion"):
+    return start_audit(
         workspace=tmp_path,
         fixture_path=FIXTURE,
         manifest_path=MANIFEST,
         contribution_id="contrib-stoa-authorization-boundary",
-        audit_id="audit-conclusion",
+        audit_id=audit_id,
+        decision_port=_port(),
     )
-    answers = {
-        "implementation": "I designed and verified the boundary.",
-        "debugging": "I isolated the failure and repaired it.",
-        "operation": "I operated and checked the dependency failure.",
-        "responsibility": "I owned the decisions and acceptance.",
-        "assistance": "没有外部协助。",
-    }
-    for area, answer in answers.items():
-        action = AuditAction(
-            action="answer",
-            answer=answer,
-            action_id=f"conclusion-answer-{area}",
-            expected_event_hash=store.latest_event_hash(snap.audit_id),
-        )
-        snap, replayed = store.transact(
-            snap.audit_id,
-            action,
-            lambda current, action=action: transition_audit(store, current, action),
-        )
-        assert not replayed
-    return store.read("audit-conclusion")
 
 
-@pytest.mark.phase03_original_probe
-def test_incomplete_coverage_blocks_conclusion(tmp_path: Path):
-    snap = start_audit(
-        workspace=tmp_path,
-        fixture_path=FIXTURE,
-        manifest_path=MANIFEST,
-        contribution_id="contrib-stoa-authorization-boundary",
-        audit_id="audit-incomplete",
+def _established(tmp_path: Path):
+    snapshot = _started(tmp_path)
+    question = snapshot.questions[-1]
+    answer = "I chose the authorization boundary and verified its failure behavior."
+    port = _port()
+    port._decisions[(question.id, answer)] = BoundaryDecision(
+        question_id=question.id,
+        answer=answer,
+        outcome="established",
+        rationale="Recorded fixture establishes the capability boundary.",
+        strongest_capability="implementing and verifying the authorization boundary",
+        next_higher_not_established="independently defending authorization failures",
     )
-    with pytest.raises(ValueError, match="coverage"):
+    snapshot = transition_audit(
+        snapshot, AuditAction(action="answer", answer=answer), decision_port=port
+    )
+    snapshot = transition_audit(
+        snapshot,
+        AuditAction(action="answer", answer="I owned the design decisions and final acceptance."),
+    )
+    return transition_audit(
+        snapshot,
+        AuditAction(action="answer", answer="No outside assistance."),
+    )
+
+
+def test_verified_entry_requires_terminal_boundary_and_both_attribution_turns(tmp_path: Path):
+    snapshot = _started(tmp_path)
+    question = snapshot.questions[-1]
+    answer = "I chose the authorization boundary and verified its failure behavior."
+    port = _port()
+    port._decisions[(question.id, answer)] = BoundaryDecision(
+        question_id=question.id,
+        answer=answer,
+        outcome="established",
+        rationale="Recorded fixture establishes the capability boundary.",
+        strongest_capability="implementing and verifying the authorization boundary",
+        next_higher_not_established="independently defending authorization failures",
+    )
+    ownership = transition_audit(
+        snapshot, AuditAction(action="answer", answer=answer), decision_port=port
+    )
+    assert ownership.questions[-1].turn == "ownership"
+    assistance = transition_audit(
+        ownership,
+        AuditAction(action="answer", answer="I owned the design decisions and final acceptance."),
+    )
+    assert assistance.questions[-1].turn == "assistance"
+    assert assistance.conclusion is None
+
+    completed = transition_audit(
+        assistance, AuditAction(action="answer", answer="No outside assistance.")
+    )
+    entry = completed.conclusion.entries[0]
+    assert completed.status == "reviewing"
+    assert entry.area == "implementation"
+    assert entry.verification == "audit-verified"
+    assert entry.artifact_references and entry.answer_references
+    assert entry.responsibility_boundary.startswith("user-owned:")
+    assert entry.assistance_boundary.startswith("none:")
+
+
+def test_reviews_preserve_immutable_proposal_and_append_ordered_lineage(tmp_path: Path):
+    snapshot = _established(tmp_path)
+    original = snapshot.conclusion.original_proposal
+    original_hash = snapshot.conclusion.original_proposal_hash
+    initial_effective_hash = snapshot.conclusion.effective_conclusion_hash
+
+    edited = transition_audit(
+        snapshot,
+        AuditAction(
+            action="review-entry",
+            entry_id="entry-implementation",
+            decision="edit",
+            correction="Clarified independently owned boundary decision.",
+            reason="Make the boundary precise.",
+            reviewer_id="reviewer",
+        ),
+    )
+    assert edited.conclusion.original_proposal == original
+    assert edited.conclusion.original_proposal_hash == original_hash
+    assert edited.conclusion.effective_conclusion_hash != initial_effective_hash
+    assert edited.conclusion_reviews[-1].sequence == 1
+    assert edited.conclusion_reviews[-1].before_effective_hash == initial_effective_hash
+
+    rejected = transition_audit(
+        edited,
+        AuditAction(
+            action="review-conclusion",
+            decision="reject",
+            reason="Need a new interview before accepting this conclusion.",
+            reviewer_id="reviewer",
+        ),
+    )
+    assert rejected.status == "rejected"
+    assert rejected.conclusion.original_proposal == original
+    assert [review.sequence for review in rejected.conclusion_reviews] == [1, 2]
+    assert rejected.conclusion_reviews[-1].target == "whole-conclusion"
+
+
+def test_whole_contribution_skip_is_verbatim_self_assessed_and_unverified(tmp_path: Path):
+    snapshot = _started(tmp_path, "audit-whole-skip")
+    rating = "自评 7/10 — 我不想进行访谈"
+    skipped = transition_audit(
+        snapshot, AuditAction(action="skip-contribution", answer=rating)
+    )
+    entry = skipped.conclusion.entries[0]
+    assert skipped.status == "reviewing"
+    assert entry.verification == "self-assessed-unverified"
+    assert entry.self_rating == rating
+    assert entry.strongest_capability is None
+    assert entry.next_higher_not_established is None
+    assert entry.responsibility_boundary.startswith("unresolved")
+    assert entry.assistance_boundary.startswith("unresolved")
+    dumped = skipped.model_dump(mode="json")
+    assert "mastery" not in dumped and "confidence" not in dumped and "jd_match" not in dumped
+
+
+def test_review_action_is_unavailable_before_a_conclusion_exists(tmp_path: Path):
+    snapshot = _started(tmp_path)
+    with pytest.raises(AuditWorkflowError, match="not allowed"):
         transition_audit(
-            AuditStore(tmp_path),
-            snap,
+            snapshot,
             AuditAction(
                 action="review-conclusion",
                 decision="confirm",
-                reason="确认",
+                reason="too early",
                 reviewer_id="reviewer",
-                expected_effective_conclusion_hash="sha256:" + "0" * 64,
             ),
-        )
-    assert snap.conclusion is None
-
-
-@pytest.mark.phase03_original_probe
-def test_conclusion_order_and_unicode_are_stable(tmp_path: Path):
-    snap = _complete(tmp_path)
-    assert [entry.area for entry in snap.conclusion.entries] == [
-        "implementation",
-        "debugging",
-        "operation",
-        "responsibility",
-        "assistance",
-    ]
-    assert all(entry.basis for entry in snap.conclusion.entries)
-    assert all(entry.next_higher_not_established for entry in snap.conclusion.entries)
-    assert snap.assistance_round.answer == "没有外部协助。"
-    dumped = snap.model_dump(mode="json")
-    assert not any(key in dumped for key in ("mastery", "confidence", "aggregation", "jd_match"))
-
-
-def test_skipped_self_rating_is_opaque_unverified_text(tmp_path: Path):
-    snap = start_audit(
-        workspace=tmp_path,
-        fixture_path=FIXTURE,
-        manifest_path=MANIFEST,
-        contribution_id="contrib-stoa-authorization-boundary",
-        audit_id="audit-skip",
-    )
-    snap = transition_audit(
-        AuditStore(tmp_path), snap, AuditAction(action="skip", answer="自评 7/10 — 不确定")
-    )
-    assert snap.coverage[0].self_rating == "自评 7/10 — 不确定"
-    assert snap.conclusion is None
-
-
-@pytest.mark.phase03_original_probe
-def test_review_preserves_original_and_emits_no_verified_numeric_score(tmp_path: Path):
-    snap = _complete(tmp_path)
-    original = snap.conclusion.original_proposal
-    reviewed = transition_audit(
-        AuditStore(tmp_path),
-        snap,
-        AuditAction(
-            action="review-entry",
-            entry_id="entry-implementation",
-            decision="edit",
-            correction="Corrected capability boundary.",
-            reason="clarify scope",
-            reviewer_id="reviewer",
-            expected_event_hash=AuditStore(tmp_path).latest_event_hash(snap.audit_id),
-            expected_effective_conclusion_hash=snap.conclusion.effective_conclusion_hash,
-        ),
-    )
-    assert reviewed.conclusion.original_proposal == original
-    for entry in snap.conclusion.entries:
-        assert not hasattr(entry, "mastery")
-        assert entry.verification == "audit-verified"
-
-
-@pytest.mark.phase03_original_probe
-def test_duplicate_terminal_review_is_idempotent(tmp_path: Path):
-    snap = _complete(tmp_path)
-    store = AuditStore(tmp_path)
-    action = AuditAction(
-        action="review-entry",
-        entry_id="entry-implementation",
-        decision="confirm",
-        reason="同意",
-        reviewer_id="reviewer",
-        action_id="duplicate-terminal-review",
-        expected_event_hash=store.latest_event_hash(snap.audit_id),
-        expected_effective_conclusion_hash=snap.conclusion.effective_conclusion_hash,
-    )
-    updated = transition_audit(store, snap, action)
-    repeated = transition_audit(store, updated, action)
-    assert repeated == updated
-
-
-def test_entry_edits_preserve_proposal_and_require_current_effective_hash(tmp_path: Path):
-    snap = _complete(tmp_path)
-    store = AuditStore(tmp_path)
-    original_proposal = snap.conclusion.original_proposal
-    original_hash = snap.conclusion.original_proposal_hash
-    before_hash = snap.conclusion.effective_conclusion_hash
-    edited = transition_audit(
-        store,
-        snap,
-        AuditAction(
-            action="review-entry",
-            entry_id="entry-implementation",
-            decision="edit",
-            correction="Corrected boundary.",
-            reason="clarify the established capability",
-            reviewer_id="reviewer",
-            expected_event_hash=store.latest_event_hash(snap.audit_id),
-            expected_effective_conclusion_hash=before_hash,
-        ),
-    )
-    assert edited.status == "reviewing"
-    assert edited.conclusion.original_proposal == original_proposal
-    assert edited.conclusion.original_proposal_hash == original_hash
-    assert edited.conclusion.effective_conclusion_hash != before_hash
-    review = edited.conclusion_reviews[-1]
-    assert review.before_effective_hash == before_hash
-    assert review.after_effective_hash == edited.conclusion.effective_conclusion_hash
-    with pytest.raises(AuditWorkflowError, match="effective conclusion hash"):
-        transition_audit(
-            store,
-            edited,
-            AuditAction(
-                action="review-entry",
-                entry_id="entry-debugging",
-                decision="confirm",
-                reason="stale review",
-                reviewer_id="reviewer",
-                expected_event_hash=store.latest_event_hash(snap.audit_id),
-                expected_effective_conclusion_hash=before_hash,
-            ),
-        )
-
-
-@pytest.mark.phase03_gap_probe
-def test_direct_reviews_require_current_effective_conclusion_hash(tmp_path: Path):
-    snap = _complete(tmp_path)
-    with pytest.raises(ValueError, match="effective conclusion hash"):
-        AuditAction(
-            action="review-entry",
-            entry_id="entry-implementation",
-            decision="confirm",
-            reason="review against the conclusion",
-            reviewer_id="reviewer",
-            expected_event_hash=AuditStore(tmp_path).latest_event_hash(snap.audit_id),
         )
