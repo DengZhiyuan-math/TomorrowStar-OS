@@ -29,13 +29,18 @@ from .domain.models import (
     AssessmentSourceEnvelope,
     AssessmentVersion,
     CalibratedUserSkillResult,
+    CalibrationCaseResult,
     ContributionSkillAssessment,
     DurationEvidence,
     MasteryAnchorFit,
     OntologyRelation,
+    PolicyComparison,
+    PolicyHistory,
+    PolicyRunResult,
     Skill,
     SkillAlias,
     SkillNormalizationRecord,
+    SkillPolicyDelta,
     SkillResolutionDecision,
     SpecificSkillProposal,
 )
@@ -1070,3 +1075,325 @@ def run_assessment(
             raise
         store.replace(run_id, record)
     return store.read(run_id)
+
+
+def _calibration_root(workspace: Path) -> Path:
+    """Resolve the intentionally small, trusted-local calibration sidecar root."""
+    return workspace.resolve() / "policy-calibration"
+
+
+def _policy_history_path(workspace: Path) -> Path:
+    return _calibration_root(workspace) / "history.json"
+
+
+def _write_calibration_json(path: Path, value: Any) -> None:
+    """Atomically publish canonical calibration history without overwriting a run payload."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(canonical_json_bytes(value) + b"\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_name, path)
+    except BaseException:
+        Path(temporary_name).unlink(missing_ok=True)
+        raise
+
+
+def load_policy_history(workspace: Path) -> PolicyHistory:
+    """Load strict, local calibration history; an absent sidecar has no active policy."""
+    path = _policy_history_path(workspace)
+    if not path.exists():
+        return PolicyHistory()
+    try:
+        return PolicyHistory.model_validate_json(path.read_bytes())
+    except (OSError, ValidationError) as exc:
+        raise AssessmentStorageError("policy calibration history is corrupt") from exc
+
+
+def _calibration_input_hashes(corpus: dict[str, Any]) -> tuple[str, ...]:
+    """Bind every policy run to immutable fixture/audit identities plus exact case bytes."""
+    required = (
+        "fixture_hash",
+        "source_manifest_hash",
+        "audit_snapshot_hash",
+        "conclusion_lineage_hash",
+        "effective_conclusion_hash",
+        "calibration_cases",
+    )
+    if any(key not in corpus for key in required):
+        raise AssessmentWorkflowError("calibration corpus is missing immutable input custody")
+    return (
+        str(corpus["fixture_hash"]),
+        str(corpus["source_manifest_hash"]),
+        str(corpus["audit_snapshot_hash"]),
+        str(corpus["conclusion_lineage_hash"]),
+        str(corpus["effective_conclusion_hash"]),
+        sha256_digest(canonical_json_bytes(corpus["calibration_cases"])),
+    )
+
+
+def _policy_for_calibration(policies_path: Path, policy_version: str) -> AggregationPolicy:
+    payload = _load_json(policies_path)
+    candidates = payload.get("policies") if isinstance(payload, dict) else None
+    if not isinstance(candidates, list):
+        raise AssessmentWorkflowError("calibration policies are invalid")
+    matches = [item for item in candidates if item.get("policy_version") == policy_version]
+    if len(matches) != 1:
+        raise AssessmentWorkflowError("calibration policy is missing or ambiguous")
+    try:
+        policy = AggregationPolicy.model_validate(matches[0])
+    except ValidationError as exc:
+        raise AssessmentWorkflowError("calibration policy is invalid") from exc
+    if policy.activation_status != "candidate":
+        raise AssessmentWorkflowError("only inactive candidate policies may be compared")
+    return policy
+
+
+def _calibration_case_result(
+    case: dict[str, Any], policy: AggregationPolicy
+) -> CalibrationCaseResult:
+    """Apply only explicit integer admission rules to one simulated calibration input."""
+    required = {
+        "case_id",
+        "skill_id",
+        "authority_label",
+        "parent_case_id",
+        "deterministic_transform",
+        "simulated_calibration_input",
+        "mastery",
+        "evidence_confidence",
+        "coverage",
+    }
+    if not required.issubset(case) or case.get("authority_label") not in {
+        "derived-counterfactual",
+        "synthetic-negative",
+    }:
+        raise AssessmentWorkflowError("calibration case lacks explicit derived authority")
+    if (
+        case.get("parent_case_id") != "audit-e2e"
+        or case.get("simulated_calibration_input") is not True
+    ):
+        raise AssessmentWorkflowError("calibration case is not bound to the sole real audit")
+    mastery = case.get("mastery")
+    confidence = case.get("evidence_confidence")
+    if (
+        type(mastery) is not int
+        or type(confidence) is not int
+        or not 0 <= mastery <= 100
+        or not 0 <= confidence <= 100
+    ):
+        raise AssessmentWorkflowError("calibration values must be exact integers")
+    anchor = next(
+        (
+            item
+            for item in MASTERY_ANCHORS
+            if item.inclusive_range[0] <= mastery <= item.inclusive_range[1]
+        ),
+        None,
+    )
+    if anchor is None:
+        raise AssessmentWorkflowError("calibration mastery has no accepted anchor")
+    force_defer = case.get("d10_override") is True
+    numeric_defer = mastery >= policy.high_mastery_min and confidence < policy.strict_confidence_min
+    admission = (
+        AssessmentAdmissionStatus.PENDING_CONFIRMATION
+        if force_defer or numeric_defer
+        else AssessmentAdmissionStatus.ADMITTED
+    )
+    return CalibrationCaseResult(
+        case_id=str(case["case_id"]),
+        skill_id=str(case["skill_id"]),
+        mastery=mastery,
+        band=anchor.anchor_id,
+        admission_status=admission,
+        calibration_decision=(
+            "defer" if admission != AssessmentAdmissionStatus.ADMITTED else "admit"
+        ),
+        reviewer_disagreement=bool(case.get("reviewer_disagreement", False)),
+        regression_labels=tuple(str(item) for item in case.get("regression_labels", ())),
+    )
+
+
+def _policy_run_hash(
+    *,
+    policy_version: str,
+    input_hashes: tuple[str, ...],
+    policy_hash: str,
+    case_results: tuple[CalibrationCaseResult, ...],
+) -> str:
+    return sha256_digest(
+        canonical_json_bytes(
+            {
+                "policy_version": policy_version,
+                "input_hashes": input_hashes,
+                "policy_hash": policy_hash,
+                "case_results": [item.model_dump(mode="json") for item in case_results],
+            }
+        )
+    )
+
+
+def _write_policy_history(workspace: Path, history: PolicyHistory) -> None:
+    _write_calibration_json(_policy_history_path(workspace), history.model_dump(mode="json"))
+
+
+def run_calibration_policy(
+    *, workspace: Path, corpus_path: Path, policies_path: Path, policy_version: str
+) -> PolicyRunResult:
+    """Run one inactive policy on immutable calibration inputs and retain its result once."""
+    corpus = _load_json(corpus_path)
+    if (
+        not isinstance(corpus, dict)
+        or corpus.get("schema_version") != "assessment-calibration-corpus/v1"
+    ):
+        raise AssessmentWorkflowError("calibration corpus is invalid")
+    root = _repository_root(corpus_path)
+    fixture = root / str(corpus.get("fixture_path", ""))
+    manifest = root / str(corpus.get("source_manifest_path", ""))
+    if sha256_digest(fixture.read_bytes()) != corpus.get("fixture_hash"):
+        raise AssessmentWorkflowError("sealed fixture hash does not match corpus")
+    if sha256_digest(manifest.read_bytes()) != corpus.get("source_manifest_hash"):
+        raise AssessmentWorkflowError("source manifest hash does not match corpus")
+    policy = _policy_for_calibration(policies_path, policy_version)
+    cases = corpus.get("calibration_cases")
+    if not isinstance(cases, list) or not cases:
+        raise AssessmentWorkflowError("calibration corpus has no cases")
+    case_results = tuple(
+        sorted(
+            (_calibration_case_result(case, policy) for case in cases if isinstance(case, dict)),
+            key=lambda item: item.case_id,
+        )
+    )
+    if len(case_results) != len(cases):
+        raise AssessmentWorkflowError("calibration cases must be objects")
+    input_hashes = _calibration_input_hashes(corpus)
+    policy_hash = sha256_digest(canonical_json_bytes(policy))
+    result_hash = _policy_run_hash(
+        policy_version=policy_version,
+        input_hashes=input_hashes,
+        policy_hash=policy_hash,
+        case_results=case_results,
+    )
+    history = load_policy_history(workspace)
+    existing = next((item for item in history.runs if item.result_hash == result_hash), None)
+    if existing is not None:
+        return existing
+    run = PolicyRunResult(
+        policy_version=policy_version,
+        input_hashes=input_hashes,
+        policy_hash=policy_hash,
+        run_sequence=len(history.runs) + 1,
+        case_results=case_results,
+        result_hash=result_hash,
+    )
+    _write_policy_history(
+        workspace,
+        PolicyHistory(
+            runs=(*history.runs, run),
+            comparisons=history.comparisons,
+            active_pointer=history.active_pointer,
+        ),
+    )
+    return run
+
+
+def _comparison_hash(
+    *,
+    baseline: PolicyRunResult,
+    candidate: PolicyRunResult,
+    deltas: tuple[SkillPolicyDelta, ...],
+    disagreements: tuple[str, ...],
+    regressions: tuple[str, ...],
+) -> str:
+    return sha256_digest(
+        canonical_json_bytes(
+            {
+                "baseline_result_hash": baseline.result_hash,
+                "candidate_result_hash": candidate.result_hash,
+                "input_hashes": baseline.input_hashes,
+                "skill_deltas": [item.model_dump(mode="json") for item in deltas],
+                "reviewer_disagreements": disagreements,
+                "run_variance": 0,
+                "regressions": regressions,
+            }
+        )
+    )
+
+
+def compare_policy_runs(
+    *, workspace: Path, baseline: PolicyRunResult, candidate: PolicyRunResult
+) -> PolicyComparison:
+    """Compare two retained candidate runs without changing an active policy pointer."""
+    if baseline.input_hashes != candidate.input_hashes:
+        raise AssessmentWorkflowError("policy runs must use identical input hashes")
+    baseline_by_case = {item.case_id: item for item in baseline.case_results}
+    candidate_by_case = {item.case_id: item for item in candidate.case_results}
+    if baseline_by_case.keys() != candidate_by_case.keys():
+        raise AssessmentWorkflowError("policy runs must retain identical calibration cases")
+    deltas = tuple(
+        SkillPolicyDelta(
+            case_id=case_id,
+            skill_id=baseline_by_case[case_id].skill_id,
+            mastery_delta=candidate_by_case[case_id].mastery - baseline_by_case[case_id].mastery,
+            band_change=candidate_by_case[case_id].band != baseline_by_case[case_id].band,
+            admission_change=(
+                candidate_by_case[case_id].admission_status
+                != baseline_by_case[case_id].admission_status
+            ),
+            baseline_admission=baseline_by_case[case_id].admission_status,
+            candidate_admission=candidate_by_case[case_id].admission_status,
+        )
+        for case_id in sorted(baseline_by_case)
+    )
+    disagreements = tuple(
+        item.case_id for item in baseline.case_results if item.reviewer_disagreement
+    )
+    regressions = tuple(
+        sorted(
+            {
+                *(
+                    f"false-deferral:{delta.case_id}"
+                    for delta in deltas
+                    if delta.baseline_admission == AssessmentAdmissionStatus.ADMITTED
+                    and delta.candidate_admission != AssessmentAdmissionStatus.ADMITTED
+                ),
+                *(label for item in baseline.case_results for label in item.regression_labels),
+            }
+        )
+    )
+    comparison_hash = _comparison_hash(
+        baseline=baseline,
+        candidate=candidate,
+        deltas=deltas,
+        disagreements=disagreements,
+        regressions=regressions,
+    )
+    history = load_policy_history(workspace)
+    existing = next(
+        (item for item in history.comparisons if item.comparison_hash == comparison_hash), None
+    )
+    if existing is not None:
+        return existing
+    comparison = PolicyComparison(
+        input_hashes=baseline.input_hashes,
+        baseline_policy_version=baseline.policy_version,
+        baseline_result_hash=baseline.result_hash,
+        candidate_policy_version=candidate.policy_version,
+        candidate_result_hash=candidate.result_hash,
+        skill_deltas=deltas,
+        reviewer_disagreements=disagreements,
+        run_variance=0,
+        regressions=regressions,
+        comparison_hash=comparison_hash,
+    )
+    _write_policy_history(
+        workspace,
+        PolicyHistory(
+            runs=history.runs,
+            comparisons=(*history.comparisons, comparison),
+            active_pointer=None,
+        ),
+    )
+    return comparison

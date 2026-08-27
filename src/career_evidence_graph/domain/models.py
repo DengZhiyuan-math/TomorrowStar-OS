@@ -412,6 +412,76 @@ class AggregationPolicy(StrictModel):
     notice: str = Field(min_length=1)
 
 
+class CalibrationCaseResult(StrictModel):
+    """One deterministic calibration input evaluated under a candidate policy."""
+
+    schema_version: Literal["calibration-case-result/v1"] = "calibration-case-result/v1"
+    case_id: Identifier = Field(pattern=ID_PATTERN)
+    skill_id: Identifier = Field(pattern=ID_PATTERN)
+    mastery: int = Field(ge=0, le=100)
+    band: str = Field(pattern=r"^anchor-[0-9]{1,3}-[0-9]{1,3}$")
+    admission_status: AssessmentAdmissionStatus
+    calibration_decision: Literal["admit", "defer"]
+    reviewer_disagreement: bool
+    regression_labels: tuple[str, ...] = ()
+
+
+class PolicyRunResult(StrictModel):
+    """Content-addressed execution of exactly one candidate policy."""
+
+    schema_version: Literal["policy-run-result/v1"] = "policy-run-result/v1"
+    policy_version: str = Field(min_length=1)
+    input_hashes: tuple[str, ...] = Field(min_length=1)
+    policy_hash: str = Field(pattern=SHA256_PATTERN)
+    run_sequence: int = Field(ge=1)
+    case_results: tuple[CalibrationCaseResult, ...] = Field(min_length=1)
+    result_hash: str = Field(pattern=SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def validate_case_identity(self) -> PolicyRunResult:
+        _unique_ids(tuple(item.case_id for item in self.case_results), "case_results")
+        return self
+
+
+class SkillPolicyDelta(StrictModel):
+    """Exact per-case, per-Skill policy effect; no averaged threshold behavior."""
+
+    schema_version: Literal["skill-policy-delta/v1"] = "skill-policy-delta/v1"
+    case_id: Identifier = Field(pattern=ID_PATTERN)
+    skill_id: Identifier = Field(pattern=ID_PATTERN)
+    mastery_delta: int
+    band_change: bool
+    admission_change: bool
+    baseline_admission: AssessmentAdmissionStatus
+    candidate_admission: AssessmentAdmissionStatus
+
+
+class PolicyComparison(StrictModel):
+    """A non-activating, same-input candidate comparison."""
+
+    schema_version: Literal["policy-comparison/v1"] = "policy-comparison/v1"
+    input_hashes: tuple[str, ...] = Field(min_length=1)
+    baseline_policy_version: str = Field(min_length=1)
+    baseline_result_hash: str = Field(pattern=SHA256_PATTERN)
+    candidate_policy_version: str = Field(min_length=1)
+    candidate_result_hash: str = Field(pattern=SHA256_PATTERN)
+    skill_deltas: tuple[SkillPolicyDelta, ...]
+    reviewer_disagreements: tuple[Identifier, ...] = ()
+    run_variance: int = Field(ge=0)
+    regressions: tuple[str, ...] = ()
+    active_policy_version: None = None
+    comparison_hash: str = Field(pattern=SHA256_PATTERN)
+
+
+class PolicyHistory(StrictModel):
+    """Immutable calibration evidence; the active pointer is intentionally optional."""
+
+    schema_version: Literal["policy-history/v1"] = "policy-history/v1"
+    runs: tuple[PolicyRunResult, ...] = ()
+    comparisons: tuple[PolicyComparison, ...] = ()
+    active_pointer: str | None = None
+
+
 class ContributionSkillAssessment(StrictModel):
     schema_version: Literal["contribution-skill-assessment/v1"] = "contribution-skill-assessment/v1"
     id: Identifier = Field(pattern=ID_PATTERN)

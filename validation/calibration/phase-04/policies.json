@@ -1,5 +1,9 @@
 {
   "schema_version": "assessment-policy-corpus/v1",
+  "integer_semantics": "All mastery and confidence cutoffs are exact inclusive integers; no average, tolerance, rounding, or float coercion is permitted.",
+  "d10_overrides": "Self-assessed, disputed, unresolved attribution, or unresolved assistance inputs remain deferred until substantive review; policy comparison never rewrites their values.",
+  "promotion_rule": "Only a separate immediate-next-anchor decision with distinct same-Skill Contributions, contexts, and anchor behaviors may promote a max baseline.",
+  "duplicate_rule": "Same-Skill duplicate relationships and incidental evidence volume cannot increase mastery.",
   "policies": [
     {
       "schema_version": "aggregation-policy/v1",
