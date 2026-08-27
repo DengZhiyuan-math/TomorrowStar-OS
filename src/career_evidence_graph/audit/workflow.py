@@ -174,6 +174,8 @@ def _capability_question(
         for item in snapshot.questions
     ):
         prompt = f"Now focus only on your capability boundary: {prompt}"
+    if prompt.count("?") + prompt.count("？") == 0:
+        prompt = f"Can you explain this capability: {prompt.rstrip('.')}?"
     question = AuditQuestion(
         id=f"question-{area.area_id}-{difficulty}-{follow_up_count}-{len(snapshot.questions)}",
         reason=(
