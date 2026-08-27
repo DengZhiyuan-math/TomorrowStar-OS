@@ -1228,21 +1228,25 @@ def _calibration_case_result(
 
 def _policy_run_hash(
     *,
-    policy_version: str,
+    policy_snapshot: AggregationPolicy,
     input_hashes: tuple[str, ...],
-    policy_hash: str,
     case_results: tuple[CalibrationCaseResult, ...],
 ) -> str:
+    policy_hash = _policy_hash(policy_snapshot)
     return sha256_digest(
         canonical_json_bytes(
             {
-                "policy_version": policy_version,
+                "policy_version": policy_snapshot.policy_version,
                 "input_hashes": input_hashes,
                 "policy_hash": policy_hash,
                 "case_results": [item.model_dump(mode="json") for item in case_results],
             }
         )
     )
+
+
+def _policy_hash(policy_snapshot: AggregationPolicy) -> str:
+    return sha256_digest(canonical_json_bytes(policy_snapshot))
 
 
 def _write_policy_history(workspace: Path, history: PolicyHistory) -> None:
@@ -1298,11 +1302,10 @@ def run_calibration_policy(
         effective_conclusion_hash=snapshot.conclusion.effective_conclusion_hash,
         calibration_cases=cases,
     )
-    policy_hash = sha256_digest(canonical_json_bytes(policy))
+    policy_hash = _policy_hash(policy)
     result_hash = _policy_run_hash(
-        policy_version=policy_version,
+        policy_snapshot=policy,
         input_hashes=input_hashes,
-        policy_hash=policy_hash,
         case_results=case_results,
     )
     history = load_policy_history(workspace)
@@ -1311,6 +1314,7 @@ def run_calibration_policy(
         return existing
     run = PolicyRunResult(
         policy_version=policy_version,
+        policy_snapshot=policy,
         input_hashes=input_hashes,
         policy_hash=policy_hash,
         run_sequence=len(history.runs) + 1,
@@ -1438,6 +1442,46 @@ def _activation_hash(activation: PolicyActivation) -> str:
 
 def _validate_policy_history(history: PolicyHistory) -> None:
     """Verify retained runs, comparisons, and human authority before using a pointer."""
+    for run in history.runs:
+        policy_hash = _policy_hash(run.policy_snapshot)
+        if run.policy_hash != policy_hash:
+            raise AssessmentWorkflowError("policy run hash does not match its policy snapshot")
+        if run.result_hash != _policy_run_hash(
+            policy_snapshot=run.policy_snapshot,
+            input_hashes=run.input_hashes,
+            case_results=run.case_results,
+        ):
+            raise AssessmentWorkflowError("policy run result hash does not match its content")
+
+    for comparison in history.comparisons:
+        baseline = next(
+            (item for item in history.runs if item.result_hash == comparison.baseline_result_hash),
+            None,
+        )
+        candidate = next(
+            (item for item in history.runs if item.result_hash == comparison.candidate_result_hash),
+            None,
+        )
+        if baseline is None or candidate is None:
+            raise AssessmentWorkflowError("policy comparison has no retained results")
+        if (
+            baseline.policy_version != comparison.baseline_policy_version
+            or candidate.policy_version != comparison.candidate_policy_version
+            or baseline.input_hashes != candidate.input_hashes
+            or comparison.input_hashes != baseline.input_hashes
+        ):
+            raise AssessmentWorkflowError(
+                "policy comparison ancestry does not match retained results"
+            )
+        if comparison.comparison_hash != _comparison_hash(
+            baseline=baseline,
+            candidate=candidate,
+            deltas=comparison.skill_deltas,
+            disagreements=comparison.reviewer_disagreements,
+            regressions=comparison.regressions,
+        ):
+            raise AssessmentWorkflowError("policy comparison hash does not match its content")
+
     runs = {item.result_hash: item for item in history.runs}
     comparisons = {item.comparison_hash: item for item in history.comparisons}
     previous: PolicyActivation | None = None

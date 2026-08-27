@@ -432,6 +432,7 @@ class PolicyRunResult(StrictModel):
 
     schema_version: Literal["policy-run-result/v1"] = "policy-run-result/v1"
     policy_version: str = Field(min_length=1)
+    policy_snapshot: AggregationPolicy
     input_hashes: tuple[str, ...] = Field(min_length=1)
     policy_hash: str = Field(pattern=SHA256_PATTERN)
     run_sequence: int = Field(ge=1)
@@ -441,6 +442,8 @@ class PolicyRunResult(StrictModel):
     @model_validator(mode="after")
     def validate_case_identity(self) -> PolicyRunResult:
         _unique_ids(tuple(item.case_id for item in self.case_results), "case_results")
+        if self.policy_snapshot.policy_version != self.policy_version:
+            raise ValueError("policy snapshot must match the retained policy version")
         return self
 
 
