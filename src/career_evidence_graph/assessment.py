@@ -16,10 +16,12 @@ from .audit.decision import RecordedDecisionPort
 from .audit.models import AuditAction, AuditSnapshot, BoundaryDecision, ProbePlan
 from .audit.store import AuditStorageError, AuditStore
 from .audit.workflow import AuditWorkflowError, start_audit, transition_audit
-from .domain.invariants import _normalized_text, normalize_skill_metadata
+from .domain.invariants import _normalized_text, normalize_skill_metadata, validate_user_skill
 from .domain.models import (
+    MASTERY_ANCHORS,
     AdmissionDecision,
     AggregationPolicy,
+    AnchorPromotionDecision,
     AssessmentAdmissionStatus,
     AssessmentJudgmentBasis,
     AssessmentLineage,
@@ -437,6 +439,21 @@ class AssessmentStore:
         self._atomic_replace(path, canonical_json_bytes(record) + b"\n")
 
 
+def list_assessment_runs(workspace: Path) -> tuple[tuple[str, AssessmentRun], ...]:
+    """Read all safe current assessment sidecars in deterministic run-ID order."""
+    store = AssessmentStore(workspace)
+    if not store.root.exists():
+        return ()
+    if store.root.is_symlink() or not store.root.is_dir():
+        raise AssessmentStorageError("assessment root is directly linked or unsafe")
+    records: list[tuple[str, AssessmentRun]] = []
+    for path in sorted(store.root.glob("*.json")):
+        run_id = path.stem
+        store._safe(run_id)
+        records.append((run_id, store.read(run_id)))
+    return tuple(records)
+
+
 def _load_json(path: Path) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -640,6 +657,7 @@ def aggregate_skill(
         result_id=f"result-{proposal.id}",
         skill_id=proposal.skill_id,
         mastery=proposal.demonstrated_mastery,
+        anchor_id=proposal.mastery_anchor_fit.anchor_id,
         policy_version=admission.policy_version,
         baseline_assessment_id=proposal.id,
         admitted_assessment_ids=(proposal.id,),
@@ -650,6 +668,100 @@ def aggregate_skill(
             "confidence, centrality, or evidence-volume bonus was applied."
         ),
     )
+
+
+def _anchor_for_score(score: int) -> str:
+    """Return the one accepted inclusive anchor containing an exact integer score."""
+    return next(
+        anchor.anchor_id
+        for anchor in MASTERY_ANCHORS
+        if anchor.inclusive_range[0] <= score <= anchor.inclusive_range[1]
+    )
+
+
+def deduplicate_skill_support(
+    assessments: tuple[ContributionSkillAssessment, ...],
+) -> tuple[str, ...]:
+    """Report repeated same-Skill support without deleting legitimate lineage."""
+    first_by_support: dict[tuple[str, tuple[str, ...], str], str] = {}
+    suppressed: list[str] = []
+    for assessment in sorted(assessments, key=lambda item: item.id):
+        if assessment.source_envelope is None:
+            raise AssessmentWorkflowError("effective assessment lacks source envelope")
+        identity = (
+            assessment.contribution_id,
+            tuple(sorted(assessment.source_envelope.evidence_ids)),
+            _normalized_text(assessment.context),
+        )
+        original_id = first_by_support.setdefault(identity, assessment.id)
+        if original_id != assessment.id:
+            suppressed.append(f"same-skill-support:{original_id}:{assessment.id}")
+    return tuple(suppressed)
+
+
+def aggregation_snapshot_bytes(results: tuple[CalibratedUserSkillResult, ...]) -> bytes:
+    """Serialize only canonical mastery and anchor facts for no-inflation checks."""
+    return canonical_json_bytes(
+        [
+            {
+                "skill_id": result.skill_id,
+                "mastery": result.mastery,
+                "anchor_id": result.anchor_id,
+            }
+            for result in sorted(results, key=lambda item: item.skill_id)
+        ]
+    )
+
+
+def aggregate_user_skills(
+    records: tuple[AssessmentRun, ...],
+    *,
+    promotion_decisions: tuple[AnchorPromotionDecision, ...] = (),
+) -> tuple[CalibratedUserSkillResult, ...]:
+    """Aggregate current admitted assessments by exact Skill without numeric pile-up."""
+    admitted_by_skill: dict[str, list[ContributionSkillAssessment]] = {}
+    policy_by_skill: dict[str, str] = {}
+    for record in records:
+        proposal = record.proposal
+        if record.admission.assessment_id != proposal.id:
+            raise AssessmentWorkflowError("admission does not bind the effective assessment")
+        if record.admission.admission_status != AssessmentAdmissionStatus.ADMITTED:
+            continue
+        if proposal.source_envelope is None or proposal.mastery_anchor_fit is None:
+            raise AssessmentWorkflowError("admitted assessment lacks effective lineage")
+        policy = policy_by_skill.setdefault(proposal.skill_id, record.admission.policy_version)
+        if policy != record.admission.policy_version:
+            raise AssessmentWorkflowError("one exact Skill requires one aggregation policy")
+        admitted_by_skill.setdefault(proposal.skill_id, []).append(proposal)
+
+    decisions_by_skill = {decision.skill_id: decision for decision in promotion_decisions}
+    if len(decisions_by_skill) != len(promotion_decisions):
+        raise AssessmentWorkflowError("only one promotion decision may exist per exact Skill")
+    results: list[CalibratedUserSkillResult] = []
+    for skill_id in sorted(admitted_by_skill):
+        admitted = tuple(sorted(admitted_by_skill[skill_id], key=lambda item: item.id))
+        baseline = max(admitted, key=lambda item: item.demonstrated_mastery)
+        contexts = tuple(sorted({assessment.context for assessment in admitted}))
+        result = CalibratedUserSkillResult(
+            result_id=f"result-{skill_id}",
+            skill_id=skill_id,
+            mastery=baseline.demonstrated_mastery,
+            anchor_id=_anchor_for_score(baseline.demonstrated_mastery),
+            policy_version=policy_by_skill[skill_id],
+            baseline_assessment_id=baseline.id,
+            admitted_assessment_ids=tuple(assessment.id for assessment in admitted),
+            source_envelope=baseline.source_envelope,
+            authority_label=baseline.source_envelope.authority_label,
+            aggregation_rationale=(
+                "Calibration baseline equals the strongest admitted assessment; no count, "
+                "confidence, centrality, or evidence-volume bonus was applied."
+            ),
+            promotion_decision=decisions_by_skill.get(skill_id),
+            supporting_contexts=contexts,
+            suppressed_duplicate_relationships=deduplicate_skill_support(admitted),
+        )
+        results.append(validate_user_skill(result, admitted))
+    return tuple(results)
 
 
 def _reviewed_assessment(

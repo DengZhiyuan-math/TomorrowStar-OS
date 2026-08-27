@@ -504,6 +504,36 @@ class AssessmentVersion(StrictModel):
     version_hash: str = Field(pattern=SHA256_PATTERN)
 
 
+class AnchorPromotionDecision(StrictModel):
+    """A separate, hash-bound request to prove only the next capability anchor."""
+
+    schema_version: Literal["anchor-promotion-decision/v1"] = "anchor-promotion-decision/v1"
+    decision_id: Identifier = Field(pattern=ID_PATTERN)
+    policy_version: str = Field(min_length=1)
+    policy_input_hash: str = Field(pattern=SHA256_PATTERN)
+    skill_id: Identifier = Field(pattern=ID_PATTERN)
+    target_anchor_id: str = Field(pattern=r"^anchor-[0-9]{1,3}-[0-9]{1,3}$")
+    promoted_score: int = Field(ge=0, le=100)
+    assessment_ids: tuple[Identifier, ...] = Field(min_length=2)
+    distinct_behaviors: tuple[str, ...] = Field(min_length=1)
+    distinct_contexts: tuple[str, ...] = Field(min_length=2)
+    rationale: str = Field(min_length=1)
+    exact_score_basis: str | None = None
+
+    @model_validator(mode="after")
+    def validate_distinct_support(self) -> AnchorPromotionDecision:
+        _unique_ids(self.assessment_ids, "assessment_ids")
+        if len(self.distinct_behaviors) != len(set(self.distinct_behaviors)):
+            raise ValueError("distinct_behaviors must not repeat")
+        if len(self.distinct_contexts) != len(set(self.distinct_contexts)):
+            raise ValueError("distinct_contexts must not repeat")
+        if not self.rationale.strip() or (
+            self.exact_score_basis is not None and not self.exact_score_basis.strip()
+        ):
+            raise ValueError("promotion rationale and exact score basis cannot be blank")
+        return self
+
+
 class CalibratedUserSkillResult(StrictModel):
     """One specific-Skill calibration output with no evidence-volume bonus."""
 
@@ -511,12 +541,16 @@ class CalibratedUserSkillResult(StrictModel):
     result_id: Identifier = Field(pattern=ID_PATTERN)
     skill_id: Identifier = Field(pattern=ID_PATTERN)
     mastery: int = Field(ge=0, le=100)
+    anchor_id: str = Field(pattern=r"^anchor-[0-9]{1,3}-[0-9]{1,3}$")
     policy_version: str = Field(min_length=1)
     baseline_assessment_id: Identifier = Field(pattern=ID_PATTERN)
     admitted_assessment_ids: tuple[Identifier, ...] = Field(min_length=1)
     source_envelope: AssessmentSourceEnvelope
     authority_label: Literal["reviewed-user-truth", "derived-counterfactual"]
     aggregation_rationale: str = Field(min_length=1)
+    promotion_decision: AnchorPromotionDecision | None = None
+    supporting_contexts: tuple[str, ...] = ()
+    suppressed_duplicate_relationships: tuple[str, ...] = ()
 
     @model_validator(mode="after")
     def validate_baseline(self) -> CalibratedUserSkillResult:
@@ -525,6 +559,16 @@ class CalibratedUserSkillResult(StrictModel):
             raise ValueError("baseline assessment must be admitted")
         if self.authority_label != self.source_envelope.authority_label:
             raise ValueError("result authority must retain source authority")
+        anchor = next((item for item in MASTERY_ANCHORS if item.anchor_id == self.anchor_id), None)
+        if anchor is None or not (
+            anchor.inclusive_range[0] <= self.mastery <= anchor.inclusive_range[1]
+        ):
+            raise ValueError("result mastery must fall inside its anchor")
+        if self.promotion_decision is not None:
+            if self.promotion_decision.skill_id != self.skill_id:
+                raise ValueError("promotion decision must name the result Skill")
+            if self.promotion_decision.policy_version != self.policy_version:
+                raise ValueError("promotion decision must name the result policy")
         return self
 
 

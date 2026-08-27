@@ -11,7 +11,9 @@ from pydantic import ValidationError
 from ..validation.hashing import canonical_json_bytes, sha256_digest
 from .models import (
     MASTERY_ANCHORS,
+    CalibratedUserSkillResult,
     CareerEvidenceFixture,
+    ContributionSkillAssessment,
     FixtureValidationResult,
     InvariantViolation,
     MasteryAnchor,
@@ -42,6 +44,29 @@ def validate_mastery_anchor_fit(score: int, fit: MasteryAnchorFit) -> MasteryAnc
     if not fit.next_anchor_not_established.strip():
         raise ValueError("mastery anchor requires the next anchor not established")
     return anchor
+
+
+def validate_user_skill(
+    result: CalibratedUserSkillResult,
+    admitted_assessments: tuple[ContributionSkillAssessment, ...],
+) -> CalibratedUserSkillResult:
+    """Reject a user Skill result that loses exact-Skill or strongest-baseline lineage."""
+    if not admitted_assessments:
+        raise ValueError("user Skill result requires admitted assessments")
+    if any(assessment.skill_id != result.skill_id for assessment in admitted_assessments):
+        raise ValueError("user Skill result may reference only the exact same Skill")
+    assessments_by_id = {assessment.id: assessment for assessment in admitted_assessments}
+    if set(result.admitted_assessment_ids) != set(assessments_by_id):
+        raise ValueError("user Skill result must retain every admitted assessment")
+    baseline = assessments_by_id.get(result.baseline_assessment_id)
+    if baseline is None:
+        raise ValueError("user Skill result baseline is missing")
+    highest_mastery = max(assessment.demonstrated_mastery for assessment in admitted_assessments)
+    if baseline.demonstrated_mastery != highest_mastery:
+        raise ValueError("user Skill result baseline must be strongest admitted mastery")
+    if result.promotion_decision is None and result.mastery != highest_mastery:
+        raise ValueError("user Skill result without promotion must equal its strongest baseline")
+    return result
 
 
 DIRECT_MASTERY_SOURCES = frozenset(

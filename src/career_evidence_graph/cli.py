@@ -16,6 +16,8 @@ from .assessment import (
     AssessmentStorageError,
     AssessmentStore,
     AssessmentWorkflowError,
+    aggregate_user_skills,
+    list_assessment_runs,
     list_pending_assessments,
     load_policy,
     review_assessment,
@@ -223,6 +225,8 @@ def _parser() -> argparse.ArgumentParser:
     assessment_inspect.add_argument("--run-id", required=True)
     assessment_pending = assessment_commands.add_parser("pending")
     assessment_pending.add_argument("--workspace", required=True)
+    assessment_aggregate = assessment_commands.add_parser("aggregate")
+    assessment_aggregate.add_argument("--workspace", required=True)
     assessment_review = assessment_commands.add_parser("review")
     assessment_review.add_argument("--workspace", required=True)
     assessment_review.add_argument("--run-id", required=True)
@@ -508,6 +512,29 @@ def main(argv: list[str] | None = None) -> int:
                     }
                 )
             _emit({"pending": pending})
+        elif args.command == "assessment" and args.assessment_command == "aggregate":
+            records = list_assessment_runs(Path(args.workspace))
+            results = aggregate_user_skills(tuple(record for _, record in records))
+            admitted_ids = {
+                assessment_id
+                for result in results
+                for assessment_id in result.admitted_assessment_ids
+            }
+            _emit(
+                {
+                    "results": results,
+                    "excluded": [
+                        {
+                            "run_id": run_id,
+                            "assessment_id": record.proposal.id,
+                            "admission_status": record.admission.admission_status,
+                            "reason": record.admission.reason,
+                        }
+                        for run_id, record in records
+                        if record.proposal.id not in admitted_ids
+                    ],
+                }
+            )
         elif args.command == "assessment" and args.assessment_command == "review":
             try:
                 accepted = ContributionSkillAssessment.model_validate(

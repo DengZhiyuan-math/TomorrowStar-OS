@@ -74,13 +74,11 @@ def test_aggregate_cli_emits_one_sorted_traceable_result_per_skill(tmp_path: Pat
     assert aggregated.returncode == 0, aggregated.stderr
     emitted = json.loads(aggregated.stdout)
     assert [result["skill_id"] for result in emitted["results"]] == [
-        "skill-authorization-boundary"
+        "skill.authorization-boundary-verification"
     ]
     result = emitted["results"][0]
     assert result["baseline_assessment_id"] == "assessment-authorization-boundary-verification"
-    assert result["admitted_assessment_ids"] == [
-        "assessment-authorization-boundary-verification"
-    ]
+    assert result["admitted_assessment_ids"] == ["assessment-authorization-boundary-verification"]
     assert result["policy_version"] == "policy-04-baseline-60"
     assert result["suppressed_duplicate_relationships"] == []
 

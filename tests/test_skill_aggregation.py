@@ -12,6 +12,7 @@ from career_evidence_graph.assessment import (
     run_assessment,
 )
 from career_evidence_graph.domain.models import (
+    MASTERY_ANCHORS,
     AggregationPolicy,
     ContributionSkillAssessment,
 )
@@ -41,6 +42,21 @@ def _assessment(tmp_path: Path, **changes: object) -> ContributionSkillAssessmen
     ).proposal
     payload = seed.model_dump(mode="json")
     payload.update(changes)
+    if "demonstrated_mastery" in changes:
+        score = int(changes["demonstrated_mastery"])
+        anchor = next(
+            item
+            for item in MASTERY_ANCHORS
+            if item.inclusive_range[0] <= score <= item.inclusive_range[1]
+        )
+        payload["mastery_anchor_fit"] = {
+            "anchor_id": anchor.anchor_id,
+            "anchor_range": list(anchor.inclusive_range),
+            "anchor_text": anchor.capability_text,
+            "anchor_basis": "The fixture establishes this exact capability band.",
+            "exact_score_basis": "The fixture keeps an integer inside this anchor.",
+            "next_anchor_not_established": "The next anchor is not established.",
+        }
     if "contribution_id" in changes:
         payload["lineage"]["contribution_id"] = changes["contribution_id"]
         payload["source_envelope"]["contribution_id"] = changes["contribution_id"]
@@ -58,13 +74,13 @@ def test_traceable_aggregate_keeps_one_sorted_result_and_strongest_admitted_base
     lower = _run(
         tmp_path,
         id="assessment-lower-boundary",
-        demonstrated_mastery=55,
+        demonstrated_mastery=60,
         context="bounded authorization maintenance",
     )
     stronger = _run(
         tmp_path,
         id="assessment-stronger-boundary",
-        demonstrated_mastery=60,
+        demonstrated_mastery=69,
         context="independent authorization implementation",
     )
 
@@ -73,7 +89,7 @@ def test_traceable_aggregate_keeps_one_sorted_result_and_strongest_admitted_base
     assert len(results) == 1
     result = results[0]
     assert result.skill_id == stronger.proposal.skill_id
-    assert result.mastery == 60
+    assert result.mastery == 69
     assert result.anchor_id == "anchor-55-69"
     assert result.policy_version == "policy-04-baseline-60"
     assert result.baseline_assessment_id == "assessment-stronger-boundary"
