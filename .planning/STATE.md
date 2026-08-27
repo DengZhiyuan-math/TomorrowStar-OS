@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 04
 current_phase_name: Contribution–Skill Assessment and Aggregation Calibration
 status: executing
-stopped_at: Completed 04-02-PLAN.md
-last_updated: "2026-08-27T19:03:56.904Z"
+stopped_at: Completed 04-03-PLAN.md
+last_updated: "2026-08-27T19:19:12.458Z"
 last_activity: 2026-08-27
 last_activity_desc: Phase 04 execution started
-state_head: 491a0be0da51719e01aa758637af358f9a8b34dd
+state_head: ff10045badf65895b44a58b12fc3d4467fd255ca
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 31
-  completed_plans: 28
+  completed_plans: 29
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-30)
 ## Current Position
 
 Phase: 04 (Contribution–Skill Assessment and Aggregation Calibration) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Total Plans in Phase: 5
 Last activity: 2026-08-27 — Phase 04 execution started
@@ -76,6 +76,7 @@ Progress: [███████░░░] 78%
 | Phase 03 P14 | 6 min | 3 tasks | 8 files |
 | Phase 04 P01 | 3min | 2 tasks | 8 files |
 | Phase 04 P02 | 8min | 2 tasks | 7 files |
+| Phase 04-contribution-skill-assessment-and-aggregation-calibration P03 | 10min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -118,6 +119,8 @@ Recent decisions affecting current work:
 - [Phase 04]: The offline tracer retains derived-counterfactual authority and exposes it rather than presenting synthetic calibration as reviewed user truth.
 - [Phase 04]: Phase 04 Plan 02: only one unambiguous result from the existing normalizer becomes score-eligible automatically; ambiguity and unmatched candidates remain outside proposals.
 - [Phase 04]: Phase 04 Plan 02: exact accepted anchors and separate observable mastery, centrality, and confidence bases are required for effective assessments.
+- [Phase 04]: Only D-10-complete reviews may admit low-confidence, disputed, unresolved, or self-assessed proposals; their original source status remains inspectable.
+- [Phase 04]: Assessment correction and reassessment are hash-linked immutable lineages, while admission remains a separate policy decision.
 
 ### Pending Todos
 
@@ -144,6 +147,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-27T19:03:56.800Z
-Stopped at: Completed 04-02-PLAN.md
+Last session: 2026-08-27T19:19:12.386Z
+Stopped at: Completed 04-03-PLAN.md
 Resume file: None
