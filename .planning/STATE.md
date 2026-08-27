@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v1.0
 current_phase: 04
 current_phase_name: Contribution–Skill Assessment and Aggregation Calibration
-status: executing
-stopped_at: Completed 04-04-PLAN.md
-last_updated: "2026-08-27T19:39:10.003Z"
+status: verifying
+stopped_at: Completed 04-05-PLAN.md
+last_updated: "2026-08-27T20:29:00.754Z"
 last_activity: 2026-08-27
 last_activity_desc: Phase 04 execution started
-state_head: 43671538352dc1c15614385b03a0d0e8f078c03a
+state_head: 55cbdc5e372a377e4dace9d38339d4df0d664e06
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 31
-  completed_plans: 30
+  completed_plans: 31
 milestone_name: milestone
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-30)
 
 Phase: 04 (Contribution–Skill Assessment and Aggregation Calibration) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Total Plans in Phase: 5
 Last activity: 2026-08-27 — Phase 04 execution started
 
@@ -78,6 +78,7 @@ Progress: [███████░░░] 78%
 | Phase 04 P02 | 8min | 2 tasks | 7 files |
 | Phase 04-contribution-skill-assessment-and-aggregation-calibration P03 | 10min | 2 tasks | 5 files |
 | Phase 04 P04 | 13min | 2 tasks | 7 files |
+| Phase 04 P05 | 21min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -124,6 +125,8 @@ Recent decisions affecting current work:
 - [Phase 04]: Assessment correction and reassessment are hash-linked immutable lineages, while admission remains a separate policy decision.
 - [Phase 04]: Canonical user mastery equals the maximum admitted demonstrated mastery; confidence, centrality, duplicate evidence, duplicate contributions, and incidental volume cannot change it.
 - [Phase 04]: A cross-Contribution promotion is defaulted to the immediate target anchor's lower bound and requires hash-bound, distinct same-Skill Contribution/context/behavior proof.
+- [Phase 04]: Phase 04-05: zhdeng activated conservative-70 so 60-69 confidence boundary cases remain pending human confirmation.
+- [Phase 04]: Phase 04-05: Re-evaluate conservative-70 after additional real audited samples accumulate; baseline-60 remains comparison-only.
 
 ### Pending Todos
 
@@ -150,6 +153,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-27T19:39:09.933Z
-Stopped at: Completed 04-04-PLAN.md
+Last session: 2026-08-27T20:28:59.628Z
+Stopped at: Completed 04-05-PLAN.md
 Resume file: None
