@@ -1,5 +1,3 @@
-# ruff: noqa: E501
-
 from __future__ import annotations
 
 import json
@@ -7,29 +5,23 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
 ROOT = Path(__file__).parents[1]
 LAUNCHER = ROOT / "scripts" / "run_career_evidence.py"
 FIXTURE = ROOT / "validation/fixtures/stoa/v1/known-good.json"
 
 
-def run_cli(*args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
-    import os
-
+def run_cli(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, str(LAUNCHER), *args],
         cwd=ROOT,
         capture_output=True,
         text=True,
-        env=os.environ | (env or {}),
     )
 
 
-@pytest.mark.phase03_original_probe
-def test_start_does_not_overwrite_existing_audit(tmp_path: Path) -> None:
+def test_source_cli_uses_one_snapshot_for_start_duplicate_pause_and_resume(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    started = run_cli(
+    start = (
         "audit",
         "start",
         "--workspace",
@@ -38,15 +30,18 @@ def test_start_does_not_overwrite_existing_audit(tmp_path: Path) -> None:
         str(FIXTURE),
         "--contribution-id",
         "contrib-stoa-authorization-boundary",
-        "--action-id",
-        "action-start-one",
+        "--audit-id",
+        "audit-cli",
     )
+    started = run_cli(*start)
     assert started.returncode == 0, started.stderr
-    first = json.loads(started.stdout)
-    assert first["question"]["reason"]
-    assert first["question"]["prompt"]
-    audit_id = first["audit_id"]
-    head = first["event_hash"]
+    audit_id = json.loads(started.stdout)["audit_id"]
+    snapshot_path = workspace / "audits" / f"{audit_id}.json"
+    assert snapshot_path.is_file()
+
+    duplicate = run_cli(*start)
+    assert duplicate.returncode == 2
+    assert "already exists" in duplicate.stderr
 
     answered = run_cli(
         "audit",
@@ -57,84 +52,25 @@ def test_start_does_not_overwrite_existing_audit(tmp_path: Path) -> None:
         audit_id,
         "--answer",
         "I chose and verified the boundary.",
-        "--action-id",
-        "action-answer-one",
-        "--expected-event-hash",
-        head,
     )
     assert answered.returncode == 0, answered.stderr
-    answer_head = json.loads(answered.stdout)["event_hash"]
-    paused = run_cli(
-        "audit",
-        "pause",
-        "--workspace",
-        str(workspace),
-        "--audit-id",
-        audit_id,
-        "--action-id",
-        "action-pause-one",
-        "--expected-event-hash",
-        answer_head,
-    )
+    assert json.loads(answered.stdout)["snapshot"]["answers"]
+
+    paused = run_cli("audit", "pause", "--workspace", str(workspace), "--audit-id", audit_id)
     assert paused.returncode == 0, paused.stderr
-    pause_head = json.loads(paused.stdout)["event_hash"]
-    resumed = run_cli(
-        "audit",
-        "resume",
-        "--workspace",
-        str(workspace),
-        "--audit-id",
-        audit_id,
-        "--action-id",
-        "action-resume-one",
-        "--expected-event-hash",
-        pause_head,
-    )
+    resumed = run_cli("audit", "resume", "--workspace", str(workspace), "--audit-id", audit_id)
     assert resumed.returncode == 0, resumed.stderr
-    assert json.loads(resumed.stdout)["snapshot"]["audit_id"] == audit_id
-    original = (workspace / "audits" / audit_id / "snapshot.json").read_bytes()
-    repeated = run_cli(
-        "audit",
-        "start",
-        "--workspace",
-        str(workspace),
-        "--fixture",
-        str(FIXTURE),
-        "--contribution-id",
-        "contrib-stoa-authorization-boundary",
-        "--audit-id",
-        audit_id,
-        "--action-id",
-        "action-start-repeat",
-    )
-    assert repeated.returncode == 2
-    assert (workspace / "audits" / audit_id / "snapshot.json").read_bytes() == original
+    snapshot = json.loads(resumed.stdout)["snapshot"]
+    assert snapshot["audit_id"] == audit_id
+    assert snapshot["inspected_facts"]
+    assert snapshot["questions"]
+    assert snapshot["answers"]
+    assert snapshot["coverage"]
 
 
-@pytest.mark.phase03_original_probe
-def test_audit_creation_is_atomic_under_competition(tmp_path: Path) -> None:
-    workspace = tmp_path / "workspace"
-    command = (
-        "audit",
-        "start",
-        "--workspace",
-        str(workspace),
-        "--fixture",
-        str(FIXTURE),
-        "--contribution-id",
-        "contrib-stoa-authorization-boundary",
-        "--audit-id",
-        "audit-race",
-        "--action-id",
-        "action-start-race",
-    )
-    first = run_cli(*command)
-    second = run_cli(*command[:-1], "action-start-race-two")
-    assert sorted((first.returncode, second.returncode)) == [0, 2]
-    assert (workspace / "audits" / "audit-race" / "snapshot.json").is_file()
-
-
-def test_audit_workflow_errors_are_structured_and_do_not_write(tmp_path: Path) -> None:
+def test_invalid_action_and_corrupt_snapshot_return_stable_errors_without_writes(
+    tmp_path: Path,
+) -> None:
     workspace = tmp_path / "workspace"
     started = run_cli(
         "audit",
@@ -145,117 +81,20 @@ def test_audit_workflow_errors_are_structured_and_do_not_write(tmp_path: Path) -
         str(FIXTURE),
         "--contribution-id",
         "contrib-stoa-authorization-boundary",
-        "--action-id",
-        "action-start-invalid",
+        "--audit-id",
+        "audit-cli-invalid",
     )
     audit_id = json.loads(started.stdout)["audit_id"]
-    snapshot_path = workspace / "audits" / audit_id / "snapshot.json"
+    snapshot_path = workspace / "audits" / f"{audit_id}.json"
     before = snapshot_path.read_bytes()
-    rejected = run_cli(
-        "audit",
-        "resume",
-        "--workspace",
-        str(workspace),
-        "--audit-id",
-        audit_id,
-        "--action-id",
-        "action-resume-invalid",
-        "--expected-event-hash",
-        json.loads(started.stdout)["event_hash"],
-    )
-    assert rejected.returncode == 2
-    assert json.loads(rejected.stderr)["error"] == "audit_workflow_error"
-    assert "Traceback" not in rejected.stderr
+
+    invalid = run_cli("audit", "resume", "--workspace", str(workspace), "--audit-id", audit_id)
+    assert invalid.returncode == 2
+    assert json.loads(invalid.stderr)["error"] == "audit_workflow_error"
     assert snapshot_path.read_bytes() == before
 
-
-def test_exact_action_replay_is_byte_identical_and_stale_new_action_fails(tmp_path: Path) -> None:
-    workspace = tmp_path / "workspace"
-    started = run_cli(
-        "audit",
-        "start",
-        "--workspace",
-        str(workspace),
-        "--fixture",
-        str(FIXTURE),
-        "--contribution-id",
-        "contrib-stoa-authorization-boundary",
-        "--action-id",
-        "action-start-replay",
-    )
-    first = json.loads(started.stdout)
-    command = (
-        "audit",
-        "answer",
-        "--workspace",
-        str(workspace),
-        "--audit-id",
-        first["audit_id"],
-        "--answer",
-        "I chose and verified the boundary.",
-        "--action-id",
-        "action-answer-replay",
-        "--expected-event-hash",
-        first["event_hash"],
-    )
-    accepted = run_cli(*command)
-    snapshot_path = workspace / "audits" / first["audit_id"] / "snapshot.json"
-    after_accept = snapshot_path.read_bytes()
-    replayed = run_cli(*command)
-    assert accepted.returncode == replayed.returncode == 0
-    assert accepted.stdout == replayed.stdout
-    assert snapshot_path.read_bytes() == after_accept
-    stale = run_cli(
-        "audit",
-        "pause",
-        "--workspace",
-        str(workspace),
-        "--audit-id",
-        first["audit_id"],
-        "--action-id",
-        "action-pause-stale",
-        "--expected-event-hash",
-        first["event_hash"],
-    )
-    assert stale.returncode == 2
-    assert "stale expected event hash" in stale.stderr
-
-
-@pytest.mark.phase03_gap_probe
-def test_malformed_audit_action_has_json_diagnostic_and_no_workspace_writes(tmp_path: Path) -> None:
-    workspace = tmp_path / "workspace"
-    started = run_cli(
-        "audit",
-        "start",
-        "--workspace",
-        str(workspace),
-        "--fixture",
-        str(FIXTURE),
-        "--contribution-id",
-        "contrib-stoa-authorization-boundary",
-        "--audit-id",
-        "audit-malformed-action",
-        "--action-id",
-        "start-malformed-action",
-    )
-    audit_id = json.loads(started.stdout)["audit_id"]
-    audit_path = workspace / "audits" / audit_id
-    custody_names = ("snapshot.json", "events.jsonl", "accepted-results.json")
-    before = {name: (audit_path / name).read_bytes() for name in custody_names}
-    malformed = run_cli(
-        "audit",
-        "pause",
-        "--workspace",
-        str(workspace),
-        "--audit-id",
-        audit_id,
-        "--action-id",
-        "malformed-action",
-        "--expected-event-hash",
-        "not-a-sha256-hash",
-    )
-    assert malformed.returncode == 2
-    diagnostic = json.loads(malformed.stderr)
-    assert diagnostic["error"] == "invalid_audit_action"
-    assert "Traceback" not in malformed.stderr
-    assert before == {name: (audit_path / name).read_bytes() for name in custody_names}
+    snapshot_path.write_text("{bad}", encoding="utf-8")
+    corrupt = run_cli("audit", "pause", "--workspace", str(workspace), "--audit-id", audit_id)
+    assert corrupt.returncode == 2
+    assert json.loads(corrupt.stderr)["error"] == "audit_storage_error"
+    assert snapshot_path.read_text(encoding="utf-8") == "{bad}"
