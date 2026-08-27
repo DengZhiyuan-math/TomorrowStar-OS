@@ -148,6 +148,84 @@ def test_review_cli_records_every_substantive_acknowledgment_and_hash(tmp_path: 
     assert emitted["original_proposal_hash"] == initial["original_proposal_hash"]
 
 
+def test_rerun_after_insufficient_review_is_byte_idempotent(tmp_path: Path) -> None:
+    """A normal retry cannot replace a D-10 insufficient-basis decision."""
+    initial = _run("assessment", "run", "--workspace", str(tmp_path))
+    assert initial.returncode == 0, initial.stderr
+    proposal_path = tmp_path / "accepted-assessment.json"
+    proposal_path.write_text(
+        json.dumps(json.loads(initial.stdout)["proposal"]), encoding="utf-8"
+    )
+
+    reviewed = _run(
+        "assessment",
+        "review",
+        "--workspace",
+        str(tmp_path),
+        "--run-id",
+        "assessment-audit-e2e-04-baseline-60",
+        "--expected-effective-hash",
+        json.loads(initial.stdout)["effective_assessment_hash"],
+        "--reviewer",
+        "reviewer-a",
+        "--reason",
+        "The available evidence is insufficient to substantively confirm this assessment.",
+        "--assessment-json",
+        str(proposal_path),
+        "--outcome",
+        "insufficient-basis",
+        "--attribution-checked",
+        "--anchor-fit-checked",
+        "--all-judgments-checked",
+    )
+    assert reviewed.returncode == 0, reviewed.stderr
+    before = AssessmentStore(tmp_path).path(
+        "assessment-audit-e2e-04-baseline-60"
+    ).read_bytes()
+
+    rerun = _run("assessment", "run", "--workspace", str(tmp_path))
+
+    assert rerun.returncode == 0, rerun.stderr
+    assert rerun.stdout == reviewed.stdout
+    assert AssessmentStore(tmp_path).path(
+        "assessment-audit-e2e-04-baseline-60"
+    ).read_bytes() == before
+    emitted = json.loads(rerun.stdout)
+    assert emitted["admission"]["admission_status"] == "unverified-candidate"
+    assert emitted["admission"]["reason_code"] == "insufficient-basis"
+    assert emitted["result"] is None
+
+
+def test_explicit_reassess_rejects_stale_hash_without_mutating_sidecar(tmp_path: Path) -> None:
+    initial = _run("assessment", "run", "--workspace", str(tmp_path))
+    assert initial.returncode == 0, initial.stderr
+    proposal_path = tmp_path / "reassessment.json"
+    proposal_path.write_text(
+        json.dumps(json.loads(initial.stdout)["proposal"]), encoding="utf-8"
+    )
+    sidecar = AssessmentStore(tmp_path).path("assessment-audit-e2e-04-baseline-60")
+    before = sidecar.read_bytes()
+
+    stale = _run(
+        "assessment",
+        "reassess",
+        "--workspace",
+        str(tmp_path),
+        "--run-id",
+        "assessment-audit-e2e-04-baseline-60",
+        "--source-audit-id",
+        "audit-later-evidence",
+        "--expected-current-version-hash",
+        "sha256:" + "0" * 64,
+        "--assessment-json",
+        str(proposal_path),
+    )
+
+    assert stale.returncode == 2
+    assert "assessment_workflow_error" in stale.stderr
+    assert sidecar.read_bytes() == before
+
+
 def test_calibration_cli_compares_activates_and_reopens_redacted_history(tmp_path: Path) -> None:
     compared = _run("assessment", "compare", "--workspace", str(tmp_path))
     assert compared.returncode == 0, compared.stderr
