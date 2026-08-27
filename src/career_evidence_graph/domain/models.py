@@ -6,6 +6,7 @@ derive a person's capability from a document, title, repository, or ontology.
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Annotated, Literal
 
 from pydantic import Field, model_validator
@@ -53,6 +54,14 @@ AssessmentSourceKind = Literal[
     "resume-skill-list",
     "ontology-relation",
 ]
+
+
+class AssessmentAdmissionStatus(StrEnum):
+    """Whether a proposal may enter formal user-level mastery."""
+
+    ADMITTED = "admitted"
+    PENDING_CONFIRMATION = "pending-confirmation"
+    UNVERIFIED_CANDIDATE = "unverified-candidate"
 
 
 def _unique_ids(values: tuple[str, ...], field_name: str) -> tuple[str, ...]:
@@ -382,8 +391,14 @@ class AdmissionDecision(StrictModel):
     schema_version: Literal["assessment-admission-decision/v1"] = "assessment-admission-decision/v1"
     assessment_id: Identifier = Field(pattern=ID_PATTERN)
     policy_version: str = Field(min_length=1)
-    admission_status: Literal["admitted", "pending-confirmation", "unverified-candidate"]
+    admission_status: AssessmentAdmissionStatus
     reason: str = Field(min_length=1)
+    reason_code: Literal[
+        "numeric-policy",
+        "high-mastery-low-confidence",
+        "provenance-review-required",
+        "insufficient-basis",
+    ]
 
 
 class AggregationPolicy(StrictModel):
@@ -410,6 +425,14 @@ class ContributionSkillAssessment(StrictModel):
     duration: DurationEvidence
     basis_claim_ids: tuple[Identifier, ...] = Field(min_length=1)
     assessment_status: Literal["partial", "unresolved", "reviewed", "derived-counterfactual"]
+    # These inputs remain separate from the three judgments.  They preserve the
+    # Phase 3 audit boundary and are evaluated by admission, never by score mutation.
+    origin_status: Literal[
+        "audit-verified", "self-assessed-unverified", "derived-counterfactual"
+    ] = "audit-verified"
+    attribution_status: Literal["resolved", "unresolved", "disputed"] = "resolved"
+    assistance_status: Literal["resolved", "unresolved"] = "resolved"
+    substantive_review_complete: bool = False
     mastery_anchor_fit: MasteryAnchorFit | None = None
     exact_score_basis: str | None = None
     judgment_basis: AssessmentJudgmentBasis | None = None

@@ -13,6 +13,7 @@ from career_evidence_graph.assessment import (
     run_assessment,
 )
 from career_evidence_graph.domain.models import (
+    MASTERY_ANCHORS,
     AggregationPolicy,
     AssessmentAdmissionStatus,
     ContributionSkillAssessment,
@@ -47,6 +48,22 @@ def _policy(version: str, confidence: int) -> AggregationPolicy:
     )
 
 
+def _anchor_payload(mastery: int) -> dict[str, object]:
+    anchor = next(
+        item
+        for item in MASTERY_ANCHORS
+        if mastery in range(item.inclusive_range[0], item.inclusive_range[1] + 1)
+    )
+    return {
+        "anchor_id": anchor.anchor_id,
+        "anchor_range": list(anchor.inclusive_range),
+        "anchor_text": anchor.capability_text,
+        "anchor_basis": "The fixture independently establishes the stated capability band.",
+        "exact_score_basis": "The integer fixture score remains inside the accepted anchor.",
+        "next_anchor_not_established": "The next capability anchor remains unestablished.",
+    }
+
+
 @pytest.mark.parametrize(
     ("policy", "mastery", "confidence", "expected"),
     (
@@ -64,19 +81,20 @@ def test_admission_boundaries_are_integer_exact_and_never_mutate_judgments(
         tmp_path,
         demonstrated_mastery=mastery,
         evidence_confidence=confidence,
-        mastery_anchor_fit={
-            "anchor_id": "anchor-60-79",
-            "anchor_range": [60, 79],
-            "observable_capability": "Validated capability band fixture.",
-        },
+        mastery_anchor_fit=_anchor_payload(mastery),
+        exact_score_basis="The integer fixture score remains inside the accepted anchor.",
     )
 
     admission = decide_admission(proposal, _policy(policy, 60 if policy.endswith("60") else 70))
 
     assert admission.admission_status == expected
-    assert (proposal.demonstrated_mastery, proposal.skill_centrality, proposal.evidence_confidence) == (
+    assert (
+        proposal.demonstrated_mastery,
+        proposal.skill_centrality,
+        proposal.evidence_confidence,
+    ) == (
         mastery,
-        55,
+        80,
         confidence,
     )
     if expected != "admitted":

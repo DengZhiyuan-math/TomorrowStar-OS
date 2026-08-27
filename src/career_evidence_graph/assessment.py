@@ -20,6 +20,7 @@ from .domain.invariants import _normalized_text, normalize_skill_metadata
 from .domain.models import (
     AdmissionDecision,
     AggregationPolicy,
+    AssessmentAdmissionStatus,
     AssessmentJudgmentBasis,
     AssessmentLineage,
     AssessmentSourceEnvelope,
@@ -170,14 +171,18 @@ class AssessmentRun(StrictModel):
     schema_version: str = "assessment-run/v1"
     proposal: ContributionSkillAssessment
     admission: AdmissionDecision
-    result: CalibratedUserSkillResult
+    result: CalibratedUserSkillResult | None = None
 
     @model_validator(mode="after")
     def validate_links(self) -> AssessmentRun:
         if self.admission.assessment_id != self.proposal.id:
             raise ValueError("admission must reference proposal")
-        if self.admission.admission_status != "admitted":
-            raise ValueError("persisted result requires an admitted proposal")
+        if self.admission.admission_status != AssessmentAdmissionStatus.ADMITTED:
+            if self.result is not None:
+                raise ValueError("non-admitted proposals cannot carry an aggregate result")
+            return self
+        if self.result is None:
+            raise ValueError("admitted proposal requires an aggregate result")
         if self.result.baseline_assessment_id != self.proposal.id:
             raise ValueError("result baseline must reference proposal")
         if self.result.admitted_assessment_ids != (self.proposal.id,):
@@ -450,22 +455,40 @@ def propose_assessment(
 
 
 def decide_admission(
-    proposal: ContributionSkillAssessment, policy: AggregationPolicy
+    proposal: ContributionSkillAssessment,
+    policy: AggregationPolicy,
+    *,
+    review_outcome: str | None = None,
 ) -> AdmissionDecision:
     """Apply an explicit replaceable confidence policy without changing mastery."""
-    if proposal.demonstrated_mastery >= policy.high_mastery_min and (
+    if review_outcome == "insufficient-basis":
+        status = AssessmentAdmissionStatus.UNVERIFIED_CANDIDATE
+        reason = "reviewer retained the proposal but found its basis insufficient"
+        reason_code = "insufficient-basis"
+    elif (
+        proposal.origin_status == "self-assessed-unverified"
+        or proposal.attribution_status in {"unresolved", "disputed"}
+        or proposal.assistance_status == "unresolved"
+    ) and not proposal.substantive_review_complete:
+        status = AssessmentAdmissionStatus.PENDING_CONFIRMATION
+        reason = "provenance requires a substantive review before formal admission"
+        reason_code = "provenance-review-required"
+    elif proposal.demonstrated_mastery >= policy.high_mastery_min and (
         proposal.evidence_confidence < policy.strict_confidence_min
     ):
-        status = "pending-confirmation"
+        status = AssessmentAdmissionStatus.PENDING_CONFIRMATION
         reason = "high mastery requires confirmation under this candidate policy"
+        reason_code = "high-mastery-low-confidence"
     else:
-        status = "admitted"
+        status = AssessmentAdmissionStatus.ADMITTED
         reason = "proposal meets the candidate policy's admission rule"
+        reason_code = "numeric-policy"
     return AdmissionDecision(
         assessment_id=proposal.id,
         policy_version=policy.policy_version,
         admission_status=status,
         reason=reason,
+        reason_code=reason_code,
     )
 
 
@@ -473,7 +496,10 @@ def aggregate_skill(
     proposal: ContributionSkillAssessment, admission: AdmissionDecision
 ) -> CalibratedUserSkillResult:
     """Use the strongest admitted assessment exactly; never add a volume bonus."""
-    if admission.admission_status != "admitted" or proposal.source_envelope is None:
+    if (
+        admission.admission_status != AssessmentAdmissionStatus.ADMITTED
+        or proposal.source_envelope is None
+    ):
         raise AssessmentWorkflowError("only admitted assessments can enter an aggregate")
     return CalibratedUserSkillResult(
         result_id=f"result-{proposal.id}",
@@ -500,7 +526,11 @@ def run_assessment(
     snapshot = _materialize_audit(workspace=workspace, corpus=corpus, root=root, audit_id=audit_id)
     proposal = propose_assessment(snapshot=snapshot, corpus=corpus, root=root)
     admission = decide_admission(proposal, _policy(policies_path, policy_version))
-    result = aggregate_skill(proposal, admission)
+    result = (
+        aggregate_skill(proposal, admission)
+        if admission.admission_status == AssessmentAdmissionStatus.ADMITTED
+        else None
+    )
     record = AssessmentRun(proposal=proposal, admission=admission, result=result)
     run_id = f"assessment-{audit_id}-{policy_version.removeprefix('policy-')}"
     store = AssessmentStore(workspace)
