@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 04
 current_phase_name: Contribution–Skill Assessment and Aggregation Calibration
 status: executing
-stopped_at: Completed 04-03-PLAN.md
-last_updated: "2026-08-27T19:19:12.458Z"
+stopped_at: Completed 04-04-PLAN.md
+last_updated: "2026-08-27T19:39:10.003Z"
 last_activity: 2026-08-27
 last_activity_desc: Phase 04 execution started
-state_head: ff10045badf65895b44a58b12fc3d4467fd255ca
+state_head: 43671538352dc1c15614385b03a0d0e8f078c03a
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 31
-  completed_plans: 29
+  completed_plans: 30
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-30)
 ## Current Position
 
 Phase: 04 (Contribution–Skill Assessment and Aggregation Calibration) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Total Plans in Phase: 5
 Last activity: 2026-08-27 — Phase 04 execution started
@@ -77,6 +77,7 @@ Progress: [███████░░░] 78%
 | Phase 04 P01 | 3min | 2 tasks | 8 files |
 | Phase 04 P02 | 8min | 2 tasks | 7 files |
 | Phase 04-contribution-skill-assessment-and-aggregation-calibration P03 | 10min | 2 tasks | 5 files |
+| Phase 04 P04 | 13min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -121,6 +122,8 @@ Recent decisions affecting current work:
 - [Phase 04]: Phase 04 Plan 02: exact accepted anchors and separate observable mastery, centrality, and confidence bases are required for effective assessments.
 - [Phase 04]: Only D-10-complete reviews may admit low-confidence, disputed, unresolved, or self-assessed proposals; their original source status remains inspectable.
 - [Phase 04]: Assessment correction and reassessment are hash-linked immutable lineages, while admission remains a separate policy decision.
+- [Phase 04]: Canonical user mastery equals the maximum admitted demonstrated mastery; confidence, centrality, duplicate evidence, duplicate contributions, and incidental volume cannot change it.
+- [Phase 04]: A cross-Contribution promotion is defaulted to the immediate target anchor's lower bound and requires hash-bound, distinct same-Skill Contribution/context/behavior proof.
 
 ### Pending Todos
 
@@ -147,6 +150,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-27T19:19:12.386Z
-Stopped at: Completed 04-03-PLAN.md
+Last session: 2026-08-27T19:39:09.933Z
+Stopped at: Completed 04-04-PLAN.md
 Resume file: None
