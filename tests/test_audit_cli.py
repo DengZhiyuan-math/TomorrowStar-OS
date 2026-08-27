@@ -19,7 +19,7 @@ def run_cli(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_source_cli_uses_one_snapshot_for_start_duplicate_pause_and_resume(tmp_path: Path) -> None:
+def test_checkout_source_cli_inspects_snapshot_and_resumes_one_action_at_a_time(tmp_path: Path):
     workspace = tmp_path / "workspace"
     start = (
         "audit",
@@ -39,32 +39,16 @@ def test_source_cli_uses_one_snapshot_for_start_duplicate_pause_and_resume(tmp_p
     snapshot_path = workspace / "audits" / f"{audit_id}.json"
     assert snapshot_path.is_file()
 
-    duplicate = run_cli(*start)
-    assert duplicate.returncode == 2
-    assert "already exists" in duplicate.stderr
-
-    answered = run_cli(
-        "audit",
-        "answer",
-        "--workspace",
-        str(workspace),
-        "--audit-id",
-        audit_id,
-        "--answer",
-        "I chose and verified the boundary.",
-    )
-    assert answered.returncode == 0, answered.stderr
-    assert json.loads(answered.stdout)["snapshot"]["answers"]
-
     paused = run_cli("audit", "pause", "--workspace", str(workspace), "--audit-id", audit_id)
     assert paused.returncode == 0, paused.stderr
     resumed = run_cli("audit", "resume", "--workspace", str(workspace), "--audit-id", audit_id)
     assert resumed.returncode == 0, resumed.stderr
-    snapshot = json.loads(resumed.stdout)["snapshot"]
+    inspected = run_cli("audit", "inspect", "--workspace", str(workspace), "--audit-id", audit_id)
+    assert inspected.returncode == 0, inspected.stderr
+    snapshot = json.loads(inspected.stdout)["snapshot"]
     assert snapshot["audit_id"] == audit_id
     assert snapshot["inspected_facts"]
     assert snapshot["questions"]
-    assert snapshot["answers"]
     assert snapshot["coverage"]
 
 

@@ -12,7 +12,8 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from .audit.models import AuditAction
+from .audit.decision import RecordedDecisionPort
+from .audit.models import AuditAction, BoundaryDecision, ProbePlan
 from .audit.store import AuditStorageError, AuditStore
 from .audit.workflow import AuditWorkflowError, inspect_contribution, start_audit, transition_audit
 from .domain import (
@@ -66,6 +67,20 @@ def _emit(value: Any) -> None:
 def _audit_result(snapshot: Any) -> dict[str, Any]:
     """The deterministic presentation for one completed local audit action."""
     return {"snapshot": snapshot.model_dump(mode="json")}
+
+
+def _recorded_decision_port(
+    plan: ProbePlan, decisions_path: str | None = None
+) -> RecordedDecisionPort:
+    """Load explicit offline decisions; the default path never invokes a model."""
+    payload = _json_file(decisions_path) if decisions_path else {"decisions": []}
+    if not isinstance(payload, dict) or not isinstance(payload.get("decisions"), list):
+        raise ValueError("recorded decisions must contain a decisions list")
+    decisions = tuple(BoundaryDecision.model_validate(item) for item in payload["decisions"])
+    return RecordedDecisionPort(
+        plan=plan,
+        decisions={(decision.question_id, decision.answer): decision for decision in decisions},
+    )
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -148,6 +163,7 @@ def _parser() -> argparse.ArgumentParser:
     start.add_argument("--manifest", default=None)
     start.add_argument("--contribution-id", required=True)
     start.add_argument("--audit-id")
+    start.add_argument("--recorded-probe-plan")
     for name in (
         "answer",
         "skip",
@@ -163,6 +179,8 @@ def _parser() -> argparse.ArgumentParser:
         if name in {"answer", "skip", "skip-contribution"}:
             command.add_argument("--answer", required=True)
             command.add_argument("--question-id")
+        if name == "answer":
+            command.add_argument("--recorded-decisions")
         if name == "review-entry":
             command.add_argument("--entry-id", required=True)
             command.add_argument("--decision", choices=("confirm", "edit", "reject"), required=True)
@@ -174,9 +192,11 @@ def _parser() -> argparse.ArgumentParser:
             command.add_argument("--reason", required=True)
             command.add_argument("--reviewer", required=True)
     inspect = audit_commands.add_parser("inspect")
-    inspect.add_argument("--fixture", required=True)
-    inspect.add_argument("--manifest", required=True)
-    inspect.add_argument("--contribution-id", required=True)
+    inspect.add_argument("--workspace")
+    inspect.add_argument("--audit-id")
+    inspect.add_argument("--fixture")
+    inspect.add_argument("--manifest")
+    inspect.add_argument("--contribution-id")
     return parser
 
 
@@ -339,12 +359,18 @@ def main(argv: list[str] | None = None) -> int:
                 if args.manifest
                 else Path(args.fixture).with_name("source-manifest.json")
             )
+            decision_port = None
+            if args.recorded_probe_plan:
+                decision_port = _recorded_decision_port(
+                    ProbePlan.model_validate(_json_file(args.recorded_probe_plan))
+                )
             created = start_audit(
                 workspace=Path(args.workspace),
                 fixture_path=Path(args.fixture),
                 manifest_path=manifest,
                 contribution_id=args.contribution_id,
                 audit_id=args.audit_id,
+                decision_port=decision_port,
             )
             _emit(
                 {
@@ -355,10 +381,17 @@ def main(argv: list[str] | None = None) -> int:
                 }
             )
         elif args.command == "audit" and args.audit_command == "inspect":
-            facts, limitations = inspect_contribution(
-                Path(args.fixture), Path(args.manifest), args.contribution_id
-            )
-            _emit({"facts": facts, "limitations": limitations})
+            if args.workspace and args.audit_id:
+                _emit(_audit_result(AuditStore(Path(args.workspace)).read(args.audit_id)))
+            elif args.fixture and args.manifest and args.contribution_id:
+                facts, limitations = inspect_contribution(
+                    Path(args.fixture), Path(args.manifest), args.contribution_id
+                )
+                _emit({"facts": facts, "limitations": limitations})
+            else:
+                raise AuditWorkflowError(
+                    "inspect needs either workspace and audit ID, or fixture, manifest, and Contribution ID"
+                )
         elif args.command == "audit":
             store = AuditStore(Path(args.workspace))
             payload = {"action": args.audit_command}
@@ -385,7 +418,13 @@ def main(argv: list[str] | None = None) -> int:
                     }
                 )
                 return 2
-            updated = transition_audit(store.read(args.audit_id), action)
+            snapshot = store.read(args.audit_id)
+            decision_port = (
+                _recorded_decision_port(snapshot.probe_plan, args.recorded_decisions)
+                if getattr(args, "recorded_decisions", None) and snapshot.probe_plan is not None
+                else None
+            )
+            updated = transition_audit(snapshot, action, decision_port=decision_port)
             store.replace(updated)
             _emit(_audit_result(updated))
         return 0

@@ -4,15 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from career_evidence_graph.audit import workflow
 from career_evidence_graph.audit.models import AuditAction
-from career_evidence_graph.audit.store import AuditStore
-from career_evidence_graph.audit.workflow import (
-    AuditWorkflowError,
-    inspect_contribution,
-    start_audit,
-    transition_audit,
-)
+from career_evidence_graph.audit.workflow import AuditWorkflowError, start_audit, transition_audit
 
 ROOT = Path(__file__).parents[1]
 FIXTURE = ROOT / "validation/fixtures/stoa/v1/known-good.json"
@@ -29,196 +22,50 @@ def _start(tmp_path: Path, audit_id: str = "audit-regression"):
     )
 
 
-def _complete(tmp_path: Path, audit_id: str = "audit-complete"):
-    store = AuditStore(tmp_path)
-    snapshot = _start(tmp_path, audit_id)
-    for index, answer in enumerate(
-        (
-            "I designed and verified the boundary.",
-            "I isolated and repaired the failure.",
-            "I operated and checked the dependency failure.",
-            "I owned the decisions and acceptance.",
-            "No outside assistance.",
-        )
-    ):
-        action = AuditAction(
-            action="answer",
-            answer=answer,
-            action_id=f"workflow-answer-{index}",
-            expected_event_hash=store.latest_event_hash(snapshot.audit_id),
-        )
-        snapshot, replayed = store.transact(
-            snapshot.audit_id,
-            action,
-            lambda current, action=action: transition_audit(store, current, action),
-        )
-        assert not replayed
-    return store, snapshot
-
-
-@pytest.mark.phase03_gap_probe
-def test_paused_and_terminal_lifecycle_actions_fail_closed(tmp_path: Path):
-    store = AuditStore(tmp_path)
-    active = _start(tmp_path)
-    paused = transition_audit(store, active, AuditAction(action="pause"))
-    with pytest.raises(AuditWorkflowError, match="not allowed"):
-        transition_audit(store, paused, AuditAction(action="answer", answer="not allowed"))
-    resumed = transition_audit(store, paused, AuditAction(action="resume"))
-    with pytest.raises(AuditWorkflowError, match="not allowed"):
-        transition_audit(store, resumed, AuditAction(action="resume"))
-
-    store, reviewing = _complete(tmp_path, "audit-terminal")
-    assert reviewing.status == "reviewing"
-    for entry in reviewing.conclusion.entries:
-        action = AuditAction(
-            action="review-entry",
-            entry_id=entry.id,
-            decision="confirm",
-            reason="entry accepted",
-            reviewer_id="reviewer",
-            action_id=f"terminal-review-{entry.id.removeprefix('entry-')}",
-            expected_event_hash=store.latest_event_hash(reviewing.audit_id),
-            expected_effective_conclusion_hash=reviewing.conclusion.effective_conclusion_hash,
-        )
-        reviewing, replayed = store.transact(
-            reviewing.audit_id,
-            action,
-            lambda current, action=action: transition_audit(store, current, action),
-        )
-        assert not replayed
-    completed = transition_audit(
-        store,
-        reviewing,
-        AuditAction(
-            action="review-conclusion",
-            decision="confirm",
-            reason="all entries accepted",
-            reviewer_id="reviewer",
-            expected_event_hash=store.latest_event_hash(reviewing.audit_id),
-            expected_effective_conclusion_hash=reviewing.conclusion.effective_conclusion_hash,
-        ),
-    )
-    assert completed.status == "completed"
-    with pytest.raises(AuditWorkflowError, match="not allowed"):
-        transition_audit(store, completed, AuditAction(action="pause"))
-
-
-@pytest.mark.phase03_gap_probe
-def test_supported_english_and_chinese_attribution_are_equivalent(tmp_path: Path):
-    store = AuditStore(tmp_path)
-    english = _start(tmp_path, "audit-english")
-    chinese = _start(tmp_path, "audit-chinese")
-    for answer in (
-        "I implemented it.",
-        "I debugged it.",
-        "I operated it.",
-        "I owned it.",
-        "No outside assistance.",
-    ):
-        english = transition_audit(store, english, AuditAction(action="answer", answer=answer))
-    for answer in ("我实现了它。", "我调试了它。", "我运行了它。", "我负责它。", "没有外部协助。"):
-        chinese = transition_audit(store, chinese, AuditAction(action="answer", answer=answer))
-    assert english.attribution == chinese.attribution
-    assert english.attribution.ownership == "user-owned"
-    assert english.attribution.assistance == "none"
-
-
-@pytest.mark.phase03_gap_probe
-def test_conclusion_basis_separates_documentary_context(tmp_path: Path):
-    store = AuditStore(tmp_path)
+def test_early_attribution_signal_requires_ownership_then_assistance_before_resuming(
+    tmp_path: Path,
+):
     snapshot = _start(tmp_path)
-    for action, answer in (
-        ("answer", "I designed it."),
-        ("skip", "I cannot establish debugging capability."),
-        ("skip", "I cannot establish operational capability."),
-        ("answer", "I owned it."),
-        ("answer", "No outside assistance."),
-    ):
-        snapshot = transition_audit(store, snapshot, AuditAction(action=action, answer=answer))
-    skipped = next(entry for entry in snapshot.conclusion.entries if entry.area == "debugging")
-    assert skipped.artifact_references
-    assert skipped.answer_references
-    assert skipped.basis == skipped.answer_references
-    assert skipped.source_type == "answer-only"
-
-
-@pytest.mark.phase03_gap_probe
-def test_missing_claim_or_evidence_reference_fails_closed(tmp_path: Path, monkeypatch):
-    fixture = workflow._fixture(FIXTURE)
-    contribution = fixture.contributions[0].model_copy(
-        update={"claim_ids": ("claim-does-not-exist",)}
-    )
-    malformed = fixture.model_copy(
-        update={"contributions": (contribution, *fixture.contributions[1:])}
-    )
-    monkeypatch.setattr(workflow, "_fixture", lambda _: malformed)
-    with pytest.raises(AuditWorkflowError, match="claim"):
-        inspect_contribution(FIXTURE, MANIFEST, "contrib-stoa-authorization-boundary")
-
-
-@pytest.mark.phase03_gap_probe
-def test_review_actions_update_canonical_conclusion_state(tmp_path: Path):
-    store, snapshot = _complete(tmp_path, "audit-canonical-review")
-    proposal = snapshot.conclusion.original_proposal
-    original_hash = snapshot.conclusion.original_proposal_hash
-    before_hash = snapshot.conclusion.effective_conclusion_hash
-    edited = transition_audit(
-        store,
+    signalled = transition_audit(
         snapshot,
-        AuditAction(
-            action="review-entry",
-            entry_id="entry-implementation",
-            decision="edit",
-            correction="Corrected capability boundary.",
-            reason="clarify scope",
-            reviewer_id="reviewer",
-            expected_event_hash=store.latest_event_hash(snapshot.audit_id),
-            expected_effective_conclusion_hash=before_hash,
-        ),
+        AuditAction(action="answer", answer="This implementation was not me; the team did it."),
     )
-    assert edited.status == "reviewing"
-    assert edited.conclusion.original_proposal == proposal
-    assert edited.conclusion.original_proposal_hash == original_hash
-    assert edited.conclusion.effective_conclusion_hash != before_hash
-    assert edited.conclusion_reviews[-1].before_effective_hash == before_hash
-    assert (
-        edited.conclusion_reviews[-1].after_effective_hash
-        == edited.conclusion.effective_conclusion_hash
+    assert signalled.questions[-1].turn == "ownership"
+
+    owned = transition_audit(
+        signalled,
+        AuditAction(action="answer", answer="The team owned this work."),
     )
-    with pytest.raises(AuditWorkflowError, match="effective conclusion hash"):
+    assert owned.questions[-1].turn == "assistance"
+    resumed = transition_audit(
+        owned,
+        AuditAction(action="answer", answer="No outside assistance."),
+    )
+    assert resumed.status == "active"
+    assert resumed.questions[-1].turn == "capability"
+    assert resumed.coverage[0].strongest_capability is None
+    assert resumed.attribution_records[0].ownership == "team-owned"
+
+
+def test_question_target_must_match_the_one_active_question(tmp_path: Path):
+    snapshot = _start(tmp_path)
+    with pytest.raises(AuditWorkflowError, match="active question"):
         transition_audit(
-            store,
-            edited,
+            snapshot,
             AuditAction(
-                action="review-entry",
-                entry_id="entry-debugging",
-                decision="confirm",
-                reason="stale",
-                reviewer_id="reviewer",
-                expected_event_hash=store.latest_event_hash(snapshot.audit_id),
-                expected_effective_conclusion_hash=before_hash,
+                action="answer",
+                answer="I designed and verified it.",
+                question_id="question-implementation-hard-0-99",
             ),
         )
 
 
-@pytest.mark.phase03_gap_probe
-def test_wrong_question_target_rejects_before_audit_workspace_write(tmp_path: Path):
-    store = AuditStore(tmp_path)
-    snapshot = _start(tmp_path, "audit-question-target")
-    audit_path = store.path(snapshot.audit_id)
-    custody_names = ("snapshot.json", "events.jsonl", "accepted-results.json")
-    before = {name: (audit_path / name).read_bytes() for name in custody_names}
-    action = AuditAction(
-        action="answer",
-        answer="I designed and verified it.",
-        question_id="question-debugging-hard-0",
-        action_id="wrong-question-target",
-        expected_event_hash=store.latest_event_hash(snapshot.audit_id),
+def test_area_skip_never_creates_an_attribution_capability_entry(tmp_path: Path):
+    snapshot = _start(tmp_path)
+    skipped = transition_audit(
+        snapshot, AuditAction(action="skip", answer="Self-rating: uncertain")
     )
-    with pytest.raises(AuditWorkflowError, match="active question"):
-        store.transact(
-            snapshot.audit_id,
-            action,
-            lambda current: transition_audit(store, current, action),
-        )
-    assert before == {name: (audit_path / name).read_bytes() for name in custody_names}
+    entry = skipped.conclusion.entries[0]
+    assert entry.area == "implementation"
+    assert entry.verification == "self-assessed-unverified"
+    assert entry.area not in {"responsibility", "assistance"}

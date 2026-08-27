@@ -61,9 +61,7 @@ def _plan() -> ProbePlan:
             ProbeArea(
                 area_id="implementation",
                 inspected_fact_ids=("evid-stoa-build-week",),
-                unverified_capability=(
-                    "implementation choices at the authorization boundary"
-                ),
+                unverified_capability=("implementation choices at the authorization boundary"),
                 demanding_prompt=(
                     "Which authorization trade-off did you personally make under failure?"
                 ),

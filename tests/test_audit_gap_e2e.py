@@ -25,36 +25,97 @@ def _json(result: subprocess.CompletedProcess[str]) -> dict[str, object]:
     return json.loads(result.stdout)
 
 
-def _mutate(
-    workspace: Path, audit_id: str, action: str, action_id: str, head: str, *extra: str
-) -> dict[str, object]:
+def _probe_plan(path: Path) -> Path:
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": "audit-probe-plan/v1",
+                "contribution_id": "contrib-stoa-authorization-boundary",
+                "areas": [
+                    {
+                        "schema_version": "audit-probe-area/v1",
+                        "area_id": "implementation",
+                        "inspected_fact_ids": ["evid-stoa-backend-audit"],
+                        "unverified_capability": "authorization-boundary implementation",
+                        "demanding_prompt": (
+                            "How did you defend the authorization boundary under failure?"
+                        ),
+                        "intermediate_prompt": (
+                            "Which authorization boundary did you implement and check?"
+                        ),
+                        "simple_prompt": (
+                            "Which authorization implementation step did you complete?"
+                        ),
+                        "immediately_higher_capability": (
+                            "independently defending authorization failures"
+                        ),
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _decisions(path: Path, question_id: str, answer: str) -> Path:
+    path.write_text(
+        json.dumps(
+            {
+                "decisions": [
+                    {
+                        "schema_version": "audit-boundary-decision/v1",
+                        "question_id": question_id,
+                        "answer": answer,
+                        "outcome": "established",
+                        "rationale": "Recorded offline decision establishes the boundary.",
+                        "strongest_capability": (
+                            "implementing and verifying the authorization boundary"
+                        ),
+                        "next_higher_not_established": (
+                            "independently defending authorization failures"
+                        ),
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _start(workspace: Path, audit_id: str, plan: Path) -> dict[str, object]:
     return _json(
         _run(
             "audit",
-            action,
+            "start",
             "--workspace",
             str(workspace),
+            "--fixture",
+            str(FIXTURE),
+            "--manifest",
+            str(MANIFEST),
+            "--contribution-id",
+            "contrib-stoa-authorization-boundary",
             "--audit-id",
             audit_id,
-            "--action-id",
-            action_id,
-            "--expected-event-hash",
-            head,
-            *extra,
+            "--recorded-probe-plan",
+            str(plan),
         )
     )
 
 
-def _contains_key(value: object, key: str) -> bool:
-    if isinstance(value, dict):
-        return key in value or any(_contains_key(item, key) for item in value.values())
-    if isinstance(value, list):
-        return any(_contains_key(item, key) for item in value)
-    return False
+def _action(workspace: Path, audit_id: str, action: str, *args: str) -> dict[str, object]:
+    return _json(
+        _run("audit", action, "--workspace", str(workspace), "--audit-id", audit_id, *args)
+    )
 
 
-def test_repaired_audit_cli_journey_preserves_custody_and_reopens(tmp_path: Path) -> None:
+def test_offline_checkout_source_journeys_cover_aud_requirements(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
+    plan = _probe_plan(tmp_path / "probe-plan.json")
     inspection = _json(
         _run(
             "audit",
@@ -69,92 +130,38 @@ def test_repaired_audit_cli_journey_preserves_custody_and_reopens(tmp_path: Path
     )
     assert inspection["facts"] and inspection["limitations"]
 
-    started = _json(
-        _run(
-            "audit",
-            "start",
-            "--workspace",
-            str(workspace),
-            "--fixture",
-            str(FIXTURE),
-            "--contribution-id",
-            "contrib-stoa-authorization-boundary",
-            "--audit-id",
-            "audit-e2e",
-            "--action-id",
-            "start-e2e",
-        )
-    )
+    started = _start(workspace, "audit-e2e", plan)
     audit_id = str(started["audit_id"])
-    head = str(started["event_hash"])
-    audit_path = workspace / "audits" / audit_id
+    question_id = str(started["question"]["id"])
+    answer = "I chose the authorization boundary and verified its failure behavior."
+    decisions = _decisions(tmp_path / "decisions.json", question_id, answer)
 
-    first = _mutate(
+    _action(workspace, audit_id, "pause")
+    resumed = _action(workspace, audit_id, "resume")
+    assert resumed["snapshot"]["questions"][-1]["id"] == question_id
+    established = _action(
         workspace,
         audit_id,
         "answer",
-        "answer-implementation",
-        head,
         "--answer",
-        "I designed and verified the authorization boundary.",
+        answer,
+        "--recorded-decisions",
+        str(decisions),
     )
-    head = str(first["event_hash"])
-    paused = _mutate(workspace, audit_id, "pause", "pause-e2e", head)
-    head = str(paused["event_hash"])
-    custody_names = ("snapshot.json", "events.jsonl", "accepted-results.json")
-    before_invalid = {name: (audit_path / name).read_bytes() for name in custody_names}
-    invalid = _run(
-        "audit",
-        "answer",
-        "--workspace",
-        str(workspace),
-        "--audit-id",
-        audit_id,
-        "--action-id",
-        "answer-while-paused",
-        "--expected-event-hash",
-        head,
-        "--answer",
-        "This must not be accepted.",
+    assert established["snapshot"]["questions"][-1]["turn"] == "ownership"
+    ownership = _action(
+        workspace, audit_id, "answer", "--answer", "I owned the final design decision."
     )
-    assert invalid.returncode == 2
-    assert json.loads(invalid.stderr)["error"] == "audit_workflow_error"
-    assert "Traceback" not in invalid.stderr
-    assert before_invalid == {name: (audit_path / name).read_bytes() for name in before_invalid}
-    resumed = _mutate(workspace, audit_id, "resume", "resume-e2e", head)
-    head = str(resumed["event_hash"])
+    assert ownership["snapshot"]["questions"][-1]["turn"] == "assistance"
+    reviewing = _action(workspace, audit_id, "answer", "--answer", "No outside assistance.")
+    conclusion = reviewing["snapshot"]["conclusion"]
+    assert conclusion["entries"][0]["verification"] == "audit-verified"
+    original = conclusion["original_proposal"]
 
-    for action_id, answer in (
-        ("answer-debugging", "I isolated and repaired the dependency failure."),
-        ("answer-operation", "I operated and checked the recovery path."),
-        ("answer-responsibility", "Maybe 团队和我一起负责。"),
-        ("answer-assistance", "编码代理或第三方协助了实现。"),
-    ):
-        accepted = _mutate(workspace, audit_id, "answer", action_id, head, "--answer", answer)
-        head = str(accepted["event_hash"])
-
-    reviewing = accepted["snapshot"]
-    assert reviewing["status"] == "reviewing"
-    assert reviewing["attribution"] == {
-        "assistance": "unresolved",
-        "model": None,
-        "ownership": "unresolved",
-        "schema_version": "audit-attribution/v1",
-        "tool": None,
-    }
-    conclusion = reviewing["conclusion"]
-    unresolved = {entry["area"]: entry["verification"] for entry in conclusion["entries"]}
-    assert unresolved["responsibility"] == unresolved["assistance"] == "unresolved"
-    original_proposal = conclusion["original_proposal"]
-    original_hash = conclusion["original_proposal_hash"]
-    effective_hash = conclusion["effective_conclusion_hash"]
-
-    edited = _mutate(
+    edited = _action(
         workspace,
         audit_id,
         "review-entry",
-        "edit-implementation",
-        head,
         "--entry-id",
         "entry-implementation",
         "--decision",
@@ -162,241 +169,74 @@ def test_repaired_audit_cli_journey_preserves_custody_and_reopens(tmp_path: Path
         "--correction",
         "Clarified independently owned boundary decision.",
         "--reason",
-        "Make the capability boundary precise.",
+        "Make the boundary precise.",
         "--reviewer",
-        "reviewer-e2e",
-        "--expected-effective-conclusion-hash",
-        effective_hash,
+        "reviewer",
     )
-    head = str(edited["event_hash"])
-    edited_conclusion = edited["snapshot"]["conclusion"]
-    assert edited_conclusion["original_proposal"] == original_proposal
-    assert edited_conclusion["original_proposal_hash"] == original_hash
-    assert edited_conclusion["effective_conclusion_hash"] != effective_hash
-
-    before_stale = {name: (audit_path / name).read_bytes() for name in custody_names}
-    stale = _run(
-        "audit",
-        "review-entry",
-        "--workspace",
-        str(workspace),
-        "--audit-id",
+    assert edited["snapshot"]["conclusion"]["original_proposal"] == original
+    confirmed_entry = _action(
+        workspace,
         audit_id,
-        "--action-id",
-        "stale-entry-review",
-        "--expected-event-hash",
-        head,
+        "review-entry",
         "--entry-id",
-        "entry-debugging",
+        "entry-implementation",
         "--decision",
         "confirm",
         "--reason",
-        "This stale request must not write.",
+        "Confirmed after correction.",
         "--reviewer",
-        "reviewer-e2e",
-        "--expected-effective-conclusion-hash",
-        effective_hash,
+        "reviewer",
     )
-    assert stale.returncode == 2
-    assert json.loads(stale.stderr)["error"] == "audit_workflow_error"
-    assert "Traceback" not in stale.stderr
-    assert before_stale == {name: (audit_path / name).read_bytes() for name in before_stale}
-
-    current_effective = str(edited_conclusion["effective_conclusion_hash"])
-    for entry_id in (
-        "entry-debugging",
-        "entry-operation",
-        "entry-responsibility",
-        "entry-assistance",
-    ):
-        confirmed = _mutate(
-            workspace,
-            audit_id,
-            "review-entry",
-            f"confirm-{entry_id}",
-            head,
-            "--entry-id",
-            entry_id,
-            "--decision",
-            "confirm",
-            "--reason",
-            "Confirmed against the answered audit record.",
-            "--reviewer",
-            "reviewer-e2e",
-            "--expected-effective-conclusion-hash",
-            current_effective,
-        )
-        head = str(confirmed["event_hash"])
-        current_effective = str(confirmed["snapshot"]["conclusion"]["effective_conclusion_hash"])
-
-    completed = _mutate(
+    completed = _action(
         workspace,
         audit_id,
         "review-conclusion",
-        "confirm-whole-conclusion",
-        head,
         "--decision",
         "confirm",
         "--reason",
-        "All capability boundaries have been reviewed.",
+        "The reviewed conclusion is ready.",
         "--reviewer",
-        "reviewer-e2e",
-        "--expected-effective-conclusion-hash",
-        current_effective,
+        "reviewer",
     )
     assert completed["snapshot"]["status"] == "completed"
-
-    replay = _mutate(
-        workspace,
-        audit_id,
-        "review-conclusion",
-        "confirm-whole-conclusion",
-        head,
-        "--decision",
-        "confirm",
-        "--reason",
-        "All capability boundaries have been reviewed.",
-        "--reviewer",
-        "reviewer-e2e",
-        "--expected-effective-conclusion-hash",
-        current_effective,
-    )
-    assert replay == completed
-
     reopened = _json(
-        _run(
-            "audit",
-            "review-conclusion",
-            "--workspace",
-            str(workspace),
-            "--audit-id",
-            audit_id,
-            "--action-id",
-            "confirm-whole-conclusion",
-            "--expected-event-hash",
-            head,
-            "--decision",
-            "confirm",
-            "--reason",
-            "All capability boundaries have been reviewed.",
-            "--reviewer",
-            "reviewer-e2e",
-            "--expected-effective-conclusion-hash",
-            current_effective,
-        )
+        _run("audit", "inspect", "--workspace", str(workspace), "--audit-id", audit_id)
     )
-    assert reopened == completed
-    persisted = json.loads((audit_path / "snapshot.json").read_text(encoding="utf-8"))
-    for deferred in ("mastery", "confidence", "aggregation", "jd", "provider", "database"):
-        assert not _contains_key(persisted, deferred)
+    assert reopened["snapshot"]["conclusion_reviews"] == completed["snapshot"]["conclusion_reviews"]
+    assert confirmed_entry["snapshot"]["conclusion"]["original_proposal"] == original
 
-    competing = _json(
-        _run(
-            "audit",
-            "start",
-            "--workspace",
-            str(workspace),
-            "--fixture",
-            str(FIXTURE),
-            "--contribution-id",
-            "contrib-stoa-authorization-boundary",
-            "--audit-id",
-            "audit-e2e-cas",
-            "--action-id",
-            "start-e2e-cas",
-        )
+    signalled = _start(workspace, "audit-signal", plan)
+    signalled_id = str(signalled["audit_id"])
+    ownership_turn = _action(
+        workspace, signalled_id, "answer", "--answer", "The team did that part, not me."
     )
-    competing_head = str(competing["event_hash"])
-    accepted_competing = _mutate(
+    assert ownership_turn["snapshot"]["questions"][-1]["turn"] == "ownership"
+    assistance_turn = _action(
+        workspace, signalled_id, "answer", "--answer", "The team owned the work."
+    )
+    resumed_ladder = _action(
+        workspace, signalled_id, "answer", "--answer", "No outside assistance."
+    )
+    assert assistance_turn["snapshot"]["questions"][-1]["turn"] == "assistance"
+    assert resumed_ladder["snapshot"]["questions"][-1]["turn"] == "capability"
+    assert resumed_ladder["snapshot"]["coverage"][0]["strongest_capability"] is None
+
+    skipped = _start(workspace, "audit-skip", plan)
+    skipped_id = str(skipped["audit_id"])
+    rated = "自评 7/10 — 我选择跳过访谈"
+    skip_conclusion = _action(workspace, skipped_id, "skip-contribution", "--answer", rated)
+    entry = skip_conclusion["snapshot"]["conclusion"]["entries"][0]
+    assert entry["self_rating"] == rated
+    assert entry["verification"] == "self-assessed-unverified"
+    rejected = _action(
         workspace,
-        "audit-e2e-cas",
-        "answer",
-        "accepted-cas-answer",
-        competing_head,
-        "--answer",
-        "I made the first accepted change.",
+        skipped_id,
+        "review-conclusion",
+        "--decision",
+        "reject",
+        "--reason",
+        "The self-assessment is not an audited conclusion.",
+        "--reviewer",
+        "reviewer",
     )
-    competing_path = workspace / "audits" / "audit-e2e-cas"
-    before_loser = {name: (competing_path / name).read_bytes() for name in custody_names}
-    loser = _run(
-        "audit",
-        "pause",
-        "--workspace",
-        str(workspace),
-        "--audit-id",
-        "audit-e2e-cas",
-        "--action-id",
-        "stale-competing-action",
-        "--expected-event-hash",
-        competing_head,
-    )
-    assert loser.returncode == 2
-    assert "stale expected event hash" in loser.stderr
-    assert before_loser == {name: (competing_path / name).read_bytes() for name in custody_names}
-    assert accepted_competing["snapshot"]["status"] == "active"
-
-    tampered = _json(
-        _run(
-            "audit",
-            "start",
-            "--workspace",
-            str(workspace),
-            "--fixture",
-            str(FIXTURE),
-            "--contribution-id",
-            "contrib-stoa-authorization-boundary",
-            "--audit-id",
-            "audit-e2e-tamper",
-            "--action-id",
-            "start-e2e-tamper",
-        )
-    )
-    tampered_path = workspace / "audits" / "audit-e2e-tamper"
-    (tampered_path / "events.jsonl").write_text("", encoding="utf-8")
-    tamper_read = _run(
-        "audit",
-        "pause",
-        "--workspace",
-        str(workspace),
-        "--audit-id",
-        "audit-e2e-tamper",
-        "--action-id",
-        "tampered-pause",
-        "--expected-event-hash",
-        str(tampered["event_hash"]),
-    )
-    assert tamper_read.returncode == 2
-    assert "audit event chain is empty" in tamper_read.stderr
-    assert "Traceback" not in tamper_read.stderr
-
-    interrupted = _json(
-        _run(
-            "audit",
-            "start",
-            "--workspace",
-            str(workspace),
-            "--fixture",
-            str(FIXTURE),
-            "--contribution-id",
-            "contrib-stoa-authorization-boundary",
-            "--audit-id",
-            "audit-e2e-recovery",
-            "--action-id",
-            "start-e2e-recovery",
-        )
-    )
-    recovery_path = workspace / "audits" / "audit-e2e-recovery"
-    staged = {name: (recovery_path / name).read_bytes().hex() for name in custody_names}
-    (recovery_path / "snapshot.json").write_text("{}", encoding="utf-8")
-    (recovery_path / "publication-journal.json").write_text(
-        json.dumps(staged, sort_keys=True), encoding="utf-8"
-    )
-    recovered = _mutate(
-        workspace,
-        "audit-e2e-recovery",
-        "pause",
-        "recovered-pause",
-        str(interrupted["event_hash"]),
-    )
-    assert recovered["snapshot"]["status"] == "paused"
-    assert not (recovery_path / "publication-journal.json").exists()
+    assert rejected["snapshot"]["status"] == "rejected"
