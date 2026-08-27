@@ -636,16 +636,17 @@ def _answer_ownership(
     snapshot: AuditSnapshot, question: AuditQuestion, answer: str
 ) -> AuditSnapshot:
     area_id = question.capability_area_id or question.area
+    area = _area_for(snapshot, area_id)
     record = _attribution(snapshot, area_id)
     ownership = _classify_ownership(answer)
     updated_record = record.model_copy(update={"ownership_answer": answer, "ownership": ownership})
     coverage = _coverage(snapshot, area_id).model_copy(update={"attribution_stage": "assistance"})
     conflicts = snapshot.attribution_conflicts
-    if ownership == "other-person-owned" and snapshot.inspected_facts:
+    if ownership == "other-person-owned":
         conflicts = (
             *conflicts,
             AttributionConflict(
-                artifact_claim=snapshot.inspected_facts[0].statement, user_claim=answer
+                artifact_claim=_fact_for(snapshot, area).statement, user_claim=answer
             ),
         )
     updated = _answer_question(snapshot, question, answer).model_copy(
@@ -655,7 +656,7 @@ def _answer_ownership(
             "attribution_conflicts": conflicts,
         }
     )
-    assistance_question = _attribution_question(updated, _area_for(updated, area_id), "assistance")
+    assistance_question = _attribution_question(updated, area, "assistance")
     return updated.model_copy(update={"questions": (*updated.questions, assistance_question)})
 
 
