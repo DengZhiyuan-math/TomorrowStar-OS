@@ -35,14 +35,14 @@ Requirements for the first validation milestone. Each requirement maps to exactl
 
 ### Contribution–Skill Assessment and User Skill Aggregation
 
-- [ ] **ASS-01**: The system proposes a specific Skill only from an audited Contribution and preserves the Contribution, Evidence, audit answers, attribution, and assessment basis supporting that proposal.
-- [ ] **ASS-02**: Reviewers can assign and inspect `demonstrated_mastery`, `skill_centrality`, and `evidence_confidence` as separate judgments, including high-centrality/low-mastery, low-centrality/high-mastery, and high-mastery/low-confidence cases.
-- [ ] **ASS-03**: Every demonstrated-mastery judgment identifies the observable 0–100 anchor it satisfies, and no judgment enters a higher band without evidence of that band's capability conditions.
-- [ ] **ASS-04**: A high demonstrated-mastery proposal with insufficient evidence confidence remains explicitly provisional and requires human confirmation rather than being silently accepted or converted into a different capability score.
-- [ ] **AGG-01**: A user can inspect one aggregated mastery score per specific Skill and trace it back to the admitted Contribution–Skill assessments and aggregation-policy version.
-- [ ] **AGG-02**: Duplicate Evidence, duplicated Contributions, and numerous incidental or low-centrality uses cannot mechanically raise a user Skill into a higher mastery band.
-- [ ] **AGG-03**: Multiple Contributions can justify a user score above the strongest single Contribution only when their combined, credible behavior observably satisfies the higher anchor, such as repeated advanced responsibility across real contexts.
-- [ ] **AGG-04**: Evaluators can compare replaceable aggregation and confidence-admission policies while preserving run-to-run variance, reviewer disagreement, calibration decisions, and regressions instead of hiding them in one opaque score.
+- [x] **ASS-01**: The system proposes a specific Skill only from an audited Contribution and preserves the Contribution, Evidence, audit answers, attribution, and assessment basis supporting that proposal.
+- [x] **ASS-02**: Reviewers can assign and inspect `demonstrated_mastery`, `skill_centrality`, and `evidence_confidence` as separate judgments, including high-centrality/low-mastery, low-centrality/high-mastery, and high-mastery/low-confidence cases.
+- [x] **ASS-03**: Every demonstrated-mastery judgment identifies the observable 0–100 anchor it satisfies, and no judgment enters a higher band without evidence of that band's capability conditions.
+- [x] **ASS-04**: A high demonstrated-mastery proposal with insufficient evidence confidence remains explicitly provisional and requires human confirmation rather than being silently accepted or converted into a different capability score.
+- [x] **AGG-01**: A user can inspect one aggregated mastery score per specific Skill and trace it back to the admitted Contribution–Skill assessments and aggregation-policy version.
+- [x] **AGG-02**: Duplicate Evidence, duplicated Contributions, and numerous incidental or low-centrality uses cannot mechanically raise a user Skill into a higher mastery band.
+- [x] **AGG-03**: Multiple Contributions can justify a user score above the strongest single Contribution only when their combined, credible behavior observably satisfies the higher anchor, such as repeated advanced responsibility across real contexts.
+- [x] **AGG-04**: Evaluators can compare replaceable aggregation and confidence-admission policies while preserving run-to-run variance, reviewer disagreement, calibration decisions, and regressions instead of hiding them in one opaque score.
 
 ### Structured JD Comparison
 
@@ -121,14 +121,14 @@ Every v1 requirement maps to exactly one roadmap phase. Deferred v2 requirements
 | AUD-03 | Phase 3 | Complete |
 | AUD-04 | Phase 3 | Complete |
 | AUD-05 | Phase 3 | Complete |
-| ASS-01 | Phase 4 | Pending |
-| ASS-02 | Phase 4 | Pending |
-| ASS-03 | Phase 4 | Pending |
-| ASS-04 | Phase 4 | Pending |
-| AGG-01 | Phase 4 | Pending |
-| AGG-02 | Phase 4 | Pending |
-| AGG-03 | Phase 4 | Pending |
-| AGG-04 | Phase 4 | Pending |
+| ASS-01 | Phase 4 | Complete |
+| ASS-02 | Phase 4 | Complete |
+| ASS-03 | Phase 4 | Complete |
+| ASS-04 | Phase 4 | Complete |
+| AGG-01 | Phase 4 | Complete |
+| AGG-02 | Phase 4 | Complete |
+| AGG-03 | Phase 4 | Complete |
+| AGG-04 | Phase 4 | Complete |
 | JD-01 | Phase 5 | Pending |
 | JD-02 | Phase 5 | Pending |
 | JD-03 | Phase 5 | Pending |

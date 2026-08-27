@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 04
 current_phase_name: Contribution–Skill Assessment and Aggregation Calibration
 status: executing
-stopped_at: Phase 4 context gathered
-last_updated: "2026-08-27T18:09:17.312Z"
+stopped_at: Completed 04-01-PLAN.md
+last_updated: "2026-08-27T18:49:30.672Z"
 last_activity: 2026-08-27
-last_activity_desc: Phase 03 complete, transitioned to Phase 4
-state_head: 34cba3d4cebd04c032445f8291171fe54a25a95f
+last_activity_desc: Phase 04 execution started
+state_head: a7d7b3fb111e7f53c6093396fbaa5249cb488107
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 31
-  completed_plans: 26
+  completed_plans: 27
 milestone_name: milestone
 ---
 
@@ -24,15 +24,15 @@ milestone_name: milestone
 See: .planning/PROJECT.md (updated 2026-07-30)
 
 **Core value:** Accurately determine what the user can genuinely do within specific contributions and convert that understanding into skill scores and graph relationships useful for JD-relevant career decisions.
-**Current focus:** Phase 03 — Artifact-Aware Grill-Me and Attribution Workflow
+**Current focus:** Phase 04 — Contribution–Skill Assessment and Aggregation Calibration
 
 ## Current Position
 
-Phase: 04 (Contribution–Skill Assessment and Aggregation Calibration) — READY TO EXECUTE
-Plan: Not started
+Phase: 04 (Contribution–Skill Assessment and Aggregation Calibration) — EXECUTING
+Plan: 2 of 5
 Status: Ready to execute
 Total Plans in Phase: 5
-Last activity: 2026-08-27 — Phase 03 complete, transitioned to Phase 4
+Last activity: 2026-08-27 — Phase 04 execution started
 
 Progress: [███████░░░] 78%
 
@@ -74,6 +74,7 @@ Progress: [███████░░░] 78%
 | Phase 03 P02 | 18 min | 2 tasks | 6 files |
 | Phase 03 P03 | 25 | 3 tasks | 7 files |
 | Phase 03 P14 | 6 min | 3 tasks | 8 files |
+| Phase 04 P01 | 3min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -112,6 +113,8 @@ Recent decisions affecting current work:
 - [Phase 03]: Plans 03-14 through 03-18 form one serial repair round: freeze scope, simplify persistence, remove excess machinery, repair business semantics, then hand one unchanged revision to independent gates.
 - [Phase 03]: Phase 03 Plan 14: D-17 through D-21 make the single-user local audit and user journeys the active boundary.
 - [Phase 03]: Phase 03 Plan 14: Historical findings remain Git-custodied evidence and do not define active completion.
+- [Phase 04]: Persisted Phase 4 sidecars contain exactly one admitted proposal/result lineage, so a foreign assessment cannot be silently admitted.
+- [Phase 04]: The offline tracer retains derived-counterfactual authority and exposes it rather than presenting synthetic calibration as reviewed user truth.
 
 ### Pending Todos
 
@@ -138,6 +141,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-27T10:44:15.118Z
-Stopped at: Phase 4 context gathered
-Resume file: .planning/phases/04-contribution-skill-assessment-and-aggregation-calibration/04-CONTEXT.md
+Last session: 2026-08-27T18:49:30.548Z
+Stopped at: Completed 04-01-PLAN.md
+Resume file: None

@@ -181,11 +181,11 @@ This milestone delivers six vertical validation capabilities in dependency order
   4. A user can inspect one aggregated mastery score per specific Skill, its admitted Contribution assessments, and its policy version; duplicate Evidence, duplicate Contributions, and numerous incidental uses do not mechanically promote the Skill.
   5. Evaluators can compare replaceable aggregation and confidence-admission policies on the fixtures, allowing cross-Contribution promotion only when the combined credible behavior satisfies the higher anchor and preserving variance, reviewer disagreement, calibration decisions, and regressions.
 
-**Plans:** 5 plans
+**Plans:** 1/5 plans executed
 
 **Wave 1**
 
-- [ ] 04-01-PLAN.md — Prove the confirmed-audit to admitted specific-Skill aggregate tracer and strict local persistence.
+- [x] 04-01-PLAN.md — Prove the confirmed-audit to admitted specific-Skill aggregate tracer and strict local persistence.
 
 **Wave 2** *(after 04-01)*
 
@@ -243,6 +243,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 1. Validation Charter, Provenance, and Technical Decision Gate | 2/2 | Complete    | 2026-07-30 |
 | 2. Domain Contracts, STOA Fixture, and Deterministic Invariants | 6/6 | Complete    | 2026-07-30 |
 | 3. Artifact-Aware Grill-Me and Attribution Workflow | 18/18 | Complete    | 2026-08-27 |
-| 4. Contribution–Skill Assessment and Aggregation Calibration | 0/TBD | Not started | - |
+| 4. Contribution–Skill Assessment and Aggregation Calibration | 1/5 | In Progress|  |
 | 5. JD Usefulness and Adversarial Evaluation | 0/TBD | Not started | - |
 | 6. Replication and Core-Hypothesis Decision | 0/TBD | Not started | - |
