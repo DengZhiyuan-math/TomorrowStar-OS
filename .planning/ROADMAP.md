@@ -181,7 +181,27 @@ This milestone delivers six vertical validation capabilities in dependency order
   4. A user can inspect one aggregated mastery score per specific Skill, its admitted Contribution assessments, and its policy version; duplicate Evidence, duplicate Contributions, and numerous incidental uses do not mechanically promote the Skill.
   5. Evaluators can compare replaceable aggregation and confidence-admission policies on the fixtures, allowing cross-Contribution promotion only when the combined credible behavior satisfies the higher anchor and preserving variance, reviewer disagreement, calibration decisions, and regressions.
 
-**Plans:** TBD
+**Plans:** 5 plans
+
+**Wave 1**
+
+- [ ] 04-01-PLAN.md — Prove the confirmed-audit to admitted specific-Skill aggregate tracer and strict local persistence.
+
+**Wave 2** *(after 04-01)*
+
+- [ ] 04-02-PLAN.md — Expand specific-Skill proposals, independent judgments, and anchor-first mastery.
+
+**Wave 3** *(after 04-02)*
+
+- [ ] 04-03-PLAN.md — Preserve substantive review, confidence admission, immutable corrections, and reassessment history.
+
+**Wave 4** *(after 04-03)*
+
+- [ ] 04-04-PLAN.md — Aggregate one no-inflation result per Skill and gate cross-Contribution promotion on the next anchor.
+
+**Wave 5** *(after 04-04)*
+
+- [ ] 04-05-PLAN.md — Calibrate same-input policies, retain disagreements/regressions, and activate explicitly.
 
 ### Phase 5: JD Usefulness and Adversarial Evaluation
 
