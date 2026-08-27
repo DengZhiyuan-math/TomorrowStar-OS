@@ -65,6 +65,26 @@ def test_tracer_cli_persists_explicitly_synthetic_calibration_result(tmp_path: P
     assert json.loads(reopened.stdout) == emitted
 
 
+def test_aggregate_cli_emits_one_sorted_traceable_result_per_skill(tmp_path: Path) -> None:
+    run = _run("assessment", "run", "--workspace", str(tmp_path))
+    assert run.returncode == 0, run.stderr
+
+    aggregated = _run("assessment", "aggregate", "--workspace", str(tmp_path))
+
+    assert aggregated.returncode == 0, aggregated.stderr
+    emitted = json.loads(aggregated.stdout)
+    assert [result["skill_id"] for result in emitted["results"]] == [
+        "skill-authorization-boundary"
+    ]
+    result = emitted["results"][0]
+    assert result["baseline_assessment_id"] == "assessment-authorization-boundary-verification"
+    assert result["admitted_assessment_ids"] == [
+        "assessment-authorization-boundary-verification"
+    ]
+    assert result["policy_version"] == "policy-04-baseline-60"
+    assert result["suppressed_duplicate_relationships"] == []
+
+
 def test_inspect_rejects_cross_linked_records_without_leaking_a_raw_answer(tmp_path: Path) -> None:
     """A sidecar contains one proposal chain, never a hidden second assessment."""
     record = run_assessment(
