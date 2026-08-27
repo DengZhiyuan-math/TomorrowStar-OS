@@ -87,10 +87,19 @@ def test_other_person_conflict_uses_the_active_capability_area_fact(tmp_path) ->
         audit_id="audit-attribution-facts",
         decision_port=ScriptedDecisions(plan),
     )
+    snapshot = snapshot.model_copy(
+        update={
+            "inspected_facts": tuple(
+                fact.model_copy(update={"statement": f"{fact.statement} ({fact.evidence_id})"})
+                for fact in snapshot.inspected_facts
+            )
+        }
+    )
     active_area_fact = next(
         fact for fact in snapshot.inspected_facts if fact.evidence_id == "evid-stoa-build-week"
     )
     assert snapshot.inspected_facts[0] != active_area_fact
+    assert snapshot.inspected_facts[0].statement != active_area_fact.statement
 
     snapshot = transition_audit(
         snapshot,
