@@ -1,6 +1,7 @@
 ---
 phase: 03-artifact-aware-grill-me-and-attribution-workflow
-reviewed: 2026-08-27T09:15:11Z
+reviewed: 2026-08-27T09:36:30Z
+source_revision: 2f79607
 depth: deep
 files_reviewed: 7
 files_reviewed_list:
@@ -19,45 +20,46 @@ findings:
 status: clean
 ---
 
-# Phase 03: Final Code Review Re-review Report
+# Phase 03: Final Code Review Report
 
-**Reviewed:** 2026-08-27T09:15:11Z
+**Reviewed:** 2026-08-27T09:36:30Z
+**Source revision:** `2f79607`
 **Depth:** deep
 **Files Reviewed:** 7
 **Status:** clean
 
 ## Summary
 
-This final narrow re-review covers the original CR-01 and WR-01 through WR-03 after fixes through `a71e655`. It uses the active Phase 3 scope only: one trusted-local, single-action audit snapshot. No removed concurrency, event, installation, or fixed-count mechanism was treated as a requirement.
+This final refresh re-reviewed the clean conclusion-hash, prompt, active-fact, and skip-target fixes, then the two Nyquist tests added at `2f79607`. The active contract remains a trusted-local, single-action audit over one atomic snapshot. The lineage validation remains an in-snapshot consistency check; it does not add event logs, CAS, locks, installation authority, or any other removed Phase 3 mechanism.
 
-All four findings are resolved. The focused regression suite passed (`19 passed`), and Ruff lint and format checks passed.
+No correctness, security, or test-reliability finding remains in this narrow final scope. The focused offline suite passed: `23 passed`; Ruff lint and format checks passed.
 
 ## Narrative Findings (AI reviewer)
 
-### Resolved Findings
+### Resolved Findings and Final Evidence
 
-#### CR-01: Conclusion proposal and effective-history hash integrity
+#### CR-01: Conclusion proposal and review-lineage integrity
 
-**Status:** RESOLVED
-**Evidence:** `models.py:189-203` deep-copies the incoming proposal and validates both canonical proposal and effective-conclusion digests. `tests/test_audit_conclusion.py:150-187` verifies stale proposal/effective content is rejected by model validation, `AuditStore.read`, `create`, and `replace`.
+`models.py:189-203` validates canonical proposal/effective hashes. `models.py:290-320` validates a contiguous ordered review lineage and its digest, while `workflow.py:442-448` and `workflow.py:500-510` construct that digest only inside the existing snapshot transition. `tests/test_audit_conclusion.py:150-237` rejects stale proposal/effective content and tampered review reason/sequence on model and snapshot I/O.
 
-#### WR-01: Capability prompts must be interrogative
+#### WR-01: Interrogative question contract
 
-**Status:** RESOLVED
-**Evidence:** `workflow.py:124-126` requires exactly one question terminator. Follow-up and zero-terminator generated prompts are normalized at `workflow.py:168-178`; `tests/test_audit_policy.py:163-185` rejects declarative and imperative non-questions.
+`workflow.py:124-126` requires exactly one question terminator; generated capability prompts are normalized at `workflow.py:168-178`. `tests/test_audit_policy.py:194-216` rejects both declarative and imperative non-questions.
 
-#### WR-02: Attribution conflicts bind to the active capability fact
+#### WR-02: Active-fact attribution conflict
 
-**Status:** RESOLVED
-**Evidence:** `workflow.py:640-652` resolves the active area and records `_fact_for(snapshot, area).statement`. The regression at `tests/test_audit_attribution.py:90-111` now makes each fixture fact statement unique by evidence ID and asserts the selected active fact differs from the first fact. Reverting to `snapshot.inspected_facts[0].statement` would select the backend-audit-suffixed statement while the assertion requires the build-week-suffixed statement, so the test reliably fails under the old behavior.
+`workflow.py:640-652` uses `_fact_for(snapshot, area)`. `tests/test_audit_attribution.py:90-111` makes the active and first fact statements distinct, so a reversion to `facts[0]` would deterministically fail.
 
-#### WR-03: Whole-Contribution skip validates an explicit question target
+#### WR-03: Explicit whole-Contribution skip target
 
-**Status:** RESOLVED
-**Evidence:** `workflow.py:742-745` rejects a supplied target that differs from the sole active question before mutating state. Transition and checkout-source CLI regressions at `tests/test_audit_policy.py:148-160` and `tests/test_audit_cli.py:87-120` assert the stable rejection and unchanged snapshot bytes.
+`workflow.py:742-745` rejects a stale supplied target before mutation. The transition and CLI regressions retain unchanged snapshot-byte assertions in `tests/test_audit_policy.py:179-191` and `tests/test_audit_cli.py:87-120`.
+
+#### Nyquist closure coverage
+
+`tests/test_audit_attribution.py:39-62` proves coding-agent assistance retains design, generation, modification, debugging, testing, and acceptance as separate scopes. `tests/test_audit_policy.py:129-154` proves the incomplete hard-to-simple ladder closes as unresolved after its permitted follow-ups instead of looping or manufacturing a capability.
 
 ---
 
-_Reviewed: 2026-08-27T09:15:11Z_
+_Reviewed: 2026-08-27T09:36:30Z_
 _Reviewer: gsd-code-reviewer_
 _Depth: deep_
