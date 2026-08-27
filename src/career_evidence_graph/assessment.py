@@ -34,6 +34,7 @@ from .domain.models import (
     DurationEvidence,
     MasteryAnchorFit,
     OntologyRelation,
+    PolicyActivation,
     PolicyComparison,
     PolicyHistory,
     PolicyRunResult,
@@ -1079,6 +1080,8 @@ def run_assessment(
 
 def _calibration_root(workspace: Path) -> Path:
     """Resolve the intentionally small, trusted-local calibration sidecar root."""
+    if workspace.is_symlink():
+        raise AssessmentStorageError("calibration workspace cannot be a symlink")
     return workspace.resolve() / "policy-calibration"
 
 
@@ -1088,6 +1091,8 @@ def _policy_history_path(workspace: Path) -> Path:
 
 def _write_calibration_json(path: Path, value: Any) -> None:
     """Atomically publish canonical calibration history without overwriting a run payload."""
+    if path.is_symlink() or (path.parent.exists() and path.parent.is_symlink()):
+        raise AssessmentStorageError("calibration history path cannot be a symlink")
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
     try:
@@ -1106,10 +1111,17 @@ def load_policy_history(workspace: Path) -> PolicyHistory:
     path = _policy_history_path(workspace)
     if not path.exists():
         return PolicyHistory()
+    if path.is_symlink():
+        raise AssessmentStorageError("policy calibration history cannot be a symlink")
     try:
-        return PolicyHistory.model_validate_json(path.read_bytes())
+        history = PolicyHistory.model_validate_json(path.read_bytes())
     except (OSError, ValidationError) as exc:
         raise AssessmentStorageError("policy calibration history is corrupt") from exc
+    try:
+        _validate_policy_history(history)
+    except AssessmentWorkflowError as exc:
+        raise AssessmentStorageError("policy calibration history is corrupt") from exc
+    return history
 
 
 def _calibration_input_hashes(corpus: dict[str, Any]) -> tuple[str, ...]:
@@ -1236,6 +1248,7 @@ def _policy_run_hash(
 
 
 def _write_policy_history(workspace: Path, history: PolicyHistory) -> None:
+    _validate_policy_history(history)
     _write_calibration_json(_policy_history_path(workspace), history.model_dump(mode="json"))
 
 
@@ -1293,6 +1306,7 @@ def run_calibration_policy(
         PolicyHistory(
             runs=(*history.runs, run),
             comparisons=history.comparisons,
+            activations=history.activations,
             active_pointer=history.active_pointer,
         ),
     )
@@ -1393,7 +1407,123 @@ def compare_policy_runs(
         PolicyHistory(
             runs=history.runs,
             comparisons=(*history.comparisons, comparison),
-            active_pointer=None,
+            activations=history.activations,
+            active_pointer=history.active_pointer,
         ),
     )
     return comparison
+
+
+def _activation_hash(activation: PolicyActivation) -> str:
+    return sha256_digest(
+        canonical_json_bytes(activation.model_dump(mode="json", exclude={"activation_hash"}))
+    )
+
+
+def _validate_policy_history(history: PolicyHistory) -> None:
+    """Verify retained runs, comparisons, and human authority before using a pointer."""
+    runs = {item.result_hash: item for item in history.runs}
+    comparisons = {item.comparison_hash: item for item in history.comparisons}
+    previous: PolicyActivation | None = None
+    for activation in history.activations:
+        if activation.activation_hash != _activation_hash(activation):
+            raise AssessmentWorkflowError("policy activation hash does not match its content")
+        comparison = comparisons.get(activation.comparison_hash)
+        if comparison is None:
+            raise AssessmentWorkflowError("policy activation has no retained comparison")
+        run = runs.get(activation.result_hash)
+        if run is None or (
+            run.policy_version != activation.activated_policy_version
+            or run.policy_hash != activation.policy_hash
+        ):
+            raise AssessmentWorkflowError("policy activation has no matching retained result")
+        selected_pair = (activation.activated_policy_version, activation.result_hash)
+        compared_pairs = {
+            (comparison.baseline_policy_version, comparison.baseline_result_hash),
+            (comparison.candidate_policy_version, comparison.candidate_result_hash),
+        }
+        if selected_pair not in compared_pairs:
+            raise AssessmentWorkflowError(
+                "policy activation selects a policy outside its comparison"
+            )
+        if previous is None:
+            if not (
+                activation.prior_policy_version is None
+                and activation.prior_result_hash is None
+                and activation.expected_active_pointer == "absent"
+            ):
+                raise AssessmentWorkflowError(
+                    "first policy activation must use the bootstrap tuple"
+                )
+        elif (
+            activation.prior_policy_version != previous.activated_policy_version
+            or activation.prior_result_hash != previous.result_hash
+            or activation.expected_active_pointer != previous.activation_hash
+        ):
+            raise AssessmentWorkflowError("policy activation replacement ancestry is stale")
+        previous = activation
+    if previous is not None and history.active_pointer != previous.activation_hash:
+        raise AssessmentWorkflowError("policy history pointer does not reach its latest activation")
+
+
+def activate_policy(
+    *,
+    workspace: Path,
+    policy_version: str,
+    policy_hash: str,
+    result_hash: str,
+    comparison_hash: str,
+    reviewer_id: str,
+    activation_reason: str,
+    limitations: tuple[str, ...],
+    prior_policy_version: str | None,
+    prior_result_hash: str | None,
+    expected_active_pointer: str,
+) -> PolicyActivation:
+    """Append a human-selected policy decision, failing closed on stale authority."""
+    history = load_policy_history(workspace)
+    try:
+        draft = PolicyActivation(
+            activated_policy_version=policy_version,
+            policy_hash=policy_hash,
+            result_hash=result_hash,
+            comparison_hash=comparison_hash,
+            reviewer_id=reviewer_id,
+            activation_reason=activation_reason,
+            limitations=limitations,
+            prior_policy_version=prior_policy_version,
+            prior_result_hash=prior_result_hash,
+            expected_active_pointer=expected_active_pointer,
+            activation_hash="sha256:" + "0" * 64,
+        )
+    except ValidationError as exc:
+        raise AssessmentWorkflowError("policy activation request is invalid") from exc
+
+    bootstrap = draft.expected_active_pointer == "absent"
+    if bootstrap:
+        if history.active_pointer is not None or history.activations:
+            raise AssessmentWorkflowError("active policy pointer already exists")
+    else:
+        current = history.activations[-1] if history.activations else None
+        if current is None or history.active_pointer != expected_active_pointer:
+            raise AssessmentWorkflowError("policy activation pointer is stale")
+        if (
+            current.activated_policy_version != prior_policy_version
+            or current.result_hash != prior_result_hash
+        ):
+            raise AssessmentWorkflowError("policy activation ancestry is stale")
+
+    activation = PolicyActivation.model_validate(
+        {
+            **draft.model_dump(mode="json"),
+            "activation_hash": _activation_hash(draft),
+        }
+    )
+    updated = PolicyHistory(
+        runs=history.runs,
+        comparisons=history.comparisons,
+        activations=(*history.activations, activation),
+        active_pointer=activation.activation_hash,
+    )
+    _write_policy_history(workspace, updated)
+    return activation

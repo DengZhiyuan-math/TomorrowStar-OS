@@ -6,6 +6,7 @@ derive a person's capability from a document, title, repository, or ontology.
 
 from __future__ import annotations
 
+import re
 from enum import StrEnum
 from typing import Annotated, Literal
 
@@ -473,13 +474,68 @@ class PolicyComparison(StrictModel):
     comparison_hash: str = Field(pattern=SHA256_PATTERN)
 
 
+class PolicyActivation(StrictModel):
+    """A hash-bound human decision that makes one compared policy convenient to find."""
+
+    schema_version: Literal["policy-activation/v1"] = "policy-activation/v1"
+    activated_policy_version: str = Field(min_length=1)
+    policy_hash: str = Field(pattern=SHA256_PATTERN)
+    result_hash: str = Field(pattern=SHA256_PATTERN)
+    comparison_hash: str = Field(pattern=SHA256_PATTERN)
+    reviewer_id: Literal["zhdeng"]
+    activation_reason: str = Field(min_length=1)
+    limitations: tuple[str, ...] = Field(min_length=1)
+    prior_policy_version: str | None = None
+    prior_result_hash: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    expected_active_pointer: str
+    activation_hash: str = Field(pattern=SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def validate_precondition(self) -> PolicyActivation:
+        bootstrap = (
+            self.prior_policy_version is None
+            and self.prior_result_hash is None
+            and self.expected_active_pointer == "absent"
+        )
+        replacement = (
+            self.prior_policy_version is not None
+            and self.prior_result_hash is not None
+            and bool(self.expected_active_pointer)
+            and self.expected_active_pointer != "absent"
+        )
+        if not (bootstrap or replacement):
+            raise ValueError("activation must use either the exact bootstrap or replacement tuple")
+        if replacement and not re.fullmatch(SHA256_PATTERN, self.expected_active_pointer):
+            raise ValueError("replacement activation requires a canonical current-pointer hash")
+        if any(not limitation.strip() for limitation in self.limitations):
+            raise ValueError("activation limitations cannot be blank")
+        return self
+
+
 class PolicyHistory(StrictModel):
     """Immutable calibration evidence; the active pointer is intentionally optional."""
 
     schema_version: Literal["policy-history/v1"] = "policy-history/v1"
     runs: tuple[PolicyRunResult, ...] = ()
     comparisons: tuple[PolicyComparison, ...] = ()
+    activations: tuple[PolicyActivation, ...] = ()
     active_pointer: str | None = None
+
+    @model_validator(mode="after")
+    def validate_history_identity(self) -> PolicyHistory:
+        _unique_ids(tuple(item.result_hash for item in self.runs), "policy run result hashes")
+        _unique_ids(
+            tuple(item.comparison_hash for item in self.comparisons), "policy comparison hashes"
+        )
+        _unique_ids(
+            tuple(item.activation_hash for item in self.activations), "policy activation hashes"
+        )
+        if self.active_pointer is None:
+            if self.activations:
+                raise ValueError("policy history with activations requires an active pointer")
+        elif not self.activations or self.active_pointer != self.activations[-1].activation_hash:
+            raise ValueError("active pointer must identify the latest immutable activation")
+        return self
 
 
 class ContributionSkillAssessment(StrictModel):

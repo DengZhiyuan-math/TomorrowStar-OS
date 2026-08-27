@@ -16,12 +16,16 @@ from .assessment import (
     AssessmentStorageError,
     AssessmentStore,
     AssessmentWorkflowError,
+    activate_policy,
     aggregate_user_skills,
+    compare_policy_runs,
     list_assessment_runs,
     list_pending_assessments,
     load_policy,
+    load_policy_history,
     review_assessment,
     run_assessment,
+    run_calibration_policy,
 )
 from .audit.decision import RecordedDecisionPort
 from .audit.models import AuditAction, BoundaryDecision, ProbePlan
@@ -243,6 +247,32 @@ def _parser() -> argparse.ArgumentParser:
     assessment_review.add_argument("--attribution-checked", action="store_true")
     assessment_review.add_argument("--anchor-fit-checked", action="store_true")
     assessment_review.add_argument("--all-judgments-checked", action="store_true")
+    assessment_compare = assessment_commands.add_parser("compare")
+    assessment_compare.add_argument("--workspace", required=True)
+    assessment_compare.add_argument(
+        "--corpus", default="validation/calibration/phase-04/corpus.json"
+    )
+    assessment_compare.add_argument(
+        "--policies", default="validation/calibration/phase-04/policies.json"
+    )
+    assessment_compare.add_argument("--baseline-policy-version", default="policy-04-baseline-60")
+    assessment_compare.add_argument(
+        "--candidate-policy-version", default="policy-04-conservative-70"
+    )
+    assessment_activate = assessment_commands.add_parser("activate")
+    assessment_activate.add_argument("--workspace", required=True)
+    assessment_activate.add_argument("--policy-version", required=True)
+    assessment_activate.add_argument("--policy-hash", required=True)
+    assessment_activate.add_argument("--result-hash", required=True)
+    assessment_activate.add_argument("--comparison-hash", required=True)
+    assessment_activate.add_argument("--reviewer", required=True)
+    assessment_activate.add_argument("--reason", required=True)
+    assessment_activate.add_argument("--limitation", action="append", required=True)
+    assessment_activate.add_argument("--prior-policy-version", required=True)
+    assessment_activate.add_argument("--prior-result-hash", required=True)
+    assessment_activate.add_argument("--expected-active-pointer", required=True)
+    assessment_history = assessment_commands.add_parser("history")
+    assessment_history.add_argument("--workspace", required=True)
     return parser
 
 
@@ -559,6 +589,50 @@ def main(argv: list[str] | None = None) -> int:
             store = AssessmentStore(Path(args.workspace))
             store.replace(args.run_id, updated)
             _emit(updated)
+        elif args.command == "assessment" and args.assessment_command == "compare":
+            baseline = run_calibration_policy(
+                workspace=Path(args.workspace),
+                corpus_path=Path(args.corpus),
+                policies_path=Path(args.policies),
+                policy_version=args.baseline_policy_version,
+            )
+            candidate = run_calibration_policy(
+                workspace=Path(args.workspace),
+                corpus_path=Path(args.corpus),
+                policies_path=Path(args.policies),
+                policy_version=args.candidate_policy_version,
+            )
+            comparison = compare_policy_runs(
+                workspace=Path(args.workspace), baseline=baseline, candidate=candidate
+            )
+            _emit(
+                {
+                    **comparison.model_dump(mode="json"),
+                    "baseline_policy_hash": baseline.policy_hash,
+                    "candidate_policy_hash": candidate.policy_hash,
+                }
+            )
+        elif args.command == "assessment" and args.assessment_command == "activate":
+            activation = activate_policy(
+                workspace=Path(args.workspace),
+                policy_version=args.policy_version,
+                policy_hash=args.policy_hash,
+                result_hash=args.result_hash,
+                comparison_hash=args.comparison_hash,
+                reviewer_id=args.reviewer,
+                activation_reason=args.reason,
+                limitations=tuple(args.limitation),
+                prior_policy_version=(
+                    None if args.prior_policy_version == "null" else args.prior_policy_version
+                ),
+                prior_result_hash=(
+                    None if args.prior_result_hash == "null" else args.prior_result_hash
+                ),
+                expected_active_pointer=args.expected_active_pointer,
+            )
+            _emit(activation)
+        elif args.command == "assessment" and args.assessment_command == "history":
+            _emit(load_policy_history(Path(args.workspace)))
         return 0
     except AssessmentWorkflowError as exc:
         _emit_error({"valid": False, "error": "assessment_workflow_error", "message": str(exc)})

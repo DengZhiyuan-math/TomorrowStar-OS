@@ -9,6 +9,7 @@ import pytest
 
 from career_evidence_graph.assessment import (
     AssessmentWorkflowError,
+    activate_policy,
     compare_policy_runs,
     load_policy_history,
     run_calibration_policy,
@@ -137,3 +138,194 @@ def test_runs_are_immutable_and_same_policy_replay_is_identical(tmp_path: Path) 
             baseline=first,
             candidate=first.model_copy(update={"input_hashes": ("sha256:" + "0" * 64,)}),
         )
+
+
+def _compared_candidates(tmp_path: Path):
+    baseline = run_calibration_policy(
+        workspace=tmp_path,
+        corpus_path=CORPUS,
+        policies_path=POLICIES,
+        policy_version="policy-04-baseline-60",
+    )
+    conservative = run_calibration_policy(
+        workspace=tmp_path,
+        corpus_path=CORPUS,
+        policies_path=POLICIES,
+        policy_version="policy-04-conservative-70",
+    )
+    return (
+        baseline,
+        conservative,
+        compare_policy_runs(
+            workspace=tmp_path,
+            baseline=baseline,
+            candidate=conservative,
+        ),
+    )
+
+
+def test_first_activation_records_exact_bootstrap_selection_and_pointer(tmp_path: Path) -> None:
+    _baseline, conservative, comparison = _compared_candidates(tmp_path)
+
+    activation = activate_policy(
+        workspace=tmp_path,
+        policy_version="policy-04-conservative-70",
+        policy_hash=conservative.policy_hash,
+        result_hash=conservative.result_hash,
+        comparison_hash=comparison.comparison_hash,
+        reviewer_id="zhdeng",
+        activation_reason="Use a conservative initial calibration.",
+        limitations=("Re-evaluate after additional real audited samples accumulate.",),
+        prior_policy_version=None,
+        prior_result_hash=None,
+        expected_active_pointer="absent",
+    )
+
+    history = load_policy_history(tmp_path)
+    assert activation.activated_policy_version == "policy-04-conservative-70"
+    assert activation.prior_policy_version is None
+    assert activation.prior_result_hash is None
+    assert activation.expected_active_pointer == "absent"
+    assert history.activations == (activation,)
+    assert history.active_pointer == activation.activation_hash
+
+
+def test_competing_bootstrap_or_non_absent_pointer_fails_without_mutation(tmp_path: Path) -> None:
+    baseline, conservative, comparison = _compared_candidates(tmp_path)
+    activation = activate_policy(
+        workspace=tmp_path,
+        policy_version=conservative.policy_version,
+        policy_hash=conservative.policy_hash,
+        result_hash=conservative.result_hash,
+        comparison_hash=comparison.comparison_hash,
+        reviewer_id="zhdeng",
+        activation_reason="Use a conservative initial calibration.",
+        limitations=("Re-evaluate after additional real audited samples accumulate.",),
+        prior_policy_version=None,
+        prior_result_hash=None,
+        expected_active_pointer="absent",
+    )
+
+    with pytest.raises(AssessmentWorkflowError, match="already exists"):
+        activate_policy(
+            workspace=tmp_path,
+            policy_version=baseline.policy_version,
+            policy_hash=baseline.policy_hash,
+            result_hash=baseline.result_hash,
+            comparison_hash=comparison.comparison_hash,
+            reviewer_id="zhdeng",
+            activation_reason="Competing bootstrap must not overwrite authority.",
+            limitations=("Only an explicit replacement may change the pointer.",),
+            prior_policy_version=None,
+            prior_result_hash=None,
+            expected_active_pointer="absent",
+        )
+    assert load_policy_history(tmp_path).active_pointer == activation.activation_hash
+
+
+def test_stale_pointer_and_subsequent_replacement_require_exact_current_ancestry(
+    tmp_path: Path,
+) -> None:
+    baseline, conservative, comparison = _compared_candidates(tmp_path)
+    first = activate_policy(
+        workspace=tmp_path,
+        policy_version=conservative.policy_version,
+        policy_hash=conservative.policy_hash,
+        result_hash=conservative.result_hash,
+        comparison_hash=comparison.comparison_hash,
+        reviewer_id="zhdeng",
+        activation_reason="Use a conservative initial calibration.",
+        limitations=("Re-evaluate after additional real audited samples accumulate.",),
+        prior_policy_version=None,
+        prior_result_hash=None,
+        expected_active_pointer="absent",
+    )
+
+    with pytest.raises(AssessmentWorkflowError, match="stale"):
+        activate_policy(
+            workspace=tmp_path,
+            policy_version=baseline.policy_version,
+            policy_hash=baseline.policy_hash,
+            result_hash=baseline.result_hash,
+            comparison_hash=comparison.comparison_hash,
+            reviewer_id="zhdeng",
+            activation_reason="A replacement needs current ancestry.",
+            limitations=("This is an isolated deterministic replacement fixture.",),
+            prior_policy_version=conservative.policy_version,
+            prior_result_hash=conservative.result_hash,
+            expected_active_pointer="sha256:" + "0" * 64,
+        )
+
+    replacement = activate_policy(
+        workspace=tmp_path,
+        policy_version=baseline.policy_version,
+        policy_hash=baseline.policy_hash,
+        result_hash=baseline.result_hash,
+        comparison_hash=comparison.comparison_hash,
+        reviewer_id="zhdeng",
+        activation_reason="An isolated deterministic replacement test exercises compare-and-swap.",
+        limitations=("This fixture does not change the actual Phase 4 selection.",),
+        prior_policy_version=conservative.policy_version,
+        prior_result_hash=conservative.result_hash,
+        expected_active_pointer=first.activation_hash,
+    )
+    history = load_policy_history(tmp_path)
+    assert replacement.prior_policy_version == conservative.policy_version
+    assert history.active_pointer == replacement.activation_hash
+
+
+def test_activation_requires_comparison_and_asserted_reviewer_zhdeng(tmp_path: Path) -> None:
+    conservative = run_calibration_policy(
+        workspace=tmp_path,
+        corpus_path=CORPUS,
+        policies_path=POLICIES,
+        policy_version="policy-04-conservative-70",
+    )
+    missing_comparison = "sha256:" + "1" * 64
+
+    with pytest.raises(AssessmentWorkflowError, match="invalid"):
+        activate_policy(
+            workspace=tmp_path,
+            policy_version=conservative.policy_version,
+            policy_hash=conservative.policy_hash,
+            result_hash=conservative.result_hash,
+            comparison_hash=missing_comparison,
+            reviewer_id="someone-else",
+            activation_reason="A forged reviewer must fail closed.",
+            limitations=("No provenance authentication is claimed.",),
+            prior_policy_version=None,
+            prior_result_hash=None,
+            expected_active_pointer="absent",
+        )
+
+    with pytest.raises(AssessmentWorkflowError, match="comparison"):
+        activate_policy(
+            workspace=tmp_path,
+            policy_version=conservative.policy_version,
+            policy_hash=conservative.policy_hash,
+            result_hash=conservative.result_hash,
+            comparison_hash=missing_comparison,
+            reviewer_id="zhdeng",
+            activation_reason="Activation without comparison must fail closed.",
+            limitations=("No pointer may be published.",),
+            prior_policy_version=None,
+            prior_result_hash=None,
+            expected_active_pointer="absent",
+        )
+    assert load_policy_history(tmp_path).active_pointer is None
+
+
+def test_calibration_history_rejects_symlink_aliases_and_malformed_payloads(tmp_path: Path) -> None:
+    history_path = tmp_path / "policy-calibration" / "history.json"
+    history_path.parent.mkdir()
+    target = tmp_path / "outside-history.json"
+    target.write_text("{}", encoding="utf-8")
+    history_path.symlink_to(target)
+
+    with pytest.raises(Exception, match="corrupt|symlink"):
+        load_policy_history(tmp_path)
+
+    history_path.unlink()
+    history_path.write_text('{"not":"a policy history"}', encoding="utf-8")
+    with pytest.raises(Exception, match="corrupt"):
+        load_policy_history(tmp_path)

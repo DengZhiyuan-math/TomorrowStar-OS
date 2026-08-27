@@ -146,3 +146,50 @@ def test_review_cli_records_every_substantive_acknowledgment_and_hash(tmp_path: 
     assert review["before_effective_hash"] == initial["effective_assessment_hash"]
     assert review["after_effective_hash"] == emitted["effective_assessment_hash"]
     assert emitted["original_proposal_hash"] == initial["original_proposal_hash"]
+
+
+def test_calibration_cli_compares_activates_and_reopens_redacted_history(tmp_path: Path) -> None:
+    compared = _run("assessment", "compare", "--workspace", str(tmp_path))
+    assert compared.returncode == 0, compared.stderr
+    comparison = json.loads(compared.stdout)
+    assert comparison["active_policy_version"] is None
+
+    activated = _run(
+        "assessment",
+        "activate",
+        "--workspace",
+        str(tmp_path),
+        "--policy-version",
+        "policy-04-conservative-70",
+        "--policy-hash",
+        comparison["candidate_policy_hash"],
+        "--result-hash",
+        comparison["candidate_result_hash"],
+        "--comparison-hash",
+        comparison["comparison_hash"],
+        "--reviewer",
+        "zhdeng",
+        "--reason",
+        "Use a conservative initial calibration: boundary cases remain pending human confirmation.",
+        "--limitation",
+        (
+            "This is an initial calibration policy and must be re-evaluated after additional "
+            "real audited samples accumulate."
+        ),
+        "--prior-policy-version",
+        "null",
+        "--prior-result-hash",
+        "null",
+        "--expected-active-pointer",
+        "absent",
+    )
+    assert activated.returncode == 0, activated.stderr
+    activation = json.loads(activated.stdout)
+    assert activation["activated_policy_version"] == "policy-04-conservative-70"
+
+    history = _run("assessment", "history", "--workspace", str(tmp_path))
+    assert history.returncode == 0, history.stderr
+    emitted = json.loads(history.stdout)
+    assert emitted["active_pointer"] == activation["activation_hash"]
+    assert emitted["activations"] == [activation]
+    assert "RAW_INTERVIEW_SENTINEL" not in history.stdout

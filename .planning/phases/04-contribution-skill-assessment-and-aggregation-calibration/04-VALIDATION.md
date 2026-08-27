@@ -1,89 +1,81 @@
 ---
 phase: 04
 slug: contribution-skill-assessment-and-aggregation-calibration
-# status lifecycle: draft (seeded by plan-phase) → validated (set by validate-phase §6)
-# audit-milestone §5.5 distinguishes NOT-VALIDATED (draft) from PARTIAL (validated + nyquist_compliant: false)
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: validated
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-08-27
+validated: 2026-08-27
 ---
 
-# Phase 04 — Validation Strategy
+# Phase 04 — Measured Validation Matrix
 
-> Per-phase validation contract for feedback sampling during execution.
+Phase 4 validates an offline, contribution-grounded assessment seam. The
+synthetic/counterfactual calibration corpus is not reviewed user truth and does
+not establish JD, employment, resume, or gap-work effectiveness.
 
----
+## Executed Gates
 
-## Test Infrastructure
+| Gate | Evidence | Result |
+|---|---|---|
+| Focused activation/replacement | `tests/test_policy_calibration.py -k "first_activation or competing_bootstrap or stale_pointer or subsequent_replacement"` | 3 passed in 0.29s |
+| Calibration + CLI regression | `tests/test_policy_calibration.py tests/test_assessment_cli.py` | 15 passed in 14.64s |
+| Full offline suite | `uv run --offline --locked python scripts/run_pytest.py -q` | exited 0 |
+| Static gates | `ruff check .` and `ruff format --check .` | passed |
+| Sealed input protection | `git diff --exit-code -- validation/fixtures/stoa/v1/known-good.json validation/fixtures/stoa/v1/source-manifest.json` | passed |
+| Same-input comparison and selected activation | `assessment compare`, `assessment activate`, `assessment history` against `validation/calibration/phase-04` | passed; conservative-70 is the sole active pointer |
 
-| Property | Value |
-|----------|-------|
-| **Framework** | pytest 9.1.1 |
-| **Config file** | `pyproject.toml` |
-| **Quick run command** | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_assessment_models.py tests/test_assessment_admission.py tests/test_skill_aggregation.py` |
-| **Full suite command** | `uv run --offline --locked python scripts/run_pytest.py -q` |
-| **Estimated runtime** | Measure and record during Wave 0; max feedback latency 60 seconds |
+Focused feedback stayed below the 60-second ceiling (0.29s and 14.64s). No
+watch mode, network call, dependency change, provider/model change, or sealed
+fixture mutation was used.
 
----
+## Requirement and Decision Coverage
 
-## Sampling Rate
+| Authority | Executable evidence | Checked behavior |
+|---|---|---|
+| ASS-01 / D-01 | `tests/test_assessment_proposal.py`, `tests/test_assessment_cli.py -k tracer` | Specific Skills originate only from the completed audited Contribution and retain source custody. |
+| ASS-02 / D-02 / D-07 | `tests/test_assessment_models.py -k independent`, `tests/test_assessment_proposal.py` | Mastery, centrality, and confidence are separate strict judgments with separate bases. |
+| ASS-03 / D-03 / D-05 / D-06 | `tests/test_mastery_anchors.py`, `tests/test_assessment_proposal.py` | A specific normalization decision and observable anchor fit are required before an exact score. |
+| ASS-04 / D-04 / D-08 / D-09 / D-10 / D-11 / D-12 | `tests/test_assessment_admission.py`, `tests/test_assessment_cli.py -k review` | Low-confidence, self-assessed, disputed, unresolved, corrected, and reassessed records remain visible and require complete substantive review before admission. |
+| AGG-01 / D-13 | `tests/test_skill_aggregation.py -k traceable`, `tests/test_assessment_cli.py -k aggregate` | One traceable result per exact Skill uses an explicit policy-bearing strongest admitted baseline. |
+| AGG-02 / D-15 | `tests/test_skill_aggregation.py -k no_inflation`, `tests/test_policy_calibration.py -k regression` | Duplicate relationships, reused Evidence, centrality, confidence, and incidental volume cannot inflate mastery. |
+| AGG-03 / D-14 | `tests/test_anchor_promotion.py` | Cross-Contribution promotion requires distinct same-Skill Contributions, contexts, and immediate-next-anchor behavior proof. |
+| AGG-04 / D-16 | `tests/test_policy_calibration.py`, `tests/test_assessment_cli.py -k calibration_cli` | Byte-identical candidate inputs, exact deltas, disagreement, zero variance, regressions, human activation, pointer history, bootstrap rejection, stale replacement, and redacted offline CLI history. |
 
-- **After every task commit:** Run the focused test file(s) named by that task plus affected Phase 2/3 regression tests.
-- **After every plan wave:** Run `uv run --offline --locked python scripts/run_pytest.py -q`.
-- **Before `$gsd-verify-work`:** Run the full offline suite, Ruff, deterministic calibration-corpus replay, and exact same-input current/candidate policy comparison.
-- **Max feedback latency:** 60 seconds for focused task feedback.
+## Edge and Threat Coverage
 
----
+| Item | Executable evidence | Result |
+|---|---|---|
+| AGG-04 threshold equality | `tests/test_policy_calibration.py -k threshold` | Exact integer equality is retained; the 60-to-69 confidence boundary flip is explicit. |
+| AGG-04 numeric precision | `tests/test_policy_calibration.py -k compare` | Integer values are compared exactly; no average, tolerance, coercion, truncation, or rounding path exists. |
+| T-04-21 corpus tampering | `tests/test_policy_calibration.py -k corpus` | Fixture and manifest hashes plus labeled derived/synthetic cases are revalidated. |
+| T-04-22 comparison tampering | `tests/test_policy_calibration.py -k compare` | Same-input hashes, retained per-case deltas, disagreements, variance, and regressions are verified. |
+| T-04-23 activation elevation | `tests/test_policy_calibration.py -k "first_activation or competing_bootstrap or stale_pointer or subsequent_replacement or activation_requires"` | Only `zhdeng`, exact selected hashes, null/null/absent bootstrap, and stale-safe replacement are accepted. |
+| T-04-24 history tampering/disclosure | `tests/test_policy_calibration.py -k symlink_aliases`, `tests/test_assessment_cli.py -k calibration_cli` | Symlink and malformed history payloads fail closed; history emits IDs, hashes, codes, and the recorded human decision without raw answers. |
+| T-04-25 reviewer provenance | `tests/test_policy_calibration.py -k activation_requires` | `zhdeng` is asserted trusted-local provenance only; no authentication claim is made. |
 
-## Per-Task Verification Map
+## Activation Record
 
-| Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
-|---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 04-W0-ASS01 | 04-01 | 0 | ASS-01 | T-04-01 / T-04-05 | Strict source envelope; only completed audited Contributions propose a specific Skill | integration | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_assessment_proposal.py` | ❌ W0 | ⬜ pending |
-| 04-W0-ASS02 | 04-01 | 0 | ASS-02 | T-04-01 | Mastery, centrality, and confidence remain independent and strictly validated | unit/golden | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_assessment_models.py -k independent` | ❌ W0 | ⬜ pending |
-| 04-W0-ASS03 | 04-01 | 0 | ASS-03 | T-04-02 | Exact score cannot escape its stored observable anchor | invariant/golden | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_mastery_anchors.py` | ❌ W0 | ⬜ pending |
-| 04-W0-ASS04 | 04-01 | 0 | ASS-04 | Low-confidence high-mastery proposals fail closed as pending until substantive review | workflow | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_assessment_admission.py` | ❌ W0 | ⬜ pending |
-| 04-W0-AGG01 | 04-01 | 0 | AGG-01 | One policy-bearing, traceable result exists per exact Skill | invariant/integration | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_skill_aggregation.py -k traceable` | ❌ W0 | ⬜ pending |
-| 04-W0-AGG02 | 04-01 | 0 | AGG-02 | Duplicate Evidence, Contributions, assessments, and incidental volume are mastery-neutral | metamorphic | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_skill_aggregation.py -k no_inflation` | ❌ W0 | ⬜ pending |
-| 04-W0-AGG03 | 04-01 | 0 | AGG-03 | Promotion requires explicit proof that combined behavior satisfies the next anchor | golden | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_anchor_promotion.py` | ❌ W0 | ⬜ pending |
-| 04-W0-AGG04 | 04-01 | 0 | AGG-04 | Policy history, reviewer disagreement, variance, and regressions remain inspectable; first activation requires null/null/absent plus selected hashes, and replacement requires exact prior identities/current pointer | integration/golden | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_policy_calibration.py` | ❌ W0 | ⬜ pending |
+The owner-approved selection is `policy-04-conservative-70`. Its immutable
+record is at `validation/calibration/phase-04/policy-calibration/history.json`:
 
-| 04-W0-CLI | 04-01 | 0 | ASS-01 / AGG-01 | T-04-01 / T-04-04 | The offline tracer emits and reopens the same explicitly derived/counterfactual result without raw-answer disclosure. | black-box | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_assessment_cli.py -k tracer` | ✅ `tests/test_assessment_cli.py` | ✅ green |
+- Policy hash: `sha256:603cfbadcf8bb6ab2163dd0206e844a4b8b3956fe15974da85c028fe75fb6f6b`
+- Result hash: `sha256:0992b26cfa0ab76eba631851bf4fc22b1a8213cc30c18492d08d45a7832e0719`
+- Comparison hash: `sha256:ac2630db1076b3a824e28e1e29c9c1cc64cc972a500d2deae5c492ab35d11ea7`
+- Activation hash: `sha256:bcd7c7446c7d7438986ce930debf7cf2e3c5af6e7d3539d8b5175d568b8b856f`
 
-*Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
+Reviewer `zhdeng` chose the conservative initial calibration because boundary
+cases with insufficient evidence confidence remain pending human confirmation
+rather than being counted immediately. Limitation: this policy must be
+re-evaluated after additional real audited samples accumulate. The non-selected
+baseline-60 run remains comparison-only evidence and is never active authority.
 
----
+## Flagged Assumptions and Prohibition
 
-## Wave 0 Requirements
-
-- [ ] Checked-in Phase 4 calibration corpus bound to sealed fixture and completed Phase 3 audit hashes.
-- [ ] `tests/test_assessment_models.py` — strict schemas, score separation, anchor containment, and version lineage.
-- [ ] `tests/test_assessment_proposal.py` — completed-audit gate, specific Skill, normalization, and complete source envelope.
-- [ ] `tests/test_assessment_admission.py` — provisional, self-rated, and substantive-review workflow.
-- [ ] `tests/test_mastery_anchors.py` — every anchor boundary and unsupported higher-band rejection.
-- [ ] `tests/test_skill_aggregation.py` — one result per Skill, strongest-admitted baseline, duplicate neutrality, and evidence-volume neutrality.
-- [ ] `tests/test_anchor_promotion.py` — allowed and denied cross-Contribution promotion.
-- [ ] `tests/test_policy_calibration.py` — same-input comparison, disagreement, variance, regression, positive null/null/absent first activation, competing/non-absent bootstrap rejection, stale-pointer rejection, and exact subsequent replacement.
-- [ ] CLI black-box coverage for propose, inspect pending, review, aggregate, compare, and activate behavior.
-
-No framework installation is required.
-
----
-
-## Manual-Only Verifications
-
-All Phase 4 behaviors have automated verification. Human confirmation is exercised through deterministic review fixtures and CLI black-box tests; it does not require an unrecorded manual-only acceptance step.
-
----
-
-## Validation Sign-Off
-
-- [ ] All tasks have `<automated>` verification or Wave 0 dependencies.
-- [ ] Sampling continuity: no three consecutive tasks without automated verification.
-- [ ] Wave 0 covers all missing references.
-- [ ] No watch-mode flags.
-- [ ] Focused feedback latency is below 60 seconds.
-- [ ] `nyquist_compliant: true` set in frontmatter.
-
-**Approval:** pending
+- `AGG-04-threshold-boundary` and `AGG-04-numeric-precision` are deliberately
+  visible in the comparison output and must be independently reviewed as the
+  real audited corpus grows.
+- The bespoke prohibition remains descriptor-less and flagged-unverified:
+  passing deterministic replay does not prove JD or employment effectiveness,
+  and it must not hide regressions, average reviewer disagreement away, or
+  silently overwrite a prior result.
