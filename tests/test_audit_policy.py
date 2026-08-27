@@ -126,6 +126,31 @@ def test_incomplete_gets_one_followup_then_descends_and_dont_know_descends(tmp_p
     assert snapshot.questions[-1].follow_up_count == 0
 
 
+def test_incomplete_ladder_reaches_simple_then_closes_as_unresolved(tmp_path) -> None:
+    snapshot, port = _start(tmp_path)
+    observed = []
+    for answer in ("partial", "still partial") * 3:
+        snapshot = transition_audit(
+            snapshot, AuditAction(action="answer", answer=answer), decision_port=port
+        )
+        observed.append(
+            (snapshot.questions[-1].difficulty, snapshot.questions[-1].follow_up_count)
+            if snapshot.status == "active"
+            else None
+        )
+
+    assert observed == [
+        ("hard", 1),
+        ("intermediate", 0),
+        ("intermediate", 1),
+        ("simple", 0),
+        ("simple", 1),
+        None,
+    ]
+    assert snapshot.status == "reviewing"
+    assert snapshot.coverage[0].status == "unresolved"
+
+
 def test_area_and_contribution_skip_preserve_only_verbatim_unverified_self_rating(tmp_path) -> None:
     snapshot, port = _start(tmp_path)
     snapshot = transition_audit(

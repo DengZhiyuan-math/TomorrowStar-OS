@@ -36,6 +36,32 @@ def test_ordinary_established_path_requires_ownership_then_assistance(tmp_path) 
     assert record.tool == "Codex"
 
 
+def test_coding_agent_assistance_keeps_all_six_parts_separate(tmp_path) -> None:
+    snapshot, port = _start(tmp_path)
+    snapshot = _establish(snapshot, port)
+    snapshot = transition_audit(snapshot, AuditAction(action="answer", answer="I owned it."))
+    snapshot = transition_audit(
+        snapshot,
+        AuditAction(
+            action="answer",
+            answer=(
+                "A coding agent assisted design, generation, modification, debugging, testing, "
+                "and acceptance."
+            ),
+        ),
+    )
+
+    assert snapshot.attribution_records[0].assistance == "coding-agent-assisted"
+    assert snapshot.attribution_records[0].assistance_scope == (
+        "design",
+        "generation",
+        "modification",
+        "debugging",
+        "testing",
+        "acceptance",
+    )
+
+
 def test_early_attribution_signal_uses_same_two_turn_sequence_then_resumes(tmp_path) -> None:
     snapshot, port = _start(tmp_path)
     snapshot = transition_audit(
