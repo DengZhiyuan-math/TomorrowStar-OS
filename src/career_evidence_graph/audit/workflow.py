@@ -741,6 +741,8 @@ def transition_audit(
         return snapshot.model_copy(update={"status": "active"})
     if action.action == "skip-contribution":
         active = _active_question(snapshot)
+        if action.question_id is not None and action.question_id != active.id:
+            raise AuditWorkflowError("supplied question target does not match the active question")
         questions = tuple(
             item.model_copy(update={"status": "skipped"}) if item.status == "unanswered" else item
             for item in snapshot.questions

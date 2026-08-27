@@ -82,3 +82,39 @@ def test_invalid_action_and_corrupt_snapshot_return_stable_errors_without_writes
     assert corrupt.returncode == 2
     assert json.loads(corrupt.stderr)["error"] == "audit_storage_error"
     assert snapshot_path.read_text(encoding="utf-8") == "{bad}"
+
+
+def test_cli_skip_contribution_rejects_a_stale_question_target(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    started = run_cli(
+        "audit",
+        "start",
+        "--workspace",
+        str(workspace),
+        "--fixture",
+        str(FIXTURE),
+        "--contribution-id",
+        "contrib-stoa-authorization-boundary",
+        "--audit-id",
+        "audit-cli-stale-skip",
+    )
+    audit_id = json.loads(started.stdout)["audit_id"]
+    snapshot_path = workspace / "audits" / f"{audit_id}.json"
+    before = snapshot_path.read_bytes()
+
+    rejected = run_cli(
+        "audit",
+        "skip-contribution",
+        "--workspace",
+        str(workspace),
+        "--audit-id",
+        audit_id,
+        "--answer",
+        "self rating: 6/10",
+        "--question-id",
+        "question-stale",
+    )
+
+    assert rejected.returncode == 2
+    assert json.loads(rejected.stderr)["error"] == "audit_workflow_error"
+    assert snapshot_path.read_bytes() == before

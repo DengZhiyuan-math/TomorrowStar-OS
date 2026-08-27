@@ -145,6 +145,21 @@ def test_area_and_contribution_skip_preserve_only_verbatim_unverified_self_ratin
     assert {item.self_rating for item in snapshot.coverage} == {"我选择自评 6/10"}
 
 
+def test_skip_contribution_rejects_a_stale_question_target(tmp_path) -> None:
+    snapshot, port = _start(tmp_path)
+
+    with pytest.raises(AuditWorkflowError, match="target does not match"):
+        transition_audit(
+            snapshot,
+            AuditAction(
+                action="skip-contribution",
+                answer="self rating: 6/10",
+                question_id="question-stale",
+            ),
+            decision_port=port,
+        )
+
+
 def test_question_guard_rejects_repeated_multipart_and_leading_prompt(tmp_path) -> None:
     snapshot, _ = _start(tmp_path)
     question = snapshot.questions[0]
