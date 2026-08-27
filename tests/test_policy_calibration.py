@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from career_evidence_graph.assessment import (
+    AssessmentStorageError,
     AssessmentWorkflowError,
     activate_policy,
     compare_policy_runs,
@@ -20,6 +21,7 @@ from career_evidence_graph.validation.hashing import sha256_digest
 ROOT = Path(__file__).parents[1]
 CORPUS = ROOT / "validation/calibration/phase-04/corpus.json"
 POLICIES = ROOT / "validation/calibration/phase-04/policies.json"
+HISTORY = ROOT / "validation/calibration/phase-04/policy-calibration/history.json"
 
 
 def test_corpus_expansion_preserves_the_sole_real_audit_and_labels_derivations() -> None:
@@ -375,3 +377,59 @@ def test_run_rejects_declared_audit_custody_tampering_before_history_publish(
         )
 
     assert not (workspace / "policy-calibration/history.json").exists()
+
+
+def _enriched_history_copy(tmp_path: Path) -> tuple[Path, dict[str, object]]:
+    history = json.loads(HISTORY.read_text(encoding="utf-8"))
+    policies = json.loads(POLICIES.read_text(encoding="utf-8"))
+    snapshots = {item["policy_version"]: item for item in policies["policies"]}
+    for run in history["runs"]:
+        run["policy_snapshot"] = snapshots[run["policy_version"]]
+    history_path = tmp_path / "policy-calibration/history.json"
+    history_path.parent.mkdir()
+    history_path.write_text(json.dumps(history), encoding="utf-8")
+    return history_path, history
+
+
+def test_history_reopens_only_with_retained_policy_snapshots(tmp_path: Path) -> None:
+    _history_path, expected = _enriched_history_copy(tmp_path)
+
+    history = load_policy_history(tmp_path)
+
+    assert history.active_pointer == expected["active_pointer"]
+    assert history.activations[-1].activated_policy_version == "policy-04-conservative-70"
+    assert tuple(run.policy_snapshot.policy_version for run in history.runs) == (
+        "policy-04-baseline-60",
+        "policy-04-conservative-70",
+    )
+
+
+@pytest.mark.parametrize(
+    ("path", "replacement"),
+    [
+        (("runs", 0, "case_results", 0, "mastery"), 71),
+        (("runs", 1, "policy_snapshot", "strict_confidence_min"), 61),
+        (("comparisons", 0, "skill_deltas", 0, "mastery_delta"), 1),
+        (("comparisons", 0, "regressions", 0), "forged-regression"),
+        (("runs", 0, "result_hash"), "sha256:" + "0" * 64),
+    ],
+    ids=[
+        "case_result",
+        "policy_snapshot",
+        "comparison_delta",
+        "regression_label",
+        "syntactically_valid_digest",
+    ],
+)
+def test_history_semantic_tamper_fails_closed_before_activation_lookup(
+    tmp_path: Path, path: tuple[str | int, ...], replacement: int | str
+) -> None:
+    history_path, history = _enriched_history_copy(tmp_path)
+    target: object = history
+    for key in path[:-1]:
+        target = target[key]  # type: ignore[index]
+    target[path[-1]] = replacement  # type: ignore[index]
+    history_path.write_text(json.dumps(history), encoding="utf-8")
+
+    with pytest.raises(AssessmentStorageError, match="corrupt"):
+        load_policy_history(tmp_path)
