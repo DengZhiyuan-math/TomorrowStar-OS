@@ -27,6 +27,7 @@ from .models import (
     ConclusionEntry,
     ConclusionReview,
     ProbeArea,
+    conclusion_lineage_digest,
     effective_conclusion_digest,
     original_proposal_digest,
 )
@@ -441,7 +442,13 @@ def _enter_reviewing(snapshot: AuditSnapshot) -> AuditSnapshot:
         original_proposal_hash=original_hash,
         effective_conclusion_hash=effective_conclusion_digest(entries, "pending"),
     )
-    return snapshot.model_copy(update={"status": "reviewing", "conclusion": conclusion})
+    return snapshot.model_copy(
+        update={
+            "status": "reviewing",
+            "conclusion": conclusion,
+            "conclusion_lineage_hash": conclusion_lineage_digest(conclusion, ()),
+        }
+    )
 
 
 def _append_review(
@@ -493,11 +500,13 @@ def _append_review(
     status = snapshot.status
     if target == "whole-conclusion":
         status = "completed" if outcome == "confirm" else "rejected"
+    reviews = (*snapshot.conclusion_reviews, review)
     return snapshot.model_copy(
         update={
             "status": status,
             "conclusion": conclusion,
-            "conclusion_reviews": (*snapshot.conclusion_reviews, review),
+            "conclusion_reviews": reviews,
+            "conclusion_lineage_hash": conclusion_lineage_digest(conclusion, reviews),
         }
     )
 

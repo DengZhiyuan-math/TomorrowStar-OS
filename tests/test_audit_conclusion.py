@@ -114,6 +114,7 @@ def test_reviews_preserve_immutable_proposal_and_append_ordered_lineage(tmp_path
     original = snapshot.conclusion.original_proposal
     original_hash = snapshot.conclusion.original_proposal_hash
     initial_effective_hash = snapshot.conclusion.effective_conclusion_hash
+    initial_lineage_hash = snapshot.conclusion_lineage_hash
 
     edited = transition_audit(
         snapshot,
@@ -131,6 +132,7 @@ def test_reviews_preserve_immutable_proposal_and_append_ordered_lineage(tmp_path
     assert edited.conclusion.effective_conclusion_hash != initial_effective_hash
     assert edited.conclusion_reviews[-1].sequence == 1
     assert edited.conclusion_reviews[-1].before_effective_hash == initial_effective_hash
+    assert edited.conclusion_lineage_hash != initial_lineage_hash
 
     rejected = transition_audit(
         edited,
@@ -145,6 +147,9 @@ def test_reviews_preserve_immutable_proposal_and_append_ordered_lineage(tmp_path
     assert rejected.conclusion.original_proposal == original
     assert [review.sequence for review in rejected.conclusion_reviews] == [1, 2]
     assert rejected.conclusion_reviews[-1].target == "whole-conclusion"
+    assert rejected.conclusion_reviews[-1].after_effective_hash == (
+        rejected.conclusion.effective_conclusion_hash
+    )
 
 
 @pytest.mark.parametrize("tampered_field", ("original_proposal", "effective_conclusion"))
@@ -183,6 +188,46 @@ def test_conclusion_hashes_reject_stale_content_on_model_and_snapshot_io(
         store.create(
             invalid_snapshot.model_copy(update={"audit_id": f"audit-invalid-{tampered_field}"})
         )
+    with pytest.raises(AuditStorageError, match="invalid"):
+        store.replace(invalid_snapshot)
+
+
+@pytest.mark.parametrize("tampered_field", ("reason", "sequence"))
+def test_conclusion_lineage_rejects_tampered_review_history_on_model_and_snapshot_io(
+    tmp_path: Path, tampered_field: str
+) -> None:
+    snapshot = _established(tmp_path)
+    reviewed = transition_audit(
+        snapshot,
+        AuditAction(
+            action="review-entry",
+            entry_id="entry-implementation",
+            decision="confirm",
+            reason="The established boundary is accurate.",
+            reviewer_id="reviewer",
+        ),
+    )
+    store = AuditStore(tmp_path)
+    store.replace(reviewed)
+    path = store.path(reviewed.audit_id)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["conclusion_reviews"][0][tampered_field] = (
+        "Altered review reason."
+        if tampered_field == "reason"
+        else payload["conclusion_reviews"][0]["sequence"] + 1
+    )
+
+    with pytest.raises(ValidationError, match="sequence|lineage"):
+        AuditSnapshot.model_validate(payload)
+
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(AuditStorageError, match="corrupt"):
+        store.read(reviewed.audit_id)
+
+    invalid_review = reviewed.conclusion_reviews[0].model_copy(
+        update={tampered_field: payload["conclusion_reviews"][0][tampered_field]}
+    )
+    invalid_snapshot = reviewed.model_copy(update={"conclusion_reviews": (invalid_review,)})
     with pytest.raises(AuditStorageError, match="invalid"):
         store.replace(invalid_snapshot)
 

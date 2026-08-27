@@ -217,6 +217,21 @@ class ConclusionReview(StrictModel):
     after_effective_hash: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
 
 
+def conclusion_lineage_digest(
+    conclusion: AuditConclusion, reviews: tuple[ConclusionReview, ...]
+) -> str:
+    """Return the canonical identity of an immutable conclusion review trail."""
+    return sha256_digest(
+        canonical_json_bytes(
+            {
+                "original_proposal_hash": conclusion.original_proposal_hash,
+                "effective_conclusion_hash": conclusion.effective_conclusion_hash,
+                "reviews": [review.model_dump(mode="json") for review in reviews],
+            }
+        )
+    )
+
+
 class AuditAction(StrictModel):
     schema_version: Literal["audit-action/v1"] = "audit-action/v1"
     action: Literal[
@@ -273,6 +288,34 @@ class AuditSnapshot(StrictModel):
     assistance_round: AssistanceRound | None = None
     attribution_conflicts: tuple[AttributionConflict, ...] = ()
     conclusion_reviews: tuple[ConclusionReview, ...] = ()
+    conclusion_lineage_hash: str | None = Field(default=None, pattern=r"^sha256:[a-f0-9]{64}$")
+
+    @model_validator(mode="after")
+    def conclusion_lineage_matches_content(self) -> AuditSnapshot:
+        if self.conclusion is None:
+            if self.conclusion_reviews or self.conclusion_lineage_hash is not None:
+                raise ValueError("conclusion lineage requires a conclusion")
+            return self
+
+        expected_sequence = list(range(1, len(self.conclusion_reviews) + 1))
+        if [review.sequence for review in self.conclusion_reviews] != expected_sequence:
+            raise ValueError("conclusion reviews must have contiguous ordered sequences")
+        for previous, current in zip(
+            self.conclusion_reviews, self.conclusion_reviews[1:], strict=False
+        ):
+            if previous.after_effective_hash != current.before_effective_hash:
+                raise ValueError("conclusion reviews must form a contiguous effective-hash lineage")
+        if self.conclusion_reviews and (
+            self.conclusion_reviews[-1].after_effective_hash
+            != self.conclusion.effective_conclusion_hash
+        ):
+            raise ValueError("conclusion review lineage does not reach the effective conclusion")
+
+        if self.conclusion_lineage_hash != conclusion_lineage_digest(
+            self.conclusion, self.conclusion_reviews
+        ):
+            raise ValueError("conclusion lineage hash does not match its content")
+        return self
 
 
 class AuditCoverage(StrictModel):
