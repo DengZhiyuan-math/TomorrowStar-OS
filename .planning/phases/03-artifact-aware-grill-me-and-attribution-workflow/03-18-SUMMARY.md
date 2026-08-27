@@ -116,7 +116,7 @@ status: complete
 
 ## Next Phase Readiness
 
-The remediation plan is complete but Phase 3 and `AUD-01` through `AUD-05` remain `requirements-addressed`. Hand the unchanged `28f4897` revision to deep code review, D-17-bounded security review, Nyquist validation, and goal verification in that order. Any source or test change invalidates downstream reports.
+The remediation plan is complete but Phase 3 and `AUD-01` through `AUD-05` remain `requirements-addressed`. Hand the final committed revision to deep code review, D-17-bounded security review, Nyquist validation, and goal verification in that order. Any source or test change invalidates downstream reports.
 
 ## Self-Check: PASSED
 
