@@ -14,6 +14,7 @@ from career_evidence_graph.assessment import (
     AssessmentStore,
     AssessmentWorkflowError,
     aggregate_skill,
+    build_assessment_run,
     decide_admission,
     reassess_from_new_evidence,
     review_assessment,
@@ -160,19 +161,18 @@ def _review(
     outcome: str = "confirm",
     **changes: object,
 ) -> AssessmentRun:
-    return review_assessment(
-        record,
-        policy=_policy("policy-04-baseline-60", 60),
-        expected_effective_hash=record.effective_assessment_hash,
-        reviewer_id="reviewer-a",
-        review_reason="I inspected the attribution, capability anchor, and each judgment basis.",
-        attribution_checked=True,
-        anchor_fit_checked=True,
-        all_judgments_checked=True,
-        accepted_assessment=proposal or record.proposal,
-        outcome=outcome,
-        **changes,
-    )
+    arguments: dict[str, object] = {
+        "expected_effective_hash": record.effective_assessment_hash,
+        "reviewer_id": "reviewer-a",
+        "review_reason": "I inspected the attribution, capability anchor, and each judgment basis.",
+        "attribution_checked": True,
+        "anchor_fit_checked": True,
+        "all_judgments_checked": True,
+        "accepted_assessment": proposal or record.proposal,
+        "outcome": outcome,
+    }
+    arguments.update(changes)
+    return review_assessment(record, policy=_policy("policy-04-baseline-60", 60), **arguments)  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize(
@@ -262,8 +262,10 @@ def _run(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_pending_and_review_cli_require_complete_payload_without_leaking_answers(tmp_path: Path) -> None:
-    record = run_assessment(
+def test_pending_and_review_cli_require_complete_payload_without_leaking_answers(
+    tmp_path: Path,
+) -> None:
+    run_assessment(
         workspace=tmp_path,
         corpus_path=CORPUS,
         policies_path=POLICIES,
@@ -277,9 +279,9 @@ def test_pending_and_review_cli_require_complete_payload_without_leaking_answers
         mastery_anchor_fit=_anchor_payload(70),
         exact_score_basis="The integer fixture score remains inside the accepted anchor.",
     )
-    pending = AssessmentRun(
-        proposal=pending_proposal,
-        admission=decide_admission(pending_proposal, _policy("policy-04-baseline-60", 60)),
+    pending = build_assessment_run(
+        pending_proposal,
+        decide_admission(pending_proposal, _policy("policy-04-baseline-60", 60)),
     )
     store = AssessmentStore(tmp_path)
     store.replace("assessment-audit-e2e-04-baseline-60", pending)

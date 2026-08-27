@@ -10,7 +10,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from pydantic import ValidationError, model_validator
+from pydantic import Field, ValidationError, model_validator
 
 from .audit.decision import RecordedDecisionPort
 from .audit.models import AuditAction, AuditSnapshot, BoundaryDecision, ProbePlan
@@ -23,7 +23,9 @@ from .domain.models import (
     AssessmentAdmissionStatus,
     AssessmentJudgmentBasis,
     AssessmentLineage,
+    AssessmentReview,
     AssessmentSourceEnvelope,
+    AssessmentVersion,
     CalibratedUserSkillResult,
     ContributionSkillAssessment,
     DurationEvidence,
@@ -167,16 +169,71 @@ def propose_assessments(
     return tuple(sorted(proposals, key=lambda item: (item.skill_id, item.contribution_id)))
 
 
+def _assessment_digest(assessment: ContributionSkillAssessment) -> str:
+    return sha256_digest(canonical_json_bytes(assessment))
+
+
+def _version_digest(version: AssessmentVersion) -> str:
+    payload = version.model_dump(mode="json", exclude={"version_hash"})
+    return sha256_digest(canonical_json_bytes(payload))
+
+
+def _validate_review_lineage(reviews: tuple[AssessmentReview, ...], effective_hash: str) -> None:
+    if [review.sequence for review in reviews] != list(range(1, len(reviews) + 1)):
+        raise ValueError("assessment reviews must have contiguous ordered sequences")
+    for previous, current in zip(reviews, reviews[1:], strict=False):
+        if previous.after_effective_hash != current.before_effective_hash:
+            raise ValueError("assessment reviews must form a contiguous effective-hash lineage")
+    if reviews and reviews[-1].after_effective_hash != effective_hash:
+        raise ValueError("assessment review lineage does not reach the effective assessment")
+
+
 class AssessmentRun(StrictModel):
     schema_version: str = "assessment-run/v1"
     proposal: ContributionSkillAssessment
     admission: AdmissionDecision
     result: CalibratedUserSkillResult | None = None
+    original_proposal: ContributionSkillAssessment
+    original_proposal_hash: str
+    effective_assessment_hash: str
+    reviews: tuple[AssessmentReview, ...] = ()
+    versions: tuple[AssessmentVersion, ...] = Field(min_length=1)
+    version_hash: str
 
     @model_validator(mode="after")
     def validate_links(self) -> AssessmentRun:
         if self.admission.assessment_id != self.proposal.id:
             raise ValueError("admission must reference proposal")
+        if self.original_proposal_hash != _assessment_digest(self.original_proposal):
+            raise ValueError("original proposal hash does not match its content")
+        if self.effective_assessment_hash != _assessment_digest(self.proposal):
+            raise ValueError("effective assessment hash does not match its content")
+        _validate_review_lineage(self.reviews, self.effective_assessment_hash)
+        previous_hash: str | None = None
+        for version in self.versions:
+            if version.previous_version_hash != previous_hash:
+                raise ValueError("assessment versions must form a contiguous immutable lineage")
+            if version.original_proposal_hash != _assessment_digest(version.original_proposal):
+                raise ValueError("version original proposal hash does not match its content")
+            if version.effective_assessment_hash != _assessment_digest(
+                version.effective_assessment
+            ):
+                raise ValueError("version effective assessment hash does not match its content")
+            _validate_review_lineage(version.reviews, version.effective_assessment_hash)
+            if version.version_hash != _version_digest(version):
+                raise ValueError("assessment version hash does not match its content")
+            previous_hash = version.version_hash
+        latest = self.versions[-1]
+        if (
+            self.version_hash != latest.version_hash
+            or self.original_proposal != latest.original_proposal
+            or self.original_proposal_hash != latest.original_proposal_hash
+            or self.proposal != latest.effective_assessment
+            or self.effective_assessment_hash != latest.effective_assessment_hash
+            or self.admission != latest.admission
+            or self.reviews != latest.reviews
+        ):
+            raise ValueError("current assessment must match the latest immutable version")
         if self.admission.admission_status != AssessmentAdmissionStatus.ADMITTED:
             if self.result is not None:
                 raise ValueError("non-admitted proposals cannot carry an aggregate result")
@@ -196,6 +253,77 @@ class AssessmentRun(StrictModel):
         if self.result.source_envelope != self.proposal.source_envelope:
             raise ValueError("result source envelope must match the proposal")
         return self
+
+
+def _make_version(
+    *,
+    version_id: str,
+    source_audit_id: str,
+    previous_version_hash: str | None,
+    original_proposal: ContributionSkillAssessment,
+    effective_assessment: ContributionSkillAssessment,
+    admission: AdmissionDecision,
+    reviews: tuple[AssessmentReview, ...],
+) -> AssessmentVersion:
+    effective_hash = _assessment_digest(effective_assessment)
+    draft = AssessmentVersion(
+        version_id=version_id,
+        source_audit_id=source_audit_id,
+        previous_version_hash=previous_version_hash,
+        original_proposal=original_proposal,
+        original_proposal_hash=_assessment_digest(original_proposal),
+        effective_assessment=effective_assessment,
+        effective_assessment_hash=effective_hash,
+        admission=admission,
+        reviews=reviews,
+        version_hash="sha256:" + "0" * 64,
+    )
+    return AssessmentVersion.model_validate(
+        {**draft.model_dump(mode="json"), "version_hash": _version_digest(draft)}
+    )
+
+
+def _record_from_versions(
+    versions: tuple[AssessmentVersion, ...], result: CalibratedUserSkillResult | None
+) -> AssessmentRun:
+    current = versions[-1]
+    return AssessmentRun(
+        proposal=current.effective_assessment,
+        admission=current.admission,
+        result=result,
+        original_proposal=current.original_proposal,
+        original_proposal_hash=current.original_proposal_hash,
+        effective_assessment_hash=current.effective_assessment_hash,
+        reviews=current.reviews,
+        versions=versions,
+        version_hash=current.version_hash,
+    )
+
+
+def build_assessment_run(
+    proposal: ContributionSkillAssessment, admission: AdmissionDecision
+) -> AssessmentRun:
+    """Make an initial versioned record, retaining even a non-admitted proposal."""
+    result = (
+        aggregate_skill(proposal, admission)
+        if admission.admission_status == AssessmentAdmissionStatus.ADMITTED
+        else None
+    )
+    source_audit_id = (
+        proposal.source_envelope.audit_id
+        if proposal.source_envelope is not None
+        else "audit-unavailable"
+    )
+    version = _make_version(
+        version_id=f"assessment-version-{proposal.id}-1",
+        source_audit_id=source_audit_id,
+        previous_version_hash=None,
+        original_proposal=proposal,
+        effective_assessment=proposal,
+        admission=admission,
+        reviews=(),
+    )
+    return _record_from_versions((version,), result)
 
 
 _RUN_ID = re.compile(r"^assessment-[a-z0-9-]+$")
@@ -389,6 +517,11 @@ def _policy(policies_path: Path, policy_version: str) -> AggregationPolicy:
     raise AssessmentWorkflowError("requested policy is not in the calibration artifact")
 
 
+def load_policy(policies_path: Path, policy_version: str) -> AggregationPolicy:
+    """Read one versioned candidate policy through the sole calibration loader."""
+    return _policy(policies_path, policy_version)
+
+
 def propose_assessment(
     *, snapshot: AuditSnapshot, corpus: dict[str, Any], root: Path
 ) -> ContributionSkillAssessment:
@@ -473,8 +606,10 @@ def decide_admission(
         status = AssessmentAdmissionStatus.PENDING_CONFIRMATION
         reason = "provenance requires a substantive review before formal admission"
         reason_code = "provenance-review-required"
-    elif proposal.demonstrated_mastery >= policy.high_mastery_min and (
-        proposal.evidence_confidence < policy.strict_confidence_min
+    elif (
+        not proposal.substantive_review_complete
+        and proposal.demonstrated_mastery >= policy.high_mastery_min
+        and proposal.evidence_confidence < policy.strict_confidence_min
     ):
         status = AssessmentAdmissionStatus.PENDING_CONFIRMATION
         reason = "high mastery requires confirmation under this candidate policy"
@@ -517,6 +652,147 @@ def aggregate_skill(
     )
 
 
+def _reviewed_assessment(
+    current: ContributionSkillAssessment, accepted: ContributionSkillAssessment
+) -> ContributionSkillAssessment:
+    """Validate a complete replacement without permitting provenance rewriting."""
+    if (
+        accepted.id != current.id
+        or accepted.skill_id != current.skill_id
+        or accepted.contribution_id != current.contribution_id
+        or accepted.lineage != current.lineage
+        or accepted.source_envelope != current.source_envelope
+        or accepted.origin_status != current.origin_status
+    ):
+        raise AssessmentWorkflowError("review cannot rewrite assessment provenance")
+    if (
+        accepted.mastery_anchor_fit is None
+        or accepted.exact_score_basis is None
+        or accepted.judgment_basis is None
+        or accepted.source_envelope is None
+    ):
+        raise AssessmentWorkflowError("review requires a complete judgment and all bases")
+    payload = accepted.model_dump(mode="json")
+    payload["assessment_status"] = "reviewed"
+    payload["substantive_review_complete"] = True
+    try:
+        return ContributionSkillAssessment.model_validate(payload)
+    except ValidationError as exc:
+        raise AssessmentWorkflowError("accepted assessment payload is invalid") from exc
+
+
+def review_assessment(
+    record: AssessmentRun,
+    *,
+    policy: AggregationPolicy,
+    expected_effective_hash: str,
+    reviewer_id: str,
+    review_reason: str,
+    attribution_checked: bool,
+    anchor_fit_checked: bool,
+    all_judgments_checked: bool,
+    accepted_assessment: ContributionSkillAssessment,
+    outcome: str = "confirm",
+) -> AssessmentRun:
+    """Append one hash-bound, D-10-complete correction or confirmation."""
+    if expected_effective_hash != record.effective_assessment_hash:
+        raise AssessmentWorkflowError("review expected effective hash is stale")
+    if not reviewer_id.strip() or not review_reason.strip():
+        raise AssessmentWorkflowError("review requires a reviewer and reason")
+    if not all((attribution_checked, anchor_fit_checked, all_judgments_checked)):
+        raise AssessmentWorkflowError("review requires all substantive acknowledgments")
+    if outcome not in {"confirm", "edit", "insufficient-basis"}:
+        raise AssessmentWorkflowError("review outcome is invalid")
+
+    effective = _reviewed_assessment(record.proposal, accepted_assessment)
+    admission = decide_admission(
+        effective,
+        policy,
+        review_outcome="insufficient-basis" if outcome == "insufficient-basis" else None,
+    )
+    before = record.effective_assessment_hash
+    after = _assessment_digest(effective)
+    review = AssessmentReview(
+        review_id=f"assessment-review-{effective.id}-{len(record.reviews) + 1}",
+        outcome=outcome,
+        reviewer_id=reviewer_id,
+        reason=review_reason,
+        attribution_checked=attribution_checked,
+        anchor_fit_checked=anchor_fit_checked,
+        all_judgments_checked=all_judgments_checked,
+        sequence=len(record.reviews) + 1,
+        before_effective_hash=before,
+        after_effective_hash=after,
+    )
+    latest = record.versions[-1]
+    version = _make_version(
+        version_id=latest.version_id,
+        source_audit_id=latest.source_audit_id,
+        previous_version_hash=latest.previous_version_hash,
+        original_proposal=latest.original_proposal,
+        effective_assessment=effective,
+        admission=admission,
+        reviews=(*record.reviews, review),
+    )
+    result = (
+        aggregate_skill(effective, admission)
+        if admission.admission_status == AssessmentAdmissionStatus.ADMITTED
+        else None
+    )
+    return _record_from_versions((*record.versions[:-1], version), result)
+
+
+def reassess_from_new_evidence(
+    record: AssessmentRun,
+    *,
+    policy: AggregationPolicy,
+    source_audit_id: str,
+    proposal: ContributionSkillAssessment,
+) -> AssessmentRun:
+    """Create a later source-audit version and renew admission without overwriting history."""
+    if not re.fullmatch(r"audit-[a-z0-9-]+", source_audit_id):
+        raise AssessmentWorkflowError("later evidence source audit is invalid")
+    if proposal.id != record.proposal.id or proposal.skill_id != record.proposal.skill_id:
+        raise AssessmentWorkflowError("reassessment must retain the same assessment and Skill")
+    payload = proposal.model_dump(mode="json")
+    payload["substantive_review_complete"] = False
+    try:
+        renewed_proposal = ContributionSkillAssessment.model_validate(payload)
+    except ValidationError as exc:
+        raise AssessmentWorkflowError("later evidence proposal is invalid") from exc
+    admission = decide_admission(renewed_proposal, policy)
+    version = _make_version(
+        version_id=f"assessment-version-{renewed_proposal.id}-{len(record.versions) + 1}",
+        source_audit_id=source_audit_id,
+        previous_version_hash=record.version_hash,
+        original_proposal=renewed_proposal,
+        effective_assessment=renewed_proposal,
+        admission=admission,
+        reviews=(),
+    )
+    result = (
+        aggregate_skill(renewed_proposal, admission)
+        if admission.admission_status == AssessmentAdmissionStatus.ADMITTED
+        else None
+    )
+    return _record_from_versions((*record.versions, version), result)
+
+
+def list_pending_assessments(workspace: Path) -> tuple[tuple[str, AssessmentRun], ...]:
+    """Return all retained, non-admitted records for reviewer inspection."""
+    store = AssessmentStore(workspace)
+    if not store.root.exists():
+        return ()
+    store._ensure_root()
+    records: list[tuple[str, AssessmentRun]] = []
+    for path in sorted(store.root.glob("assessment-*.json")):
+        run_id = path.stem
+        record = store.read(run_id)
+        if record.admission.admission_status != AssessmentAdmissionStatus.ADMITTED:
+            records.append((run_id, record))
+    return tuple(records)
+
+
 def run_assessment(
     *, workspace: Path, corpus_path: Path, policies_path: Path, audit_id: str, policy_version: str
 ) -> AssessmentRun:
@@ -526,12 +802,7 @@ def run_assessment(
     snapshot = _materialize_audit(workspace=workspace, corpus=corpus, root=root, audit_id=audit_id)
     proposal = propose_assessment(snapshot=snapshot, corpus=corpus, root=root)
     admission = decide_admission(proposal, _policy(policies_path, policy_version))
-    result = (
-        aggregate_skill(proposal, admission)
-        if admission.admission_status == AssessmentAdmissionStatus.ADMITTED
-        else None
-    )
-    record = AssessmentRun(proposal=proposal, admission=admission, result=result)
+    record = build_assessment_run(proposal, admission)
     run_id = f"assessment-{audit_id}-{policy_version.removeprefix('policy-')}"
     store = AssessmentStore(workspace)
     try:

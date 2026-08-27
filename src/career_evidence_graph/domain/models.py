@@ -466,6 +466,44 @@ class ContributionSkillAssessment(StrictModel):
         return self
 
 
+class AssessmentReview(StrictModel):
+    """One immutable D-10-complete review of an assessment's effective value."""
+
+    schema_version: Literal["assessment-review/v1"] = "assessment-review/v1"
+    review_id: str = Field(pattern=r"^assessment-review-[a-z0-9-]+$")
+    outcome: Literal["confirm", "edit", "insufficient-basis"]
+    reviewer_id: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
+    attribution_checked: bool
+    anchor_fit_checked: bool
+    all_judgments_checked: bool
+    sequence: int = Field(ge=1)
+    before_effective_hash: str = Field(pattern=SHA256_PATTERN)
+    after_effective_hash: str = Field(pattern=SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def require_substantive_acknowledgments(self) -> AssessmentReview:
+        if not all((self.attribution_checked, self.anchor_fit_checked, self.all_judgments_checked)):
+            raise ValueError("assessment review requires all substantive acknowledgments")
+        return self
+
+
+class AssessmentVersion(StrictModel):
+    """Immutable source-audit version containing a complete assessment lineage."""
+
+    schema_version: Literal["assessment-version/v1"] = "assessment-version/v1"
+    version_id: str = Field(pattern=r"^assessment-version-[a-z0-9-]+$")
+    source_audit_id: str = Field(pattern=r"^audit-[a-z0-9-]+$")
+    previous_version_hash: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    original_proposal: ContributionSkillAssessment
+    original_proposal_hash: str = Field(pattern=SHA256_PATTERN)
+    effective_assessment: ContributionSkillAssessment
+    effective_assessment_hash: str = Field(pattern=SHA256_PATTERN)
+    admission: AdmissionDecision
+    reviews: tuple[AssessmentReview, ...] = ()
+    version_hash: str = Field(pattern=SHA256_PATTERN)
+
+
 class CalibratedUserSkillResult(StrictModel):
     """One specific-Skill calibration output with no evidence-volume bonus."""
 

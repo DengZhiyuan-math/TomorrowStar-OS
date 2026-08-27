@@ -90,3 +90,41 @@ def test_inspect_rejects_cross_linked_records_without_leaking_a_raw_answer(tmp_p
     assert "RAW_INTERVIEW_SENTINEL" not in inspected.stderr
     assert "RAW_INTERVIEW_SENTINEL" not in inspected.stdout
     assert record.result.baseline_assessment_id not in {"assessment-unrelated"}
+
+
+def test_review_cli_records_every_substantive_acknowledgment_and_hash(tmp_path: Path) -> None:
+    run = _run("assessment", "run", "--workspace", str(tmp_path))
+    assert run.returncode == 0, run.stderr
+    initial = json.loads(run.stdout)
+    accepted_path = tmp_path / "accepted-assessment.json"
+    accepted_path.write_text(json.dumps(initial["proposal"]), encoding="utf-8")
+
+    reviewed = _run(
+        "assessment",
+        "review",
+        "--workspace",
+        str(tmp_path),
+        "--run-id",
+        "assessment-audit-e2e-04-baseline-60",
+        "--expected-effective-hash",
+        initial["effective_assessment_hash"],
+        "--reviewer",
+        "reviewer-a",
+        "--reason",
+        "I checked attribution, the accepted anchor, and all three judgment bases.",
+        "--assessment-json",
+        str(accepted_path),
+        "--attribution-checked",
+        "--anchor-fit-checked",
+        "--all-judgments-checked",
+    )
+
+    assert reviewed.returncode == 0, reviewed.stderr
+    emitted = json.loads(reviewed.stdout)
+    review = emitted["reviews"][-1]
+    assert review["attribution_checked"] is True
+    assert review["anchor_fit_checked"] is True
+    assert review["all_judgments_checked"] is True
+    assert review["before_effective_hash"] == initial["effective_assessment_hash"]
+    assert review["after_effective_hash"] == emitted["effective_assessment_hash"]
+    assert emitted["original_proposal_hash"] == initial["original_proposal_hash"]

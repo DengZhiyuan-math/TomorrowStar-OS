@@ -16,6 +16,9 @@ from .assessment import (
     AssessmentStorageError,
     AssessmentStore,
     AssessmentWorkflowError,
+    list_pending_assessments,
+    load_policy,
+    review_assessment,
     run_assessment,
 )
 from .audit.decision import RecordedDecisionPort
@@ -37,6 +40,7 @@ from .domain import (
     validate_mutation_suite,
     verify_source_manifest,
 )
+from .domain.models import ContributionSkillAssessment
 from .validation.provenance import ProvenanceValidationError, verify_provenance_registry
 from .validation.replay import replay_recorded_response
 from .validation.store import FormalRunStorageError, FormalRunStore, load_charter
@@ -208,9 +212,7 @@ def _parser() -> argparse.ArgumentParser:
     assessment_commands = assessment.add_subparsers(dest="assessment_command", required=True)
     assessment_run = assessment_commands.add_parser("run")
     assessment_run.add_argument("--workspace", required=True)
-    assessment_run.add_argument(
-        "--corpus", default="validation/calibration/phase-04/corpus.json"
-    )
+    assessment_run.add_argument("--corpus", default="validation/calibration/phase-04/corpus.json")
     assessment_run.add_argument(
         "--policies", default="validation/calibration/phase-04/policies.json"
     )
@@ -219,6 +221,24 @@ def _parser() -> argparse.ArgumentParser:
     assessment_inspect = assessment_commands.add_parser("inspect")
     assessment_inspect.add_argument("--workspace", required=True)
     assessment_inspect.add_argument("--run-id", required=True)
+    assessment_pending = assessment_commands.add_parser("pending")
+    assessment_pending.add_argument("--workspace", required=True)
+    assessment_review = assessment_commands.add_parser("review")
+    assessment_review.add_argument("--workspace", required=True)
+    assessment_review.add_argument("--run-id", required=True)
+    assessment_review.add_argument("--expected-effective-hash", required=True)
+    assessment_review.add_argument("--reviewer", required=True)
+    assessment_review.add_argument("--reason", required=True)
+    assessment_review.add_argument("--assessment-json", required=True)
+    assessment_review.add_argument(
+        "--policies", default="validation/calibration/phase-04/policies.json"
+    )
+    assessment_review.add_argument(
+        "--outcome", choices=("confirm", "edit", "insufficient-basis"), default="confirm"
+    )
+    assessment_review.add_argument("--attribution-checked", action="store_true")
+    assessment_review.add_argument("--anchor-fit-checked", action="store_true")
+    assessment_review.add_argument("--all-judgments-checked", action="store_true")
     return parser
 
 
@@ -461,6 +481,57 @@ def main(argv: list[str] | None = None) -> int:
             )
         elif args.command == "assessment" and args.assessment_command == "inspect":
             _emit(AssessmentStore(Path(args.workspace)).read(args.run_id))
+        elif args.command == "assessment" and args.assessment_command == "pending":
+            pending = []
+            for run_id, record in list_pending_assessments(Path(args.workspace)):
+                proposal = record.proposal
+                pending.append(
+                    {
+                        "run_id": run_id,
+                        "assessment_id": proposal.id,
+                        "admission_status": record.admission.admission_status,
+                        "direct_review_request": (
+                            "Inspect attribution, anchor fit, and all three judgments and bases; "
+                            "then submit a complete review with the current effective hash."
+                        ),
+                        "provenance_checks": {
+                            "origin_status": proposal.origin_status,
+                            "attribution_status": proposal.attribution_status,
+                            "assistance_status": proposal.assistance_status,
+                        },
+                        "required_bases": {
+                            "demonstrated_mastery_basis": "present",
+                            "skill_centrality_basis": "present",
+                            "evidence_confidence_basis": "present",
+                        },
+                        "effective_assessment_hash": record.effective_assessment_hash,
+                    }
+                )
+            _emit({"pending": pending})
+        elif args.command == "assessment" and args.assessment_command == "review":
+            try:
+                accepted = ContributionSkillAssessment.model_validate(
+                    _json_file(args.assessment_json)
+                )
+            except (OSError, ValueError, ValidationError) as exc:
+                raise AssessmentWorkflowError("accepted assessment payload is invalid") from exc
+            record = AssessmentStore(Path(args.workspace)).read(args.run_id)
+            policy = load_policy(Path(args.policies), record.admission.policy_version)
+            updated = review_assessment(
+                record,
+                policy=policy,
+                expected_effective_hash=args.expected_effective_hash,
+                reviewer_id=args.reviewer,
+                review_reason=args.reason,
+                attribution_checked=args.attribution_checked,
+                anchor_fit_checked=args.anchor_fit_checked,
+                all_judgments_checked=args.all_judgments_checked,
+                accepted_assessment=accepted,
+                outcome=args.outcome,
+            )
+            store = AssessmentStore(Path(args.workspace))
+            store.replace(args.run_id, updated)
+            _emit(updated)
         return 0
     except AssessmentWorkflowError as exc:
         _emit_error({"valid": False, "error": "assessment_workflow_error", "message": str(exc)})
