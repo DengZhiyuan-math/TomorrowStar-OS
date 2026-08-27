@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -329,3 +330,48 @@ def test_calibration_history_rejects_symlink_aliases_and_malformed_payloads(tmp_
     history_path.write_text('{"not":"a policy history"}', encoding="utf-8")
     with pytest.raises(Exception, match="corrupt"):
         load_policy_history(tmp_path)
+
+
+def _scratch_calibration_artifacts(tmp_path: Path) -> tuple[Path, Path]:
+    """Copy the real offline calibration inputs into a repository-shaped scratch tree."""
+    repository = tmp_path / "repository"
+    shutil.copytree(ROOT / "validation", repository / "validation")
+    phase_two = "02-domain-contracts-stoa-fixture-and-deterministic-invariants"
+    summary_path = repository / ".planning/phases" / phase_two / "02-04-SUMMARY.md"
+    summary_path.parent.mkdir(parents=True)
+    shutil.copy2(
+        ROOT / ".planning/phases" / phase_two / "02-04-SUMMARY.md",
+        summary_path,
+    )
+    return (
+        repository / "validation/calibration/phase-04/corpus.json",
+        repository / "validation/calibration/phase-04/policies.json",
+    )
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        pytest.param("audit_snapshot_hash", id="audit_snapshot_custody"),
+        pytest.param("conclusion_lineage_hash", id="conclusion_lineage_custody"),
+        pytest.param("effective_conclusion_hash", id="effective_conclusion_custody"),
+    ],
+)
+def test_run_rejects_declared_audit_custody_tampering_before_history_publish(
+    tmp_path: Path, field: str
+) -> None:
+    corpus_path, policies_path = _scratch_calibration_artifacts(tmp_path)
+    corpus = json.loads(corpus_path.read_text(encoding="utf-8"))
+    corpus[field] = "sha256:" + "0" * 64
+    corpus_path.write_text(json.dumps(corpus), encoding="utf-8")
+
+    workspace = tmp_path / "workspace"
+    with pytest.raises(AssessmentWorkflowError, match="audit|conclusion"):
+        run_calibration_policy(
+            workspace=workspace,
+            corpus_path=corpus_path,
+            policies_path=policies_path,
+            policy_version="policy-04-baseline-60",
+        )
+
+    assert not (workspace / "policy-calibration/history.json").exists()
