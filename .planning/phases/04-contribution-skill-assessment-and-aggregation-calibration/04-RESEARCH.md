@@ -509,7 +509,11 @@ Both candidates define `high_mastery_min: 70` because 70 is the accepted first a
 
 Threshold comparison is integer-exact and includes equality cases at mastery 69/70 and confidence 59/60/69/70. Regardless of score, disputed results, unresolved responsibility, unresolved assistance, and `self-assessed-unverified` origins remain excluded until D-10 substantive review. Comparison criteria are: false admission of an insufficient case, false deferral of a substantively supported case, admission flips, anchor-band changes, reviewer disagreement, deterministic repeat variance, no-inflation regressions, and preservation of all source lineage. Neither candidate is product truth merely because it passes deterministic tests.
 
-Only the human project owner acting as the Phase 4 calibration reviewer (`reviewer_id: zhdeng`, asserted local provenance rather than authenticated identity) may activate one candidate. Activation occurs at the blocking Plan 04-05 decision checkpoint after the same-input comparison; it requires the chosen policy/result/comparison hashes, reason, limitations, and expected prior active policy. The executor, tests, model/provider, or comparison routine may not auto-select or auto-activate a policy. The human may reject both, which leaves Phase 4 unactivated and prevents completion rather than inventing a default.
+Only the human project owner acting as the Phase 4 calibration reviewer (`reviewer_id: zhdeng`, asserted local provenance rather than authenticated identity) may activate one candidate. Activation occurs at the blocking Plan 04-05 decision checkpoint after the same-input comparison; it requires the selected candidate's validated `policy_hash`, aggregate `result_hash`, verified `comparison_hash`, reason, and limitations. The executor, tests, model/provider, or comparison routine may not auto-select or auto-activate a policy. The human may reject both, which leaves Phase 4 unactivated and prevents completion rather than inventing a default. The non-selected candidate remains an immutable comparison baseline and never becomes active authority merely because its run or comparison exists.
+
+There is no calibrated active policy before this checkpoint, so the first activation uses one explicit bootstrap contract: `prior_policy_version = null`, `prior_result_hash = null`, and `expected_active_pointer = "absent"`. Those three values are valid only together and only when the active-policy pointer does not exist. After revalidating the human decision and the selected candidate's policy/result/comparison ancestry, the store atomically creates the first pointer with create-if-absent semantics. A pre-existing pointer, a competing second bootstrap request, or any non-absent state rejects the bootstrap without overwriting authority.
+
+Every later activation uses the replacement contract instead: `prior_policy_version` and `prior_result_hash` are both non-null and exactly identify the active result, while `expected_active_pointer` is the canonical hash of the current pointer. Replacement is an atomic compare-and-swap and rejects a stale pointer or mismatched prior policy/result. Bootstrap nulls are invalid once a pointer exists. Positive first activation, competing/non-absent bootstrap, stale replacement, and exact subsequent replacement are required deterministic tests; these tests exercise the transition contract and do not authorize activation of the non-selected Phase 4 candidate.
 
 ### RESOLVED 3 — Exact cross-context next-anchor promotion rubric
 
@@ -572,7 +576,7 @@ Phase 4 adds one minimal schema-versioned `AssessmentStore` sidecar for proposal
 | AGG-01 | Exactly one traceable policy-bearing result per exact Skill | invariant/integration | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_skill_aggregation.py -k traceable` | ❌ Wave 0 |
 | AGG-02 | Duplicate evidence/contributions and incidental volume are metamorphically mastery-neutral | metamorphic | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_skill_aggregation.py -k no_inflation` | ❌ Wave 0 |
 | AGG-03 | Cross-Contribution promotion succeeds only with explicit next-anchor proof | golden | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_anchor_promotion.py` | ❌ Wave 0 |
-| AGG-04 | Same-input policies preserve deltas, disagreements, decisions, variance, and regressions | integration/golden | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_policy_calibration.py` | ❌ Wave 0 |
+| AGG-04 | Same-input policies preserve deltas, disagreements, decisions, variance, and regressions; activation covers absent-pointer bootstrap and exact-pointer replacement | integration/golden | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_policy_calibration.py` | ❌ Wave 0 |
 
 ### Required Golden and Counterfactual Matrix
 
@@ -610,7 +614,7 @@ The calibration corpus should contain the following paired cases; these derive d
 - [ ] `tests/test_mastery_anchors.py` — every anchor boundary and higher-band rejection.
 - [ ] `tests/test_skill_aggregation.py` — one result per Skill, maximum baseline, duplicate and volume neutrality.
 - [ ] `tests/test_anchor_promotion.py` — allowed/denied cross-Contribution promotions.
-- [ ] `tests/test_policy_calibration.py` — same-input comparisons, disagreement, variance, regression, activation.
+- [ ] `tests/test_policy_calibration.py` — same-input comparisons, disagreement, variance, regression, positive first activation, competing/non-absent bootstrap rejection, stale-pointer rejection, and exact subsequent replacement.
 - [ ] CLI black-box test for proposal, pending inspection, review, aggregate, compare, and activate behavior.
 
 No test framework installation gap exists. [VERIFIED: pyproject.toml:18-30]

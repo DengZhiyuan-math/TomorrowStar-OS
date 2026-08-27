@@ -47,7 +47,7 @@ created: 2026-08-27
 | 04-W0-AGG01 | 04-01 | 0 | AGG-01 | One policy-bearing, traceable result exists per exact Skill | invariant/integration | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_skill_aggregation.py -k traceable` | ❌ W0 | ⬜ pending |
 | 04-W0-AGG02 | 04-01 | 0 | AGG-02 | Duplicate Evidence, Contributions, assessments, and incidental volume are mastery-neutral | metamorphic | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_skill_aggregation.py -k no_inflation` | ❌ W0 | ⬜ pending |
 | 04-W0-AGG03 | 04-01 | 0 | AGG-03 | Promotion requires explicit proof that combined behavior satisfies the next anchor | golden | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_anchor_promotion.py` | ❌ W0 | ⬜ pending |
-| 04-W0-AGG04 | 04-01 | 0 | AGG-04 | Policy history, reviewer disagreement, variance, activation, and regressions remain inspectable | integration/golden | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_policy_calibration.py` | ❌ W0 | ⬜ pending |
+| 04-W0-AGG04 | 04-01 | 0 | AGG-04 | Policy history, reviewer disagreement, variance, and regressions remain inspectable; first activation requires null/null/absent plus selected hashes, and replacement requires exact prior identities/current pointer | integration/golden | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_policy_calibration.py` | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -62,7 +62,7 @@ created: 2026-08-27
 - [ ] `tests/test_mastery_anchors.py` — every anchor boundary and unsupported higher-band rejection.
 - [ ] `tests/test_skill_aggregation.py` — one result per Skill, strongest-admitted baseline, duplicate neutrality, and evidence-volume neutrality.
 - [ ] `tests/test_anchor_promotion.py` — allowed and denied cross-Contribution promotion.
-- [ ] `tests/test_policy_calibration.py` — same-input comparison, disagreement, variance, regression, and explicit activation.
+- [ ] `tests/test_policy_calibration.py` — same-input comparison, disagreement, variance, regression, positive null/null/absent first activation, competing/non-absent bootstrap rejection, stale-pointer rejection, and exact subsequent replacement.
 - [ ] CLI black-box coverage for propose, inspect pending, review, aggregate, compare, and activate behavior.
 
 No framework installation is required.
