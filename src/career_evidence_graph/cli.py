@@ -384,6 +384,9 @@ def main(argv: list[str] | None = None) -> int:
     except AuditWorkflowError as exc:
         _emit_error({"valid": False, "error": "audit_workflow_error", "message": str(exc)})
         return 2
+    except AuditStorageError as exc:
+        _emit_error({"valid": False, "error": "audit_storage_error", "message": str(exc)})
+        return 2
     except FixtureValidationError as exc:
         _emit_error(
             {
@@ -396,7 +399,6 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     except (
         FixtureMutationError,
-        AuditStorageError,
         FormalRunStorageError,
         LiveExecutionError,
         ProvenanceValidationError,
