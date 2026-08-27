@@ -31,7 +31,9 @@ def test_resolve_skill_candidate_only_auto_resolves_one_unambiguous_alias() -> N
         Skill(id="skill.sql", name="SQL"),
     )
 
-    matched = resolve_skill_candidate(" PYTHON ", skills=skills, aliases=(_alias("Python", "skill.python"),))
+    matched = resolve_skill_candidate(
+        " PYTHON ", skills=skills, aliases=(_alias("Python", "skill.python"),)
+    )
     ambiguous = resolve_skill_candidate(
         "data", skills=skills, aliases=(_alias("data", "skill.python"), _alias("DATA", "skill.sql"))
     )
@@ -87,7 +89,11 @@ def test_propose_assessments_emits_all_and_only_matched_specific_skills_with_cus
         assert proposal.audit_id == "audit-e2e"
         assert proposal.conclusion_lineage_hash == snapshot.conclusion_lineage_hash
         assert proposal.conclusion_entry_ids == ("entry-implementation",)
-        assert proposal.evidence_ids == ("evid-stoa-backend-audit",)
-        assert proposal.answer_question_ids == ("question-implementation-hard-0-0",)
+        assert proposal.evidence_ids == ("evid-stoa-backend-audit", "evid-stoa-build-week")
+        assert proposal.answer_question_ids == (
+            "question-implementation-assistance-2",
+            "question-implementation-hard-0-0",
+            "question-implementation-ownership-1",
+        )
         assert proposal.attribution_area_ids == ("implementation",)
         assert proposal.normalization_record_hash.startswith("sha256:")

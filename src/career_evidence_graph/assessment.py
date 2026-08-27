@@ -16,6 +16,7 @@ from .audit.decision import RecordedDecisionPort
 from .audit.models import AuditAction, AuditSnapshot, BoundaryDecision, ProbePlan
 from .audit.store import AuditStorageError, AuditStore
 from .audit.workflow import AuditWorkflowError, start_audit, transition_audit
+from .domain.invariants import _normalized_text, normalize_skill_metadata
 from .domain.models import (
     AdmissionDecision,
     AggregationPolicy,
@@ -25,7 +26,12 @@ from .domain.models import (
     ContributionSkillAssessment,
     DurationEvidence,
     MasteryAnchorFit,
+    OntologyRelation,
+    Skill,
+    SkillAlias,
+    SkillNormalizationRecord,
     SkillResolutionDecision,
+    SpecificSkillProposal,
 )
 from .validation.hashing import canonical_json_bytes, sha256_digest
 from .validation.models import StrictModel
@@ -37,6 +43,126 @@ class AssessmentWorkflowError(RuntimeError):
 
 class AssessmentStorageError(RuntimeError):
     """Trusted-local assessment persistence rejected a record or path."""
+
+
+def resolve_skill_candidate(
+    candidate_text: str,
+    *,
+    skills: tuple[Skill, ...],
+    aliases: tuple[SkillAlias, ...] = (),
+    ontology_relations: tuple[OntologyRelation, ...] = (),
+) -> SkillNormalizationRecord:
+    """Resolve one candidate through the single deterministic normalizer contract.
+
+    A missing, ambiguous, or descriptive match stays review-only.  This helper
+    only selects existing normalization metadata; it never creates a Skill or
+    changes any mastery value.
+    """
+    normalized_candidate = _normalized_text(candidate_text)
+    records = normalize_skill_metadata(skills, aliases, ontology_relations)
+    matching = [record for record in records if record.normalized_text == normalized_candidate]
+    if matching:
+        return matching[0]
+    return SkillNormalizationRecord(
+        original_text=candidate_text,
+        normalized_text=normalized_candidate,
+        review_status="unmatched",
+    )
+
+
+def _entry_evidence_ids(snapshot: AuditSnapshot, entry_id: str) -> tuple[str, ...]:
+    """Return the completed audit's evidence IDs for an eligible conclusion entry."""
+    if snapshot.conclusion is None:
+        return ()
+    entry = next((item for item in snapshot.conclusion.entries if item.id == entry_id), None)
+    if entry is None or entry.verification != "audit-verified" or entry.review != "confirmed":
+        return ()
+    referenced = set(entry.artifact_references)
+    evidence_ids = {
+        fact.evidence_id
+        for fact in snapshot.inspected_facts
+        if not referenced or fact.evidence_id in referenced or fact.source_locator in referenced
+    }
+    return tuple(sorted(evidence_ids))
+
+
+def propose_assessments(
+    *,
+    snapshot: AuditSnapshot,
+    fixture_hash: str,
+    source_manifest_hash: str,
+    skills: tuple[Skill, ...],
+    candidates_by_entry: dict[str, tuple[str, ...]],
+    aliases: tuple[SkillAlias, ...] = (),
+    ontology_relations: tuple[OntologyRelation, ...] = (),
+) -> tuple[SpecificSkillProposal, ...]:
+    """Produce one proposal per directly supported, automatically resolved Skill.
+
+    The caller supplies candidate wording attached to a reviewed conclusion
+    entry.  Only a completed, whole-confirmed audit and entry-level confirmed
+    capability can supply a proposal.  Candidates that need human review stay
+    outside this score-eligible output until an explicit D-03 resolution is
+    recorded elsewhere.
+    """
+    if snapshot.status != "completed" or snapshot.conclusion is None:
+        return ()
+    if snapshot.conclusion.whole_review != "confirmed" or not snapshot.conclusion_lineage_hash:
+        return ()
+
+    proposals: list[SpecificSkillProposal] = []
+    for entry_id in sorted(candidates_by_entry):
+        entry = next((item for item in snapshot.conclusion.entries if item.id == entry_id), None)
+        evidence_ids = _entry_evidence_ids(snapshot, entry_id)
+        if entry is None or not evidence_ids:
+            continue
+        attribution = tuple(
+            sorted(
+                record.area_id
+                for record in snapshot.attribution_records
+                if record.area_id == entry.area
+                and record.ownership == "user-owned"
+                and record.assistance != "unresolved"
+            )
+        )
+        answer_ids = tuple(
+            sorted(
+                {
+                    reference.removeprefix("answer:")
+                    for reference in entry.answer_references
+                    if reference.startswith("answer:question-")
+                }
+            )
+        )
+        if not attribution or not answer_ids:
+            continue
+        for candidate_text in sorted(set(candidates_by_entry[entry_id]), key=_normalized_text):
+            record = resolve_skill_candidate(
+                candidate_text,
+                skills=skills,
+                aliases=aliases,
+                ontology_relations=ontology_relations,
+            )
+            if record.review_status != "matched" or len(record.candidate_skill_ids) != 1:
+                continue
+            skill_id = record.candidate_skill_ids[0]
+            proposal_id = f"proposal-{snapshot.audit_id}-{entry_id}-{skill_id}"
+            proposals.append(
+                SpecificSkillProposal(
+                    proposal_id=proposal_id,
+                    skill_id=skill_id,
+                    contribution_id=snapshot.contribution_id,
+                    audit_id=snapshot.audit_id,
+                    fixture_hash=fixture_hash,
+                    source_manifest_hash=source_manifest_hash,
+                    conclusion_lineage_hash=snapshot.conclusion_lineage_hash,
+                    conclusion_entry_ids=(entry_id,),
+                    evidence_ids=evidence_ids,
+                    answer_question_ids=answer_ids,
+                    attribution_area_ids=attribution,
+                    normalization_record_hash=sha256_digest(canonical_json_bytes(record)),
+                )
+            )
+    return tuple(sorted(proposals, key=lambda item: (item.skill_id, item.contribution_id)))
 
 
 class AssessmentRun(StrictModel):

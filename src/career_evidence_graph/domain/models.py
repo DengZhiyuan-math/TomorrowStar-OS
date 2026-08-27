@@ -249,6 +249,32 @@ class SkillResolutionDecision(StrictModel):
     reason: str = Field(min_length=1)
 
 
+class SpecificSkillProposal(StrictModel):
+    """A score-eligible, independently traceable Contribution--Skill candidate."""
+
+    schema_version: Literal["specific-skill-proposal/v1"] = "specific-skill-proposal/v1"
+    proposal_id: Identifier = Field(pattern=ID_PATTERN)
+    skill_id: Identifier = Field(pattern=ID_PATTERN)
+    contribution_id: Identifier = Field(pattern=ID_PATTERN)
+    audit_id: str = Field(pattern=r"^audit-[a-z0-9-]+$")
+    fixture_hash: str = Field(pattern=SHA256_PATTERN)
+    source_manifest_hash: str = Field(pattern=SHA256_PATTERN)
+    conclusion_lineage_hash: str = Field(pattern=SHA256_PATTERN)
+    conclusion_entry_ids: tuple[str, ...] = Field(min_length=1)
+    evidence_ids: tuple[Identifier, ...] = Field(min_length=1)
+    answer_question_ids: tuple[str, ...] = Field(min_length=1)
+    attribution_area_ids: tuple[str, ...] = Field(min_length=1)
+    normalization_record_hash: str = Field(pattern=SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def validate_independent_source_custody(self) -> SpecificSkillProposal:
+        _unique_ids(self.conclusion_entry_ids, "conclusion_entry_ids")
+        _unique_ids(self.evidence_ids, "evidence_ids")
+        _unique_ids(self.answer_question_ids, "answer_question_ids")
+        _unique_ids(self.attribution_area_ids, "attribution_area_ids")
+        return self
+
+
 class AdmissionDecision(StrictModel):
     schema_version: Literal["assessment-admission-decision/v1"] = "assessment-admission-decision/v1"
     assessment_id: Identifier = Field(pattern=ID_PATTERN)
