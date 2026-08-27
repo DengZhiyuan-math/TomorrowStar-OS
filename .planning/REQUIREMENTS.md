@@ -27,11 +27,11 @@ Requirements for the first validation milestone. Each requirement maps to exactl
 
 ### Contribution-Level Grill-Me Audit
 
-- [ ] **AUD-01**: The audit inspects supplied artifacts before questioning and records what was inspected, what was established from it, and why each remaining question is necessary.
-- [ ] **AUD-02**: A user receives at most one focused, decision-bearing question per turn and can pause and resume an audit without losing answers, extracted facts, coverage state, contradictions, or unresolved questions.
+- [x] **AUD-01**: The audit inspects supplied artifacts before questioning and records what was inspected, what was established from it, and why each remaining question is necessary.
+- [x] **AUD-02**: A user receives at most one focused, decision-bearing question per turn and can pause and resume an audit without losing answers, extracted facts, coverage state, contradictions, or unresolved questions.
 - [x] **AUD-03**: The audit rejects repeated, multi-part, leading, or artifact-answerable questions and instead probes what the user can explain, implement, reproduce, defend, debug, or operate for the selected Contribution.
 - [x] **AUD-04**: The audit challenges ambiguous responsibility and assistance claims until user-owned, team-owned, other-owned, Codex-assisted, and third-party work are explicitly separated or marked unresolved.
-- [ ] **AUD-05**: For each audited Contribution, the user can review, edit, confirm, or reject a conclusion that states the strongest capability established, the next-higher capability not established, the supporting basis, and any provisional or unresolved points.
+- [x] **AUD-05**: For each audited Contribution, the user can review, edit, confirm, or reject a conclusion that states the strongest capability established, the next-higher capability not established, the supporting basis, and any provisional or unresolved points.
 
 ### Contribution–Skill Assessment and User Skill Aggregation
 
@@ -116,11 +116,11 @@ Every v1 requirement maps to exactly one roadmap phase. Deferred v2 requirements
 | MOD-07 | Phase 2 | Complete |
 | FIX-01 | Phase 2 | Complete |
 | FIX-02 | Phase 2 | Complete |
-| AUD-01 | Phase 3 | Gaps Found |
-| AUD-02 | Phase 3 | Gaps Found |
+| AUD-01 | Phase 3 | Complete |
+| AUD-02 | Phase 3 | Complete |
 | AUD-03 | Phase 3 | Complete |
 | AUD-04 | Phase 3 | Complete |
-| AUD-05 | Phase 3 | Gaps Found |
+| AUD-05 | Phase 3 | Complete |
 | ASS-01 | Phase 4 | Pending |
 | ASS-02 | Phase 4 | Pending |
 | ASS-03 | Phase 4 | Pending |
