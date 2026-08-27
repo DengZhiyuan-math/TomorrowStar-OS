@@ -16,8 +16,8 @@ from career_evidence_graph.assessment import (
     validate_anchor_promotion,
 )
 from career_evidence_graph.domain.models import (
-    AnchorPromotionDecision,
     AggregationPolicy,
+    AnchorPromotionDecision,
     ContributionSkillAssessment,
 )
 
@@ -112,9 +112,7 @@ def test_next_anchor_promotion_requires_named_distinct_credible_support(tmp_path
     runs = _runs(tmp_path)
     decision = _decision(runs)
 
-    validated = validate_anchor_promotion(
-        decision, tuple(run.proposal for run in runs)
-    )
+    validated = validate_anchor_promotion(decision, tuple(run.proposal for run in runs))
     results = aggregate_user_skills(runs, promotion_decisions=(decision,))
 
     assert validated == decision

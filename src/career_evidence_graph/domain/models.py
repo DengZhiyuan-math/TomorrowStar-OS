@@ -516,6 +516,8 @@ class AnchorPromotionDecision(StrictModel):
     promoted_score: int = Field(ge=0, le=100)
     assessment_ids: tuple[Identifier, ...] = Field(min_length=2)
     distinct_behaviors: tuple[str, ...] = Field(min_length=1)
+    behavior_assessment_ids: tuple[Identifier, ...] = Field(min_length=1)
+    behavior_audit_bases: tuple[str, ...] = Field(min_length=1)
     distinct_contexts: tuple[str, ...] = Field(min_length=2)
     rationale: str = Field(min_length=1)
     exact_score_basis: str | None = None
@@ -523,10 +525,8 @@ class AnchorPromotionDecision(StrictModel):
     @model_validator(mode="after")
     def validate_distinct_support(self) -> AnchorPromotionDecision:
         _unique_ids(self.assessment_ids, "assessment_ids")
-        if len(self.distinct_behaviors) != len(set(self.distinct_behaviors)):
-            raise ValueError("distinct_behaviors must not repeat")
-        if len(self.distinct_contexts) != len(set(self.distinct_contexts)):
-            raise ValueError("distinct_contexts must not repeat")
+        if not all(value.strip() for value in self.distinct_behaviors + self.behavior_audit_bases):
+            raise ValueError("promotion behavior and audit bases cannot be blank")
         if not self.rationale.strip() or (
             self.exact_score_basis is not None and not self.exact_score_basis.strip()
         ):

@@ -713,6 +713,148 @@ def aggregation_snapshot_bytes(results: tuple[CalibratedUserSkillResult, ...]) -
     )
 
 
+NEXT_ANCHOR_PROMOTION_RUBRIC_VERSION = "anchor-promotion-rubric/v1"
+NEXT_ANCHOR_PROMOTION_BEHAVIORS: dict[str, frozenset[str]] = {
+    "anchor-20-39": frozenset({"fundamentals-explained", "guided-simple-task"}),
+    "anchor-40-54": frozenset({"bounded-practical-task", "named-documentation-or-guidance"}),
+    "anchor-55-69": frozenset({"independent-common-bounded-task"}),
+    "anchor-70-79": frozenset(
+        {
+            "independent-complex-problem",
+            "decisions-explained",
+            "decisions-defended",
+        }
+    ),
+    "anchor-80-89": frozenset(
+        {
+            "complete-module-or-system-delivery",
+            "failure-handling",
+            "trade-offs",
+            "maintenance-ownership",
+        }
+    ),
+    "anchor-90-95": frozenset(
+        {
+            "advanced-responsibility-context-one",
+            "advanced-responsibility-context-two",
+            "guidance-of-another-person",
+        }
+    ),
+    "anchor-96-100": frozenset(
+        {
+            "sustained-breadth",
+            "advanced-responsibility",
+            "failure-tradeoff-maintenance-ownership",
+            "guidance-of-another-person",
+            "strongly-verified-expert-behavior",
+        }
+    ),
+}
+
+
+def promotion_input_hash(
+    assessments: tuple[ContributionSkillAssessment, ...], *, policy_version: str
+) -> str:
+    """Hash the candidate policy and full admitted assessment inputs a decision cites."""
+    return sha256_digest(
+        canonical_json_bytes(
+            {
+                "rubric_version": NEXT_ANCHOR_PROMOTION_RUBRIC_VERSION,
+                "policy_version": policy_version,
+                "assessments": [
+                    assessment.model_dump(mode="json")
+                    for assessment in sorted(assessments, key=lambda item: item.id)
+                ],
+            }
+        )
+    )
+
+
+def validate_anchor_promotion(
+    decision: AnchorPromotionDecision,
+    admitted_assessments: tuple[ContributionSkillAssessment, ...],
+) -> AnchorPromotionDecision:
+    """Fail closed unless a decision proves exactly the next observable anchor."""
+    if len(admitted_assessments) < 2:
+        raise AssessmentWorkflowError("promotion requires at least two admitted assessments")
+    if any(assessment.skill_id != decision.skill_id for assessment in admitted_assessments):
+        raise AssessmentWorkflowError("promotion requires one exact same Skill")
+    if any(
+        assessment.source_envelope is None
+        or assessment.attribution_status != "resolved"
+        or assessment.assistance_status != "resolved"
+        or assessment.judgment_basis is None
+        for assessment in admitted_assessments
+    ):
+        raise AssessmentWorkflowError("promotion requires resolved, credible audit support")
+    if decision.policy_input_hash != promotion_input_hash(
+        admitted_assessments, policy_version=decision.policy_version
+    ):
+        raise AssessmentWorkflowError("promotion policy input hash is stale")
+    assessments_by_id = {assessment.id: assessment for assessment in admitted_assessments}
+    if not set(decision.assessment_ids).issubset(assessments_by_id):
+        raise AssessmentWorkflowError("promotion cites a non-admitted assessment")
+    cited = tuple(assessments_by_id[assessment_id] for assessment_id in decision.assessment_ids)
+    if len({assessment.contribution_id for assessment in cited}) < 2:
+        raise AssessmentWorkflowError("promotion requires distinct Contributions")
+    cited_contexts = {_normalized_text(assessment.context) for assessment in cited}
+    decision_contexts = tuple(_normalized_text(context) for context in decision.distinct_contexts)
+    if (
+        len(set(decision_contexts)) != len(decision_contexts)
+        or len(decision_contexts) < 2
+        or set(decision_contexts) != cited_contexts
+    ):
+        raise AssessmentWorkflowError("promotion requires distinct real contexts")
+    if (
+        len(decision.distinct_behaviors) != len(decision.behavior_assessment_ids)
+        or len(decision.distinct_behaviors) != len(decision.behavior_audit_bases)
+        or len(set(decision.distinct_behaviors)) != len(decision.distinct_behaviors)
+    ):
+        raise AssessmentWorkflowError("promotion behavior bindings must be distinct and complete")
+    for assessment_id, audit_basis in zip(
+        decision.behavior_assessment_ids, decision.behavior_audit_bases, strict=True
+    ):
+        assessment = assessments_by_id.get(assessment_id)
+        if assessment is None or assessment.id not in decision.assessment_ids:
+            raise AssessmentWorkflowError("promotion behavior cites a non-admitted assessment")
+        if assessment.judgment_basis is None or (
+            audit_basis != assessment.judgment_basis.demonstrated_mastery_basis
+        ):
+            raise AssessmentWorkflowError("promotion behavior is not bound to its audit basis")
+    baseline = max(
+        sorted(admitted_assessments, key=lambda assessment: assessment.id),
+        key=lambda assessment: assessment.demonstrated_mastery,
+    )
+    anchor_index = next(
+        (
+            index
+            for index, anchor in enumerate(MASTERY_ANCHORS)
+            if anchor.inclusive_range[0]
+            <= baseline.demonstrated_mastery
+            <= anchor.inclusive_range[1]
+        ),
+        None,
+    )
+    if anchor_index is None or anchor_index + 1 >= len(MASTERY_ANCHORS):
+        raise AssessmentWorkflowError("promotion has no next anchor")
+    target = MASTERY_ANCHORS[anchor_index + 1]
+    if decision.target_anchor_id != target.anchor_id:
+        raise AssessmentWorkflowError("promotion may target only the immediate next anchor")
+    if not target.inclusive_range[0] <= decision.promoted_score <= target.inclusive_range[1]:
+        raise AssessmentWorkflowError("promotion score escapes the target anchor")
+    if decision.promoted_score > target.inclusive_range[0] and decision.exact_score_basis is None:
+        raise AssessmentWorkflowError("promotion above the target lower bound needs reviewed basis")
+    if set(decision.distinct_behaviors) != NEXT_ANCHOR_PROMOTION_BEHAVIORS[target.anchor_id]:
+        raise AssessmentWorkflowError("promotion does not establish every target behavior")
+    required_contributions = 3 if target.anchor_id == "anchor-96-100" else 2
+    required_contexts = 3 if target.anchor_id == "anchor-96-100" else 2
+    if len({assessment.contribution_id for assessment in cited}) < required_contributions:
+        raise AssessmentWorkflowError("promotion lacks required distinct Contributions")
+    if len(cited_contexts) < required_contexts:
+        raise AssessmentWorkflowError("promotion lacks required distinct real contexts")
+    return decision
+
+
 def aggregate_user_skills(
     records: tuple[AssessmentRun, ...],
     *,
@@ -742,11 +884,15 @@ def aggregate_user_skills(
         admitted = tuple(sorted(admitted_by_skill[skill_id], key=lambda item: item.id))
         baseline = max(admitted, key=lambda item: item.demonstrated_mastery)
         contexts = tuple(sorted({assessment.context for assessment in admitted}))
+        decision = decisions_by_skill.get(skill_id)
+        if decision is not None:
+            validate_anchor_promotion(decision, admitted)
+        mastery = decision.promoted_score if decision is not None else baseline.demonstrated_mastery
         result = CalibratedUserSkillResult(
             result_id=f"result-{skill_id}",
             skill_id=skill_id,
-            mastery=baseline.demonstrated_mastery,
-            anchor_id=_anchor_for_score(baseline.demonstrated_mastery),
+            mastery=mastery,
+            anchor_id=_anchor_for_score(mastery),
             policy_version=policy_by_skill[skill_id],
             baseline_assessment_id=baseline.id,
             admitted_assessment_ids=tuple(assessment.id for assessment in admitted),
@@ -756,7 +902,7 @@ def aggregate_user_skills(
                 "Calibration baseline equals the strongest admitted assessment; no count, "
                 "confidence, centrality, or evidence-volume bonus was applied."
             ),
-            promotion_decision=decisions_by_skill.get(skill_id),
+            promotion_decision=decision,
             supporting_contexts=contexts,
             suppressed_duplicate_relationships=deduplicate_skill_support(admitted),
         )
