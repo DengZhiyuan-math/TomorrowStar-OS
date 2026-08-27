@@ -7,7 +7,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from career_evidence_graph.assessment import run_assessment
+import pytest
+
+from career_evidence_graph.assessment import AssessmentStorageError, AssessmentStore, run_assessment
 
 ROOT = Path(__file__).parents[1]
 CORPUS = ROOT / "validation/calibration/phase-04/corpus.json"
@@ -61,3 +63,30 @@ def test_tracer_cli_persists_explicitly_synthetic_calibration_result(tmp_path: P
     )
     assert reopened.returncode == 0, reopened.stderr
     assert json.loads(reopened.stdout) == emitted
+
+
+def test_inspect_rejects_cross_linked_records_without_leaking_a_raw_answer(tmp_path: Path) -> None:
+    """A sidecar contains one proposal chain, never a hidden second assessment."""
+    record = run_assessment(
+        workspace=tmp_path,
+        corpus_path=CORPUS,
+        policies_path=POLICIES,
+        audit_id="audit-e2e",
+        policy_version="policy-04-baseline-60",
+    )
+    run_id = "assessment-audit-e2e-04-baseline-60"
+    store = AssessmentStore(tmp_path)
+    payload = json.loads(store.path(run_id).read_text(encoding="utf-8"))
+    payload["result"]["admitted_assessment_ids"].append("assessment-unrelated")
+    payload["proposal"]["context"] = "RAW_INTERVIEW_SENTINEL"
+    store.path(run_id).write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(AssessmentStorageError, match="does not match the proposal"):
+        store.read(run_id)
+
+    inspected = _run("assessment", "inspect", "--workspace", str(tmp_path), "--run-id", run_id)
+    assert inspected.returncode == 2
+    assert "assessment_storage_error" in inspected.stderr
+    assert "RAW_INTERVIEW_SENTINEL" not in inspected.stderr
+    assert "RAW_INTERVIEW_SENTINEL" not in inspected.stdout
+    assert record.result.baseline_assessment_id not in {"assessment-unrelated"}
