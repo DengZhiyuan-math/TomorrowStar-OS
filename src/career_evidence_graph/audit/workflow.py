@@ -7,7 +7,6 @@ from pathlib import Path
 from uuid import uuid4
 
 from ..domain.fixtures import SealedFixtureRecord, load_sealed_fixture, verify_source_manifest
-from ..validation.hashing import canonical_json_bytes, sha256_digest
 from .decision import (
     AuditDecisionPort,
     FakeDecisionPort,
@@ -28,6 +27,8 @@ from .models import (
     ConclusionEntry,
     ConclusionReview,
     ProbeArea,
+    effective_conclusion_digest,
+    original_proposal_digest,
 )
 from .store import AuditStore
 
@@ -425,29 +426,18 @@ def _conclusion_entry(snapshot: AuditSnapshot, coverage: AuditCoverage) -> Concl
     )
 
 
-def _effective_hash(entries: tuple[ConclusionEntry, ...], whole_review: str) -> str:
-    return sha256_digest(
-        canonical_json_bytes(
-            {
-                "entries": [entry.model_dump(mode="json") for entry in entries],
-                "whole_review": whole_review,
-            }
-        )
-    )
-
-
 def _enter_reviewing(snapshot: AuditSnapshot) -> AuditSnapshot:
     entries = tuple(_conclusion_entry(snapshot, coverage) for coverage in snapshot.coverage)
     original_proposal = {
         "entries": [entry.model_dump(mode="json") for entry in entries],
         "whole_review": "pending",
     }
-    original_hash = sha256_digest(canonical_json_bytes(original_proposal))
+    original_hash = original_proposal_digest(original_proposal)
     conclusion = AuditConclusion(
         entries=entries,
         original_proposal=original_proposal,
         original_proposal_hash=original_hash,
-        effective_conclusion_hash=_effective_hash(entries, "pending"),
+        effective_conclusion_hash=effective_conclusion_digest(entries, "pending"),
     )
     return snapshot.model_copy(update={"status": "reviewing", "conclusion": conclusion})
 
@@ -478,7 +468,7 @@ def _append_review(
     else:
         whole_review = {"confirm": "confirmed", "reject": "rejected"}[outcome]
     ordered_entries = tuple(entries)
-    after_hash = _effective_hash(ordered_entries, whole_review)
+    after_hash = effective_conclusion_digest(ordered_entries, whole_review)
     conclusion = snapshot.conclusion.model_copy(
         update={
             "entries": ordered_entries,

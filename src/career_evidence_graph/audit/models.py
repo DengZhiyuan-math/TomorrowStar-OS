@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
+from ..validation.hashing import canonical_json_bytes, sha256_digest
 from ..validation.models import StrictModel
 
 AuditStatus = Literal["active", "paused", "reviewing", "completed", "rejected"]
@@ -159,6 +161,23 @@ class ConclusionEntry(StrictModel):
         return self
 
 
+def original_proposal_digest(original_proposal: dict[str, object]) -> str:
+    """Return the content identity of the immutable review proposal."""
+    return sha256_digest(canonical_json_bytes(original_proposal))
+
+
+def effective_conclusion_digest(entries: tuple[ConclusionEntry, ...], whole_review: str) -> str:
+    """Return the content identity of the current, reviewable conclusion."""
+    return sha256_digest(
+        canonical_json_bytes(
+            {
+                "entries": [entry.model_dump(mode="json") for entry in entries],
+                "whole_review": whole_review,
+            }
+        )
+    )
+
+
 class AuditConclusion(StrictModel):
     schema_version: Literal["audit-conclusion/v1"] = "audit-conclusion/v1"
     entries: tuple[ConclusionEntry, ...] = Field(min_length=1)
@@ -166,6 +185,22 @@ class AuditConclusion(StrictModel):
     original_proposal: dict[str, object]
     original_proposal_hash: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
     effective_conclusion_hash: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
+
+    @field_validator("original_proposal", mode="before")
+    @classmethod
+    def copy_original_proposal(cls, value: object) -> object:
+        """Avoid retaining a mutable proposal owned by the caller."""
+        return deepcopy(value)
+
+    @model_validator(mode="after")
+    def hashes_match_conclusion_content(self) -> AuditConclusion:
+        if self.original_proposal_hash != original_proposal_digest(self.original_proposal):
+            raise ValueError("original proposal hash does not match its content")
+        if self.effective_conclusion_hash != effective_conclusion_digest(
+            self.entries, self.whole_review
+        ):
+            raise ValueError("effective conclusion hash does not match its content")
+        return self
 
 
 class ConclusionReview(StrictModel):

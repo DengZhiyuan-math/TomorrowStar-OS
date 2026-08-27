@@ -1,11 +1,20 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from career_evidence_graph.audit.decision import RecordedDecisionPort
-from career_evidence_graph.audit.models import AuditAction, BoundaryDecision, ProbeArea, ProbePlan
+from career_evidence_graph.audit.models import (
+    AuditAction,
+    AuditSnapshot,
+    BoundaryDecision,
+    ProbeArea,
+    ProbePlan,
+)
+from career_evidence_graph.audit.store import AuditStorageError, AuditStore
 from career_evidence_graph.audit.workflow import AuditWorkflowError, start_audit, transition_audit
 
 ROOT = Path(__file__).parents[1]
@@ -136,6 +145,46 @@ def test_reviews_preserve_immutable_proposal_and_append_ordered_lineage(tmp_path
     assert rejected.conclusion.original_proposal == original
     assert [review.sequence for review in rejected.conclusion_reviews] == [1, 2]
     assert rejected.conclusion_reviews[-1].target == "whole-conclusion"
+
+
+@pytest.mark.parametrize("tampered_field", ("original_proposal", "effective_conclusion"))
+def test_conclusion_hashes_reject_stale_content_on_model_and_snapshot_io(
+    tmp_path: Path, tampered_field: str
+) -> None:
+    snapshot = _established(tmp_path)
+    store = AuditStore(tmp_path)
+    store.replace(snapshot)
+    path = store.path(snapshot.audit_id)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+
+    if tampered_field == "original_proposal":
+        payload["conclusion"]["original_proposal"]["whole_review"] = "confirmed"
+    else:
+        payload["conclusion"]["entries"][0]["review"] = "confirmed"
+
+    with pytest.raises(ValidationError, match="hash does not match"):
+        AuditSnapshot.model_validate(payload)
+
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(AuditStorageError, match="corrupt"):
+        store.read(snapshot.audit_id)
+
+    if tampered_field == "original_proposal":
+        invalid_conclusion = snapshot.conclusion.model_copy(
+            update={"original_proposal": payload["conclusion"]["original_proposal"]}
+        )
+    else:
+        invalid_entry = snapshot.conclusion.entries[0].model_copy(update={"review": "confirmed"})
+        invalid_conclusion = snapshot.conclusion.model_copy(
+            update={"entries": (invalid_entry, *snapshot.conclusion.entries[1:])}
+        )
+    invalid_snapshot = snapshot.model_copy(update={"conclusion": invalid_conclusion})
+    with pytest.raises(AuditStorageError, match="invalid"):
+        store.create(
+            invalid_snapshot.model_copy(update={"audit_id": f"audit-invalid-{tampered_field}"})
+        )
+    with pytest.raises(AuditStorageError, match="invalid"):
+        store.replace(invalid_snapshot)
 
 
 def test_whole_contribution_skip_is_verbatim_self_assessed_and_unverified(tmp_path: Path):
