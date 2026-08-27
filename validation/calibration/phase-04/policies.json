@@ -1,0 +1,21 @@
+{
+  "schema_version": "assessment-policy-corpus/v1",
+  "policies": [
+    {
+      "schema_version": "aggregation-policy/v1",
+      "policy_version": "policy-04-baseline-60",
+      "high_mastery_min": 70,
+      "strict_confidence_min": 60,
+      "activation_status": "candidate",
+      "notice": "Unresolved Phase 4 calibration candidate; it is not an active product policy."
+    },
+    {
+      "schema_version": "aggregation-policy/v1",
+      "policy_version": "policy-04-conservative-70",
+      "high_mastery_min": 70,
+      "strict_confidence_min": 70,
+      "activation_status": "candidate",
+      "notice": "Unresolved Phase 4 calibration candidate; it is not an active product policy."
+    }
+  ]
+}

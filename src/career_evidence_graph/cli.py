@@ -12,6 +12,12 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from .assessment import (
+    AssessmentStorageError,
+    AssessmentStore,
+    AssessmentWorkflowError,
+    run_assessment,
+)
 from .audit.decision import RecordedDecisionPort
 from .audit.models import AuditAction, BoundaryDecision, ProbePlan
 from .audit.store import AuditStorageError, AuditStore
@@ -197,6 +203,22 @@ def _parser() -> argparse.ArgumentParser:
     inspect.add_argument("--fixture")
     inspect.add_argument("--manifest")
     inspect.add_argument("--contribution-id")
+
+    assessment = commands.add_parser("assessment")
+    assessment_commands = assessment.add_subparsers(dest="assessment_command", required=True)
+    assessment_run = assessment_commands.add_parser("run")
+    assessment_run.add_argument("--workspace", required=True)
+    assessment_run.add_argument(
+        "--corpus", default="validation/calibration/phase-04/corpus.json"
+    )
+    assessment_run.add_argument(
+        "--policies", default="validation/calibration/phase-04/policies.json"
+    )
+    assessment_run.add_argument("--audit-id", default="audit-e2e")
+    assessment_run.add_argument("--policy-version", default="policy-04-baseline-60")
+    assessment_inspect = assessment_commands.add_parser("inspect")
+    assessment_inspect.add_argument("--workspace", required=True)
+    assessment_inspect.add_argument("--run-id", required=True)
     return parser
 
 
@@ -427,7 +449,25 @@ def main(argv: list[str] | None = None) -> int:
             updated = transition_audit(snapshot, action, decision_port=decision_port)
             store.replace(updated)
             _emit(_audit_result(updated))
+        elif args.command == "assessment" and args.assessment_command == "run":
+            _emit(
+                run_assessment(
+                    workspace=Path(args.workspace),
+                    corpus_path=Path(args.corpus),
+                    policies_path=Path(args.policies),
+                    audit_id=args.audit_id,
+                    policy_version=args.policy_version,
+                )
+            )
+        elif args.command == "assessment" and args.assessment_command == "inspect":
+            _emit(AssessmentStore(Path(args.workspace)).read(args.run_id))
         return 0
+    except AssessmentWorkflowError as exc:
+        _emit_error({"valid": False, "error": "assessment_workflow_error", "message": str(exc)})
+        return 2
+    except AssessmentStorageError as exc:
+        _emit_error({"valid": False, "error": "assessment_storage_error", "message": str(exc)})
+        return 2
     except AuditWorkflowError as exc:
         _emit_error({"valid": False, "error": "audit_workflow_error", "message": str(exc)})
         return 2

@@ -193,6 +193,81 @@ class AssessmentLineage(StrictModel):
     contribution_id: Identifier = Field(pattern=ID_PATTERN)
 
 
+class MasteryAnchorFit(StrictModel):
+    """Observable capability anchor and the score selected within it."""
+
+    schema_version: Literal["mastery-anchor-fit/v1"] = "mastery-anchor-fit/v1"
+    anchor_id: str = Field(pattern=r"^anchor-[0-9]{1,3}-[0-9]{1,3}$")
+    anchor_range: tuple[int, int]
+    anchor_basis: str = Field(min_length=1)
+    exact_score_basis: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_range(self) -> MasteryAnchorFit:
+        low, high = self.anchor_range
+        if not 0 <= low <= high <= 100:
+            raise ValueError("anchor_range must be inside 0 through 100")
+        if self.anchor_id != f"anchor-{low}-{high}":
+            raise ValueError("anchor_id must name anchor_range")
+        return self
+
+
+class AssessmentSourceEnvelope(StrictModel):
+    """Hash-bound assessment provenance, distinct from reviewed user truth."""
+
+    schema_version: Literal["assessment-source-envelope/v1"] = "assessment-source-envelope/v1"
+    authority_label: Literal["reviewed-user-truth", "derived-counterfactual"]
+    audit_id: str = Field(pattern=r"^audit-[a-z0-9-]+$")
+    audit_snapshot_hash: str = Field(pattern=SHA256_PATTERN)
+    fixture_hash: str = Field(pattern=SHA256_PATTERN)
+    source_manifest_hash: str = Field(pattern=SHA256_PATTERN)
+    conclusion_lineage_hash: str = Field(pattern=SHA256_PATTERN)
+    effective_conclusion_hash: str = Field(pattern=SHA256_PATTERN)
+    contribution_id: Identifier = Field(pattern=ID_PATTERN)
+    evidence_ids: tuple[Identifier, ...] = Field(min_length=1)
+    question_ids: tuple[str, ...] = Field(min_length=1)
+    answer_ids: tuple[str, ...] = Field(min_length=1)
+    attribution_hash: str = Field(pattern=SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def validate_source_ids(self) -> AssessmentSourceEnvelope:
+        _unique_ids(self.evidence_ids, "evidence_ids")
+        _unique_ids(self.question_ids, "question_ids")
+        _unique_ids(self.answer_ids, "answer_ids")
+        return self
+
+
+class SkillResolutionDecision(StrictModel):
+    """Explicit D-03 Skill normalization authority for an assessment candidate."""
+
+    schema_version: Literal["skill-resolution-decision/v1"] = "skill-resolution-decision/v1"
+    decision_id: Identifier = Field(pattern=ID_PATTERN)
+    candidate_skill_id: Identifier = Field(pattern=ID_PATTERN)
+    resolution: Literal["confirmed-existing-skill", "created-specific-skill"]
+    authority_label: Literal["human-reviewed", "synthetic-calibration"]
+    reviewer_id: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
+
+
+class AdmissionDecision(StrictModel):
+    schema_version: Literal["assessment-admission-decision/v1"] = "assessment-admission-decision/v1"
+    assessment_id: Identifier = Field(pattern=ID_PATTERN)
+    policy_version: str = Field(min_length=1)
+    admission_status: Literal["admitted", "pending-confirmation", "unverified-candidate"]
+    reason: str = Field(min_length=1)
+
+
+class AggregationPolicy(StrictModel):
+    """Candidate calibration policy; never an implicitly active product policy."""
+
+    schema_version: Literal["aggregation-policy/v1"] = "aggregation-policy/v1"
+    policy_version: str = Field(min_length=1)
+    high_mastery_min: int = Field(ge=0, le=100)
+    strict_confidence_min: int = Field(ge=0, le=100)
+    activation_status: Literal["candidate", "active"] = "candidate"
+    notice: str = Field(min_length=1)
+
+
 class ContributionSkillAssessment(StrictModel):
     schema_version: Literal["contribution-skill-assessment/v1"] = "contribution-skill-assessment/v1"
     id: Identifier = Field(pattern=ID_PATTERN)
@@ -205,7 +280,10 @@ class ContributionSkillAssessment(StrictModel):
     context: str = Field(min_length=1)
     duration: DurationEvidence
     basis_claim_ids: tuple[Identifier, ...] = Field(min_length=1)
-    assessment_status: Literal["partial", "unresolved", "reviewed"]
+    assessment_status: Literal["partial", "unresolved", "reviewed", "derived-counterfactual"]
+    mastery_anchor_fit: MasteryAnchorFit | None = None
+    exact_score_basis: str | None = None
+    source_envelope: AssessmentSourceEnvelope | None = None
 
     @model_validator(mode="after")
     def validate_lineage_and_basis(self) -> ContributionSkillAssessment:
@@ -214,6 +292,43 @@ class ContributionSkillAssessment(StrictModel):
         if not self.context.strip():
             raise ValueError("context cannot be blank")
         _unique_ids(self.basis_claim_ids, "basis_claim_ids")
+        effective_fields = (self.mastery_anchor_fit, self.exact_score_basis, self.source_envelope)
+        if any(value is not None for value in effective_fields) and not all(
+            value is not None for value in effective_fields
+        ):
+            raise ValueError(
+                "effective assessments require anchor, score basis, and source envelope"
+            )
+        if self.mastery_anchor_fit is not None:
+            low, high = self.mastery_anchor_fit.anchor_range
+            if not low <= self.demonstrated_mastery <= high:
+                raise ValueError("demonstrated mastery must fall inside its anchor")
+            if not self.exact_score_basis or not self.exact_score_basis.strip():
+                raise ValueError("exact_score_basis cannot be blank")
+        return self
+
+
+class CalibratedUserSkillResult(StrictModel):
+    """One specific-Skill calibration output with no evidence-volume bonus."""
+
+    schema_version: Literal["calibrated-user-skill-result/v1"] = "calibrated-user-skill-result/v1"
+    result_id: Identifier = Field(pattern=ID_PATTERN)
+    skill_id: Identifier = Field(pattern=ID_PATTERN)
+    mastery: int = Field(ge=0, le=100)
+    policy_version: str = Field(min_length=1)
+    baseline_assessment_id: Identifier = Field(pattern=ID_PATTERN)
+    admitted_assessment_ids: tuple[Identifier, ...] = Field(min_length=1)
+    source_envelope: AssessmentSourceEnvelope
+    authority_label: Literal["reviewed-user-truth", "derived-counterfactual"]
+    aggregation_rationale: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_baseline(self) -> CalibratedUserSkillResult:
+        _unique_ids(self.admitted_assessment_ids, "admitted_assessment_ids")
+        if self.baseline_assessment_id not in self.admitted_assessment_ids:
+            raise ValueError("baseline assessment must be admitted")
+        if self.authority_label != self.source_envelope.authority_label:
+            raise ValueError("result authority must retain source authority")
         return self
 
 

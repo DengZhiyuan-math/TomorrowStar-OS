@@ -1,0 +1,85 @@
+{
+  "schema_version": "assessment-calibration-corpus/v1",
+  "fixture_path": "validation/fixtures/stoa/v1/known-good.json",
+  "source_manifest_path": "validation/fixtures/stoa/v1/source-manifest.json",
+  "fixture_hash": "sha256:5b9cf494e08e97384168ccfa9d4b134ff35bb48d85038de82fcb6a148ce8011d",
+  "source_manifest_hash": "sha256:3592600977b6fe54d9817ae9928878d849e791dc64d5ef2ff6a2139ba34ed219",
+  "audit_id": "audit-e2e",
+  "contribution_id": "contrib-stoa-authorization-boundary",
+  "audit_snapshot_hash": "sha256:7b7e1cf31f4fd5e492ef6a4d774afc4f386cc597a464bef705c7b5f1adc3047e",
+  "conclusion_lineage_hash": "sha256:33616b2f6b6e776ce4217a65489dd0328a63f14ef53d786a2bc059fd0888ec25",
+  "effective_conclusion_hash": "sha256:e9494b027e4f1bd66ad9f3fe900ec85a605a9158d48b2a09af1c903f36c947bb",
+  "negative_controls": [
+    {
+      "skill_id": "skill-stoa-reviewed-fixture",
+      "reason": "Broad reviewed-fixture marker; it is retained as non-scoreable evidence control."
+    }
+  ],
+  "audit_journey": {
+    "probe_plan": {
+      "schema_version": "audit-probe-plan/v1",
+      "contribution_id": "contrib-stoa-authorization-boundary",
+      "areas": [
+        {
+          "schema_version": "audit-probe-area/v1",
+          "area_id": "implementation",
+          "inspected_fact_ids": ["evid-stoa-backend-audit"],
+          "unverified_capability": "authorization-boundary implementation",
+          "demanding_prompt": "How did you defend the authorization boundary under failure?",
+          "intermediate_prompt": "Which authorization boundary did you implement and check?",
+          "simple_prompt": "Which authorization implementation step did you complete?",
+          "immediately_higher_capability": "independently defending authorization failures"
+        }
+      ]
+    },
+    "decisions": [
+      {
+        "schema_version": "audit-boundary-decision/v1",
+        "question_id": "question-implementation-hard-0-0",
+        "answer": "I chose the authorization boundary and verified its failure behavior.",
+        "outcome": "established",
+        "rationale": "Recorded offline decision establishes the boundary.",
+        "strongest_capability": "implementing and verifying the authorization boundary",
+        "next_higher_not_established": "independently defending authorization failures"
+      }
+    ],
+    "actions": [
+      {"schema_version": "audit-action/v1", "action": "pause"},
+      {"schema_version": "audit-action/v1", "action": "resume"},
+      {"schema_version": "audit-action/v1", "action": "answer", "answer": "I chose the authorization boundary and verified its failure behavior."},
+      {"schema_version": "audit-action/v1", "action": "answer", "answer": "I owned the final design decision."},
+      {"schema_version": "audit-action/v1", "action": "answer", "answer": "No outside assistance."},
+      {"schema_version": "audit-action/v1", "action": "review-entry", "entry_id": "entry-implementation", "decision": "edit", "correction": "Clarified independently owned boundary decision.", "reason": "Make the boundary precise.", "reviewer_id": "reviewer"},
+      {"schema_version": "audit-action/v1", "action": "review-entry", "entry_id": "entry-implementation", "decision": "confirm", "reason": "Confirmed after correction.", "reviewer_id": "reviewer"},
+      {"schema_version": "audit-action/v1", "action": "review-conclusion", "decision": "confirm", "reason": "The reviewed conclusion is ready.", "reviewer_id": "reviewer"}
+    ]
+  },
+  "candidate": {
+    "authority_label": "derived-counterfactual",
+    "assessment_id": "assessment-authorization-boundary-verification",
+    "skill_id": "skill.authorization-boundary-verification",
+    "skill_resolution": {
+      "schema_version": "skill-resolution-decision/v1",
+      "decision_id": "resolution-authorization-boundary-verification",
+      "candidate_skill_id": "skill.authorization-boundary-verification",
+      "resolution": "created-specific-skill",
+      "authority_label": "synthetic-calibration",
+      "reviewer_id": "calibration-fixture",
+      "reason": "Synthetic D-03 calibration decision; not reviewed STOA user truth."
+    },
+    "demonstrated_mastery": 60,
+    "skill_centrality": 80,
+    "evidence_confidence": 75,
+    "context": "Synthetic calibration derivation from the confirmed authorization-boundary audit.",
+    "duration": {"schema_version": "duration-evidence/v1", "state": "not_verified"},
+    "basis_claim_ids": ["claim-stoa-authorization-boundary"],
+    "mastery_anchor_fit": {
+      "schema_version": "mastery-anchor-fit/v1",
+      "anchor_id": "anchor-55-69",
+      "anchor_range": [55, 69],
+      "anchor_basis": "The audited Contribution establishes a bounded authorization implementation and verification capability.",
+      "exact_score_basis": "60 stays inside the independently completing common bounded tasks anchor."
+    },
+    "exact_score_basis": "60 stays inside the independently completing common bounded tasks anchor."
+  }
+}

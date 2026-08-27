@@ -9,7 +9,6 @@ from pathlib import Path
 
 from career_evidence_graph.assessment import run_assessment
 
-
 ROOT = Path(__file__).parents[1]
 CORPUS = ROOT / "validation/calibration/phase-04/corpus.json"
 POLICIES = ROOT / "validation/calibration/phase-04/policies.json"

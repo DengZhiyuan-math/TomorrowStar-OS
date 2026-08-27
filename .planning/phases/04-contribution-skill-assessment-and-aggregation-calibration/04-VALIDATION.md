@@ -49,6 +49,8 @@ created: 2026-08-27
 | 04-W0-AGG03 | 04-01 | 0 | AGG-03 | Promotion requires explicit proof that combined behavior satisfies the next anchor | golden | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_anchor_promotion.py` | ❌ W0 | ⬜ pending |
 | 04-W0-AGG04 | 04-01 | 0 | AGG-04 | Policy history, reviewer disagreement, variance, and regressions remain inspectable; first activation requires null/null/absent plus selected hashes, and replacement requires exact prior identities/current pointer | integration/golden | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_policy_calibration.py` | ❌ W0 | ⬜ pending |
 
+| 04-W0-CLI | 04-01 | 0 | ASS-01 / AGG-01 | T-04-01 / T-04-04 | The offline tracer emits and reopens the same explicitly derived/counterfactual result without raw-answer disclosure. | black-box | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_assessment_cli.py -k tracer` | ✅ `tests/test_assessment_cli.py` | ✅ green |
+
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
 ---
