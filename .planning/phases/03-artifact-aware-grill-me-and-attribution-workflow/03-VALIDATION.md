@@ -1,9 +1,11 @@
 ---
 phase: 3
 slug: artifact-aware-grill-me-and-attribution-workflow
-status: requirements-addressed
-nyquist_compliant: false
+status: validated
+nyquist_compliant: true
 created: 2026-08-26
+validated: 2026-08-27
+source_revision: 2f79607
 ---
 
 # Phase 3 — Offline User-Journey Validation Contract
@@ -34,7 +36,7 @@ atomic snapshot, and recorded decisions only.
 | D-12 | Attribution | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_audit_attribution.py` | Coding-agent assistance is provider-neutral; tool identity is provenance only. |
 | D-13 | Attribution | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_audit_attribution.py` | Design, generation, modification, debugging, testing, and acceptance remain separately inspectable. |
 | D-14 | Review | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_audit_conclusion.py` | Capability-only entries include boundary, basis, attribution, conflicts, and gaps. |
-| D-15 | Review | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_audit_conclusion.py` | Original proposal hash remains stable and reviews are ordered append-only records. |
+| D-15 | Review | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_audit_conclusion.py` | Original proposal, effective conclusion, and ordered review lineage are integrity-bound and reject tampering. |
 | D-16 | Skip | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_audit_conclusion.py` | No verified numeric score exists; self-rating is opaque unverified text. |
 | D-17 | Resume | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_audit_cli.py` | Trusted local operator performs one transition over one snapshot. |
 | D-18 | Static cleanup | `! rg -n 'phase03_(original|gap)_probe' tests pyproject.toml` | No legacy marker registration or decorator remains in active tests/config. |
@@ -49,6 +51,28 @@ code review; (2) D-17-bounded security review; (3) Nyquist validation; and (4)
 goal verification. Any source or test change invalidates downstream reports. Until
 all four independently pass, this phase remains `requirements-addressed`; no AUD
 requirement is marked complete here.
+
+## Nyquist Audit 2026-08-27
+
+The audit added two behavior regressions and found all active product behavior
+automatically covered. It does not promote phase completion: D-17's trusted-local
+operator boundary and D-21's same-revision independent-report rule are governance
+assumptions, verified by the final independent gate rather than application tests.
+
+| Metric | Count |
+|--------|-------|
+| Gaps found | 2 |
+| Resolved | 2 |
+| Manual-only governance assumptions | 2 |
+
+Added coverage:
+
+- `tests/test_audit_policy.py` proves the full hard → follow-up → intermediate →
+  follow-up → simple → follow-up → unresolved path cannot silently inflate a
+  capability boundary (D-04, D-06, D-09).
+- `tests/test_audit_attribution.py` proves coding-agent assistance retains design,
+  generation, modification, debugging, testing, and acceptance as separate scope
+  values (D-13).
 
 ## Final deterministic check
 
