@@ -1124,25 +1124,23 @@ def load_policy_history(workspace: Path) -> PolicyHistory:
     return history
 
 
-def _calibration_input_hashes(corpus: dict[str, Any]) -> tuple[str, ...]:
-    """Bind every policy run to immutable fixture/audit identities plus exact case bytes."""
-    required = (
-        "fixture_hash",
-        "source_manifest_hash",
-        "audit_snapshot_hash",
-        "conclusion_lineage_hash",
-        "effective_conclusion_hash",
-        "calibration_cases",
-    )
-    if any(key not in corpus for key in required):
-        raise AssessmentWorkflowError("calibration corpus is missing immutable input custody")
+def _calibration_input_hashes(
+    *,
+    fixture_hash: str,
+    source_manifest_hash: str,
+    audit_snapshot_hash: str,
+    conclusion_lineage_hash: str,
+    effective_conclusion_hash: str,
+    calibration_cases: list[Any],
+) -> tuple[str, ...]:
+    """Bind every policy run to verified fixture, manifest, and audit identities."""
     return (
-        str(corpus["fixture_hash"]),
-        str(corpus["source_manifest_hash"]),
-        str(corpus["audit_snapshot_hash"]),
-        str(corpus["conclusion_lineage_hash"]),
-        str(corpus["effective_conclusion_hash"]),
-        sha256_digest(canonical_json_bytes(corpus["calibration_cases"])),
+        fixture_hash,
+        source_manifest_hash,
+        audit_snapshot_hash,
+        conclusion_lineage_hash,
+        effective_conclusion_hash,
+        sha256_digest(canonical_json_bytes(calibration_cases)),
     )
 
 
@@ -1265,10 +1263,21 @@ def run_calibration_policy(
     root = _repository_root(corpus_path)
     fixture = root / str(corpus.get("fixture_path", ""))
     manifest = root / str(corpus.get("source_manifest_path", ""))
-    if sha256_digest(fixture.read_bytes()) != corpus.get("fixture_hash"):
+    fixture_hash = sha256_digest(fixture.read_bytes())
+    if fixture_hash != corpus.get("fixture_hash"):
         raise AssessmentWorkflowError("sealed fixture hash does not match corpus")
-    if sha256_digest(manifest.read_bytes()) != corpus.get("source_manifest_hash"):
+    source_manifest_hash = sha256_digest(manifest.read_bytes())
+    if source_manifest_hash != corpus.get("source_manifest_hash"):
         raise AssessmentWorkflowError("source manifest hash does not match corpus")
+    audit_id = corpus.get("audit_id")
+    if not isinstance(audit_id, str):
+        raise AssessmentWorkflowError("calibration corpus audit ID is invalid")
+    snapshot = _materialize_audit(
+        workspace=workspace,
+        corpus=corpus,
+        root=root,
+        audit_id=audit_id,
+    )
     policy = _policy_for_calibration(policies_path, policy_version)
     cases = corpus.get("calibration_cases")
     if not isinstance(cases, list) or not cases:
@@ -1281,7 +1290,14 @@ def run_calibration_policy(
     )
     if len(case_results) != len(cases):
         raise AssessmentWorkflowError("calibration cases must be objects")
-    input_hashes = _calibration_input_hashes(corpus)
+    input_hashes = _calibration_input_hashes(
+        fixture_hash=fixture_hash,
+        source_manifest_hash=source_manifest_hash,
+        audit_snapshot_hash=sha256_digest(canonical_json_bytes(snapshot) + b"\n"),
+        conclusion_lineage_hash=str(snapshot.conclusion_lineage_hash),
+        effective_conclusion_hash=snapshot.conclusion.effective_conclusion_hash,
+        calibration_cases=cases,
+    )
     policy_hash = sha256_digest(canonical_json_bytes(policy))
     result_hash = _policy_run_hash(
         policy_version=policy_version,
