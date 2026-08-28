@@ -90,48 +90,49 @@ Tracked product capabilities that remain central but are not part of the v1.1 ro
 
 ## Traceability
 
-Roadmap phase mapping is populated after roadmap approval. Every v1.1 requirement must map to exactly one phase.
+Every active v1.1 requirement maps to exactly one roadmap phase. Future requirements and out-of-scope items remain unmapped.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INV-01 | TBD | Pending |
-| INV-02 | TBD | Pending |
-| INV-03 | TBD | Pending |
-| INV-04 | TBD | Pending |
-| INV-05 | TBD | Pending |
-| INV-06 | TBD | Pending |
-| INV-07 | TBD | Pending |
-| GRF-01 | TBD | Pending |
-| GRF-02 | TBD | Pending |
-| GRF-03 | TBD | Pending |
-| GRF-04 | TBD | Pending |
-| GRF-05 | TBD | Pending |
-| GRF-06 | TBD | Pending |
-| GRF-07 | TBD | Pending |
-| GRF-08 | TBD | Pending |
-| GRF-09 | TBD | Pending |
-| GRF-10 | TBD | Pending |
-| JD-01 | TBD | Pending |
-| JD-05 | TBD | Pending |
-| JD-06 | TBD | Pending |
-| JD-07 | TBD | Pending |
-| JD-08 | TBD | Pending |
-| JD-09 | TBD | Pending |
-| JD-10 | TBD | Pending |
-| EVAL-01 | TBD | Pending |
-| EVAL-02 | TBD | Pending |
-| EVAL-03 | TBD | Pending |
-| EVAL-04 | TBD | Pending |
-| EVAL-05 | TBD | Pending |
-| EVAL-06 | TBD | Pending |
-| DEC-01 | TBD | Pending |
-| DEC-02 | TBD | Pending |
+| INV-01 | Phase 7 | Pending |
+| INV-02 | Phase 8 | Pending |
+| INV-03 | Phase 8 | Pending |
+| INV-04 | Phase 8 | Pending |
+| INV-05 | Phase 8 | Pending |
+| INV-06 | Phase 7 | Pending |
+| INV-07 | Phase 7 | Pending |
+| GRF-01 | Phase 9 | Pending |
+| GRF-02 | Phase 9 | Pending |
+| GRF-03 | Phase 10 | Pending |
+| GRF-04 | Phase 11 | Pending |
+| GRF-05 | Phase 10 | Pending |
+| GRF-06 | Phase 10 | Pending |
+| GRF-07 | Phase 10 | Pending |
+| GRF-08 | Phase 11 | Pending |
+| GRF-09 | Phase 11 | Pending |
+| GRF-10 | Phase 9 | Pending |
+| JD-01 | Phase 12 | Pending |
+| JD-05 | Phase 12 | Pending |
+| JD-06 | Phase 12 | Pending |
+| JD-07 | Phase 12 | Pending |
+| JD-08 | Phase 13 | Pending |
+| JD-09 | Phase 13 | Pending |
+| JD-10 | Phase 13 | Pending |
+| EVAL-01 | Phase 13 | Pending |
+| EVAL-02 | Phase 13 | Pending |
+| EVAL-03 | Phase 13 | Pending |
+| EVAL-04 | Phase 14 | Pending |
+| EVAL-05 | Phase 14 | Pending |
+| EVAL-06 | Phase 13 | Pending |
+| DEC-01 | Phase 14 | Pending |
+| DEC-02 | Phase 14 | Pending |
 
 **Coverage:**
 
 - v1.1 requirements: 32 total
-- Mapped to phases: 0
-- Unmapped: 32 — roadmap pending
+- Mapped to phases: 32
+- Unmapped: 0
+- Duplicate mappings: 0
 
 ---
 *Requirements defined: 2026-08-28*
