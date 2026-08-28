@@ -779,6 +779,8 @@ def promotion_input_hash(
 def validate_anchor_promotion(
     decision: AnchorPromotionDecision,
     admitted_assessments: tuple[ContributionSkillAssessment, ...],
+    *,
+    records_by_assessment_id: dict[str, AssessmentRun] | None = None,
 ) -> AnchorPromotionDecision:
     """Fail closed unless a decision proves exactly the next observable anchor."""
     if len(admitted_assessments) < 2:
@@ -801,6 +803,36 @@ def validate_anchor_promotion(
     if not set(decision.assessment_ids).issubset(assessments_by_id):
         raise AssessmentWorkflowError("promotion cites a non-admitted assessment")
     cited = tuple(assessments_by_id[assessment_id] for assessment_id in decision.assessment_ids)
+    authority_labels = {assessment.source_envelope.authority_label for assessment in cited}
+    if len(authority_labels) != 1:
+        raise AssessmentWorkflowError("promotion cannot mix assessment authority partitions")
+    if authority_labels == {"reviewed-user-truth"}:
+        if any(
+            assessment.origin_status != "audit-verified"
+            or assessment.assessment_status != "reviewed"
+            or not assessment.substantive_review_complete
+            for assessment in cited
+        ):
+            raise AssessmentWorkflowError(
+                "reviewed-user-truth promotion requires substantively reviewed audit support"
+            )
+        if records_by_assessment_id is None:
+            raise AssessmentWorkflowError(
+                "reviewed-user-truth promotion requires immutable review lineage"
+            )
+        for assessment in cited:
+            record = records_by_assessment_id.get(assessment.id)
+            if (
+                record is None
+                or record.proposal != assessment
+                or len(record.versions) < 2
+                or not record.reviews
+                or record.versions[-1].effective_assessment != assessment
+                or record.versions[-1].version_hash != record.version_hash
+            ):
+                raise AssessmentWorkflowError(
+                    "reviewed-user-truth promotion requires immutable review lineage"
+                )
     if len({assessment.contribution_id for assessment in cited}) < 2:
         raise AssessmentWorkflowError("promotion requires distinct Contributions")
     cited_contexts = {_normalized_text(assessment.context) for assessment in cited}
@@ -867,8 +899,9 @@ def aggregate_user_skills(
     promotion_decisions: tuple[AnchorPromotionDecision, ...] = (),
 ) -> tuple[CalibratedUserSkillResult, ...]:
     """Aggregate current admitted assessments by exact Skill without numeric pile-up."""
-    admitted_by_skill: dict[str, list[ContributionSkillAssessment]] = {}
-    policy_by_skill: dict[str, str] = {}
+    admitted_by_partition: dict[tuple[str, str], list[ContributionSkillAssessment]] = {}
+    policy_by_partition: dict[tuple[str, str], str] = {}
+    records_by_assessment_id: dict[str, AssessmentRun] = {}
     for record in records:
         proposal = record.proposal
         if record.admission.assessment_id != proposal.id:
@@ -877,29 +910,64 @@ def aggregate_user_skills(
             continue
         if proposal.source_envelope is None or proposal.mastery_anchor_fit is None:
             raise AssessmentWorkflowError("admitted assessment lacks effective lineage")
-        policy = policy_by_skill.setdefault(proposal.skill_id, record.admission.policy_version)
+        if proposal.id in records_by_assessment_id:
+            raise AssessmentWorkflowError("admitted assessment IDs must be unique")
+        records_by_assessment_id[proposal.id] = record
+        partition = (proposal.skill_id, proposal.source_envelope.authority_label)
+        policy = policy_by_partition.setdefault(partition, record.admission.policy_version)
         if policy != record.admission.policy_version:
-            raise AssessmentWorkflowError("one exact Skill requires one aggregation policy")
-        admitted_by_skill.setdefault(proposal.skill_id, []).append(proposal)
+            raise AssessmentWorkflowError("one authority partition requires one aggregation policy")
+        admitted_by_partition.setdefault(partition, []).append(proposal)
 
-    decisions_by_skill = {decision.skill_id: decision for decision in promotion_decisions}
-    if len(decisions_by_skill) != len(promotion_decisions):
-        raise AssessmentWorkflowError("only one promotion decision may exist per exact Skill")
+    decisions_by_partition: dict[tuple[str, str], AnchorPromotionDecision] = {}
+    for decision in promotion_decisions:
+        try:
+            cited = tuple(
+                records_by_assessment_id[assessment_id].proposal
+                for assessment_id in decision.assessment_ids
+            )
+        except KeyError as exc:
+            raise AssessmentWorkflowError("promotion cites a non-admitted assessment") from exc
+        if any(assessment.skill_id != decision.skill_id for assessment in cited):
+            raise AssessmentWorkflowError("promotion requires one exact same Skill")
+        authority_labels = {assessment.source_envelope.authority_label for assessment in cited}
+        if len(authority_labels) != 1:
+            raise AssessmentWorkflowError("promotion cannot mix assessment authority partitions")
+        partition = (decision.skill_id, authority_labels.pop())
+        if partition in decisions_by_partition:
+            raise AssessmentWorkflowError(
+                "only one promotion decision may exist per authority partition"
+            )
+        decisions_by_partition[partition] = decision
+
+    partition_count_by_skill: dict[str, int] = {}
+    for skill_id, _ in admitted_by_partition:
+        partition_count_by_skill[skill_id] = partition_count_by_skill.get(skill_id, 0) + 1
     results: list[CalibratedUserSkillResult] = []
-    for skill_id in sorted(admitted_by_skill):
-        admitted = tuple(sorted(admitted_by_skill[skill_id], key=lambda item: item.id))
+    for partition in sorted(admitted_by_partition):
+        skill_id, authority_label = partition
+        admitted = tuple(sorted(admitted_by_partition[partition], key=lambda item: item.id))
         baseline = max(admitted, key=lambda item: item.demonstrated_mastery)
         contexts = tuple(sorted({assessment.context for assessment in admitted}))
-        decision = decisions_by_skill.get(skill_id)
+        decision = decisions_by_partition.get(partition)
         if decision is not None:
-            validate_anchor_promotion(decision, admitted)
+            validate_anchor_promotion(
+                decision,
+                admitted,
+                records_by_assessment_id=records_by_assessment_id,
+            )
         mastery = decision.promoted_score if decision is not None else baseline.demonstrated_mastery
+        result_id = (
+            f"result-{skill_id}"
+            if partition_count_by_skill[skill_id] == 1
+            else f"result-{authority_label}-{skill_id}"
+        )
         result = CalibratedUserSkillResult(
-            result_id=f"result-{skill_id}",
+            result_id=result_id,
             skill_id=skill_id,
             mastery=mastery,
             anchor_id=_anchor_for_score(mastery),
-            policy_version=policy_by_skill[skill_id],
+            policy_version=policy_by_partition[partition],
             baseline_assessment_id=baseline.id,
             admitted_assessment_ids=tuple(assessment.id for assessment in admitted),
             source_envelope=baseline.source_envelope,

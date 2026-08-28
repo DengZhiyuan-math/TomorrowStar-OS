@@ -569,6 +569,18 @@ def main(argv: list[str] | None = None) -> int:
                             "assessment_id": record.proposal.id,
                             "admission_status": record.admission.admission_status,
                             "reason": record.admission.reason,
+                            "authority_label": (
+                                record.proposal.source_envelope.authority_label
+                                if record.proposal.source_envelope is not None
+                                else None
+                            ),
+                            "disposition": (
+                                "calibration-only"
+                                if record.proposal.source_envelope is not None
+                                and record.proposal.source_envelope.authority_label
+                                == "derived-counterfactual"
+                                else "not-admitted"
+                            ),
                         }
                         for run_id, record in records
                         if record.proposal.id not in admitted_ids

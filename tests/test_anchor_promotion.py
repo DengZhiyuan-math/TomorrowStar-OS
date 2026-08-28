@@ -184,6 +184,33 @@ def test_routine_unflagged_baseline_does_not_require_substantive_review(tmp_path
     assert result.authority_label == "reviewed-user-truth"
 
 
+def test_reviewed_user_truth_promotion_accepts_only_retained_review_lineage(
+    tmp_path: Path,
+) -> None:
+    first = _reviewed_user_truth_run(
+        tmp_path,
+        id="assessment-reviewed-complex-implementation",
+        contribution_id="contribution-reviewed-complex-implementation",
+        context="authorization module delivery",
+    )
+    second = _reviewed_user_truth_run(
+        tmp_path,
+        id="assessment-reviewed-decision-defense",
+        contribution_id="contribution-reviewed-decision-defense",
+        context="production incident follow-up",
+    )
+
+    result = aggregate_user_skills(
+        (first, second), promotion_decisions=(_decision((first, second)),)
+    )[0]
+
+    assert result.mastery == 70
+    assert result.authority_label == "reviewed-user-truth"
+    assert all(
+        record.versions[-1].effective_assessment == record.proposal for record in (first, second)
+    )
+
+
 def test_derived_calibration_promotion_stays_in_its_own_authority_partition(
     tmp_path: Path,
 ) -> None:
