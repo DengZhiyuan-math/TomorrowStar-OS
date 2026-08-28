@@ -381,29 +381,92 @@ def test_reassess_cli_appends_a_materialized_later_audit_version(tmp_path: Path)
 
 
 @pytest.mark.parametrize(
-    ("path", "value"),
+    "patches",
     (
-        (("source_envelope", "authority_label"), "reviewed-user-truth"),
-        (("source_envelope", "audit_snapshot_hash"), "sha256:" + "0" * 64),
-        (("source_envelope", "answer_ids"), ["answer:question-caller-forged"]),
-        (("source_envelope", "contribution_id"), "contrib-stoa-content-privacy-integrity"),
-        (("origin_status",), "self-assessed-unverified"),
-        (("assessment_status",), "reviewed"),
-        (("substantive_review_complete",), True),
-        (("demonstrated_mastery",), 61),
-        (("skill_centrality",), 79),
-        (("evidence_confidence",), 79),
-        (("context",), "caller-forged context"),
-        (("basis_claim_ids",), ["claim-caller-forged"]),
-        (("mastery_anchor_fit", "anchor_basis"), "caller-forged anchor basis"),
-        (("exact_score_basis",), "caller-forged exact score basis"),
-        (("judgment_basis", "demonstrated_mastery_basis"), "caller-forged mastery basis"),
-        (("id",), "assessment-caller-forged"),
-        (("skill_id",), "skill.caller-forged"),
+        ((("source_envelope", "authority_label"), "reviewed-user-truth"),),
+        ((("source_envelope", "audit_snapshot_hash"), "sha256:" + "0" * 64),),
+        ((("source_envelope", "answer_ids"), ["answer:question-caller-forged"]),),
+        (
+            (("source_envelope", "contribution_id"), "contrib-stoa-content-privacy-integrity"),
+        ),
+        ((("origin_status",), "self-assessed-unverified"),),
+        ((("assessment_status",), "reviewed"),),
+        ((("substantive_review_complete",), True),),
+        ((("demonstrated_mastery",), 61),),
+        ((("skill_centrality",), 79),),
+        ((("evidence_confidence",), 79),),
+        ((("context",), "caller-forged context"),),
+        ((("basis_claim_ids",), ["claim-caller-forged"]),),
+        ((("mastery_anchor_fit", "anchor_basis"), "caller-forged anchor basis"),),
+        ((("exact_score_basis",), "caller-forged exact score basis"),),
+        (
+            (("judgment_basis", "demonstrated_mastery_basis"), "caller-forged mastery basis"),
+        ),
+        ((("id",), "assessment-caller-forged"),),
+        ((("skill_id",), "skill.caller-forged"),),
+        (
+            (("contribution_id",), "contrib-caller-forged"),
+            (("lineage", "contribution_id"), "contrib-caller-forged"),
+        ),
+        ((("lineage", "source_kind"), "experience"),),
+        ((("duration", "state"), "verified"),),
+        (
+            (("duration", "start_month"), "2026-01"),
+            (("duration", "end_month"), "2026-02"),
+        ),
+        ((("attribution_status",), "unresolved"),),
+        ((("assistance_status",), "unresolved"),),
+        (
+            (("demonstrated_mastery",), 70),
+            (("mastery_anchor_fit", "anchor_id"), "anchor-70-79"),
+            (("mastery_anchor_fit", "anchor_range"), [70, 79]),
+            (
+                ("mastery_anchor_fit", "anchor_text"),
+                "Can independently handle complex problems and explain and defend decisions",
+            ),
+        ),
+        (
+            (
+                ("mastery_anchor_fit", "exact_score_basis"),
+                "caller-forged nested exact-score basis",
+            ),
+        ),
+        (
+            (
+                ("mastery_anchor_fit", "next_anchor_not_established"),
+                "caller-forged next-anchor basis",
+            ),
+        ),
+        (
+            (
+                ("judgment_basis", "skill_centrality_basis"),
+                "caller-forged centrality basis",
+            ),
+        ),
+        (
+            (
+                ("judgment_basis", "evidence_confidence_basis"),
+                "caller-forged confidence basis",
+            ),
+        ),
+        (
+            (("mastery_anchor_fit",), None),
+            (("exact_score_basis",), None),
+            (("judgment_basis",), None),
+            (("source_envelope",), None),
+        ),
+        ((("source_envelope", "audit_id"), "audit-caller-forged"),),
+        ((("source_envelope", "fixture_hash"), "sha256:" + "0" * 64),),
+        ((("source_envelope", "source_manifest_hash"), "sha256:" + "0" * 64),),
+        ((("source_envelope", "conclusion_lineage_hash"), "sha256:" + "0" * 64),),
+        ((("source_envelope", "effective_conclusion_hash"), "sha256:" + "0" * 64),),
+        ((("source_envelope", "attribution_hash"), "sha256:" + "0" * 64),),
+        ((("source_envelope", "evidence_ids"), ["evid-caller-forged"]),),
+        ((("source_envelope", "question_ids"), ["question-caller-forged"]),),
     ),
 )
 def test_reassess_cli_rejects_each_caller_identity_permutation_without_mutation(
-    tmp_path: Path, path: tuple[str, ...], value: str
+    tmp_path: Path, patches: tuple[tuple[tuple[str, ...], object], ...]
 ) -> None:
     initial = _run("assessment", "run", "--workspace", str(tmp_path))
     assert initial.returncode == 0, initial.stderr
@@ -414,10 +477,11 @@ def test_reassess_cli_rejects_each_caller_identity_permutation_without_mutation(
         root=later_corpus.parents[3],
     )
     payload = later_proposal.model_dump(mode="json")
-    target = payload
-    for key in path[:-1]:
-        target = target[key]
-    target[path[-1]] = value
+    for path, value in patches:
+        target = payload
+        for key in path[:-1]:
+            target = target[key]
+        target[path[-1]] = value
     proposal_path = tmp_path / "mutated-reassessment.json"
     proposal_path.write_text(json.dumps(payload), encoding="utf-8")
     sidecar = AssessmentStore(tmp_path).path("assessment-audit-e2e-04-baseline-60")

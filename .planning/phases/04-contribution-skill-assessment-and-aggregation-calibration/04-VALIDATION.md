@@ -144,3 +144,30 @@ caller changes across identity, source custody, judgments, context, bases, and
 review-state fields. Fresh code review, security review, and goal verification
 must run on a commit strictly after the 04-10 SUMMARY before any shared status
 promotion.
+
+## 04-11 Whole-Proposal Regression Evidence
+
+Measured on the test-only working tree based at implementation revision
+`87f73502daf0f404483b459dcda678f4fa6970a0`. The committed matrix mutation is
+limited to `tests/test_assessment_cli.py`; no runtime, helper, schema, policy,
+fixture, store, CLI, or shared-planning status file was edited.
+
+| Gate | Command | Measured outcome |
+| --- | --- | --- |
+| Focused 37-group matrix | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_assessment_cli.py::test_reassess_cli_rejects_each_caller_identity_permutation_without_mutation -x` | 37 passed in 24.48s |
+| Full offline suite | `uv run --offline --locked python scripts/run_pytest.py -q` | exited 0 |
+| Ruff lint | `uv run --offline --locked ruff check .` | exited 0 |
+| Ruff format check | `uv run --offline --locked ruff format --check .` | exited 0 |
+
+The focused case builds every proposal from the canonical later-audit result,
+validates every forged payload with `ContributionSkillAssessment.model_validate`,
+then proves exit 2 with `assessment_workflow_error`, exact assessment-sidecar
+bytes, and an unchanged complete audit-tree snapshot. The 37 groups retain the
+original 17 and add all 20 valid omissions, including ordered coupled patches
+for contribution lineage, duration months, the accepted 70--79 anchor, and the
+all-or-none effective-details bundle.
+
+These are local acceptance-evidence measurements only. They do not complete
+ASS-01, AGG-01, AGG-03, Phase 04, or independent verification; fresh
+independent code review, security review, and goal verification remain required
+before any shared status promotion.
