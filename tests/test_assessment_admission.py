@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -16,16 +17,22 @@ from career_evidence_graph.assessment import (
     aggregate_skill,
     build_assessment_run,
     decide_admission,
+    propose_assessment,
     reassess_from_new_evidence,
     review_assessment,
     run_assessment,
 )
+from career_evidence_graph.audit.decision import RecordedDecisionPort
+from career_evidence_graph.audit.models import AuditAction, BoundaryDecision, ProbePlan
+from career_evidence_graph.audit.store import AuditStore
+from career_evidence_graph.audit.workflow import start_audit, transition_audit
 from career_evidence_graph.domain.models import (
     MASTERY_ANCHORS,
     AggregationPolicy,
     AssessmentAdmissionStatus,
     ContributionSkillAssessment,
 )
+from career_evidence_graph.validation.hashing import canonical_json_bytes, sha256_digest
 
 ROOT = Path(__file__).parents[1]
 CORPUS = ROOT / "validation/calibration/phase-04/corpus.json"
@@ -71,6 +78,49 @@ def _anchor_payload(mastery: int) -> dict[str, object]:
         "exact_score_basis": "The integer fixture score remains inside the accepted anchor.",
         "next_anchor_not_established": "The next capability anchor remains unestablished.",
     }
+
+
+def _later_corpus(workspace: Path) -> Path:
+    """Create a real, completed later audit in the production corpus layout."""
+    root = workspace / "later-root"
+    corpus_path = root / "validation/calibration/phase-04/later-corpus.json"
+    corpus_path.parent.mkdir(parents=True)
+    fixture = root / "validation/fixtures/stoa/v1/known-good.json"
+    manifest = root / "validation/fixtures/stoa/v1/source-manifest.json"
+    shutil.copytree(ROOT / "validation/fixtures/stoa/v1", fixture.parent)
+    checkpoint_summary = Path(
+        ".planning/phases/02-domain-contracts-stoa-fixture-and-deterministic-invariants/"
+        "02-04-SUMMARY.md"
+    )
+    (root / checkpoint_summary).parent.mkdir(parents=True)
+    shutil.copy2(ROOT / checkpoint_summary, root / checkpoint_summary)
+    corpus = json.loads(CORPUS.read_text(encoding="utf-8"))
+    corpus["audit_id"] = "audit-later-evidence"
+    journey = corpus["audit_journey"]
+    plan = ProbePlan.model_validate(journey["probe_plan"])
+    decisions = tuple(BoundaryDecision.model_validate(item) for item in journey["decisions"])
+    port = RecordedDecisionPort(
+        plan=plan,
+        decisions={(item.question_id, item.answer): item for item in decisions},
+    )
+    snapshot = start_audit(
+        workspace=workspace,
+        fixture_path=fixture,
+        manifest_path=manifest,
+        contribution_id=corpus["contribution_id"],
+        audit_id=corpus["audit_id"],
+        decision_port=port,
+    )
+    for action_value in journey["actions"]:
+        snapshot = transition_audit(
+            snapshot, AuditAction.model_validate(action_value), decision_port=port
+        )
+        AuditStore(workspace).replace(snapshot)
+    corpus["audit_snapshot_hash"] = sha256_digest(canonical_json_bytes(snapshot) + b"\n")
+    corpus["conclusion_lineage_hash"] = snapshot.conclusion_lineage_hash
+    corpus["effective_conclusion_hash"] = snapshot.conclusion.effective_conclusion_hash
+    corpus_path.write_text(json.dumps(corpus), encoding="utf-8")
+    return corpus_path
 
 
 @pytest.mark.parametrize(
@@ -283,12 +333,21 @@ def test_insufficient_review_and_later_evidence_preserve_immutable_versions(tmp_
         policy_version="policy-04-baseline-60",
     )
     withheld = _review(record, outcome="insufficient-basis")
+    later_corpus = _later_corpus(tmp_path)
+    later_snapshot = AuditStore(tmp_path).read("audit-later-evidence")
+    later_proposal = propose_assessment(
+        snapshot=later_snapshot,
+        corpus=json.loads(later_corpus.read_text(encoding="utf-8")),
+        root=later_corpus.parents[3],
+    )
     later = reassess_from_new_evidence(
         withheld,
         policy=_policy("policy-04-baseline-60", 60),
         source_audit_id="audit-later-evidence",
         expected_current_version_hash=withheld.version_hash,
-        proposal=withheld.proposal,
+        proposal=later_proposal,
+        workspace=tmp_path,
+        later_corpus_path=later_corpus,
     )
 
     assert withheld.admission.admission_status == "unverified-candidate"
@@ -296,6 +355,58 @@ def test_insufficient_review_and_later_evidence_preserve_immutable_versions(tmp_
     assert later.versions[-1].previous_version_hash == withheld.version_hash
     assert later.versions[-1].source_audit_id == "audit-later-evidence"
     assert later.versions[0].original_proposal_hash == record.original_proposal_hash
+    assert later.versions[0] == withheld.versions[0]
+    assert later.versions[-1].reviews == ()
+
+
+def test_reassessment_rejects_caller_fabricated_custody_and_authority(tmp_path: Path) -> None:
+    record = run_assessment(
+        workspace=tmp_path,
+        corpus_path=CORPUS,
+        policies_path=POLICIES,
+        audit_id="audit-e2e",
+        policy_version="policy-04-baseline-60",
+    )
+    later_corpus = _later_corpus(tmp_path)
+    forged = record.proposal.model_dump(mode="json")
+    forged["source_envelope"]["audit_id"] = "audit-fabricated"
+    forged["source_envelope"]["authority_label"] = "reviewed-user-truth"
+    forged["assessment_status"] = "reviewed"
+    proposal = ContributionSkillAssessment.model_validate(forged)
+
+    with pytest.raises(AssessmentWorkflowError, match="corpus does not authorize"):
+        reassess_from_new_evidence(
+            record,
+            policy=_policy("policy-04-baseline-60", 60),
+            source_audit_id="audit-fabricated",
+            expected_current_version_hash=record.version_hash,
+            proposal=proposal,
+            workspace=tmp_path,
+            later_corpus_path=later_corpus,
+        )
+
+    assert len(record.versions) == 1
+
+
+def test_reassessment_rejects_stale_hash_before_later_corpus_loading(tmp_path: Path) -> None:
+    record = run_assessment(
+        workspace=tmp_path,
+        corpus_path=CORPUS,
+        policies_path=POLICIES,
+        audit_id="audit-e2e",
+        policy_version="policy-04-baseline-60",
+    )
+
+    with pytest.raises(AssessmentWorkflowError, match="stale"):
+        reassess_from_new_evidence(
+            record,
+            policy=_policy("policy-04-baseline-60", 60),
+            source_audit_id="audit-later-evidence",
+            expected_current_version_hash="sha256:" + "0" * 64,
+            proposal=record.proposal,
+            workspace=tmp_path,
+            later_corpus_path=tmp_path / "missing-corpus.json",
+        )
 
 
 def _run(*args: str) -> subprocess.CompletedProcess[str]:
