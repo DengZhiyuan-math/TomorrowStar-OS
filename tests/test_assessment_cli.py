@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from test_assessment_admission import _later_corpus
+from test_assessment_admission import _audit_tree_snapshot, _later_corpus
 
 from career_evidence_graph.assessment import (
     AssessmentStorageError,
@@ -258,6 +258,49 @@ def test_explicit_reassess_rejects_stale_hash_without_mutating_sidecar(tmp_path:
     assert stale.returncode == 2
     assert "assessment_workflow_error" in stale.stderr
     assert sidecar.read_bytes() == before
+
+
+def test_reassess_cli_rejects_detached_later_audit_without_any_workspace_mutation(
+    tmp_path: Path,
+) -> None:
+    """The CLI cannot replay an authority audit into the caller's workspace."""
+    victim = tmp_path / "victim"
+    authority = tmp_path / "authority"
+    initial = _run("assessment", "run", "--workspace", str(victim))
+    assert initial.returncode == 0, initial.stderr
+    later_corpus = _later_corpus(authority)
+    later_proposal = propose_assessment(
+        snapshot=AuditStore(authority).read("audit-later-evidence"),
+        corpus=json.loads(later_corpus.read_text(encoding="utf-8")),
+        root=later_corpus.parents[3],
+    )
+    proposal_path = victim / "detached-reassessment.json"
+    proposal_path.write_text(json.dumps(later_proposal.model_dump(mode="json")), encoding="utf-8")
+    sidecar = AssessmentStore(victim).path("assessment-audit-e2e-04-baseline-60")
+    before_sidecar = sidecar.read_bytes()
+    before_audits = _audit_tree_snapshot(victim)
+
+    rejected = _run(
+        "assessment",
+        "reassess",
+        "--workspace",
+        str(victim),
+        "--run-id",
+        "assessment-audit-e2e-04-baseline-60",
+        "--later-corpus",
+        str(later_corpus),
+        "--source-audit-id",
+        "audit-later-evidence",
+        "--expected-current-version-hash",
+        json.loads(initial.stdout)["version_hash"],
+        "--assessment-json",
+        str(proposal_path),
+    )
+
+    assert rejected.returncode == 2
+    assert "assessment_workflow_error" in rejected.stderr
+    assert sidecar.read_bytes() == before_sidecar
+    assert _audit_tree_snapshot(victim) == before_audits
 
 
 def test_reassess_cli_rejects_fabricated_audit_and_authority_without_mutation(

@@ -123,6 +123,21 @@ def _later_corpus(workspace: Path) -> Path:
     return corpus_path
 
 
+def _audit_tree_snapshot(workspace: Path) -> tuple[bool, tuple[tuple[str, str, bytes], ...]]:
+    """Capture audit-root existence and every persisted entry without creating it."""
+    root = workspace / "audits"
+    if not root.exists():
+        return False, ()
+    entries: list[tuple[str, str, bytes]] = []
+    for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()):
+        relative = path.relative_to(root).as_posix()
+        if path.is_dir():
+            entries.append((relative, "directory", b""))
+        else:
+            entries.append((relative, "file", path.read_bytes()))
+    return True, tuple(entries)
+
+
 @pytest.mark.parametrize(
     ("policy", "mastery", "confidence", "expected"),
     (
@@ -407,6 +422,44 @@ def test_reassessment_rejects_stale_hash_before_later_corpus_loading(tmp_path: P
             workspace=tmp_path,
             later_corpus_path=tmp_path / "missing-corpus.json",
         )
+
+
+def test_reassessment_rejects_detached_later_audit_without_any_workspace_mutation(
+    tmp_path: Path,
+) -> None:
+    """A reassessment may read only a later audit already stored in its own workspace."""
+    victim = tmp_path / "victim"
+    authority = tmp_path / "authority"
+    record = run_assessment(
+        workspace=victim,
+        corpus_path=CORPUS,
+        policies_path=POLICIES,
+        audit_id="audit-e2e",
+        policy_version="policy-04-baseline-60",
+    )
+    later_corpus = _later_corpus(authority)
+    later_proposal = propose_assessment(
+        snapshot=AuditStore(authority).read("audit-later-evidence"),
+        corpus=json.loads(later_corpus.read_text(encoding="utf-8")),
+        root=later_corpus.parents[3],
+    )
+    sidecar = AssessmentStore(victim).path("assessment-audit-e2e-04-baseline-60")
+    before_sidecar = sidecar.read_bytes()
+    before_audits = _audit_tree_snapshot(victim)
+
+    with pytest.raises(AssessmentWorkflowError, match="audit"):
+        reassess_from_new_evidence(
+            record,
+            policy=_policy("policy-04-baseline-60", 60),
+            source_audit_id="audit-later-evidence",
+            expected_current_version_hash=record.version_hash,
+            proposal=later_proposal,
+            workspace=victim,
+            later_corpus_path=later_corpus,
+        )
+
+    assert sidecar.read_bytes() == before_sidecar
+    assert _audit_tree_snapshot(victim) == before_audits
 
 
 def _run(*args: str) -> subprocess.CompletedProcess[str]:
