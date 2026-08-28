@@ -6,6 +6,7 @@ status: verified
 threats_open: 0
 asvs_level: 1
 created: 2026-08-28
+updated: 2026-08-28
 ---
 
 # Phase 04 — Security
@@ -40,6 +41,12 @@ created: 2026-08-28
 | T-04-G08-03 | Repudiation | reviewed-user-truth support | medium | mitigate | Require audit-verified origin, substantive review, and immutable retained lineage for promotion support. Evidence: `assessment.py:779-837`; `test_anchor_promotion.py:187`. | closed |
 | T-04-G08-04 | Information disclosure | calibration-only CLI disposition | low | accept | Emit only safe record IDs and authority disposition; raw audit answers remain outside aggregate errors. | open — below high threshold (non-blocking) |
 | T-04-G08-05 | Misrepresentation | validation completion | medium | mitigate | Limit validation claims to deterministic offline contracts and forbid JD or job-market effectiveness claims. Evidence: `04-VALIDATION.md:9-21,29-50`. | closed |
+| T-04-G10-01 | Tampering | missing later-audit reassessment | high | mitigate | No-replay reassessment probes an existing path and then reads it only; service and CLI tests preserve assessment bytes plus the complete audit tree. Evidence: `assessment.py:491-499,1141-1147`; `test_assessment_admission.py:442-477`; `test_assessment_cli.py:263-303`. | closed |
+| T-04-G10-02 | Elevation of privilege | caller proposal comparison | high | mitigate | Complete validated-model equality rejects caller-controlled proposal elevation before version creation. Evidence: `assessment.py:1161-1164`; `test_assessment_cli.py:383-448`. | closed |
+| T-04-G10-03 | Tampering | corrupt or invalid later audit | high | mitigate | Missing, malformed, incomplete, unconfirmed, and custody-invalid stored audits fail closed in no-replay mode; rejection tests preserve both storage roots. Evidence: `assessment.py:491-499`; `audit/store.py:121-131`; `test_assessment_admission.py:480-541`. | closed |
+| T-04-G10-04 | Repudiation | valid audit and assessment history | medium | mitigate | Valid reassessment appends a hash-linked version while preserving the existing audit tree, authority, and earlier versions. Evidence: `assessment.py:220-245,1172-1186`; `test_assessment_cli.py:343-380`. | closed |
+| T-04-G10-05 | Information disclosure | CLI reassessment errors | low | mitigate | Invalid requests return structured generic exit-2 errors; raw audit answers remain redacted. Evidence: `cli.py:615-635,681-692`; `test_assessment_cli.py:131-147`. | closed |
+| T-04-G10-06 | Repudiation | requirement and phase promotion | medium | mitigate | 04-10 reports addressed requirements with no completed requirements and did not modify shared tracking artifacts. Evidence: `04-10-SUMMARY.md:34-36`; commits `8e15fe9..edae898`. | closed |
 
 *Status: open · closed · open — below high threshold (non-blocking). Only open threats at or above the configured `high` threshold count toward `threats_open`.*
 
@@ -52,6 +59,7 @@ No accepted risks. `T-04-G06-04` and `T-04-G08-04` retain their explicit low-sev
 | Audit Date | Threats Total | Closed | Open at/above high | Run By |
 |------------|---------------|--------|--------------------|--------|
 | 2026-08-28 | 13 | 11 | 0 | gsd-security-auditor (fresh L1 audit) |
+| 2026-08-28 | 19 | 17 | 0 | gsd-security-auditor (fresh L1 audit after 04-10) |
 
 ## Sign-Off
 
@@ -60,4 +68,4 @@ No accepted risks. `T-04-G06-04` and `T-04-G08-04` retain their explicit low-sev
 - [x] `threats_open: 0` confirmed for the configured `high` blocking threshold.
 - [x] `status: verified` set after the 04-06 through 04-08 remediation evidence.
 
-**Approval:** verified 2026-08-28 — blocking security gate clear; two low-severity non-blocking scope boundaries remain explicit.
+**Approval:** verified 2026-08-28 — fresh 04-10 L1 audit closes all six declared mitigations; the code-review regression-coverage warning remains open for a future test-only follow-up and does not alter this implementation-level security verdict. Two low-severity non-blocking scope boundaries remain explicit.
