@@ -44,6 +44,51 @@ class FormalRunStorageError(RuntimeError):
     """Raised when a formal bundle cannot be safely created or verified."""
 
 
+def atomic_write_canonical_json(path: Path, value: Any) -> None:
+    """Write one canonical JSON payload without exposing a partially-written file."""
+    data = canonical_json_bytes(value) + b"\n"
+    descriptor, temporary_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_name, path)
+    except BaseException:
+        Path(temporary_name).unlink(missing_ok=True)
+        raise
+
+
+def create_only_canonical_bundle(root: Path, bundle_name: str, payloads: dict[str, Any]) -> Path:
+    """Publish one declared JSON bundle atomically without overwriting prior evidence."""
+    if not RUN_ID_PATTERN.fullmatch(bundle_name):
+        raise FormalRunStorageError("bundle name contains unsafe path characters")
+    if root.is_symlink():
+        raise FormalRunStorageError("bundle root cannot be a symlink")
+    root.mkdir(parents=True, exist_ok=True)
+    resolved_root = root.resolve()
+    destination = root / bundle_name
+    if destination.parent.resolve() != resolved_root:
+        raise FormalRunStorageError("bundle destination escapes its root")
+    if destination.exists() or destination.is_symlink():
+        raise FormalRunStorageError(f"bundle already exists: {bundle_name}")
+    temporary = Path(tempfile.mkdtemp(dir=root, prefix=f".{bundle_name}."))
+    try:
+        for filename, value in payloads.items():
+            if Path(filename).name != filename:
+                raise FormalRunStorageError("bundle payload name contains unsafe path characters")
+            atomic_write_canonical_json(temporary / filename, value)
+        os.rename(temporary, destination)
+    except FileExistsError as exc:
+        raise FormalRunStorageError(f"bundle already exists: {bundle_name}") from exc
+    finally:
+        if temporary.exists():
+            for child in temporary.iterdir():
+                child.unlink()
+            temporary.rmdir()
+    return destination
+
+
 def _load_json(path: Path) -> Any:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -76,18 +121,8 @@ class FormalRunStore:
 
     @staticmethod
     def _write_json(path: Path, value: Any) -> None:
-        data = canonical_json_bytes(value) + b"\n"
         path.parent.mkdir(parents=True, exist_ok=True)
-        descriptor, temporary_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
-        try:
-            with os.fdopen(descriptor, "wb") as handle:
-                handle.write(data)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temporary_name, path)
-        except BaseException:
-            Path(temporary_name).unlink(missing_ok=True)
-            raise
+        atomic_write_canonical_json(path, value)
 
     def create(
         self,

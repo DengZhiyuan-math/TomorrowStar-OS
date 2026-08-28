@@ -195,7 +195,9 @@ def test_inspect_expectation_is_read_only_and_returns_status_two_when_unmet(
     assert not (tmp_path / ".career-evidence").exists()
 
 
-def test_priority_overlay_changes_only_route_reason_and_forward_list_version(tmp_path: Path) -> None:
+def test_priority_overlay_changes_only_route_reason_and_forward_list_version(
+    tmp_path: Path,
+) -> None:
     base = {
         "score": 47,
         "ordinary_route": "abandon",

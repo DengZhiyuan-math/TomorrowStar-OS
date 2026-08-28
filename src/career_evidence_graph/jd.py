@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import json
-import os
 import re
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -35,6 +33,7 @@ from .domain.models import (
     JDRequirementJudgment,
 )
 from .validation.hashing import canonical_json_bytes, sha256_digest
+from .validation.store import FormalRunStorageError, create_only_canonical_bundle
 
 
 class JDComparisonError(ValueError):
@@ -77,20 +76,6 @@ class JDIntakeStore:
         self.workspace = workspace.resolve()
         self.root = self.workspace / ".career-evidence" / "phase-05"
 
-    @staticmethod
-    def _write_json(path: Path, value: object) -> None:
-        payload = canonical_json_bytes(value) + b"\n"
-        descriptor, temporary_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
-        try:
-            with os.fdopen(descriptor, "wb") as handle:
-                handle.write(payload)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temporary_name, path)
-        except BaseException:
-            Path(temporary_name).unlink(missing_ok=True)
-            raise
-
     def _root_for_write(self) -> Path:
         private_root = self.workspace / ".career-evidence"
         if private_root.is_symlink() or self.root.is_symlink():
@@ -116,29 +101,25 @@ class JDIntakeStore:
         destination.parent.mkdir(exist_ok=True)
         if destination.exists() or destination.is_symlink():
             raise JDIntakeError("jd-prepared-already-exists")
-        temporary = Path(tempfile.mkdtemp(dir=destination.parent, prefix=".prepared."))
         try:
-            self._write_json(temporary / "packet.json", intake.packet.model_dump(mode="json"))
-            self._write_json(
-                temporary / "manifest.json",
+            create_only_canonical_bundle(
+                destination.parent,
+                destination.name,
                 {
-                    "schema_version": "jd-prepared-intake/v1",
-                    "source_id": intake.source_id,
-                    "source_hash": intake.source_hash,
-                    "source_bytes": intake.source_bytes,
-                    "proposal_hash": intake.packet.recorded_proposal.proposal_hash,
-                    "disclosures": intake.disclosures,
-                    "accepted": False,
+                    "packet.json": intake.packet.model_dump(mode="json"),
+                    "manifest.json": {
+                        "schema_version": "jd-prepared-intake/v1",
+                        "source_id": intake.source_id,
+                        "source_hash": intake.source_hash,
+                        "source_bytes": intake.source_bytes,
+                        "proposal_hash": intake.packet.recorded_proposal.proposal_hash,
+                        "disclosures": intake.disclosures,
+                        "accepted": False,
+                    },
                 },
             )
-            os.rename(temporary, destination)
-        except FileExistsError as exc:
+        except FormalRunStorageError as exc:
             raise JDIntakeError("jd-prepared-already-exists") from exc
-        finally:
-            if temporary.exists():
-                for child in temporary.iterdir():
-                    child.unlink()
-                temporary.rmdir()
         return self.inspect_prepared(intake.source_hash)
 
     def inspect_prepared(self, source_hash: str) -> dict[str, object]:
@@ -186,27 +167,23 @@ class JDIntakeStore:
         destination = accepted_root / self._bundle_name(source_hash)
         if destination.exists() or destination.is_symlink():
             raise JDIntakeError("jd-accepted-already-exists")
-        temporary = Path(tempfile.mkdtemp(dir=accepted_root, prefix=".accepted."))
         try:
-            self._write_json(temporary / "packet.json", packet.model_dump(mode="json"))
-            self._write_json(
-                temporary / "manifest.json",
+            create_only_canonical_bundle(
+                accepted_root,
+                destination.name,
                 {
-                    "schema_version": "accepted-jd-intake/v1",
-                    "packet_id": packet.packet_id,
-                    "source_hash": source_hash,
-                    "proposal_hash": proposal_hash,
-                    "accepted": True,
+                    "packet.json": packet.model_dump(mode="json"),
+                    "manifest.json": {
+                        "schema_version": "accepted-jd-intake/v1",
+                        "packet_id": packet.packet_id,
+                        "source_hash": source_hash,
+                        "proposal_hash": proposal_hash,
+                        "accepted": True,
+                    },
                 },
             )
-            os.rename(temporary, destination)
-        except FileExistsError as exc:
+        except FormalRunStorageError as exc:
             raise JDIntakeError("jd-accepted-already-exists") from exc
-        finally:
-            if temporary.exists():
-                for child in temporary.iterdir():
-                    child.unlink()
-                temporary.rmdir()
         return {
             "accepted": True,
             "packet_id": packet.packet_id,
@@ -244,6 +221,170 @@ class JDIntakeStore:
         if path is None:
             raise JDIntakeError("jd-inspect-expectation-invalid")
         return path.is_file() and not path.is_symlink()
+
+
+def _normalized_company_identity(value: str) -> str:
+    if _source_disclosures(value):
+        raise JDIntakeError("jd-priority-company-unsafe")
+    normalized = " ".join(value.split()).casefold()
+    if not normalized:
+        raise JDIntakeError("jd-priority-company-invalid")
+    return normalized
+
+
+@dataclass(frozen=True)
+class PriorityCompanyInput:
+    """One forward-only private preference input; never a capability signal."""
+
+    version: str
+    companies: tuple[tuple[str, tuple[str, ...]], ...]
+
+    def __post_init__(self) -> None:
+        if not _SAFE_SOURCE_ID.fullmatch(self.version):
+            raise JDIntakeError("jd-priority-version-invalid")
+        identities: dict[str, str] = {}
+        for canonical_name, aliases in self.companies:
+            canonical_identity = _normalized_company_identity(canonical_name)
+            normalized_aliases = tuple(_normalized_company_identity(alias) for alias in aliases)
+            for identity in (canonical_identity, *normalized_aliases):
+                owner = identities.setdefault(identity, canonical_identity)
+                if owner != canonical_identity:
+                    raise JDIntakeError("jd-priority-alias-collision")
+        if not identities:
+            raise JDIntakeError("jd-priority-company-invalid")
+
+    def canonical_name_for(self, company_name: str) -> str | None:
+        requested = _normalized_company_identity(company_name)
+        for canonical_name, aliases in self.companies:
+            canonical_identity = _normalized_company_identity(canonical_name)
+            normalized_aliases = tuple(_normalized_company_identity(alias) for alias in aliases)
+            if requested in {canonical_identity, *normalized_aliases}:
+                return canonical_name
+        return None
+
+    def payload(self) -> dict[str, object]:
+        return {
+            "schema_version": "jd-priority-company-input/v1",
+            "version": self.version,
+            "companies": [
+                {"canonical_name": canonical_name, "aliases": list(aliases)}
+                for canonical_name, aliases in self.companies
+            ],
+        }
+
+
+@dataclass(frozen=True)
+class PriorityRouteOverlay:
+    """A route-only preference projection over an unchanged comparison result."""
+
+    analysis: dict[str, object]
+    final_route: str
+    route_reason: str
+    priority_list_version: str
+    matched_company: str | None
+
+
+def apply_priority_company_overlay(
+    analysis: dict[str, object], priority_input: PriorityCompanyInput, company_name: str
+) -> PriorityRouteOverlay:
+    """Apply a confirmed preference after scoring without reinterpreting user truth."""
+    matched_company = priority_input.canonical_name_for(company_name)
+    if matched_company is not None:
+        return PriorityRouteOverlay(
+            analysis=analysis,
+            final_route="customized-resume",
+            route_reason="user-priority-company",
+            priority_list_version=priority_input.version,
+            matched_company=matched_company,
+        )
+    final_route = str(analysis.get("route", analysis.get("ordinary_route", "abandon")))
+    return PriorityRouteOverlay(
+        analysis=analysis,
+        final_route=final_route,
+        route_reason="ordinary",
+        priority_list_version=priority_input.version,
+        matched_company=None,
+    )
+
+
+class PriorityCompanyStore:
+    """Store distinct private preference versions without overwriting their history."""
+
+    def __init__(self, workspace: Path) -> None:
+        self.workspace = workspace.resolve()
+        self.root = self.workspace / ".career-evidence" / "phase-05" / "priority-company-lists"
+
+    def publish(self, priority_input: PriorityCompanyInput) -> Path:
+        try:
+            destination = create_only_canonical_bundle(
+                self.root,
+                priority_input.version,
+                {"priority-company-list.json": priority_input.payload()},
+            )
+        except FormalRunStorageError as exc:
+            raise JDIntakeError("jd-priority-version-already-exists") from exc
+        return destination / "priority-company-list.json"
+
+
+_CHARTER_TOP_LEVEL_FIELDS = frozenset(
+    {
+        "schema_version",
+        "charter_version",
+        "case_inventory",
+        "attempts_per_case",
+        "route_scenarios",
+        "baseline",
+        "blind_review",
+        "criteria",
+        "zero_critical_fabricated_capability_claims",
+        "limitation",
+    }
+)
+
+
+def load_evaluation_charter(path: Path) -> dict[str, object]:
+    """Read the pre-fixture charter and reject incomplete or post-hoc variants."""
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise JDIntakeError("jd-evaluation-charter-invalid") from exc
+    if not isinstance(value, dict) or set(value) != _CHARTER_TOP_LEVEL_FIELDS:
+        raise JDIntakeError("jd-evaluation-charter-invalid")
+    if (
+        value.get("schema_version") != "jd-evaluation-charter/v1"
+        or value.get("attempts_per_case") != 3
+    ):
+        raise JDIntakeError("jd-evaluation-charter-invalid")
+    inventory = value.get("case_inventory")
+    scenarios = value.get("route_scenarios")
+    baseline = value.get("baseline")
+    blind_review = value.get("blind_review")
+    criteria = value.get("criteria")
+    if (
+        not isinstance(inventory, dict)
+        or set(inventory) != {"EVAL-01", "EVAL-02"}
+        or not all(isinstance(cases, list) and cases for cases in inventory.values())
+        or not isinstance(scenarios, list)
+        or set(scenarios)
+        != {
+            "evidence-strong-customized",
+            "ordinary-standard-resume",
+            "low-match-abandon",
+            "unchanged-jd-priority-counterfactual",
+        }
+        or not isinstance(baseline, dict)
+        or baseline.get("flat_resume_arm") != "when-supplied"
+        or baseline.get("fallback") != "sorted-exact-skill-name-keyword-overlap"
+        or not isinstance(blind_review, dict)
+        or blind_review.get("opaque_ab_assignment") != "frozen-before-reviewer-execution"
+        or not isinstance(criteria, list)
+        or set(criteria) != {"EVAL-04", "EVAL-05"}
+        or value.get("zero_critical_fabricated_capability_claims") is not True
+        or not isinstance(value.get("limitation"), str)
+        or "does not establish" not in value["limitation"]
+    ):
+        raise JDIntakeError("jd-evaluation-charter-invalid")
+    return value
 
 
 def _source_disclosures(text: str) -> tuple[str, ...]:
