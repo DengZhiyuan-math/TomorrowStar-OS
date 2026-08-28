@@ -15,9 +15,12 @@ from career_evidence_graph.assessment import (
     build_assessment_run,
     decide_admission,
     load_policy,
+    propose_assessment,
     run_assessment,
 )
+from career_evidence_graph.audit.store import AuditStore
 from career_evidence_graph.domain.models import ContributionSkillAssessment
+from test_assessment_admission import _later_corpus
 
 ROOT = Path(__file__).parents[1]
 CORPUS = ROOT / "validation/calibration/phase-04/corpus.json"
@@ -242,6 +245,8 @@ def test_explicit_reassess_rejects_stale_hash_without_mutating_sidecar(tmp_path:
         str(tmp_path),
         "--run-id",
         "assessment-audit-e2e-04-baseline-60",
+        "--later-corpus",
+        str(tmp_path / "missing-corpus.json"),
         "--source-audit-id",
         "audit-later-evidence",
         "--expected-current-version-hash",
@@ -253,6 +258,83 @@ def test_explicit_reassess_rejects_stale_hash_without_mutating_sidecar(tmp_path:
     assert stale.returncode == 2
     assert "assessment_workflow_error" in stale.stderr
     assert sidecar.read_bytes() == before
+
+
+def test_reassess_cli_rejects_fabricated_audit_and_authority_without_mutation(
+    tmp_path: Path,
+) -> None:
+    initial = _run("assessment", "run", "--workspace", str(tmp_path))
+    assert initial.returncode == 0, initial.stderr
+    later_corpus = _later_corpus(tmp_path)
+    payload = json.loads(initial.stdout)["proposal"]
+    payload["source_envelope"]["audit_id"] = "audit-fabricated"
+    payload["source_envelope"]["authority_label"] = "reviewed-user-truth"
+    payload["assessment_status"] = "reviewed"
+    proposal_path = tmp_path / "fabricated-reassessment.json"
+    proposal_path.write_text(json.dumps(payload), encoding="utf-8")
+    sidecar = AssessmentStore(tmp_path).path("assessment-audit-e2e-04-baseline-60")
+    before = sidecar.read_bytes()
+
+    rejected = _run(
+        "assessment",
+        "reassess",
+        "--workspace",
+        str(tmp_path),
+        "--run-id",
+        "assessment-audit-e2e-04-baseline-60",
+        "--later-corpus",
+        str(later_corpus),
+        "--source-audit-id",
+        "audit-fabricated",
+        "--expected-current-version-hash",
+        json.loads(initial.stdout)["version_hash"],
+        "--assessment-json",
+        str(proposal_path),
+    )
+
+    assert rejected.returncode == 2
+    assert "assessment_workflow_error" in rejected.stderr
+    assert sidecar.read_bytes() == before
+
+
+def test_reassess_cli_appends_a_materialized_later_audit_version(tmp_path: Path) -> None:
+    initial = _run("assessment", "run", "--workspace", str(tmp_path))
+    assert initial.returncode == 0, initial.stderr
+    later_corpus = _later_corpus(tmp_path)
+    later_proposal = propose_assessment(
+        snapshot=AuditStore(tmp_path).read("audit-later-evidence"),
+        corpus=json.loads(later_corpus.read_text(encoding="utf-8")),
+        root=later_corpus.parents[3],
+    )
+    proposal_path = tmp_path / "later-reassessment.json"
+    proposal_path.write_text(
+        json.dumps(later_proposal.model_dump(mode="json")), encoding="utf-8"
+    )
+
+    reassessed = _run(
+        "assessment",
+        "reassess",
+        "--workspace",
+        str(tmp_path),
+        "--run-id",
+        "assessment-audit-e2e-04-baseline-60",
+        "--later-corpus",
+        str(later_corpus),
+        "--source-audit-id",
+        "audit-later-evidence",
+        "--expected-current-version-hash",
+        json.loads(initial.stdout)["version_hash"],
+        "--assessment-json",
+        str(proposal_path),
+    )
+
+    assert reassessed.returncode == 0, reassessed.stderr
+    emitted = json.loads(reassessed.stdout)
+    assert len(emitted["versions"]) == 2
+    assert emitted["versions"][0] == json.loads(initial.stdout)["versions"][0]
+    assert emitted["versions"][-1]["source_audit_id"] == "audit-later-evidence"
+    assert emitted["versions"][-1]["reviews"] == []
+    assert emitted["proposal"]["source_envelope"]["authority_label"] == "derived-counterfactual"
 
 
 def test_calibration_cli_compares_activates_and_reopens_redacted_history(tmp_path: Path) -> None:
