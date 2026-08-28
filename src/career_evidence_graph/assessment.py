@@ -478,42 +478,63 @@ def _repository_root(corpus_path: Path) -> Path:
 
 
 def _materialize_audit(
-    *, workspace: Path, corpus: dict[str, Any], root: Path, audit_id: str
+    *,
+    workspace: Path,
+    corpus: dict[str, Any],
+    root: Path,
+    audit_id: str,
+    allow_replay: bool = True,
 ) -> AuditSnapshot:
     if audit_id != corpus.get("audit_id"):
         raise AssessmentWorkflowError("corpus does not authorize requested audit")
     store = AuditStore(workspace)
-    try:
-        snapshot = store.read(audit_id)
-    except AuditStorageError:
-        journey = corpus.get("audit_journey")
-        if not isinstance(journey, dict):
-            raise AssessmentWorkflowError("corpus has no auditable journey") from None
+    if not allow_replay:
         try:
-            plan = ProbePlan.model_validate(journey["probe_plan"])
-            decisions = tuple(
-                BoundaryDecision.model_validate(item) for item in journey["decisions"]
-            )
-            port = RecordedDecisionPort(
-                plan=plan,
-                decisions={(item.question_id, item.answer): item for item in decisions},
-            )
-            fixture = root / str(corpus["fixture_path"])
-            manifest = root / str(corpus["source_manifest_path"])
-            snapshot = start_audit(
-                workspace=workspace,
-                fixture_path=fixture,
-                manifest_path=manifest,
-                contribution_id=str(corpus["contribution_id"]),
-                audit_id=audit_id,
-                decision_port=port,
-            )
-            for action_value in journey["actions"]:
-                action = AuditAction.model_validate(action_value)
-                snapshot = transition_audit(snapshot, action, decision_port=port)
-                store.replace(snapshot)
-        except (KeyError, TypeError, ValidationError, AuditWorkflowError, AuditStorageError) as exc:
-            raise AssessmentWorkflowError("corpus audit journey is invalid") from exc
+            store.path_for(audit_id).lstat()
+        except (AuditStorageError, OSError) as exc:
+            raise AssessmentWorkflowError("required later audit is unavailable") from exc
+        try:
+            snapshot = store.read(audit_id)
+        except AuditStorageError as exc:
+            raise AssessmentWorkflowError("required later audit is invalid") from exc
+    else:
+        try:
+            snapshot = store.read(audit_id)
+        except AuditStorageError:
+            journey = corpus.get("audit_journey")
+            if not isinstance(journey, dict):
+                raise AssessmentWorkflowError("corpus has no auditable journey") from None
+            try:
+                plan = ProbePlan.model_validate(journey["probe_plan"])
+                decisions = tuple(
+                    BoundaryDecision.model_validate(item) for item in journey["decisions"]
+                )
+                port = RecordedDecisionPort(
+                    plan=plan,
+                    decisions={(item.question_id, item.answer): item for item in decisions},
+                )
+                fixture = root / str(corpus["fixture_path"])
+                manifest = root / str(corpus["source_manifest_path"])
+                snapshot = start_audit(
+                    workspace=workspace,
+                    fixture_path=fixture,
+                    manifest_path=manifest,
+                    contribution_id=str(corpus["contribution_id"]),
+                    audit_id=audit_id,
+                    decision_port=port,
+                )
+                for action_value in journey["actions"]:
+                    action = AuditAction.model_validate(action_value)
+                    snapshot = transition_audit(snapshot, action, decision_port=port)
+                    store.replace(snapshot)
+            except (
+                KeyError,
+                TypeError,
+                ValidationError,
+                AuditWorkflowError,
+                AuditStorageError,
+            ) as exc:
+                raise AssessmentWorkflowError("corpus audit journey is invalid") from exc
     if snapshot.status != "completed" or snapshot.conclusion is None:
         raise AssessmentWorkflowError("audit is not completed with a conclusion")
     if snapshot.conclusion.whole_review != "confirmed":
@@ -1122,6 +1143,7 @@ def reassess_from_new_evidence(
         corpus=corpus,
         root=root,
         audit_id=source_audit_id,
+        allow_replay=False,
     )
     canonical = propose_assessment(snapshot=snapshot, corpus=corpus, root=root)
     current_source = record.proposal.source_envelope
@@ -1136,17 +1158,7 @@ def reassess_from_new_evidence(
         or canonical.lineage != record.proposal.lineage
     ):
         raise AssessmentWorkflowError("later audit does not match reassessment lineage")
-    if (
-        proposal.id != canonical.id
-        or proposal.skill_id != canonical.skill_id
-        or proposal.contribution_id != canonical.contribution_id
-        or proposal.lineage != canonical.lineage
-        or proposal.source_envelope != canonical.source_envelope
-        or proposal.assessment_status != canonical.assessment_status
-        or proposal.origin_status != canonical.origin_status
-        or proposal.attribution_status != canonical.attribution_status
-        or proposal.assistance_status != canonical.assistance_status
-    ):
+    if proposal != canonical:
         raise AssessmentWorkflowError(
             "reassessment proposal does not match canonical audit custody"
         )
