@@ -1,232 +1,229 @@
 # Project Research Summary
 
-**Project:** Career Evidence Graph — Core Hypothesis Validation  
-**Domain:** Contribution-grounded conversational capability assessment and JD usefulness validation  
-**Researched:** 2026-07-30  
-**Confidence:** HIGH on scope, domain invariants, upstream boundaries, and major risks; MEDIUM on implementation pins, calibration policy, and generalizability
+**Project:** Career Evidence Graph — Core Hypothesis Validation
+**Domain:** User-authoritative full-career evidence graph and real-JD hypothesis validation
+**Researched:** 2026-08-28
+**Confidence:** HIGH on scope, stack retention, authority boundaries, and build order; MEDIUM on real-corpus policy details and evaluation operations
 
 ## Executive Summary
 
-This project is a validation study for the core of an agentic career system, not a résumé builder and not a graph product for its own sake. It must determine whether an artifact-aware, one-question-at-a-time Grill-Me workflow can audit specific work at the `Contribution` level, produce truthful and separable Contribution–Skill assessments, aggregate those into relatively stable user Skill judgments, and make better decisions against STOA and a small, contrasting JD set than simpler baselines. Experts build this kind of assessment system around explicit constructs, standardized but non-leading probes, immutable evidence and attribution trails, human-confirmed claims, independently reviewable evaluation, and falsifiable gates—not around a single model-generated score.
+Milestone v1.1 is a bounded empirical validation of a career-assessment system, not a résumé generator, graph explorer, or employment-effectiveness study. It must account for all career items known from a declared source universe as of a user-confirmed cutoff, retain reviewed and unresolved items in one status-aware `Experience → Contribution → Skill` graph, and determine whether that graph is useful across exactly three real JDs supplied and selected by the user. Completeness and capability authority are deliberately different: a complete inventory may contain pending, insufficient-evidence, or unresolved-responsibility items, while only admitted, human-reviewed Contribution–Skill assessments may establish or increase mastery.
 
-The recommended implementation shape is a small modular monolith with strict domain contracts, an explicit audit state machine, model-output-as-proposal boundaries, and replaceable policies for normalization, assessment, aggregation, and JD comparison. A packaged Python 3.13/Pydantic/pytest/JSON-JSONL stack is the best researched starting candidate, but it is not yet a project-level commitment: `PROJECT.md` deliberately leaves implementation boundaries and phase-level choices open. Phase 1 should confirm the runtime and package pins against the actual fixture, provider, and test needs. Likewise, local-first storage, deterministic helpers, and complete provenance are valuable validation mechanisms; they support reproducibility but do not define the final product.
+The recommended implementation is the smallest extension of the existing Python modular monolith. Add no dependency by default. Keep Python 3.13.14, Pydantic 2.13.4, canonical JSON/JSONL, pytest 9.1.1, Ruff 0.16.0, uv, and the existing provider-neutral ports and storage primitives. Use one ignored private workspace with narrow semantic authorities for sources, inventory, audits, assessments, JDs, and evaluations, plus exactly one deterministic, rebuildable canonical graph projection for downstream reads. Every interpretation follows source custody → proposal → item review → immutable acceptance, and every derived artifact binds exact content and policy hashes.
 
-The central risk is a persuasive but invalid result: a coherent graph can still reward fluent self-report, team or Codex work, evidence volume, ontology proximity, or JD wording instead of demonstrated capability. Mitigate this by preregistering endpoints, baselines, holdouts, and failure rules; separating mastery, centrality, confidence, duration, context, and JD fit; keeping ontology relations non-evidentiary; testing split/merge, duplication, leakage, attribution, and prompt-injection counterfactuals; and requiring independent human review. Dynamic JD-tailored résumé generation remains a core final-product output, but implementation begins only after this validation supports the graph’s reliability and JD usefulness.
+The principal risks are evidential rather than infrastructural: false completeness, pending-to-mastery leakage, alias or responsibility inflation, source/JD tampering or privacy leakage, JD-to-graph backflow, stale experiment inputs, reviewer leakage, and claims beyond the frozen study. Mitigate them with explicit cutoff and user seals, stable identity and merge/split lineage, separate authority states, raw-byte/span custody, create-only accepted artifacts, before/after graph-hash checks, a sealed exactly-three-JD corpus, preregistered blind evaluation, and a read-only evaluator that ends in the frozen `supported` / `partially-supported` / `rejected` decision. The result may justify a later scoped product experiment; it cannot establish résumé, interview, offer, hiring, or employment effectiveness.
 
 ## Key Findings
 
 ### Recommended Stack
 
-The research favors the smallest inspectable stack that can run the complete validation loop and replay it offline. The exact versions below are recommendations to confirm during the contracts/fixtures phase, not decisions that override `PROJECT.md`.
+The current stack already supplies every required v1.1 primitive. The milestone should add project-owned contracts, adapters, and workflows rather than packages. A provider SDK or document parser is justified only after the user-confirmed source corpus proves a concrete capability gap; if needed, add one pinned adapter behind an existing-style Protocol, preserve raw and derived hashes, and keep its output non-authoritative until review.
 
 **Core technologies:**
 
-- **CPython 3.13 (candidate pin `3.13.14`)**: packaged CLI/importable core — mature common baseline across relevant upstreams, with less compatibility risk than prematurely moving to 3.14.
-- **Pydantic v2 (candidate pin `2.13.4`)**: strict, versioned domain and model-boundary contracts — makes invalid state and schema drift observable.
-- **Python standard library**: paths, JSON, time, IDs, hashing, CLI, and provider protocols — enough for the validation scale without framework overhead.
-- **Schema-versioned JSON/JSONL workspace**: canonical snapshots, append-only turns/events, proposals, fixtures, reviews, and run metadata — inspectable and reproducible for one-user calibration.
-- **Project-owned `LLMClient` protocol**: narrow structured-output boundary — provider, model, SDK, and settings remain phase-level choices and cannot leak into the domain model.
-- **pytest, Ruff, and uv (candidate current pins)**: offline invariant/golden/replay tests, lint/format checks, and a locked toolchain.
+- **CPython 3.13.14 (`>=3.13,<3.14`)**: orchestration, hashing, private file custody, in-memory indexes, metrics, and CLI — the standard library covers the bounded, single-user workflow.
+- **Pydantic 2.13.4**: strict frozen domain contracts, validation, serialization, and JSON Schema — retain one contract system and do not loosen sealed v1 schemas.
+- **Canonical JSON + JSONL**: immutable bundles, current snapshots, append-only events, review lineage, and experiment records — inspectable, replayable, diffable, and already supported by the repository.
+- **In-memory dictionaries and adjacency indexes**: graph traversal and coverage projection — persist canonical records, not a second graph engine.
+- **Project-owned Protocol ports**: career-source and JD interpretation — recorded/offline implementations remain the default; model/provider output proposes but never confirms truth.
+- **pytest 9.1.1, Ruff 0.16.0, and uv 0.12.0**: deterministic fixtures, adversarial and store-safety tests, lint/format, and locked execution — no new test or experiment framework is needed.
 
-Defer FastAPI, React/Next.js, databases, graph/vector stores, workflow frameworks, authentication, document export, and multi-provider abstractions until concrete requirements justify them. Add a PDF/DOCX parser only if the selected STOA/JD evidence cannot be represented faithfully as text, Markdown, or JSON.
+Critical version and dependency rules:
 
-The six pinned upstream repositories are references, not runtime dependencies. Every borrowed seam must be classified as `reuse`, `adapt`, `inspired-by`, or `reject`, tied to an exact source path/commit/license, and protected by a local test expressing this project’s distinct semantics.
+- Keep the current interpreter, package pins, `.python-version`, `pyproject.toml`, and `uv.lock`; no dependency update is part of v1.1 by default.
+- Reuse existing canonical hashing, atomic replacement, create-only bundle, and provider-neutral decision seams.
+- Add exactly one provider SDK or one format-specific parser only after a real accepted source requires it and fidelity/contract fixtures exist.
+- Continue to defer databases, graph/vector stores, agent frameworks, web/UI stacks, telemetry, cloud storage, broad document conversion, and statistical platforms.
 
 ### Expected Features
 
-**Must have (validation table stakes):**
+**Must have (table stakes):**
 
-- A representative STOA `Experience` decomposed into distinguishable, human-reviewed `Contribution` records, with `Evidence` supporting Contributions.
-- Artifact inspection before questioning, followed by one focused question per turn, resumable state, non-repetition, and explicit coverage/stop decisions.
-- Neutral probes that establish the strongest supported capability boundary and what remains unestablished; no JD-conditioned or answer-leading grilling.
-- Explicit user/team/other-person/Codex-assisted/third-party/unknown attribution, with unresolved ownership unable to support definitive mastery.
-- Specific Skills extracted only from audited Contributions; credentials, repositories, keywords, and ontology relations never establish mastery.
-- Separate `demonstrated_mastery`, `skill_centrality`, and `evidence_confidence`, plus context, verified duration, and assessment basis on every Contribution–Skill assessment.
-- Anchor-aware, replaceable user Skill aggregation that resists duplicate evidence and numerous weak Contributions.
-- A small structured JD set—recommended minimum three contrasting roles—and evidence-bearing supported/partial/unsupported/uncertain comparisons that cannot mutate mastery.
-- Versioned fixtures, prompts/models/policies, proposals, human corrections, golden/adversarial cases, repeated-run results, and calibration history.
-- A blinded comparison against at least a flat résumé/JD keyword baseline, with truthfulness, relevance, traceability, and decision usefulness judged separately.
+- **Declared sources and cutoff** — bind “full career” to an inspectable source universe, unavailable-source declarations, capture metadata, and a recorded cutoff.
+- **All-known-item reconciliation and user seal** — every candidate or user-added Experience, Contribution, Evidence item, and candidate Skill receives an explicit disposition; the user confirms the exact inventory hash without silent omissions.
+- **One canonical status-aware graph** — retain confirmed, reviewed, pending, insufficient-evidence, and unresolved-responsibility content with stable IDs and merge/split/revision lineage.
+- **Review-only mastery projection** — only current, admitted, substantively reviewed `reviewed-user-truth` Contribution–Skill assessments affect mastery.
+- **Truthful uncertainty** — absent review is not a zero; relevant pending or unresolved content yields `uncertain` or `missing-evidence`, never positive support or an invented shortfall.
+- **Resumable full-career audit queue** — reuse the existing one-question audit engine and prioritize JD-relevant unresolved Contributions without creating a second interview workflow.
+- **Exactly three user-supplied real JDs** — retain exact private raw bytes, identity, acquisition metadata, and distinct source hashes; neither the system nor an evaluator substitutes the corpus.
+- **Source-bound JD proposal and item review** — reconstruct every requirement from valid source spans, preserve absent fields, and support explicit edit/split/merge/add/reject lineage.
+- **Immutable JD acceptance and corpus sealing** — acceptance binds the reviewed proposal and raw source hashes; exactly three distinct accepted packets are sealed before evaluation.
+- **Frozen evaluation and decision ledger** — bind graph, corpus, charter, policies, baseline, blind assignment, repetitions, judgments, deviations, and the final reproducible decision.
 
-**Should have (hypothesis differentiators):**
+**Should have (core differentiators):**
 
-- A strongest-supported-versus-next-unestablished capability result for each audited Contribution.
-- Evidence sensitivity tests showing decisive evidence affects confidence/status while irrelevant or duplicate material does not raise mastery.
-- Counterexample fixtures for high-centrality/low-mastery, low-centrality/high-mastery, and high-mastery/low-confidence cases.
-- Explicit reviewer disagreement and adjudication data rather than a hidden “ground truth” generated by the same model.
-- Stable user capability across JDs with target-specific Contribution selection and gap explanations.
+- **Completeness with truthful unknowns** — permit a user-confirmed coverage boundary without laundering unresolved content into capability.
+- **Separate inventory, assessment, and admission authority** — prove `confirmed ≠ reviewed ≠ admitted` through contracts and negative tests.
+- **Uncertainty-preserving JD matching** — explain whether a requirement lacks capability, evidence, review, or responsibility resolution.
+- **Immutable, disputable JD interpretation** — preserve every correction from exact raw bytes through accepted requirements.
+- **One truthful graph with three relevance views** — JDs may change selected Contributions and gaps, but never the graph or mastery hashes.
+- **A hypothesis allowed to fail** — retain negative, unstable, or partial evidence and emit the frozen result rather than optimizing for roadmap momentum.
 
-**Defer until the validation gate passes:**
+**Defer until a supported, scoped expansion decision:**
 
-- **Dynamic JD-tailored résumé generation** — the first major downstream product phase and a core final-product output, but not an implementation deliverable of this validation project.
-- Résumé review/diff, layouts, PDF/DOCX export, cover letters, and interview-preparation presentation.
-- Gap Sprints, post-sprint Grill-Me, and longitudinal reassessment.
-- Broader career ingestion, large ontology coverage, persistent multi-cycle product workspaces, multi-user SaaS, and complex UI.
+- Dynamic JD-tailored résumé selection and rewriting, followed by wording review, diff, layout, and export.
+- Evidence-producing gap work, Gap Sprints, and post-work reassessment.
+- Additional JDs or users except a preregistered replication for a named generalization gap.
+- Continuous LinkedIn/GitHub/document synchronization, broad ontology ingestion, embeddings-first matching, graph visualization, and production UI.
+- Multi-user SaaS, recruiter/employer workflows, applicant ranking, job application automation, and any claim about interviews, offers, hiring, employment, or long-term career outcomes.
 
 ### Architecture Approach
 
-Use a local modular monolith with a functional core and an imperative shell. Typed commands coordinate explicit stages; model-assisted stages emit immutable proposals; human confirmation creates canonical revisions and append-only events. Persist enough lineage to replay every result from exact Contribution, Evidence, Q&A, ontology, prompt/model, policy, and reviewer versions. Keep aggregation behind a replaceable policy and keep JD comparison as a read-only projection over stable user Skills.
+Extend the existing modular monolith with a functional core and imperative shell. One private `.career-evidence/` workspace contains several narrow repositories because sources, inventory, audits, assessments, JDs, and evaluations own different facts; this is still one persistence boundary, not multiple competing ledgers. A single projector joins exact accepted inventory, audit, resolution, assessment, and policy versions into an immutable `CareerGraphSnapshot`. No command edits that snapshot directly, and no JD or evaluation artifact becomes a second mastery authority.
 
 **Major components:**
 
-1. **Strict domain model** — identities, relationships, score semantics, attribution, duration, versioned envelopes, and invalid-state prevention.
-2. **Evidence and Contribution workspace** — artifact hashes/locations, STOA decomposition, Contribution identity, shared-evidence tracking, and ownership confirmation.
-3. **Grill-Me audit engine** — explicit resumable state, one-question policy, bounded context, claim extraction, coverage, and confirmation.
-4. **Skill normalization adapter** — reviewable aliases from a pinned MIND slice; related/implied skills are question hints only.
-5. **Assessment and aggregation policies** — Contribution-level proposals, anchor gates, human review, replaceable user-level aggregation, and calibration traces.
-6. **JD usefulness slice** — structured expectations with source spans, stable-skill comparison, relevant Contribution selection, limitations, and gaps.
-7. **Evaluation and provenance harness** — deterministic invariants, golden/adversarial/replay cases, baselines, blinded review, drift reports, and upstream adaptation ledger.
-8. **Versioned workspace repository** — atomic canonical writes, immutable proposals, append-only events, snapshots, migrations, and content-addressed caches.
+1. **Workspace and source custody** — one path/permission policy; create-only raw source envelopes; regular-file, link, hash, fsync, and redaction checks.
+2. **Career inventory workflow** — source candidates, item-level include/exclude/edit/split/merge review, coverage ledger, cutoff, and immutable accepted revision.
+3. **Existing audit workflow, generalized** — consume accepted `ContributionContext` instead of STOA-specific paths while preserving one-question, attribution, assistance, pause/resume, and conclusion review behavior.
+4. **Skill resolution and assessment authority** — reviewable aliases and immutable assessment versions; only admitted reviewed-user-truth reaches aggregation.
+5. **Canonical graph projector** — the sole deterministic graph writer; retains all in-scope items and states, rejects dangling identities, and moves the current pointer only with expected-prior-hash checks.
+6. **JD intake and corpus custody** — raw source → proposal → item review → exact-hash acceptance → ordered exactly-three-packet corpus.
+7. **Read-only comparison** — compare accepted JD packets with one confirmed graph snapshot, keep match semantics separate from mastery, and assert graph hash stability.
+8. **Evaluation and finalization** — create-only deterministic, adversarial, stability, human, blind-baseline, holdout, replication, and frozen-decision artifacts.
 
-**Patterns to enforce:**
-
-- Proposal → confirmation → canonical revision.
-- Contribution-bounded context packets for assessment.
-- Evidence-bearing derivations with source IDs/spans and limitations.
-- Stable capability with target-specific JD projection.
-- Deterministic workflow guards around nondeterministic model calls.
-- Pinned upstream references with explicit reuse/adapt/inspired-by/reject decisions.
+Key patterns are proposal → review → acceptance; stable source-local identity before cross-source deduplication; immutable inputs with versioned policies; one deterministic graph projector; source-bound interpretation ports; functional core/imperative shell; and exact hash ancestry across every transition.
 
 ### Critical Pitfalls
 
-1. **Non-falsifiable validation and weak baselines** — preregister constructs, endpoints, holdouts, baselines, thresholds, and stop/revise rules before tuning.
-2. **Leading, fluent, or circular assessment** — hide JD rewards during elicitation, use neutral probes and work samples, freeze human-authored gold cases, and blind independent reviewers to system outputs.
-3. **Attribution and evidence inflation** — confirm actor/subtask boundaries, track shared evidence, require split/merge and duplicate-evidence invariance, and never equate repository presence with capability.
-4. **Semantic collapse and score inflation** — keep mastery, centrality, confidence, duration, context, and JD match separate; require observable higher-anchor evidence; do not freeze the exact formula before calibration.
-5. **Ontology propagation and context leakage** — aliases may normalize or retrieve, but only direct Contribution assessments create user mastery; JD swaps, neighboring evidence, and stale caches must not change stable capability.
-6. **STOA/JD overfit** — seal development/holdout Contributions and JDs before tuning, include negative controls, and replicate on at least one small non-STOA case or explicitly limit the claim to STOA.
-7. **Prompt injection and poisoned lineage** — treat artifacts/JDs as untrusted data, use typed allowlisted extraction, read-only inspection, human-visible sources, cache invalidation, and adversarial fixtures.
-8. **Upstream/license drift** — verify gitlinks and licenses, record exact source paths and divergence, retain MIT/Apache notices where required, and copy seams rather than architectures.
+1. **False completeness and coverage-as-capability** — define completeness as all known items from declared sources as of a user-confirmed cutoff, retain unresolved states, and keep every non-admitted assessment out of mastery.
+2. **Alias, duplicate, or responsibility inflation** — assign stable source-local IDs before reconciliation, preserve merge/split ancestry, rerun no-inflation invariants, and resolve user/team/other-person/coding-agent/third-party responsibility independently of artifact presence.
+3. **Source tampering or privacy leakage** — hash raw bytes before interpretation, bind converter/version and derived-text hashes, use one hardened private store, reject unsafe links, and expose only safe identifiers/counts/hashes outside the ignored workspace.
+4. **JD invention, substitution, or backflow** — require reconstructable spans and item-level completeness review, accept without reparsing, seal exactly three distinct packets, bind every run to immutable hashes, and prove comparisons leave the graph unchanged.
+5. **Reviewer leakage and effectiveness overclaim** — freeze opaque assignments, baseline, criteria, graph, corpus, and reviewer roles before results; retain disagreement and variance; apply only the preregistered decision meanings and state generalization limits.
 
 ## Implications for Roadmap
 
-The roadmap should use six validation phases. These phases deliberately end at the core-hypothesis decision; dynamic résumé generation belongs in the next milestone if that decision is positive.
+The following are dependency-aware **suggested phase topics**, not final roadmap phases or new requirements. Historical numbering ends at Phase 6, so the topics continue from 7 only to help the roadmapper preserve ancestry. The roadmapper must reconcile, merge, split, or renumber them against the authoritative v1.1 requirements; research recommendations do not override those requirements.
 
-### Phase 1: Validation Charter, Provenance, and Technical Decision Gate
+### Suggested Phase Topic 7: Generic Identity, Source Custody, and One Private Workspace
 
-**Rationale:** Evaluation rules, trust boundaries, sampling, and upstream reuse boundaries must be fixed before prompts, formulas, or cases are tuned. This phase also resolves the stack paper’s recommendation without pretending it is already settled.  
-**Delivers:** Preregistered hypothesis/endpoints; development and sealed holdout sets; baselines; success/partial/reject rules; privacy/trust policy; upstream adaptation ledger; verified submodule pins/licenses; chosen minimal runtime/toolchain and provider experiment boundary.  
-**Addresses:** Versioned audit/calibration record, reproducible fixtures, explicit upstream classification.  
-**Avoids:** Non-falsifiable success, circular evaluation ownership, STOA/JD overfit, prompt-injection ambiguity, and license drift.  
-**Validation gate:** A negative outcome is possible under frozen rules; holdouts and baselines are identified; exact stack/provider choices are recorded as implementation decisions rather than product definition.
+**Rationale:** Every later artifact depends on generic, privacy-safe identities and one storage boundary; widening STOA regexes or adding per-format stores would bake fixture assumptions into production.
+**Delivers:** Tagged source locators, source envelopes, generic IDs, one `WorkspacePaths` policy, shared atomic/create-only primitives, permission and link verification, safe status output, and a frozen STOA legacy adapter.
+**Addresses:** Heterogeneous source custody, privacy, stable identity, and no-new-dependency stack retention.
+**Avoids:** Parallel stores/parsers, source substitution, private-data leakage, phase-number storage contracts, and speculative infrastructure.
 
-### Phase 2: Domain Contracts, STOA Fixture, and Deterministic Invariants
+### Suggested Phase Topic 8: Full-Career Inventory, Reconciliation, and Cutoff Seal
 
-**Rationale:** Every later model-assisted stage must adapt to the project’s semantics instead of importing an upstream data model or scoring theory.  
-**Delivers:** Strict versioned entities; mastery anchors; attribution and temporal models; file repository; hand-authored STOA Experience/Contribution/Evidence fixture; minimal MIND adapter; golden good/bad cases; split/merge, duplicate, interval-union, no-propagation, and JD-isolation tests.  
-**Addresses:** Contribution grounding, separate assessment dimensions, specific Skill identity, provenance, and fixture integrity.  
-**Avoids:** Experience-to-Skill shortcuts, wrong granularity, dimension collapse, ontology-derived mastery, duration inflation, and stale lineage.  
-**Validation gate:** Invalid states are rejected; every assessment-shaped fixture traces to one Contribution; direct evidence removal eliminates mastery even when ontology relations remain; two humans can apply the draft rubric.
+**Rationale:** The coverage denominator and user authority must exist before a “full-career” graph can be claimed or production assessments scheduled.
+**Delivers:** Declared-source manifest, all-known-item proposal, explicit category coverage, item correction/add/split/merge/exclude lineage, unresolved dispositions, resumable review packets, and a user-confirmed immutable inventory revision.
+**Addresses:** Full-career completeness, user control, explicit unknowns, and visible audit readiness.
+**Avoids:** File-count completeness, silent drops, resume-as-career substitution, and bulk acceptance.
 
-### Phase 3: Artifact-Aware Grill-Me and Attribution Workflow
+### Suggested Phase Topic 9: Generic Contribution Audit and Attribution
 
-**Rationale:** The project’s core evidence must be produced before aggregation or JD optimization can influence the interview.  
-**Delivers:** Read-only artifact registry; confirmed STOA decomposition; resumable single-question audit state machine; neutral question policy; claim proposals; user edits/rejections; coverage and stopping policy; attribution challenge fixtures; replayable transcripts for contrasting Contributions.  
-**Addresses:** Inspect-before-ask, one-question flow, concrete capability probes, responsibility separation, and explicit unresolved/provisional states.  
-**Avoids:** Leading questions, self-report fluency bias, interview fatigue, contradiction erasure, borrowed team/Codex work, and artifact injection.  
-**Validation gate:** Every selected Contribution has reviewed ownership/evidence; each conclusion states what was and was not established; no scored question is leading, repeated, multi-part, or artifact-answerable.
+**Rationale:** Real Contribution evidence and responsibility boundaries must be established before Skill resolution or score-bearing assessment.
+**Delivers:** Existing one-question audit over accepted inventory IDs and source hashes, contribution scheduling, neutral capability probes, separate responsibility and assistance review, immutable conclusions, and stale-lineage invalidation.
+**Addresses:** Full-career audit queue, attribution, evidence sufficiency, pause/resume, and Contribution-level grounding.
+**Avoids:** A second interview engine, team or coding-agent transfer, artifact-presence mastery, and unresolved responsibility entering assessment.
 
-### Phase 4: Contribution–Skill Assessment and Aggregation Calibration
+### Suggested Phase Topic 10: Skill Resolution and Reviewed-User-Truth Mastery
 
-**Rationale:** Relationship-level semantics must be trustworthy before a user-level number can summarize them. Formula choice is an empirical output of this phase, not an input from project initialization.  
-**Delivers:** Confirmed Skill normalization; Contribution–Skill proposals and basis traces; independent human review; at least one replaceable aggregation candidate; anchor gates; confidence/provisional rules; repeated-run and drift reports; calibration decisions and regressions.  
-**Addresses:** Separate mastery/centrality/confidence/context/duration; stable user Skill assessments; counterexamples and human calibration.  
-**Avoids:** Opaque LLM final scores, arithmetic promotion, centrality/evidence-volume bias, false precision, circular judging, and cache/context leakage.  
-**Validation gate:** Perturbation, split/merge, duplicate, overlap, propagation, attribution, and JD-swap tests pass; higher bands require observable anchor satisfaction; reviewer/model disagreement is reported rather than averaged away.
+**Rationale:** Candidate labels and confirmed career facts remain non-scoring until reviewable Skill identity and the existing assessment/admission path are applied.
+**Delivers:** Reviewable alias/equivalence decisions, immutable Contribution–Skill versions, real-user policy calibration, review-only aggregation, uncertainty semantics, and duplicate/no-inflation regression evidence.
+**Addresses:** Specific Skill identity, separate mastery/centrality/confidence/context/duration, anchor integrity, and admission authority.
+**Avoids:** Alias inflation, ontology propagation, default-zero scoring, arithmetic promotion, and candidate claims becoming discounted mastery.
 
-### Phase 5: JD Usefulness and Adversarial Evaluation
+### Suggested Phase Topic 11: Canonical Graph Projection and User Confirmation
 
-**Rationale:** The hypothesis is useful only if the calibrated graph improves decisions for contrasting target roles without corrupting capability truth.  
-**Delivers:** Structured small-JD fixtures with source spans; reviewed expectations; evidence-bearing comparison reports; JD-specific relevant Contribution selection; explicit limitations/gaps; blinded comparison against preregistered baselines; prompt-injection, hidden-text, alias, negative-control, and stale-cache suites.  
-**Addresses:** Structured JD expectations, stable capability with JD-specific relevance, traceable supported/partial/unsupported decisions, and baseline comparison.  
-**Avoids:** Keyword-match-as-success, JD-conditioned mastery, attractive unsupported claims, adversarial artifact manipulation, and evaluation on happy paths only.  
-**Validation gate:** JD swaps leave the user graph unchanged; positive matches trace to confirmed assessments; there are zero critical fabricated capabilities; graph-based output wins or materially corrects the baseline under the frozen rubric.
+**Rationale:** Downstream comparison needs one complete, immutable read model after inventory, audit, resolution, and assessment authorities are stable.
+**Delivers:** A deterministic `CareerGraphSnapshot`, explicit coverage records for every accepted item, exact upstream/policy hashes, graph confirmation lineage, rebuild tests, and an expected-prior-hash current pointer.
+**Addresses:** One canonical graph, completeness distinct from mastery, stable identity, and inspectable readiness.
+**Avoids:** Mutable universal graphs, copied fact ledgers, unassessed-node loss, stale sidecars, and multiple graph authorities.
 
-### Phase 6: Replication and Core-Hypothesis Decision
+### Suggested Phase Topic 12: Three Real JDs, Item Review, and Immutable Corpus
 
-**Rationale:** A polished STOA result is insufficient evidence for expansion. The project must test held-out behavior and state its limits before authorizing downstream product work.  
-**Delivers:** Sealed-holdout results; leave-one-Contribution/JD-out analysis; one minimal non-STOA replication where feasible; consolidated human calibration findings; supported/partially-supported/rejected decision; scoped generalization statement; recommendation for the next milestone.  
-**Addresses:** Reproducible evaluation, honest uncertainty, and readiness criteria for downstream résumé generation.  
-**Avoids:** Single-case overclaiming and using résumé prose or UI polish as retrospective proof.  
-**Validation gate:** All required structural, truthfulness, calibration, adversarial, and usefulness gates pass for “supported”; mixed results produce “partially supported”; failures of traceability, stability, attribution, or usefulness block expansion.
+**Rationale:** The empirical corpus must be supplied and accepted by the user before any target outcomes can influence extraction, selection, or policy.
+**Delivers:** One JD interpretation port, recorded/offline proposals, span-bound requirements, item-level edit/split/merge/add/reject review, exact-hash acceptance, and one ordered corpus manifest containing exactly three distinct user-supplied real JDs.
+**Addresses:** Raw-JD authority, correction, whole-packet acceptance, corpus custody, and prompt-like content as inert data.
+**Avoids:** Synthetic substitution, omission/invention, re-parsing during acceptance, live-URL drift, bulk acceptance, and post-result corpus replacement.
+
+### Suggested Phase Topic 13: Workspace-Bound Comparison and Frozen Evaluation Execution
+
+**Rationale:** Automated structural and stability evidence should be generated from sealed inputs before human comparative judgments, without writing backward into career truth.
+**Delivers:** Requirement-level comparisons bound to graph/corpus/packet/policy hashes; before/after graph-isolation assertions; deterministic, adversarial, three-attempt stability, holdout/leave-one-out, and feasible replication run bundles; retained deviations and failures.
+**Addresses:** Truthful relevance views, uncertainty-aware comparison, experiment reproducibility, and no-backflow guarantees.
+**Avoids:** JD-conditioned mastery, moving current pointers, stale/substituted manifests, hidden exclusions, averaged-away critical failures, and evaluation mutation.
+
+### Suggested Phase Topic 14: Blind Human Review and Frozen Core-Hypothesis Decision
+
+**Rationale:** Automated checks cannot establish decision usefulness, and a polished result must not bypass the preregistered blind baseline, disagreement, replication, or decision rules.
+**Delivers:** Opaque A/B assignment, frozen baseline and reviewer roles, human usefulness judgments, disagreement/adjudication records, criterion-by-criterion finalization, blockers and limitations, and the immutable `supported` / `partially-supported` / `rejected` decision.
+**Addresses:** Blind baseline comparison, human authority, honest failure, and bounded generalization.
+**Avoids:** Reviewer leakage, baseline tuning after results, roadmap-momentum bias, and résumé/interview/offer/hiring/employment-effectiveness claims.
 
 ### Phase Ordering Rationale
 
-- Freeze the validation contract and provenance before tuning; otherwise success, reuse, and security rules drift toward observed results.
-- Encode domain invariants and representative fixtures before building model orchestration; every borrowed upstream pattern must prove it preserves Contribution-level semantics.
-- Audit and confirm Contributions before assessment; assess Contribution–Skill relationships before aggregation; aggregate stable Skills before comparing JDs.
-- Keep JD information out of the Grill-Me and stable-mastery path to prevent target leakage.
-- Treat adversarial testing and human calibration as validation work, not post-launch hardening.
-- Authorize dynamic JD-tailored résumé generation only after Phase 6 supports the hypothesis; then build it as a provenance-preserving consumer of the graph, not as a new source of capability truth.
+- Build generic identity and one private custody boundary before real source ingestion so adapters cannot create competing stores or authorities.
+- Seal the inventory before claiming full-career coverage, but do not require every item to become assessed; explicit unknowns keep the experiment bounded and truthful.
+- Audit Contributions before resolving score-bearing Skills; review/admit assessments before projecting mastery; project and confirm one graph before admitting target JDs into comparison.
+- Accept all three JDs before evaluating any final result so corpus, extraction, and policy cannot be tuned to observed outcomes.
+- Run comparison and evaluation as read-only consumers; corrections create new upstream versions and a separately declared rerun, never an in-place “improvement.”
+- End at the frozen core-hypothesis decision. Any résumé or gap-work phase belongs to a later requirements process only if the decision authorizes a scoped follow-on.
 
 ### Research Flags
 
-Phases likely needing deeper research during planning:
+Suggested topics likely needing deeper phase research or real-fixture discovery during planning:
 
-- **Phase 1:** Select defensible endpoints, baseline protocols, holdout sampling, privacy handling, reviewer independence, and the exact runtime/provider/tool pins.
-- **Phase 3:** Design neutral, skill-family-appropriate probe/work-sample patterns and stopping rules without teaching the answer.
-- **Phase 4:** Compare aggregation candidates, confidence admission rules, anchor interpretation, inter-rater statistics, and acceptable run-to-run variance.
-- **Phase 5:** Define the small JD sample, flat and human baselines, blinded usefulness rubric, and adversarial corpus before outputs are seen.
-- **Phase 6:** Decide the minimum non-STOA replication and the exact scope of any generalization claim.
+- **Suggested Topic 8:** Inventory reconciliation, merge/split lineage, source-category coverage, and manageable user review packets depend on the actual career corpus.
+- **Suggested Topic 9:** Neutral capability probes and evidence/responsibility stopping rules vary by Skill family and should be validated without leading the user.
+- **Suggested Topic 10:** Real-user aggregation policy, confidence admission, anchor promotion, alias resolution, and uncertainty categories require calibrated fixtures.
+- **Suggested Topic 12:** The actual JD/source formats determine whether a provider or parser is needed; extraction completeness and span semantics need corpus-specific tests.
+- **Suggested Topics 13–14:** Blind reviewer operations, replication feasibility, disagreement handling, and the mapping from retained evidence to the already frozen decision need preregistered operational detail.
 
-Phases with established patterns where targeted implementation research can be skipped:
+Suggested topics with established implementation patterns where a separate research pass can usually be skipped:
 
-- **Phase 2 repository/contracts mechanics:** strict Pydantic models, atomic JSON/JSONL persistence, hashing, append-only events, fixtures, and offline pytest patterns are well documented. Research is still needed for domain semantics, not the mechanics.
-- **Pinned-upstream provenance mechanics:** exact gitlink verification and license ledger practices are defined; execution needs diligence rather than architectural discovery.
-
-## Open Questions and Validation Gates
-
-These decisions must remain visible rather than being smuggled into a stack, schema, or prompt:
-
-- Which exact STOA Contributions and Evidence artifacts span the necessary attribution, mastery, confidence, and centrality cases without becoming full-career modeling?
-- What quantitative endpoints, failure thresholds, inter-rater statistic, and repeated-run stability envelope are appropriate for the final fixture count?
-- Which baseline set is feasible and fair: keyword, artifacts-only, interview-only, and structured human review?
-- Which skill families need different neutral probes or confirmatory work samples?
-- What is the smallest useful MIND slice, and when should a normalization remain unresolved?
-- Which aggregation candidates should be calibrated, and what evidence admits a high-mastery claim as confirmed rather than provisional?
-- Which provider/model/SDK and structured-output transport best meet the chosen phase requirements? This choice is intentionally outside the domain model.
-- Is text/Markdown/JSON sufficient for faithful evidence, or do selected fixtures justify adding PDF/DOCX parsing?
-- Can one small non-STOA case be included without expanding the project beyond hypothesis validation?
-- If the hypothesis is supported, what provenance contract must dynamic résumé selection and rewriting preserve in the next milestone?
+- **Suggested Topic 7 storage mechanics:** Pydantic contracts, canonical hashing, atomic/create-only writes, local permissions, Protocol ports, and pytest safety fixtures already exist; research is needed only if encryption, binary parsing, or external transfer becomes an explicit requirement.
+- **Suggested Topic 11 graph mechanics:** Deterministic projection, immutable snapshots, in-memory indexes, exact hash ancestry, and compare-and-swap pointer movement are well-defined in the current code and research.
+- **Suggested Topic 13 structural comparison mechanics:** Pure read-only comparison and canonical evaluation bundles follow established repository patterns; deeper research should focus on evaluation design, not infrastructure.
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | MEDIUM | The minimal architecture and “avoid premature infrastructure” conclusion are strong; exact Python/package versions are time-sensitive recommendations and `PROJECT.md` leaves implementation decisions open. |
-| Features | HIGH | Table stakes, exclusions, and acceptance gates derive directly from the project hypothesis and agree across all four research files and pinned upstream analysis. Numeric thresholds remain intentionally uncalibrated. |
-| Architecture | HIGH for boundaries; MEDIUM for policies | Component separation, proposal/confirmation flow, and lineage rules are well supported. Aggregation, confidence gates, stop criteria, and JD-fit policy remain empirical decisions. |
-| Pitfalls | HIGH for project-specific validity/integrity risks; MEDIUM for external guidance | The major failure modes follow directly from invariants and pinned code. Population fairness, quantitative thresholds, and some security/interview guidance need validation beyond this single-user study. |
+| Stack | HIGH | Direct code and lockfile inspection show the current Python/Pydantic/stdlib/pytest stack covers v1.1. Provider and parser choices remain intentionally deferred until a real corpus proves need. |
+| Features | HIGH | Table stakes, anti-features, authority semantics, and exactly-three-JD behavior derive directly from `PROJECT.md`, the frozen v1.0 foundation, and the current evaluation charter. External product analogues are corroborative only. |
+| Architecture | HIGH for boundaries; MEDIUM for policy details | One workspace, narrow authorities, one projector, immutable inputs, and read-only evaluation map cleanly to verified code seams. Merge/split, coverage gates, and final policy versions need real fixtures. |
+| Pitfalls | HIGH for authority, custody, and isolation risks; MEDIUM for operational evaluation details | The critical failures are visible in the current contracts and milestone constraints. Reviewer logistics, real-source heterogeneity, and replication feasibility remain empirical. |
 
-**Overall confidence:** HIGH on the recommended validation roadmap and scope boundaries; MEDIUM on the eventual implementation configuration and assessment calibration.
+**Overall confidence:** HIGH in the recommended scope, architecture boundaries, and dependency order; MEDIUM in the phase-level policies that must be decided with the user's real career corpus and three real JDs.
 
 ### Gaps to Address
 
-- **Calibration evidence:** No validated scoring formula, confidence gate, threshold, or reviewer agreement target exists yet. Resolve in Phases 1 and 4 using frozen cases.
-- **Generalizability:** STOA and one user cannot establish broad hiring validity or fairness. Use sealed holdouts, attempt minimal non-STOA replication, and state limits.
-- **Ground truth:** Human review is necessary but not infallible. Pilot the rubric, preserve disagreement, blind reviewers where possible, and report uncertainty.
-- **Skill-family work samples:** Appropriate demonstrations differ for product reasoning, software implementation, teaching, deployment, and research. Research these selectively in Phase 3.
-- **Legal obligations:** Exact duties depend on what is copied and distributed. Maintain the ledger and obtain legal review if substantial adaptation makes obligations unclear.
-- **Final-product bridge:** Résumé generation is intentionally absent from implementation, not from the product vision. Phase 6 must hand off stable evidence-selection and provenance contracts for the next milestone.
+- **Actual career-source inventory:** Source kinds, unavailable materials, duplicates, and conversion needs are unknown until the user declares the corpus. Start with raw custody and deterministic adapters; add no parser speculatively.
+- **User-blocking authority checkpoints:** The inventory seal, unresolved-state review, graph confirmation, three-JD selection/acceptance, and human evaluation require explicit user participation and resumable readiness views.
+- **Identity reconciliation:** One-to-many and many-to-one merge/split cases need fixtures that preserve source-local ancestry without creating duplicate mastery.
+- **Coverage and uncertainty policy:** Planning must state which unresolved states block inventory or graph confirmation and how each state affects JD judgments without becoming zero mastery.
+- **Real-user calibration:** Aggregation, confidence gates, comparison policy versions, and higher-anchor promotion must be frozen from reviewed fixtures before the final run.
+- **Evaluation operations:** Reviewer independence, opaque assignment, baseline custody, disagreement/adjudication, holdout/replication feasibility, and rerun rules must be executable rather than prose-only.
+- **Privacy escalation boundary:** Current local permissions are appropriate for v1.1. Encryption at rest, synchronization, upload, or telemetry would require a separate threat model and explicit authority.
+- **Bounded claims:** Three JDs and one user can test the core hypothesis under declared conditions, not general hiring or employment outcomes. The final artifact must state that limitation even if the result is supported.
 
 ## Sources
 
 ### Primary (HIGH confidence)
 
-- [PROJECT.md](../PROJECT.md) — product hypothesis, accepted domain relationships and anchors, scope, deferred decisions, and final-product boundary.
-- [Open-source reference baseline](../../references/README.md) — pinned commits, licenses, reuse matrix, and integration rule.
-- [STACK.md](./STACK.md) — minimal implementation candidate, current package research, upstream file-level reuse decisions, and deferred technology choices.
-- [FEATURES.md](./FEATURES.md) — table stakes, differentiators, acceptance gates, anti-features, dependencies, and human-review contract.
-- [ARCHITECTURE.md](./ARCHITECTURE.md) — modular-monolith boundaries, contracts, data flow, persistence, build order, and upstream integration map.
-- [PITFALLS.md](./PITFALLS.md) — validity, integrity, security, provenance, overfit, and phase-gate risks.
-- Pinned upstream snapshots: Tabiya Compass `8470bea7…`, Matt Pocock Skills `2ab95809…`, MIND Tech Ontology `2367527d…`, CV Market Learning Planner `ea507847…`, Hiring Agent `70fd3ea9…`, and Resume Matcher `ad7754c8…`.
+- [PROJECT.md](../PROJECT.md) — v1.1 goal, active requirements, authority semantics, exactly-three-JD boundary, and out-of-scope claims.
+- [Current roadmap](../ROADMAP.md) and archived v1.0 roadmap/requirements — historical Phase 1–6 ancestry and the incomplete empirical validation carried into v1.1.
+- [STACK.md](./STACK.md) — current dependency surface, project-owned seams, exact versions, and no-new-dependency recommendation.
+- [FEATURES.md](./FEATURES.md) — acceptance checkpoints, authority/status semantics, table stakes, anti-features, and feature dependencies.
+- [ARCHITECTURE.md](./ARCHITECTURE.md) — one-workspace architecture, component boundaries, one canonical projector, data flows, and build order.
+- [PITFALLS.md](./PITFALLS.md) — authority, identity, privacy, JD custody, evaluation isolation, and overclaim risks.
+- `validation/jd/evaluation-charter.json` — frozen case inventory, repetition, baseline, blind-review, fabrication, and limitation rules.
+- Existing `domain`, `audit`, `assessment`, `jd`, and `validation` modules — verified contracts, review/admission authority, private custody, graph isolation, hashing, and create-only storage seams.
+- [Pydantic documentation](https://docs.pydantic.dev/latest/) — strict validated models and JSON Schema.
+- [Python 3.13 library documentation](https://docs.python.org/3.13/library/) — hashing, file controls, atomic replacement, fsync, statistics, and optional SQLite boundary.
+- [pytest documentation](https://docs.pytest.org/en/stable/) — parametrization, fixtures, markers, and temporary-directory support.
+- [OWASP LLM Prompt Injection Prevention](https://cheatsheetseries.owasp.org/cheatsheets/LLM_Prompt_Injection_Prevention_Cheat_Sheet.html) and [File Upload Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html) — untrusted-input separation, human review, allowlists, restricted storage, and file-processing controls.
+- [NIST AI RMF Core](https://airc.nist.gov/airmf-resources/airmf/5-sec-core/) — provenance, privacy, human oversight, limitations, and repeatable evaluation.
+- [W3C PROV](https://www.w3.org/TR/prov-overview/) and [Web Annotation](https://www.w3.org/TR/annotation-model/) — derivation, attribution, revision, and source-segment anchoring.
 
 ### Secondary (MEDIUM confidence)
 
-- Official Python, Pydantic, pytest, uv, Ruff, and Python Packaging documentation cited in [STACK.md](./STACK.md) — current compatibility and tooling guidance.
-- NIST AI Risk Management Framework, U.S. OPM structured-interview/self-report guidance, and OWASP LLM Prompt Injection guidance cited in [PITFALLS.md](./PITFALLS.md) — evaluation independence, standardized probes, uncertainty, and adversarial controls.
-- Human/LLM evaluation surveys and employment-validity documentation cited in [FEATURES.md](./FEATURES.md) — rubric, calibration, and work-related construct corroboration.
-- Evidence & Conclusion Ontology, Microsoft human-in-the-loop guidance, and competence/JD-matching research cited in [ARCHITECTURE.md](./ARCHITECTURE.md) — evidence-bearing assertions, persisted confirmation, and separation of capability from suitability.
+- Europass and LinkedIn documentation cited in [FEATURES.md](./FEATURES.md) — broad editable career inventories and item-level user control as interface expectations.
+- Teal, Huntr, and Jobscan product pages cited in [FEATURES.md](./FEATURES.md) — master-source, JD review, and text-baseline expectations; no vendor effectiveness claim was adopted.
+- Microsoft human-AI interaction guidance, APA responsible assessment guidance, OSF preregistration guidance, and the human-baseline research cited in [FEATURES.md](./FEATURES.md) — correction, oversight, preregistration, and baseline rigor.
 
 ---
-*Research completed: 2026-07-30*  
-*Ready for roadmap: yes*
+*Research completed: 2026-08-28*
+*Ready for roadmap: yes — requirements remain authoritative; suggested topics are advisory*
