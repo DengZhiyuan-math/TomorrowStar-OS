@@ -3,11 +3,28 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
 from career_evidence_graph.jd import JDIntakeError, prepare_jd_intake
 from career_evidence_graph.validation.hashing import sha256_digest
+
+
+ROOT = Path(__file__).parents[1]
+LAUNCHER = ROOT / "scripts/run_career_evidence.py"
+
+
+def _run(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, str(LAUNCHER), *args],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
 
 
 def _proposal(source: bytes, *, source_id: str = "source-probe") -> bytes:
@@ -123,3 +140,50 @@ def test_instruction_like_text_stays_inert_source_data() -> None:
 
     assert prepared.packet.raw_source.source_hash == sha256_digest(source)
     assert prepared.accepted is False
+
+
+def test_prepare_cli_keeps_one_private_packet_unaccepted(tmp_path: Path) -> None:
+    source = b"content-free CLI probe"
+    proposal_path = tmp_path / "proposal.json"
+    proposal_path.write_bytes(_proposal(source))
+
+    result = _run(
+        "jd",
+        "prepare",
+        "--workspace",
+        str(tmp_path),
+        "--source-id",
+        "source-probe",
+        "--paste",
+        source.decode("utf-8"),
+        "--proposal",
+        str(proposal_path),
+    )
+
+    assert result.returncode == 0, result.stderr
+    emitted = json.loads(result.stdout)
+    assert emitted["accepted"] is False
+    assert emitted["source_hash"] == sha256_digest(source)
+    assert (tmp_path / ".career-evidence/phase-05/prepared").is_dir()
+    assert "content-free CLI probe" not in result.stdout
+
+
+@pytest.mark.parametrize(
+    "expectation",
+    (
+        "prepared-exact-three",
+        "accepted-corpus-and-graph",
+        "existing-evaluation",
+        "sealed-blind-review",
+        "finalized",
+    ),
+)
+def test_inspect_expectation_is_read_only_and_returns_status_two_when_unmet(
+    tmp_path: Path, expectation: str
+) -> None:
+    result = _run("jd", "inspect", "--workspace", str(tmp_path), "--expect", expectation)
+
+    assert result.returncode == 2
+    emitted = json.loads(result.stdout)
+    assert emitted == {"actual": False, "expected": expectation, "met": False}
+    assert not (tmp_path / ".career-evidence").exists()
