@@ -203,3 +203,11 @@ were rejected as needless complexity.
 - Measuring real application, interview, offer, or hiring effectiveness through later
   multi-round use.
 - Multi-user and recurring reviewer workflows.
+
+## Post-Discussion Planning Constraint
+
+**User instruction:** The user will provide the real test JDs when execution reaches the test
+step. Research and planning must not find, choose, or generate those JDs.
+
+**Planning consequence:** Plans may build the strict intake contract and checkpoint first, but
+fixture-dependent execution and completion remain blocked until the user supplies the inputs.

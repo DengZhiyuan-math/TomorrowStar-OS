@@ -96,6 +96,11 @@ applications, or claim that the workflow improves interview, offer, or hiring ou
   guards run as designed and that the fixed evaluation can compare decision usefulness against
   the preregistered baseline. It does not establish real-world application, interview, offer,
   or hiring effectiveness; those require later multi-round job-search evidence.
+- **D-20:** Research and planning must not search for, select, copy, or synthesize the three
+  real test JDs. The user supplies those JDs only when execution reaches an explicit fixture
+  checkpoint. Earlier tasks may define strict input contracts, validation commands, empty
+  directories, and test harnesses, but the checkpoint blocks real-fixture execution and any
+  completion claim until the user-provided JD files are present and accepted.
 
 ### the agent's Discretion
 
@@ -221,6 +226,8 @@ applications, or claim that the workflow improves interview, offer, or hiring ou
   strongest evidence-backed match, and most important core gap.
 - Apple and Google were the user's examples of priority companies whose JDs always receive
   customized-resume treatment, while retaining honest match scores and limitations.
+- The three real test JDs are user-supplied evaluation inputs. Planning and research should
+  prepare the intake contract and checkpoint, not source substitutes in advance.
 - Default reports should be simple and readable; complete lineage and policy details remain
   available through expansion rather than being removed.
 - “Worth customizing” is a routing decision for personal effort allocation. It is not a new
