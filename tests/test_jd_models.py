@@ -27,7 +27,6 @@ from career_evidence_graph.domain.models import (
 )
 from career_evidence_graph.validation.hashing import sha256_digest
 
-
 SOURCE = b"schema-only requirement; another schema-only requirement"
 
 
@@ -53,9 +52,7 @@ def _payload() -> dict[str, object]:
             "source_hash": source_hash,
             "raw_source_id": "source-schema-only",
             "proposal_json": json.dumps(proposal, sort_keys=True),
-            "proposal_hash": sha256_digest(
-                json.dumps(proposal, sort_keys=True, separators=(",", ":")).encode("utf-8")
-            ),
+            "proposal_hash": sha256_digest(json.dumps(proposal, sort_keys=True).encode("utf-8")),
         },
         "requirements": [
             {
@@ -141,24 +138,24 @@ def test_accepted_packet_fails_closed_on_empty_or_duplicate_or_extra_input() -> 
         AcceptedJDPacket.model_validate(extra)
 
 
-def test_positive_and_partial_judgments_require_exact_skill_contribution_evidence_and_limitation() -> None:
+def test_positive_and_partial_judgments_require_evidence_and_limitation() -> None:
     base = {
         "schema_version": "jd-requirement-judgment/v1",
         "requirement_id": "requirement-first",
         "status": "partially-supported",
         "skill_ids": ["skill.alpha"],
-        "experience_ids": ["experience-schema-only"],
         "contribution_ids": ["contribution-schema-only"],
         "evidence_ids": ["evidence-schema-only"],
+        "evidence_skill_ids": ["skill.alpha"],
         "established_capability": "An admitted exact-Skill assessment exists.",
         "limitation": "The supplied boundary remains only partly met.",
     }
     assert JDRequirementJudgment.model_validate(base).status == "partially-supported"
 
     for field, value in (
-        ("experience_ids", []),
         ("contribution_ids", []),
         ("evidence_ids", []),
+        ("evidence_skill_ids", []),
         ("established_capability", None),
         ("limitation", None),
     ):
@@ -190,7 +187,9 @@ def test_equal_ranked_outputs_have_one_source_offset_then_stable_identifier_orde
             limitation="No direct admitted evidence exists.",
         ),
     )
-    assert [item.requirement_id for item in canonical_jd_judgments(judgments, packet.requirements)] == [
+    assert [
+        item.requirement_id for item in canonical_jd_judgments(judgments, packet.requirements)
+    ] == [
         "requirement-first",
         "requirement-second",
     ]

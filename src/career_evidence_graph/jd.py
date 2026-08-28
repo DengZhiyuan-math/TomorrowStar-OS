@@ -47,9 +47,9 @@ def _graph_payload(
     ]
 
 
-def load_reviewed_user_graph(workspace: Path) -> tuple[
-    tuple[AssessmentRun, ...], tuple[CalibratedUserSkillResult, ...], str
-]:
+def load_reviewed_user_graph(
+    workspace: Path,
+) -> tuple[tuple[AssessmentRun, ...], tuple[CalibratedUserSkillResult, ...], str]:
     """Reopen only complete, current, reviewed-user-truth assessment sidecars."""
     stored = list_assessment_runs(workspace)
     records = tuple(record for _run_id, record in stored)
@@ -64,7 +64,9 @@ def load_reviewed_user_graph(workspace: Path) -> tuple[
             or record.admission.admission_status != "admitted"
             or not record.version_hash
         ):
-            raise JDComparisonError("reviewed user graph contains a non-user-truth or incomplete run")
+            raise JDComparisonError(
+                "reviewed user graph contains a non-user-truth or incomplete run"
+            )
     try:
         results = aggregate_user_skills(records)
     except AssessmentWorkflowError as exc:
@@ -84,7 +86,11 @@ def load_reviewed_user_graph(workspace: Path) -> tuple[
     )
     ordered_records = tuple(item[0] for item in ordered)
     ordered_results = tuple(item[1] for item in ordered)
-    return ordered_records, ordered_results, sha256_digest(canonical_json_bytes(_graph_payload(*zip(*ordered))))
+    return (
+        ordered_records,
+        ordered_results,
+        sha256_digest(canonical_json_bytes(_graph_payload(ordered_records, ordered_results))),
+    )
 
 
 def _judgment_for(
@@ -112,7 +118,9 @@ def _judgment_for(
         for record in evidence_records
     ):
         raise JDComparisonError("requirement evidence is detached from reviewed user truth")
-    contribution_ids = tuple(sorted({record.proposal.contribution_id for record in evidence_records}))
+    contribution_ids = tuple(
+        sorted({record.proposal.contribution_id for record in evidence_records})
+    )
     evidence_ids = tuple(
         sorted(
             {
@@ -136,6 +144,11 @@ def _judgment_for(
             skill_ids=requirement.skill_ids,
             contribution_ids=contribution_ids,
             evidence_ids=evidence_ids,
+            evidence_skill_ids=requirement.skill_ids,
+            established_capability=(
+                "Admitted reviewed-user-truth evidence meets every supplied exact-Skill boundary."
+            ),
+            limitation="No requirement-specific limitation was supplied for this comparison.",
         )
     return JDRequirementJudgment(
         requirement_id=requirement.requirement_id,
@@ -143,7 +156,13 @@ def _judgment_for(
         skill_ids=requirement.skill_ids,
         contribution_ids=contribution_ids,
         evidence_ids=evidence_ids,
-        limitation="Admitted exact-Skill evidence does not reach the supplied requirement boundary.",
+        evidence_skill_ids=requirement.skill_ids,
+        established_capability=(
+            "Admitted reviewed-user-truth evidence exists for every exact Skill."
+        ),
+        limitation=(
+            "Admitted exact-Skill evidence does not reach the supplied requirement boundary."
+        ),
     )
 
 
@@ -164,11 +183,19 @@ def compare_accepted_jd(
 ) -> JDAnalysisResult:
     """Compare read-only reviewed truth with a validated packet and return one report."""
     records, results, graph_hash_before = load_reviewed_user_graph(workspace)
-    judgments = tuple(_judgment_for(requirement, records, results) for requirement in packet.requirements)
+    judgments = tuple(
+        _judgment_for(requirement, records, results) for requirement in packet.requirements
+    )
     total_weight = sum(_weight(requirement, policy) for requirement in packet.requirements)
     earned = sum(
         _weight(requirement, policy)
-        * (100 if judgment.status == "supported" else policy.partially_supported_percent if judgment.status == "partially-supported" else 0)
+        * (
+            100
+            if judgment.status == "supported"
+            else policy.partially_supported_percent
+            if judgment.status == "partially-supported"
+            else 0
+        )
         for requirement, judgment in zip(packet.requirements, judgments, strict=True)
     )
     raw_score = earned // total_weight

@@ -16,6 +16,11 @@ from .models import (
     ContributionSkillAssessment,
     FixtureValidationResult,
     InvariantViolation,
+    JDContributionSelection,
+    JDEvidenceCitation,
+    JDGap,
+    JDRequirement,
+    JDRequirementJudgment,
     MasteryAnchor,
     MasteryAnchorFit,
     OntologyRelation,
@@ -266,6 +271,97 @@ def validate_user_skill_views(
 def _normalized_text(value: str) -> str:
     """Normalize display variants deterministically without altering their source text."""
     return " ".join(unicodedata.normalize("NFKC", value).split()).casefold()
+
+
+def _jd_requirement_rank(requirement: JDRequirement) -> tuple[int, int, int]:
+    """Return the documented relevance rank before source identity tie-breakers."""
+    return (
+        0 if requirement.decision_critical else 1,
+        0 if requirement.priority == "required" else 1,
+        0 if requirement.core_hard else 1,
+    )
+
+
+def canonical_jd_requirements(
+    requirements: tuple[JDRequirement, ...],
+) -> tuple[JDRequirement, ...]:
+    """Order requirements by rank, retained source byte, then stable identity."""
+    return tuple(
+        sorted(
+            requirements,
+            key=lambda item: (
+                _jd_requirement_rank(item),
+                item.source_span.start_byte,
+                item.requirement_id,
+            ),
+        )
+    )
+
+
+def canonical_jd_judgments(
+    judgments: tuple[JDRequirementJudgment, ...],
+    requirements: tuple[JDRequirement, ...],
+) -> tuple[JDRequirementJudgment, ...]:
+    """Order judgments by their canonical requirement custody order."""
+    requirements_by_id = {item.requirement_id: item for item in requirements}
+    if set(item.requirement_id for item in judgments) != set(requirements_by_id):
+        raise ValueError("JD judgments must name every accepted requirement exactly once")
+    if len({item.requirement_id for item in judgments}) != len(judgments):
+        raise ValueError("JD judgments must contain unique requirement IDs")
+    return tuple(
+        sorted(
+            judgments,
+            key=lambda item: (
+                _jd_requirement_rank(requirements_by_id[item.requirement_id]),
+                requirements_by_id[item.requirement_id].source_span.start_byte,
+                item.requirement_id,
+            ),
+        )
+    )
+
+
+def canonical_jd_evidence_citations(
+    citations: tuple[JDEvidenceCitation, ...],
+) -> tuple[JDEvidenceCitation, ...]:
+    """Order equal-ranked evidence by source byte and stable identifier."""
+    if len({item.evidence_id for item in citations}) != len(citations):
+        raise ValueError("JD evidence citations must contain unique IDs")
+    return tuple(
+        sorted(citations, key=lambda item: (item.rank, item.source_byte_offset, item.evidence_id))
+    )
+
+
+def canonical_jd_gaps(
+    gaps: tuple[JDGap, ...], requirements: tuple[JDRequirement, ...]
+) -> tuple[JDGap, ...]:
+    """Order typed gaps by their requirement's stable source identity."""
+    requirements_by_id = {item.requirement_id: item for item in requirements}
+    if any(item.requirement_id not in requirements_by_id for item in gaps):
+        raise ValueError("JD gap must name an accepted requirement")
+    return tuple(
+        sorted(
+            gaps,
+            key=lambda item: (
+                _jd_requirement_rank(requirements_by_id[item.requirement_id]),
+                requirements_by_id[item.requirement_id].source_span.start_byte,
+                item.requirement_id,
+                item.kind,
+            ),
+        )
+    )
+
+
+def canonical_jd_contribution_selections(
+    selections: tuple[JDContributionSelection, ...],
+) -> tuple[JDContributionSelection, ...]:
+    """Order selected truthful sources by rank, byte offset, then identifier."""
+    if len({item.contribution_id for item in selections}) != len(selections):
+        raise ValueError("JD contribution selections must contain unique IDs")
+    return tuple(
+        sorted(
+            selections, key=lambda item: (item.rank, item.source_byte_offset, item.contribution_id)
+        )
+    )
 
 
 def normalize_skill_metadata(

@@ -6,6 +6,8 @@ derive a person's capability from a document, title, repository, or ontology.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from enum import StrEnum
 from typing import Annotated, Literal
@@ -728,9 +730,10 @@ class JDRawSource(StrictModel):
 
     @model_validator(mode="after")
     def validate_source_hash(self) -> JDRawSource:
-        import hashlib
-
-        if self.source_hash != f"sha256:{hashlib.sha256(self.utf8_text.encode()).hexdigest()}":
+        if (
+            self.source_hash
+            != f"sha256:{hashlib.sha256(self.utf8_text.encode('utf-8')).hexdigest()}"
+        ):
             raise ValueError("JD source hash does not match retained UTF-8 text")
         return self
 
@@ -740,6 +743,27 @@ class JDRecordedProposal(StrictModel):
     proposal_id: Identifier = Field(pattern=ID_PATTERN)
     source_hash: str = Field(pattern=SHA256_PATTERN)
     raw_source_id: Identifier = Field(pattern=ID_PATTERN)
+    proposal_json: str = Field(min_length=1)
+    proposal_hash: str = Field(pattern=SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def validate_proposal_custody(self) -> JDRecordedProposal:
+        if (
+            self.proposal_hash
+            != f"sha256:{hashlib.sha256(self.proposal_json.encode('utf-8')).hexdigest()}"
+        ):
+            raise ValueError("recorded JD proposal hash does not match its exact JSON")
+        try:
+            proposal = json.loads(self.proposal_json)
+        except json.JSONDecodeError as exc:
+            raise ValueError("recorded JD proposal must contain JSON") from exc
+        if not isinstance(proposal, dict):
+            raise ValueError("recorded JD proposal JSON must be an object")
+        if proposal.get("source_hash") != self.source_hash:
+            raise ValueError("recorded JD proposal JSON must bind the raw source hash")
+        if proposal.get("raw_source_id") != self.raw_source_id:
+            raise ValueError("recorded JD proposal JSON must bind the raw source ID")
+        return self
 
 
 class JDSourceSpan(StrictModel):
@@ -794,6 +818,14 @@ class AcceptedJDPacket(StrictModel):
             raise ValueError("recorded JD proposal must bind the raw source hash")
         if self.recorded_proposal.raw_source_id != self.raw_source.source_id:
             raise ValueError("recorded JD proposal must bind the raw source ID")
+        source_bytes = self.raw_source.utf8_text.encode("utf-8")
+        for requirement in self.requirements:
+            span = requirement.source_span
+            if span.end_byte > len(source_bytes):
+                raise ValueError("JD source span exceeds retained UTF-8 source bytes")
+            text = source_bytes[span.start_byte : span.end_byte]
+            if span.text_hash != f"sha256:{hashlib.sha256(text).hexdigest()}":
+                raise ValueError("JD source span hash does not reconstruct from retained source")
         return self
 
 
@@ -824,7 +856,45 @@ class JDRequirementJudgment(StrictModel):
     skill_ids: tuple[Identifier, ...] = Field(min_length=1)
     contribution_ids: tuple[Identifier, ...] = ()
     evidence_ids: tuple[Identifier, ...] = ()
+    evidence_skill_ids: tuple[Identifier, ...] = ()
+    established_capability: str | None = None
     limitation: str | None = None
+
+    @model_validator(mode="after")
+    def validate_evidence_basis(self) -> JDRequirementJudgment:
+        _unique_ids(self.skill_ids, "JD judgment skill_ids")
+        _unique_ids(self.contribution_ids, "JD judgment contribution_ids")
+        _unique_ids(self.evidence_ids, "JD judgment evidence_ids")
+        _unique_ids(self.evidence_skill_ids, "JD judgment evidence_skill_ids")
+        if self.status in {"supported", "partially-supported"}:
+            if not self.contribution_ids or not self.evidence_ids:
+                raise ValueError("positive JD judgments require admitted Contribution evidence")
+            if self.evidence_skill_ids != self.skill_ids:
+                raise ValueError("positive JD judgments require every exact Skill constituent")
+            if not self.established_capability or not self.established_capability.strip():
+                raise ValueError("positive JD judgments require an established capability")
+            if not self.limitation or not self.limitation.strip():
+                raise ValueError("positive JD judgments require an explicit limitation")
+        return self
+
+
+class JDEvidenceCitation(StrictModel):
+    """One cited evidence record with a stable source order for projections."""
+
+    schema_version: Literal["jd-evidence-citation/v1"] = "jd-evidence-citation/v1"
+    evidence_id: Identifier = Field(pattern=ID_PATTERN)
+    source_byte_offset: int = Field(ge=0)
+    rank: int = Field(ge=0)
+
+
+class JDContributionSelection(StrictModel):
+    """Truthful source selection, never drafted résumé wording."""
+
+    schema_version: Literal["jd-contribution-selection/v1"] = "jd-contribution-selection/v1"
+    contribution_id: Identifier = Field(pattern=ID_PATTERN)
+    source_byte_offset: int = Field(ge=0)
+    rank: int = Field(ge=0)
+    reason: str = Field(min_length=1)
 
 
 class JDGap(StrictModel):

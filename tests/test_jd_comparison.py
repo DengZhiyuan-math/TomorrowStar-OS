@@ -65,6 +65,24 @@ def _write_packet(path: Path) -> None:
             "proposal_id": "proposal-schema-only",
             "source_hash": source_hash,
             "raw_source_id": "source-schema-only",
+            "proposal_json": json.dumps(
+                {
+                    "source_hash": source_hash,
+                    "raw_source_id": "source-schema-only",
+                    "proposal_kind": "schema-only-contract-probe",
+                },
+                sort_keys=True,
+            ),
+            "proposal_hash": sha256_digest(
+                json.dumps(
+                    {
+                        "source_hash": source_hash,
+                        "raw_source_id": "source-schema-only",
+                        "proposal_kind": "schema-only-contract-probe",
+                    },
+                    sort_keys=True,
+                ).encode("utf-8")
+            ),
         },
         "requirements": [
             {
