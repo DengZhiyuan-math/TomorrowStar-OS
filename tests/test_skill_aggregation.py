@@ -68,6 +68,17 @@ def _run(tmp_path: Path, **changes: object):
     return build_assessment_run(assessment, decide_admission(assessment, _policy()))
 
 
+def _routine_user_truth_run(tmp_path: Path, **changes: object):
+    """Build a D-05 baseline without applying a promotion-only review requirement."""
+    assessment = _assessment(tmp_path, **changes)
+    payload = assessment.model_dump(mode="json")
+    payload["source_envelope"]["authority_label"] = "reviewed-user-truth"
+    payload["origin_status"] = "audit-verified"
+    payload["assessment_status"] = "partial"
+    user_truth = ContributionSkillAssessment.model_validate(payload)
+    return build_assessment_run(user_truth, decide_admission(user_truth, _policy()))
+
+
 def test_traceable_aggregate_keeps_one_sorted_result_and_strongest_admitted_baseline(
     tmp_path: Path,
 ) -> None:
@@ -149,5 +160,26 @@ def test_same_evidence_can_support_two_skills_without_same_skill_weighting(
         "skill-other-exact",
         first.proposal.skill_id,
     ]
+    assert all(result.mastery == 60 for result in results)
+    assert all(not result.suppressed_duplicate_relationships for result in results)
+
+
+def test_same_evidence_keeps_two_reviewed_user_truth_skills_independent(
+    tmp_path: Path,
+) -> None:
+    first = _routine_user_truth_run(tmp_path, id="assessment-user-truth-skill-one")
+    second = _routine_user_truth_run(
+        tmp_path,
+        id="assessment-user-truth-skill-two",
+        skill_id="skill-other-exact",
+    )
+
+    results = aggregate_user_skills((first, second))
+
+    assert [result.skill_id for result in results] == [
+        "skill-other-exact",
+        first.proposal.skill_id,
+    ]
+    assert all(result.authority_label == "reviewed-user-truth" for result in results)
     assert all(result.mastery == 60 for result in results)
     assert all(not result.suppressed_duplicate_relationships for result in results)
