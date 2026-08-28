@@ -351,6 +351,7 @@ def test_reassess_cli_appends_a_materialized_later_audit_version(tmp_path: Path)
     )
     proposal_path = tmp_path / "later-reassessment.json"
     proposal_path.write_text(json.dumps(later_proposal.model_dump(mode="json")), encoding="utf-8")
+    before_audits = _audit_tree_snapshot(tmp_path)
 
     reassessed = _run(
         "assessment",
@@ -376,6 +377,7 @@ def test_reassess_cli_appends_a_materialized_later_audit_version(tmp_path: Path)
     assert emitted["versions"][-1]["source_audit_id"] == "audit-later-evidence"
     assert emitted["versions"][-1]["reviews"] == []
     assert emitted["proposal"]["source_envelope"]["authority_label"] == "derived-counterfactual"
+    assert _audit_tree_snapshot(tmp_path) == before_audits
 
 
 @pytest.mark.parametrize(
@@ -383,12 +385,21 @@ def test_reassess_cli_appends_a_materialized_later_audit_version(tmp_path: Path)
     (
         (("source_envelope", "authority_label"), "reviewed-user-truth"),
         (("source_envelope", "audit_snapshot_hash"), "sha256:" + "0" * 64),
+        (("source_envelope", "answer_ids"), ["answer:question-caller-forged"]),
+        (("source_envelope", "contribution_id"), "contrib-stoa-content-privacy-integrity"),
         (("origin_status",), "self-assessed-unverified"),
         (("assessment_status",), "reviewed"),
+        (("substantive_review_complete",), True),
+        (("demonstrated_mastery",), 61),
+        (("skill_centrality",), 79),
+        (("evidence_confidence",), 79),
+        (("context",), "caller-forged context"),
+        (("basis_claim_ids",), ["claim-caller-forged"]),
+        (("mastery_anchor_fit", "anchor_basis"), "caller-forged anchor basis"),
+        (("exact_score_basis",), "caller-forged exact score basis"),
+        (("judgment_basis", "demonstrated_mastery_basis"), "caller-forged mastery basis"),
         (("id",), "assessment-caller-forged"),
         (("skill_id",), "skill.caller-forged"),
-        (("contribution_id",), "contrib-stoa-content-privacy-integrity"),
-        (("lineage", "contribution_id"), "contrib-stoa-content-privacy-integrity"),
     ),
 )
 def test_reassess_cli_rejects_each_caller_identity_permutation_without_mutation(
@@ -411,6 +422,8 @@ def test_reassess_cli_rejects_each_caller_identity_permutation_without_mutation(
     proposal_path.write_text(json.dumps(payload), encoding="utf-8")
     sidecar = AssessmentStore(tmp_path).path("assessment-audit-e2e-04-baseline-60")
     before = sidecar.read_bytes()
+    before_audits = _audit_tree_snapshot(tmp_path)
+    ContributionSkillAssessment.model_validate(payload)
 
     rejected = _run(
         "assessment",
@@ -432,6 +445,7 @@ def test_reassess_cli_rejects_each_caller_identity_permutation_without_mutation(
     assert rejected.returncode == 2
     assert "assessment_workflow_error" in rejected.stderr
     assert sidecar.read_bytes() == before
+    assert _audit_tree_snapshot(tmp_path) == before_audits
 
 
 def test_calibration_cli_compares_activates_and_reopens_redacted_history(tmp_path: Path) -> None:

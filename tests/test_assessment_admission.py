@@ -23,7 +23,15 @@ from career_evidence_graph.assessment import (
     run_assessment,
 )
 from career_evidence_graph.audit.decision import RecordedDecisionPort
-from career_evidence_graph.audit.models import AuditAction, BoundaryDecision, ProbePlan
+from career_evidence_graph.audit.models import (
+    AuditAction,
+    AuditConclusion,
+    AuditSnapshot,
+    BoundaryDecision,
+    ProbePlan,
+    conclusion_lineage_digest,
+    effective_conclusion_digest,
+)
 from career_evidence_graph.audit.store import AuditStore
 from career_evidence_graph.audit.workflow import start_audit, transition_audit
 from career_evidence_graph.domain.models import (
@@ -355,6 +363,7 @@ def test_insufficient_review_and_later_evidence_preserve_immutable_versions(tmp_
         corpus=json.loads(later_corpus.read_text(encoding="utf-8")),
         root=later_corpus.parents[3],
     )
+    before_audits = _audit_tree_snapshot(tmp_path)
     later = reassess_from_new_evidence(
         withheld,
         policy=_policy("policy-04-baseline-60", 60),
@@ -372,6 +381,7 @@ def test_insufficient_review_and_later_evidence_preserve_immutable_versions(tmp_
     assert later.versions[0].original_proposal_hash == record.original_proposal_hash
     assert later.versions[0] == withheld.versions[0]
     assert later.versions[-1].reviews == ()
+    assert _audit_tree_snapshot(tmp_path) == before_audits
 
 
 def test_reassessment_rejects_caller_fabricated_custody_and_authority(tmp_path: Path) -> None:
@@ -411,6 +421,9 @@ def test_reassessment_rejects_stale_hash_before_later_corpus_loading(tmp_path: P
         audit_id="audit-e2e",
         policy_version="policy-04-baseline-60",
     )
+    sidecar = AssessmentStore(tmp_path).path("assessment-audit-e2e-04-baseline-60")
+    before_sidecar = sidecar.read_bytes()
+    before_audits = _audit_tree_snapshot(tmp_path)
 
     with pytest.raises(AssessmentWorkflowError, match="stale"):
         reassess_from_new_evidence(
@@ -422,6 +435,8 @@ def test_reassessment_rejects_stale_hash_before_later_corpus_loading(tmp_path: P
             workspace=tmp_path,
             later_corpus_path=tmp_path / "missing-corpus.json",
         )
+    assert sidecar.read_bytes() == before_sidecar
+    assert _audit_tree_snapshot(tmp_path) == before_audits
 
 
 def test_reassessment_rejects_detached_later_audit_without_any_workspace_mutation(
@@ -460,6 +475,70 @@ def test_reassessment_rejects_detached_later_audit_without_any_workspace_mutatio
 
     assert sidecar.read_bytes() == before_sidecar
     assert _audit_tree_snapshot(victim) == before_audits
+
+
+@pytest.mark.parametrize("case", ("missing", "corrupt", "incomplete", "unconfirmed", "custody"))
+def test_reassessment_rejects_invalid_later_audits_without_any_workspace_mutation(
+    tmp_path: Path, case: str
+) -> None:
+    """Every no-replay audit failure leaves both persistence roots byte-identical."""
+    record = run_assessment(
+        workspace=tmp_path,
+        corpus_path=CORPUS,
+        policies_path=POLICIES,
+        audit_id="audit-e2e",
+        policy_version="policy-04-baseline-60",
+    )
+    later_corpus = _later_corpus(tmp_path)
+    later_payload = json.loads(later_corpus.read_text(encoding="utf-8"))
+    source_audit_id = "audit-later-evidence"
+    audit_store = AuditStore(tmp_path)
+    audit_path = audit_store.path(source_audit_id)
+    if case == "missing":
+        source_audit_id = "audit-missing-evidence"
+        later_payload["audit_id"] = source_audit_id
+        later_corpus.write_text(json.dumps(later_payload), encoding="utf-8")
+    elif case == "corrupt":
+        audit_path.write_text("{not-json", encoding="utf-8")
+    elif case == "incomplete":
+        payload = audit_store.read(source_audit_id).model_dump(mode="json")
+        payload["status"] = "reviewing"
+        audit_store.replace(AuditSnapshot.model_validate(payload))
+    elif case == "unconfirmed":
+        snapshot = audit_store.read(source_audit_id)
+        assert snapshot.conclusion is not None
+        conclusion_payload = snapshot.conclusion.model_dump(mode="json")
+        conclusion_payload["whole_review"] = "pending"
+        conclusion_payload["effective_conclusion_hash"] = effective_conclusion_digest(
+            snapshot.conclusion.entries, "pending"
+        )
+        conclusion = AuditConclusion.model_validate(conclusion_payload)
+        payload = snapshot.model_dump(mode="json")
+        payload["conclusion"] = conclusion.model_dump(mode="json")
+        payload["conclusion_reviews"] = []
+        payload["conclusion_lineage_hash"] = conclusion_lineage_digest(conclusion, ())
+        audit_store.replace(AuditSnapshot.model_validate(payload))
+    else:
+        later_payload["audit_snapshot_hash"] = "sha256:" + "0" * 64
+        later_corpus.write_text(json.dumps(later_payload), encoding="utf-8")
+    proposal = record.proposal
+    sidecar = AssessmentStore(tmp_path).path("assessment-audit-e2e-04-baseline-60")
+    before_sidecar = sidecar.read_bytes()
+    before_audits = _audit_tree_snapshot(tmp_path)
+
+    with pytest.raises(AssessmentWorkflowError):
+        reassess_from_new_evidence(
+            record,
+            policy=_policy("policy-04-baseline-60", 60),
+            source_audit_id=source_audit_id,
+            expected_current_version_hash=record.version_hash,
+            proposal=proposal,
+            workspace=tmp_path,
+            later_corpus_path=later_corpus,
+        )
+
+    assert sidecar.read_bytes() == before_sidecar
+    assert _audit_tree_snapshot(tmp_path) == before_audits
 
 
 def _run(*args: str) -> subprocess.CompletedProcess[str]:
