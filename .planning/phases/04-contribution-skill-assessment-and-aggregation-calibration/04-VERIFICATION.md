@@ -1,70 +1,54 @@
 ---
 phase: 04-contribution-skill-assessment-and-aggregation-calibration
-verified: 2026-08-27T20:43:02Z
+verified: 2026-08-28T09:12:21Z
 status: gaps_found
-score: 2/5 must-haves verified
+score: 3/5 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
+re_verification:
+  previous_status: gaps_found
+  previous_score: 2/5
+  gaps_closed:
+    - "Calibration derives audit custody and rehashes retained policy, result, and comparison contents."
+    - "Normal reruns retain insufficient-basis decisions and reviewer decisions append immutable versions."
+    - "Mixed derived/reviewed authority promotion is partitioned and rejected."
+  gaps_remaining:
+    - "Reassessment accepts a caller-controlled source-audit ID and complete proposal envelope, allowing fabricated audit provenance and reviewed-user-truth admission."
+  regressions:
+    - "New CR-01: post-remediation reassessment bypasses the audited-source and authority boundary."
 gaps:
-  - truth: "Calibration history is content-tamper-evident before it can support an active policy."
+  - truth: "Specific Skill assessments and user-level mastery are derived only from confirmed audited Contributions with traceable Evidence, answers, attribution, and assessment basis."
     status: failed
-    reason: "Persisted PolicyRunResult and PolicyComparison hashes are accepted as identifiers but never recomputed from retained contents."
-    artifacts:
-      - path: "src/career_evidence_graph/domain/models.py"
-        issue: "PolicyRunResult only checks case-ID uniqueness and PolicyComparison has no content-integrity validator."
-      - path: "src/career_evidence_graph/assessment.py"
-        issue: "_validate_policy_history validates activation ancestry but not policy, result, or comparison payload hashes."
-    missing:
-      - "Recompute and compare policy_hash, result_hash, and comparison_hash on every history read."
-      - "Add negative tests that mutate a retained case result, delta, or regression label while retaining the stored hash."
-  - truth: "Policy calibration runs only over revalidated completed/confirmed audit custody."
-    status: failed
-    reason: "run_calibration_policy verifies fixture and manifest bytes but accepts declared audit/conclusion hashes directly from corpus JSON."
+    reason: "The reassess CLI accepts caller JSON and an arbitrary syntactically valid source audit ID; the service only checks that the ID differs from the prior version. It neither materializes that audit nor compares it to the proposal envelope, contribution, evidence, conclusion, or authority."
     artifacts:
       - path: "src/career_evidence_graph/assessment.py"
-        issue: "_calibration_input_hashes stringifies corpus audit hashes; run_calibration_policy does not call _materialize_audit."
+        issue: "reassess_from_new_evidence() at lines 1077-1117 validates only the source-audit string shape, current-version hash, assessment ID, and Skill ID before issuing a new admission/result."
+      - path: "src/career_evidence_graph/cli.py"
+        issue: "The reassess handler at lines 614-631 parses an arbitrary ContributionSkillAssessment JSON file and persists the returned record without authoritative audit derivation."
+      - path: "tests/test_assessment_cli.py"
+        issue: "The current reassessment regression tests only a stale version hash; it does not submit a fabricated audit ID or relabelled source envelope."
     missing:
-      - "Materialize and verify the completed audit/conclusion inside calibration and derive all custody hashes from verified objects."
-      - "Add tamper tests for snapshot, conclusion-lineage, and effective-conclusion hashes."
-  - truth: "An insufficient-basis human review remains outside mastery after the normal assessment command is re-run."
-    status: failed
-    reason: "The deterministic run ID collision path overwrites the whole AssessmentStore record with a newly admitted record."
-    artifacts:
-      - path: "src/career_evidence_graph/assessment.py"
-        issue: "run_assessment catches an existing record then calls store.replace(run_id, record)."
-    missing:
-      - "Make an existing run idempotently return the validated record or reject it."
-      - "Require an explicit append-only reassessment operation for a new assessment and add a CLI regression test."
-  - truth: "Every reviewer correction is preserved as a hash-linked immutable assessment version."
-    status: failed
-    reason: "review_assessment rebuilds the current version with the same ID and replaces the final tuple element, so earlier effective content is lost."
-    artifacts:
-      - path: "src/career_evidence_graph/assessment.py"
-        issue: "The version uses latest.version_id/latest.previous_version_hash and returns (*record.versions[:-1], version)."
-    missing:
-      - "Append a new version with a new sequential ID and previous_version_hash equal to the current version hash."
-      - "Test two edits and assert every intermediate effective assessment remains retrievable."
-  - truth: "A reviewed-user-truth Skill can be promoted only with reviewed-user-truth, audit-verified support."
-    status: failed
-    reason: "Promotion accepts source envelopes with resolved fields regardless of authority/origin/review state, then labels the result from the baseline only."
-    artifacts:
-      - path: "src/career_evidence_graph/assessment.py"
-        issue: "validate_anchor_promotion omits authority_label/origin_status/substantive_review_complete checks; aggregate_user_skills uses baseline.source_envelope authority for the combined result."
-    missing:
-      - "Partition promotion inputs by authority and require completed substantive review and audit-verified reviewed-user-truth for every user-truth promotion input."
-      - "Add a mixed reviewed-user-truth/derived-counterfactual promotion test that fails closed."
+      - "Derive reassessment custody from a materialized completed, confirmed later audit, or reject reassessment until such an authoritative locator exists."
+      - "Require the version source-audit ID, proposal envelope audit/contribution/evidence/conclusion identities, origin, and authority to match values derived from that audit."
+      - "Add a black-box exploit regression for audit-fabricated plus a relabelled envelope; it must exit 2 and leave sidecar bytes unchanged."
 ---
 
-# Phase 04: Contribution–Skill Assessment and Aggregation Calibration Verification Report
+# Phase 4: Contribution–Skill Assessment and Aggregation Calibration Verification Report
 
 **Phase Goal:** Reviewers can turn confirmed Contribution audits into traceable Skill assessments and calibrate stable user-level mastery without collapsing distinct signals or rewarding evidence volume.
-**Verified:** 2026-08-27T20:43:02Z
+**Verified:** 2026-08-28T09:12:21Z
 **Status:** gaps_found
-**Re-verification:** No — initial verification
+**Re-verification:** Yes — after remediation Plans 04-06 through 04-08
 
-## Verification Scope Gate
+## User Flow Coverage
 
-ROADMAP marks this phase `mode: mvp`, but `user-story.validate` returned `false` for the phase goal. It is not in the required `As a …, I want to …, so that …` form, so a formal MVP User Flow Coverage report cannot be emitted. Under the direct verification request, this report evaluates the five ROADMAP success criteria and the eight requirement contracts; the invalid MVP metadata remains a workflow configuration discrepancy requiring correction before an MVP-formal verification can pass.
+Phase 4 is marked `mode: mvp`, but its ROADMAP goal fails the canonical User Story validator: it is not in `As a [role], I want to [capability], so that [outcome].` form. A mandatory MVP user-flow UAT cannot be generated from this goal. This report records the requested technical, goal-backward verification and must not be treated as a completed MVP UAT.
+
+| Step | Expected | Evidence | Status |
+| --- | --- | --- | --- |
+| Metadata guard | A valid user story defines role, capability, and outcome. | `user-story.validate` returned `valid: false` for the actual Phase 4 goal. | ⚠️ INVALID MVP METADATA |
+| Confirmed-audit assessment | Only a completed, confirmed audit can produce a traceable assessment/user result. | The normal run materializes an audit; reassess does not. | ✗ FAILED |
+| Outcome | Stable, evidence-grounded Skill outcomes are inspectable. | CR-01 can persist a caller-fabricated admitted `reviewed-user-truth` record. | ✗ FAILED |
 
 ## Goal Achievement
 
@@ -72,109 +56,87 @@ ROADMAP marks this phase `mode: mvp`, but `user-story.validate` returned `false`
 
 | # | Truth | Status | Evidence |
 | --- | --- | --- | --- |
-| 1 | A reviewer receives specific Skill proposals only from audited Contributions and can trace each proposal through Evidence, answers, attribution, and assessment basis. | ✓ VERIFIED | `run_assessment()` materializes a completed, confirmed `AuditSnapshot` before proposal creation; the custody proposal test passed in the focused run. |
-| 2 | Reviewers can independently assign and inspect mastery, centrality, and confidence, including the contrasting cases. | ✓ VERIFIED | Separate fields/bases are modelled and the focused suite exercises the independent admission/contrast matrix. |
-| 3 | Every mastery judgment identifies its anchor; unsupported higher-band claims are rejected and high-mastery/low-confidence claims stay provisional until durable human confirmation. | ✗ FAILED | Anchor and provisional admission paths exist, but ordinary rerun can restore admission and reviewer edits overwrite rather than retain immutable versions. This breaks the required durable confirmation/correction state. |
-| 4 | A user can inspect one aggregated result per Skill with admitted assessments and policy; duplicate/incidental evidence cannot mechanically promote it. | ✗ FAILED | Normal duplicate-neutral aggregation is tested, but a derived-counterfactual assessment can supply promotion support while the result inherits the reviewed-user-truth baseline label. The displayed user result can therefore be elevated by non-user evidence. |
-| 5 | Evaluators can compare replaceable policies while preserving variance, disagreement, calibration decisions, and regressions. | ✗ FAILED | Comparison fields exist, but history reads neither recompute result/comparison hashes nor revalidate the declared audit/conclusion custody. Retained calibration evidence is mutable in substance. |
+| 1 | Specific Skill proposals come only from audited Contributions and retain Evidence, answers, attribution, and basis lineage. | ✗ FAILED | Reassess accepts a complete caller-controlled proposal and `audit-fabricated`; it does no audit materialization or envelope-to-audit comparison. |
+| 2 | Mastery, centrality, and confidence stay independently assignable and inspectable. | ✓ VERIFIED | Separate fields/bases and focused boundary/independence tests exist; the full offline suite exited 0. |
+| 3 | Every mastery value has an observable anchor; unsupported higher bands fail, and high-mastery/low-confidence remains provisional. | ✓ VERIFIED | Domain anchor validation and admission boundaries are covered by current tests. |
+| 4 | A user can inspect one traceable aggregate per Skill without duplicate/incidental inflation. | ✗ FAILED | Ordinary aggregation works, but an admitted reviewed-user-truth aggregate can be constructed from fabricated, non-audited reassessment provenance. |
+| 5 | Policies are comparable with retained variance, disagreement, decisions, and regressions. | ✓ VERIFIED | Calibration materializes audit custody and rehashes retained run/comparison content before activation lookup. |
 
-**Score:** 2/5 truths verified (0 present, behavior-unverified)
+**Score:** 3/5 truths verified (0 present, behavior-unverified)
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 | --- | --- | --- | --- |
-| `src/career_evidence_graph/assessment.py` | Assessment, admission, aggregation, calibration, persistence | ⚠️ HOLLOW FOR GOAL | Substantive and CLI-wired, but contains all five failed authority/integrity paths. |
-| `src/career_evidence_graph/domain/models.py` | Strict assessment, review, policy, and result contracts | ⚠️ PARTIAL | Strict parsing exists; policy run/comparison models do not prove stored hashes match their content. |
-| `src/career_evidence_graph/domain/invariants.py` | Exact-Skill, anchor, and lineage invariants | ✓ VERIFIED | Wired from aggregation via `validate_user_skill`; focused aggregation behavior passes. |
-| `src/career_evidence_graph/cli.py` | Run, inspect, pending, review, aggregate, compare, activate, history | ✓ WIRED | Handlers call the application services at lines 506–635; review persists returned record at lines 568–591. |
-| `validation/calibration/phase-04/corpus.json` / `policies.json` | Versioned corpus and candidate policies | ⚠️ PARTIAL | 12 cases and two candidate policies are present; calibration trusts the corpus's audit/conclusion declarations rather than deriving them from a revalidated audit. |
-| Phase 04 tests | Contract and regression evidence | ⚠️ INSUFFICIENT | 29 active non-CLI contract tests, plus CLI coverage, exist and pass; none covers the five failure paths described below. |
+| `src/career_evidence_graph/assessment.py` | Assessment, admission, versioning, aggregation, calibration | ⚠️ HOLLOW FOR GOAL | 1,673 substantive lines and wired callers, but reassessment creates authoritative versions from untrusted source custody. |
+| `src/career_evidence_graph/domain/models.py` | Strict assessment, version, policy, and result contracts | ✓ VERIFIED | Strict Pydantic contracts reject malformed shapes, but structural validation cannot establish audit origin. |
+| `src/career_evidence_graph/cli.py` | Offline assessment/run/review/reassess/aggregate/calibration commands | ⚠️ WIRED UNSAFELY | The reassess handler forwards parsed JSON plus caller audit ID directly to the mutation service. |
+| `src/career_evidence_graph/domain/invariants.py` | Exact-Skill, anchor, and aggregate invariants | ✓ VERIFIED | Wired from aggregation; no stub or orphaned invariant found. |
+| Calibration corpus, policies, and history | Hash-bound calibration inputs/history | ✓ VERIFIED | Calibration-specific custody/history regressions now independently validate these artifacts. |
+| Phase 04 tests | Behavioral and exploit evidence | ⚠️ INSUFFICIENT FOR REASSESSMENT | The 304-test suite passes, but no test submits fabricated reassessment provenance. |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
 | --- | --- | --- | --- | --- |
-| CLI | assessment service | `run`, `review`, `aggregate`, `compare`, `activate`, `history` handlers | ✓ WIRED | Direct calls in `cli.py` lines 506–635. |
-| Assessment run | Phase 3 audit | `_materialize_audit` completed/confirmed checks | ✓ WIRED | Direct run path validates actual audit snapshot and conclusion hashes. |
-| Assessment aggregate | domain invariants | `validate_user_skill` | ✓ WIRED | Aggregate result is validated before return. |
-| Calibration run | audit custody | corpus audit/conclusion hash binding | ✗ NOT WIRED | Calibration path performs fixture/manifest byte checks only, then copies three audit values from corpus JSON. |
-| Policy history | content hashes | run/comparison/policy recomputation | ✗ NOT WIRED | History validation checks activation hashes and cross-references only. |
-| Promotion | user-truth authority | all supporting assessments checked as audited/reviewed truth | ✗ NOT WIRED | Only resolved envelope/attribution/assistance/basis are checked; output authority is copied from baseline. |
+| `cli.py` `assessment run` | `assessment.py` | materialized audit then proposal/admission | ✓ WIRED | `run_assessment()` calls `_materialize_audit()` before proposal construction. |
+| `cli.py` `assessment reassess` | `assessment.py` | caller JSON plus `--source-audit-id` | ✗ NOT SAFE | CLI lines 614-631 forward untrusted payloads; service lines 1088-1117 never resolve the claimed audit. |
+| Calibration runner | audit custody/history | derived inputs plus semantic hashes | ✓ WIRED | Current code derives snapshot/conclusion values and rehashes retained content. |
+| Assessment admission | policy data | validated `AggregationPolicy` decision | ✓ WIRED | `load_policy()` supplies the policy; the generic 04-03 literal pattern probe is invalid, but manual tracing and boundary tests confirm the link. |
+| Aggregate/promotion | invariants/authority partition | `validate_user_skill()` / `validate_anchor_promotion()` | ✓ WIRED | Mixed authority promotion is rejected; it does not repair reassessment source custody. |
 
 ### Data-Flow Trace (Level 4)
 
 | Artifact | Data Variable | Source | Produces Real Data | Status |
 | --- | --- | --- | --- | --- |
-| `assessment.py` direct run | `AuditSnapshot` | `AuditStore` / replayed confirmed audit | Yes | ✓ FLOWING |
-| `assessment.py` policy calibration | `input_hashes` | Raw `corpus.json` audit/conclusion strings | No independent source verification | ⚠️ STATIC CUSTODY |
-| `assessment.py` aggregate | `authority_label` | Baseline assessment only | No validation of all promotion inputs | ✗ HOLLOW AUTHORITY FLOW |
+| Normal assessment run | `AuditSnapshot` / envelope | `AuditStore` or replayed journey via `_materialize_audit()` | Yes | ✓ FLOWING |
+| Calibration run | fixture/manifest/audit/conclusion identities | authoritative bytes plus materialized audit | Yes | ✓ FLOWING |
+| Reassessment | audit ID, envelope, origin, authority | caller CLI arguments/JSON | No audit lookup | ✗ DISCONNECTED |
 
 ### Behavioral Spot-Checks
 
 | Behavior | Command | Result | Status |
 | --- | --- | --- | --- |
-| Full offline test suite | `uv run --offline --locked python scripts/run_pytest.py -q` | Exit 0 | ✓ PASS |
-| Specific audited Skill custody | focused named proposal test | Included in focused run | ✓ PASS |
-| Separate provisional admission | focused named admission test | Included in focused run | ✓ PASS |
-| Duplicate/incidental no-inflation | focused named aggregation test | Included in focused run | ✓ PASS |
-| Same-input comparison without activation | focused named policy test | `8 passed in 2.04s` | ✓ PASS |
+| Existing stale reassessment guard | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_assessment_cli.py::test_explicit_reassess_rejects_stale_hash_without_mutating_sidecar` | `1 passed` | ✓ PASS — narrow only |
+| Full offline suite | `uv run --offline --locked python scripts/run_pytest.py -q` | Exit 0 (304 tests) | ✓ PASS — does not exercise CR-01 |
+| Ruff check/format | `uv run --offline --locked ruff check .` / `ruff format --check .` | Exit 0 | ✓ PASS |
+| CR-01 focused reproduction | Run tracer; submit a relabelled proposal with `--source-audit-id audit-fabricated` and live version hash. | Exit 0; persisted `version_source_audit_id=audit-fabricated`, `envelope_audit_id=audit-e2e`, `authority=reviewed-user-truth`, `origin=audit-verified`, `admission=admitted`, `versions=2`. | ✗ FAIL |
 
-Passing these tests does not overturn the failures: their assertions do not invoke tampered retained histories, calibration audit-hash tampering, rerun-after-review, multi-edit version retention, or mixed-authority promotion.
+The passing stale-hash test proves optimistic-concurrency handling only. It never attempts a fabricated audit or changed source authority and is not evidence against CR-01.
 
 ### Requirements Coverage
 
-| Requirement | Source Plan | Status | Evidence |
+| Requirement | Source Plan(s) | Status | Evidence |
 | --- | --- | --- | --- |
-| ASS-01 | 04-01, 04-02 | ✓ SATISFIED | Direct proposal path materializes completed/confirmed audit and focused custody test passes. |
-| ASS-02 | 04-01, 04-02 | ✓ SATISFIED | Separate values and bases are modelled and test-covered. |
-| ASS-03 | 04-01, 04-02 | ✓ SATISFIED | Inclusive anchor validation and higher-band rejection tests exist. |
-| ASS-04 | 04-01, 04-03 | ✗ BLOCKED | CR-03 permits re-run to erase an insufficient review; CR-04 overwrites correction versions. |
-| AGG-01 | 04-01, 04-04 | ✓ SATISFIED | Normal aggregate retains exact Skill, baseline, admitted IDs, and policy version. |
-| AGG-02 | 04-01, 04-04 | ✓ SATISFIED | Metamorphic duplicate/incidental test passes; no direct duplication failure was found. |
-| AGG-03 | 04-01, 04-04 | ✗ BLOCKED | CR-05 allows non-credible derived support to promote a result labelled reviewed user truth. |
-| AGG-04 | 04-01, 04-05 | ✗ BLOCKED | CR-01 and CR-02 leave retained policy evidence and audit custody semantically mutable. |
+| ASS-01 | 04-01, 04-02 | ✗ BLOCKED | Reassessment permits a specific-Skill proposal/user result not derived from a completed confirmed audit. |
+| ASS-02 | 04-01, 04-02 | ✓ SATISFIED | Independent values and bases remain separately modelled and tested. |
+| ASS-03 | 04-01, 04-02 | ✓ SATISFIED | Inclusive anchors and higher-band semantic rejection are tested. |
+| ASS-04 | 04-01, 04-03, 04-07 | ✓ SATISFIED | Threshold, substantive review, rerun durability, and append-only version tests pass; CR-01 is a separate source-custody bypass. |
+| AGG-01 | 04-01, 04-04 | ✗ BLOCKED | An aggregate can expose an admitted reviewed-user-truth result with fabricated/contradictory source-audit lineage. |
+| AGG-02 | 04-01, 04-04 | ✓ SATISFIED | Duplicate, incidental, and cross-Skill Evidence metamorphic tests pass. |
+| AGG-03 | 04-01, 04-04, 04-08 | ✗ BLOCKED | Promotion gates inspect authority/origin fields, but reassessment lets callers forge those prerequisite fields before later review; source credibility is not authoritative. |
+| AGG-04 | 04-01, 04-05, 04-06 | ✓ SATISFIED | Semantic-history and audit-custody tamper regressions pass. |
 
-All eight Phase 04 requirement IDs are declared by at least one PLAN; no orphaned Phase 04 requirement was found.
-
-### Test Quality Audit
-
-| Test File | Linked Req | Active | Skipped | Circular | Assertion Level | Verdict |
-| --- | --- | ---: | ---: | --- | --- | --- |
-| `test_assessment_proposal.py` | ASS-01 | 2 | 0 | No | Behavioral/custody | PASS |
-| `test_mastery_anchors.py` | ASS-03 | 3 | 0 | No | Value/invariant | PASS |
-| `test_assessment_admission.py` | ASS-04 | 7 | 0 | No | Behavioral | INSUFFICIENT — no rerun-after-review or two-edit version test |
-| `test_skill_aggregation.py` | AGG-01/02 | 3 | 0 | No | Metamorphic | PASS for duplicate/volume cases |
-| `test_anchor_promotion.py` | AGG-03 | 2 | 0 | No | Behavioral | INSUFFICIENT — fixtures do not test mixed reviewed/derived authority |
-| `test_policy_calibration.py` | AGG-04 | 9 | 0 | No | Behavioral | INSUFFICIENT — no semantic hash/audit-custody tamper test |
-
-Disabled requirement tests: **0**. Circular expected-value patterns: **0**. The shortfall is assertion coverage of the authority-changing counterexamples, not test execution.
+All eight requirement IDs are declared by Phase 04 plans. No Phase 5 or 6 contract explicitly owns reassessment source custody, so CR-01 is not deferred.
 
 ### Anti-Patterns Found
 
 | File | Line | Pattern | Severity | Impact |
 | --- | --- | --- | --- | --- |
-| `assessment.py` | 1073–1077 | Existing assessment record replaced on normal rerun | 🛑 Blocker | Erases review/admission conclusion. |
-| `assessment.py` | 991–1006 | Latest assessment version replaced rather than appended | 🛑 Blocker | Loses immutable correction history. |
-| `assessment.py` | 1127–1146, 1255–1284 | Audit custody taken from corpus strings | 🛑 Blocker | Allows false audit provenance in calibration. |
-| `assessment.py` | 1423–1466 | History validates references but not run/comparison content hashes | 🛑 Blocker | Allows semantic calibration-history tampering. |
-| `assessment.py` | 788–795, 905–906 | Promotion does not constrain support authority; result takes baseline label | 🛑 Blocker | Allows synthetic support to inflate a user-truth result. |
+| `src/career_evidence_graph/assessment.py` | 1085-1117 | Caller-controlled audit/proposal authority at mutation boundary | 🛑 BLOCKER | Fabricates admitted reviewed-user-truth from derived calibration evidence. |
+| `src/career_evidence_graph/cli.py` | 614-631 | Reassess forwards arbitrary JSON/caller audit ID without source derivation | 🛑 BLOCKER | Persists the forged record after schema validation only. |
 
-No `TBD`, `FIXME`, `XXX`, disabled-test, placeholder, or empty-render/implementation marker was found in Phase 04 implementation and test files.
+No `TBD`, `FIXME`, `XXX`, placeholder, empty implementation, or debt-marker blocker was found in Phase 04 source/test files.
 
-### Decision Coverage
+### Human Verification Required
 
-The non-blocking decision-coverage check reports **16/16** trackable D-01…D-16 decisions as represented in shipped artifacts. This syntactic coverage does not supersede the five failed semantic authority paths above.
+N/A for the technical phase contract: the decisive failure is reproducible programmatically. The MVP user-flow metadata remains invalid, so a canonical user-flow UAT cannot be issued from the current ROADMAP goal.
 
-### Prohibition Flags
+### Gaps Summary
 
-The five PLAN-level prohibitions are judgment-tier and remain explicitly `unresolved` / `flagged-unverified`. They cannot be silently green-lit by code presence or the passing deterministic suite. They require human review after the blocking code gaps are closed; the overall status is already `gaps_found` on observable failures.
-
-## Gaps Summary
-
-The ordinary feature paths and their routine tests exist, but Phase 04 does not yet deliver stable, traceable, immutable user-level mastery. The five independent failures break the exact safeguards the phase promised: semantic integrity of policy history, audited source custody, durable insufficient-review conclusions, immutable version history, and separation of synthetic calibration evidence from reviewed user truth. No later roadmap phase explicitly owns these Phase 04 custody/authority repairs, so none are deferred.
+The five prior remediation paths are implemented and tested, but Plan 04-07 introduced an unguarded authoritative mutation path. `assessment reassess` treats audit provenance and authority as caller assertions. The focused reproduction created an admitted reviewed-user-truth record using `audit-fabricated`, with no verified audit to support it. This blocks the Phase 4 goal and ASS-01, AGG-01, and AGG-03. Do not promote Phase 4 or proceed to Phase 5 on this revision.
 
 ---
 
-_Verified: 2026-08-27T20:43:02Z_
+_Verified: 2026-08-28T09:12:21Z_
 _Verifier: the agent (gsd-verifier)_
