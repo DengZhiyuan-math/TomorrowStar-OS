@@ -48,7 +48,13 @@ from .domain import (
     verify_source_manifest,
 )
 from .domain.models import AcceptedJDPacket, ContributionSkillAssessment, JDMatchPolicy
-from .jd import JDComparisonError, compare_accepted_jd
+from .jd import (
+    JDComparisonError,
+    JDIntakeError,
+    JDIntakeStore,
+    compare_accepted_jd,
+    prepare_jd_intake,
+)
 from .validation.provenance import ProvenanceValidationError, verify_provenance_registry
 from .validation.replay import replay_recorded_response
 from .validation.store import FormalRunStorageError, FormalRunStore, load_charter
@@ -292,6 +298,30 @@ def _parser() -> argparse.ArgumentParser:
     jd_analyze.add_argument("--workspace", required=True)
     jd_analyze.add_argument("--packet", required=True)
     jd_analyze.add_argument("--policy", required=True)
+    jd_prepare = jd_commands.add_parser("prepare")
+    jd_prepare.add_argument("--workspace", required=True)
+    jd_prepare.add_argument("--source-id", required=True)
+    raw_source = jd_prepare.add_mutually_exclusive_group(required=True)
+    raw_source.add_argument("--paste")
+    raw_source.add_argument("--file")
+    jd_prepare.add_argument("--proposal", required=True)
+    jd_accept = jd_commands.add_parser("accept")
+    jd_accept.add_argument("--workspace", required=True)
+    jd_accept.add_argument("--source-hash", required=True)
+    jd_accept.add_argument("--proposal-hash", required=True)
+    jd_accept.add_argument("--accept", action="store_true", required=True)
+    jd_inspect = jd_commands.add_parser("inspect")
+    jd_inspect.add_argument("--workspace", required=True)
+    jd_inspect.add_argument(
+        "--expect",
+        choices=(
+            "prepared-exact-three",
+            "accepted-corpus-and-graph",
+            "existing-evaluation",
+            "sealed-blind-review",
+            "finalized",
+        ),
+    )
     return parser
 
 
@@ -689,6 +719,30 @@ def main(argv: list[str] | None = None) -> int:
             packet = AcceptedJDPacket.model_validate(_json_file(args.packet))
             policy = JDMatchPolicy.model_validate(_json_file(args.policy))
             _emit(compare_accepted_jd(packet, Path(args.workspace), policy))
+        elif args.command == "jd" and args.jd_command == "prepare":
+            if args.paste is not None:
+                source = args.paste.encode("utf-8")
+            else:
+                source_path = Path(args.file)
+                if source_path.is_symlink() or not source_path.is_file():
+                    raise JDIntakeError("jd-source-file-unsafe")
+                source = source_path.read_bytes()
+            proposal_path = Path(args.proposal)
+            if proposal_path.is_symlink() or not proposal_path.is_file():
+                raise JDIntakeError("jd-proposal-file-unsafe")
+            intake = prepare_jd_intake(source, args.source_id, proposal_path.read_bytes())
+            _emit(JDIntakeStore(Path(args.workspace)).prepare(intake))
+        elif args.command == "jd" and args.jd_command == "accept":
+            _emit(
+                JDIntakeStore(Path(args.workspace)).accept(
+                    args.source_hash,
+                    args.proposal_hash,
+                )
+            )
+        elif args.command == "jd" and args.jd_command == "inspect":
+            actual = JDIntakeStore(Path(args.workspace)).expectation_met(args.expect)
+            _emit({"actual": actual, "expected": args.expect, "met": actual})
+            return 0 if actual else 2
         return 0
     except AssessmentWorkflowError as exc:
         _emit_error({"valid": False, "error": "assessment_workflow_error", "message": str(exc)})
@@ -704,6 +758,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     except JDComparisonError as exc:
         _emit_error({"valid": False, "error": "jd_comparison_error", "message": str(exc)})
+        return 2
+    except JDIntakeError as exc:
+        _emit_error({"valid": False, "error": exc.code, "message": str(exc)})
         return 2
     except FixtureValidationError as exc:
         _emit_error(

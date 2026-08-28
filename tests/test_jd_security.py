@@ -12,7 +12,6 @@ import pytest
 from career_evidence_graph.jd import JDIntakeError, prepare_jd_intake
 from career_evidence_graph.validation.hashing import sha256_digest
 
-
 ROOT = Path(__file__).parents[1]
 LAUNCHER = ROOT / "scripts/run_career_evidence.py"
 

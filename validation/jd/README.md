@@ -6,4 +6,6 @@ Private runtime data is written only under the ignored `/.career-evidence/phase-
 
 `max_raw_jd_bytes` defaults to `262144`. Exactly that many bytes proceed to normal validation; one byte more fails as `jd-source-too-large` before any write.
 
+`jd accept` requires the exact prepared source hash, proposal hash, and explicit `--accept`; it creates a separate immutable accepted packet and never changes the prepared record. `jd inspect --expect` is read-only. Its five expectations are `prepared-exact-three`, `accepted-corpus-and-graph`, `existing-evaluation`, `sealed-blind-review`, and `finalized`; an unmet expectation emits its structured expected/actual state and exits with status 2.
+
 Plan 05-03 is the explicit D-20 checkpoint for user-supplied fixture material. Do not create or substitute a JD before then.

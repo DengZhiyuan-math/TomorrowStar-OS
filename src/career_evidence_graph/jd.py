@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -66,6 +68,182 @@ class PreparedJDIntake:
     disclosures: tuple[str, ...]
     packet: AcceptedJDPacket
     accepted: bool = False
+
+
+class JDIntakeStore:
+    """Create-only private storage for prepared and explicitly accepted packets."""
+
+    def __init__(self, workspace: Path) -> None:
+        self.workspace = workspace.resolve()
+        self.root = self.workspace / ".career-evidence" / "phase-05"
+
+    @staticmethod
+    def _write_json(path: Path, value: object) -> None:
+        payload = canonical_json_bytes(value) + b"\n"
+        descriptor, temporary_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+        try:
+            with os.fdopen(descriptor, "wb") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary_name, path)
+        except BaseException:
+            Path(temporary_name).unlink(missing_ok=True)
+            raise
+
+    def _root_for_write(self) -> Path:
+        private_root = self.workspace / ".career-evidence"
+        if private_root.is_symlink() or self.root.is_symlink():
+            raise JDIntakeError("jd-private-root-unsafe")
+        private_root.mkdir(exist_ok=True)
+        self.root.mkdir(exist_ok=True)
+        if private_root.resolve() != private_root or self.root.resolve() != self.root:
+            raise JDIntakeError("jd-private-root-unsafe")
+        return self.root
+
+    @staticmethod
+    def _bundle_name(source_hash: str) -> str:
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", source_hash):
+            raise JDIntakeError("jd-source-hash-invalid")
+        return source_hash.removeprefix("sha256:")
+
+    def _prepared_path(self, source_hash: str) -> Path:
+        return self.root / "prepared" / self._bundle_name(source_hash)
+
+    def prepare(self, intake: PreparedJDIntake) -> dict[str, object]:
+        self._root_for_write()
+        destination = self._prepared_path(intake.source_hash)
+        destination.parent.mkdir(exist_ok=True)
+        if destination.exists() or destination.is_symlink():
+            raise JDIntakeError("jd-prepared-already-exists")
+        temporary = Path(tempfile.mkdtemp(dir=destination.parent, prefix=".prepared."))
+        try:
+            self._write_json(temporary / "packet.json", intake.packet.model_dump(mode="json"))
+            self._write_json(
+                temporary / "manifest.json",
+                {
+                    "schema_version": "jd-prepared-intake/v1",
+                    "source_id": intake.source_id,
+                    "source_hash": intake.source_hash,
+                    "source_bytes": intake.source_bytes,
+                    "proposal_hash": intake.packet.recorded_proposal.proposal_hash,
+                    "disclosures": intake.disclosures,
+                    "accepted": False,
+                },
+            )
+            os.rename(temporary, destination)
+        except FileExistsError as exc:
+            raise JDIntakeError("jd-prepared-already-exists") from exc
+        finally:
+            if temporary.exists():
+                for child in temporary.iterdir():
+                    child.unlink()
+                temporary.rmdir()
+        return self.inspect_prepared(intake.source_hash)
+
+    def inspect_prepared(self, source_hash: str) -> dict[str, object]:
+        path = self._prepared_path(source_hash)
+        if path.is_symlink() or not path.is_dir():
+            raise JDIntakeError("jd-prepared-missing")
+        manifest_path = path / "manifest.json"
+        packet_path = path / "packet.json"
+        if manifest_path.is_symlink() or packet_path.is_symlink():
+            raise JDIntakeError("jd-prepared-unsafe")
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            packet = AcceptedJDPacket.model_validate_json(packet_path.read_bytes())
+        except (OSError, json.JSONDecodeError, ValidationError) as exc:
+            raise JDIntakeError("jd-prepared-invalid") from exc
+        if (
+            manifest.get("source_hash") != source_hash
+            or manifest.get("proposal_hash") != packet.recorded_proposal.proposal_hash
+            or manifest.get("accepted") is not False
+        ):
+            raise JDIntakeError("jd-prepared-invalid")
+        return {
+            "accepted": False,
+            "disclosures": manifest.get("disclosures", []),
+            "proposal_hash": packet.recorded_proposal.proposal_hash,
+            "source_bytes": manifest.get("source_bytes"),
+            "source_hash": source_hash,
+            "source_id": manifest.get("source_id"),
+        }
+
+    def accept(self, source_hash: str, proposal_hash: str) -> dict[str, object]:
+        """Create one immutable accepted packet only after exact hash confirmation."""
+        prepared = self.inspect_prepared(source_hash)
+        if prepared["proposal_hash"] != proposal_hash:
+            raise JDIntakeError("jd-acceptance-hash-mismatch")
+        root = self._root_for_write()
+        source_path = self._prepared_path(source_hash)
+        packet_path = source_path / "packet.json"
+        try:
+            packet = AcceptedJDPacket.model_validate_json(packet_path.read_bytes())
+        except (OSError, ValidationError) as exc:
+            raise JDIntakeError("jd-prepared-invalid") from exc
+        accepted_root = root / "accepted"
+        accepted_root.mkdir(exist_ok=True)
+        destination = accepted_root / self._bundle_name(source_hash)
+        if destination.exists() or destination.is_symlink():
+            raise JDIntakeError("jd-accepted-already-exists")
+        temporary = Path(tempfile.mkdtemp(dir=accepted_root, prefix=".accepted."))
+        try:
+            self._write_json(temporary / "packet.json", packet.model_dump(mode="json"))
+            self._write_json(
+                temporary / "manifest.json",
+                {
+                    "schema_version": "accepted-jd-intake/v1",
+                    "packet_id": packet.packet_id,
+                    "source_hash": source_hash,
+                    "proposal_hash": proposal_hash,
+                    "accepted": True,
+                },
+            )
+            os.rename(temporary, destination)
+        except FileExistsError as exc:
+            raise JDIntakeError("jd-accepted-already-exists") from exc
+        finally:
+            if temporary.exists():
+                for child in temporary.iterdir():
+                    child.unlink()
+                temporary.rmdir()
+        return {
+            "accepted": True,
+            "packet_id": packet.packet_id,
+            "proposal_hash": proposal_hash,
+            "source_hash": source_hash,
+        }
+
+    def expectation_met(self, expectation: str) -> bool:
+        if expectation == "prepared-exact-three":
+            prepared = self.root / "prepared"
+            return (
+                prepared.is_dir()
+                and not prepared.is_symlink()
+                and len(tuple(prepared.iterdir())) == 3
+            )
+        if expectation == "accepted-corpus-and-graph":
+            accepted = self.root / "accepted"
+            if not (
+                accepted.is_dir()
+                and not accepted.is_symlink()
+                and len(tuple(accepted.iterdir())) == 3
+            ):
+                return False
+            try:
+                load_reviewed_user_graph(self.workspace)
+            except JDComparisonError:
+                return False
+            return True
+        expected_paths = {
+            "existing-evaluation": self.root / "evaluation" / "manifest.json",
+            "sealed-blind-review": self.root / "evaluation" / "blind-review.json",
+            "finalized": self.root / "evaluation" / "finalized.json",
+        }
+        path = expected_paths.get(expectation)
+        if path is None:
+            raise JDIntakeError("jd-inspect-expectation-invalid")
+        return path.is_file() and not path.is_symlink()
 
 
 def _source_disclosures(text: str) -> tuple[str, ...]:
