@@ -12,6 +12,7 @@ from career_evidence_graph.assessment import (
     build_assessment_run,
     decide_admission,
     promotion_input_hash,
+    review_assessment,
     run_assessment,
     validate_anchor_promotion,
 )
@@ -108,6 +109,30 @@ def _decision(runs, **changes: object) -> AnchorPromotionDecision:
     return AnchorPromotionDecision.model_validate(payload)
 
 
+def _reviewed_user_truth_run(tmp_path: Path, **changes: object):
+    """Build real reviewed authority with an immutable D-10 review version."""
+    proposal = _assessment(tmp_path, **changes)
+    payload = proposal.model_dump(mode="json")
+    payload["source_envelope"]["authority_label"] = "reviewed-user-truth"
+    payload["origin_status"] = "audit-verified"
+    reviewed_candidate = ContributionSkillAssessment.model_validate(payload)
+    record = build_assessment_run(
+        reviewed_candidate,
+        decide_admission(reviewed_candidate, _policy()),
+    )
+    return review_assessment(
+        record,
+        policy=_policy(),
+        expected_effective_hash=record.effective_assessment_hash,
+        reviewer_id="reviewer-a",
+        review_reason="I checked attribution, anchor fit, and all judgment bases.",
+        attribution_checked=True,
+        anchor_fit_checked=True,
+        all_judgments_checked=True,
+        accepted_assessment=reviewed_candidate,
+    )
+
+
 def test_next_anchor_promotion_requires_named_distinct_credible_support(tmp_path: Path) -> None:
     runs = _runs(tmp_path)
     decision = _decision(runs)
@@ -120,6 +145,25 @@ def test_next_anchor_promotion_requires_named_distinct_credible_support(tmp_path
     assert results[0].anchor_id == "anchor-70-79"
     assert results[0].promotion_decision == decision
     assert results[0].baseline_assessment_id == "assessment-complex-implementation"
+
+
+def test_mixed_authority_promotion_cannot_elevate_reviewed_user_truth(tmp_path: Path) -> None:
+    """Derived calibration support must not lend a user-truth result its missing anchor."""
+    reviewed = _reviewed_user_truth_run(
+        tmp_path,
+        id="assessment-reviewed-baseline",
+        contribution_id="contribution-reviewed-baseline",
+        context="authorization module delivery",
+    )
+    derived = _runs(tmp_path)[1]
+    decision = _decision((reviewed, derived))
+
+    with pytest.raises(AssessmentWorkflowError, match="promotion"):
+        aggregate_user_skills((reviewed, derived), promotion_decisions=(decision,))
+
+    baseline = aggregate_user_skills((reviewed,))
+    assert baseline[0].mastery == 60
+    assert baseline[0].authority_label == "reviewed-user-truth"
 
 
 @pytest.mark.parametrize(
