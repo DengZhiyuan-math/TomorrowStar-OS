@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 05
 current_phase_name: jd-usefulness-and-adversarial-evaluation
 status: executing
-stopped_at: Completed 05-01-PLAN.md
-last_updated: "2026-08-28T17:10:30.170Z"
+stopped_at: Completed 05-02-PLAN.md
+last_updated: "2026-08-28T17:25:17.098Z"
 last_activity: 2026-08-28
 last_activity_desc: Phase 05 execution started
-state_head: 7c74aeb253ee91a852fbcafbd411985eb0452164
+state_head: 8bdeba1829772e39f2adfe3ed2181009dbf529e5
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 43
-  completed_plans: 38
+  completed_plans: 39
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-30)
 ## Current Position
 
 Phase: 05 (jd-usefulness-and-adversarial-evaluation) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Ready to execute
 Total Plans in Phase: 6
 Last activity: 2026-08-28 — Phase 05 execution started
@@ -81,6 +81,7 @@ Progress: [███████░░░] 78%
 | Phase 04 P04 | 13min | 2 tasks | 7 files |
 | Phase 04 P05 | 21min | 3 tasks | 9 files |
 | Phase 05 P01 | 17min | 3 tasks | 6 files |
+| Phase 05 P02 | 10min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -132,6 +133,9 @@ Recent decisions affecting current work:
 - [Phase 05]: Phase 05 Plan 01: accepted JD source/proposal custody is content-bound and every span reconstructs from retained UTF-8 bytes.
 - [Phase 05]: Phase 05 Plan 01: JD comparison is a pure relevance projection; inclusive integer routing applies the core cap before any direct-evidence overlay.
 - [Phase 05]: Phase 05 Plan 01: evidence-strong-match requires direct high-confidence reviewed-user-truth evidence for every exact Skill constituent, including linked groups.
+- [Phase 05]: Raw JD bytes are validated and source-bound before any private bundle write; no provider or silent repair path exists.
+- [Phase 05]: Priority-company preference is a separate forward-only private input that changes only the final route and reason.
+- [Phase 05]: The evaluation inventory, fallback baseline, blind review conditions, and no-employment-effectiveness limitation are frozen without any JD body.
 
 ### Pending Todos
 
@@ -158,6 +162,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-28T17:10:30.072Z
-Stopped at: Completed 05-01-PLAN.md
+Last session: 2026-08-28T17:25:16.979Z
+Stopped at: Completed 05-02-PLAN.md
 Resume file: None
