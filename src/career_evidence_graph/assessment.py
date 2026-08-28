@@ -545,6 +545,42 @@ def load_policy(policies_path: Path, policy_version: str) -> AggregationPolicy:
     return _policy(policies_path, policy_version)
 
 
+def _build_assessment_source_envelope(
+    *, snapshot: AuditSnapshot, corpus: dict[str, Any], root: Path, authority_label: str
+) -> AssessmentSourceEnvelope:
+    """Derive all assessment custody from one materialized completed audit."""
+    if snapshot.conclusion is None or snapshot.conclusion_lineage_hash is None:
+        raise AssessmentWorkflowError("assessment audit conclusion is unavailable")
+    fixture = root / str(corpus["fixture_path"])
+    manifest = root / str(corpus["source_manifest_path"])
+    snapshot_hash = sha256_digest(canonical_json_bytes(snapshot) + b"\n")
+    fixture_hash = sha256_digest(fixture.read_bytes())
+    manifest_hash = sha256_digest(manifest.read_bytes())
+    expected = {
+        "audit_snapshot_hash": snapshot_hash,
+        "fixture_hash": fixture_hash,
+        "source_manifest_hash": manifest_hash,
+        "conclusion_lineage_hash": snapshot.conclusion_lineage_hash,
+        "effective_conclusion_hash": snapshot.conclusion.effective_conclusion_hash,
+    }
+    if any(corpus.get(field) != value for field, value in expected.items()):
+        raise AssessmentWorkflowError("assessment audit custody does not match corpus")
+    return AssessmentSourceEnvelope(
+        authority_label=authority_label,
+        audit_id=snapshot.audit_id,
+        audit_snapshot_hash=snapshot_hash,
+        fixture_hash=fixture_hash,
+        source_manifest_hash=manifest_hash,
+        conclusion_lineage_hash=snapshot.conclusion_lineage_hash,
+        effective_conclusion_hash=snapshot.conclusion.effective_conclusion_hash,
+        contribution_id=snapshot.contribution_id,
+        evidence_ids=tuple(fact.evidence_id for fact in snapshot.inspected_facts),
+        question_ids=tuple(question.id for question in snapshot.questions),
+        answer_ids=tuple(f"answer:{answer.question_id}" for answer in snapshot.answers),
+        attribution_hash=sha256_digest(canonical_json_bytes(snapshot.attribution)),
+    )
+
+
 def propose_assessment(
     *, snapshot: AuditSnapshot, corpus: dict[str, Any], root: Path
 ) -> ContributionSkillAssessment:
@@ -566,25 +602,11 @@ def propose_assessment(
         raise AssessmentWorkflowError("Skill resolution does not bind the candidate")
     if candidate.get("authority_label") != "derived-counterfactual":
         raise AssessmentWorkflowError("candidate must retain derived-counterfactual authority")
-    fixture = root / str(corpus["fixture_path"])
-    manifest = root / str(corpus["source_manifest_path"])
-    if sha256_digest(fixture.read_bytes()) != corpus.get("fixture_hash"):
-        raise AssessmentWorkflowError("sealed fixture hash does not match corpus")
-    if sha256_digest(manifest.read_bytes()) != corpus.get("source_manifest_hash"):
-        raise AssessmentWorkflowError("source manifest hash does not match corpus")
-    source = AssessmentSourceEnvelope(
+    source = _build_assessment_source_envelope(
+        snapshot=snapshot,
+        corpus=corpus,
+        root=root,
         authority_label="derived-counterfactual",
-        audit_id=snapshot.audit_id,
-        audit_snapshot_hash=str(corpus["audit_snapshot_hash"]),
-        fixture_hash=str(corpus["fixture_hash"]),
-        source_manifest_hash=str(corpus["source_manifest_hash"]),
-        conclusion_lineage_hash=str(snapshot.conclusion_lineage_hash),
-        effective_conclusion_hash=snapshot.conclusion.effective_conclusion_hash,
-        contribution_id=snapshot.contribution_id,
-        evidence_ids=tuple(fact.evidence_id for fact in snapshot.inspected_facts),
-        question_ids=tuple(question.id for question in snapshot.questions),
-        answer_ids=tuple(f"answer:{answer.question_id}" for answer in snapshot.answers),
-        attribution_hash=sha256_digest(canonical_json_bytes(snapshot.attribution)),
     )
     try:
         return ContributionSkillAssessment(
@@ -1078,11 +1100,13 @@ def reassess_from_new_evidence(
     record: AssessmentRun,
     *,
     policy: AggregationPolicy,
+    workspace: Path,
+    later_corpus_path: Path,
     source_audit_id: str,
     expected_current_version_hash: str,
     proposal: ContributionSkillAssessment,
 ) -> AssessmentRun:
-    """Create a later source-audit version and renew admission without overwriting history."""
+    """Append one reassessment derived from a completed, confirmed later audit."""
     if expected_current_version_hash != record.version_hash:
         raise AssessmentWorkflowError("reassessment expected current version hash is stale")
     if not re.fullmatch(r"audit-[a-z0-9-]+", source_audit_id):
@@ -1091,18 +1115,51 @@ def reassess_from_new_evidence(
         raise AssessmentWorkflowError(
             "later evidence source audit must differ from the current audit"
         )
-    if proposal.id != record.proposal.id or proposal.skill_id != record.proposal.skill_id:
-        raise AssessmentWorkflowError("reassessment must retain the same assessment and Skill")
-    payload = proposal.model_dump(mode="json")
-    payload["substantive_review_complete"] = False
+    corpus = _load_json(later_corpus_path)
+    root = _repository_root(later_corpus_path)
+    snapshot = _materialize_audit(
+        workspace=workspace,
+        corpus=corpus,
+        root=root,
+        audit_id=source_audit_id,
+    )
+    canonical = propose_assessment(snapshot=snapshot, corpus=corpus, root=root)
+    current_source = record.proposal.source_envelope
+    if current_source is None or canonical.source_envelope is None:
+        raise AssessmentWorkflowError("reassessment source authority is unavailable")
+    if canonical.source_envelope.authority_label != current_source.authority_label:
+        raise AssessmentWorkflowError("reassessment cannot change source authority partition")
+    if (
+        canonical.id != record.proposal.id
+        or canonical.skill_id != record.proposal.skill_id
+        or canonical.contribution_id != record.proposal.contribution_id
+        or canonical.lineage != record.proposal.lineage
+    ):
+        raise AssessmentWorkflowError("later audit does not match reassessment lineage")
+    if (
+        proposal.id != canonical.id
+        or proposal.skill_id != canonical.skill_id
+        or proposal.contribution_id != canonical.contribution_id
+        or proposal.lineage != canonical.lineage
+        or proposal.source_envelope != canonical.source_envelope
+        or proposal.assessment_status != canonical.assessment_status
+        or proposal.origin_status != canonical.origin_status
+        or proposal.attribution_status != canonical.attribution_status
+        or proposal.assistance_status != canonical.assistance_status
+    ):
+        raise AssessmentWorkflowError(
+            "reassessment proposal does not match canonical audit custody"
+        )
     try:
-        renewed_proposal = ContributionSkillAssessment.model_validate(payload)
+        renewed_proposal = ContributionSkillAssessment.model_validate(
+            canonical.model_dump(mode="json")
+        )
     except ValidationError as exc:
         raise AssessmentWorkflowError("later evidence proposal is invalid") from exc
     admission = decide_admission(renewed_proposal, policy)
     version = _make_version(
         version_id=f"assessment-version-{renewed_proposal.id}-{len(record.versions) + 1}",
-        source_audit_id=source_audit_id,
+        source_audit_id=snapshot.audit_id,
         previous_version_hash=record.version_hash,
         original_proposal=renewed_proposal,
         effective_assessment=renewed_proposal,
