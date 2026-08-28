@@ -1,8 +1,8 @@
 # Phase 5: JD Usefulness and Adversarial Evaluation - Pattern Map
 
 **Mapped:** 2026-08-28
-**Files/directories classified:** 11
-**Analogs found:** 10 / 11
+**Files/directories classified:** 15
+**Analogs found:** 14 / 15
 
 This map covers implementation shape only. It does not search for, select, copy, synthesize,
 or embed any JD. The three real evaluation JDs remain a user-supplied execution checkpoint,
@@ -22,6 +22,10 @@ reviewed-user-truth graph are accepted.
 | `tests/test_jd_comparison.py` | test | transform/metamorphic | `tests/test_policy_calibration.py` | exact |
 | `tests/test_jd_evaluation.py` | test | batch/evaluation | `tests/test_fixture_mutations.py`; custody supplement `tests/test_run_store.py` | role-match |
 | `tests/test_jd_security.py` | test | request-response/file-I/O | `tests/test_security_boundaries.py` | exact |
+| `.gitignore` | config | file boundary | same file's existing local-workspace exclusions | exact |
+| `validation/jd/README.md` | documentation/config contract | operator input | `references/README.md` for explicit provenance/use boundaries | role-match |
+| `validation/jd/proposal.schema.json` | schema | transform/validation | `validation/schemas/audit-probe-plan.schema.json` | exact |
+| `validation/jd/evaluation-charter.json` | config/acceptance charter | batch/evaluation | `validation/charter/v1.json` | exact |
 | `validation/jd/policies.json` (anticipated name) | config | batch/transform | `validation/calibration/phase-04/policies.json` | exact |
 | `validation/jd/intake/` (content-free checkpoint location) | config/workspace | file-I/O | none | no analog |
 

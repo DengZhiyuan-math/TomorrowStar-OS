@@ -539,29 +539,25 @@ The case builders are proposed Wave 0 helpers; native `pytest.param(..., id=...)
 |---|-------|---------|---------------|
 | A1 | The proposed exact new filenames and `validation/jd/` layout are suitable; they do not exist yet and remain planner discretion. [ASSUMED] | Recommended Project Structure | Low: planner may choose equally narrow names while preserving responsibilities. |
 
-No numeric routing threshold, weight, file size limit, company alias, baseline outcome, JD content, or real-fixture result is assumed in this research.
+No numeric routing threshold, weight, company alias, baseline outcome, JD content, or real-fixture result was assumed during research. Planning later selected a configurable `max_raw_jd_bytes=262144` safety default with inclusive-boundary tests; that implementation decision does not supply or characterize any JD.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Where are the three accepted real JD files?**
    - What we know: They must be contrasting, user-supplied, unchanged after acceptance, and must exercise evidence-strong customization, ordinary standard routing, and abandonment. [VERIFIED: .planning/phases/05-jd-usefulness-and-adversarial-evaluation/05-CONTEXT.md:79-103]
-   - What's unclear: Their contents and accepted source hashes are intentionally unavailable.
-   - Recommendation: Put an explicit blocking `checkpoint:user-action` after empty intake/harness construction. The user supplies and accepts all three; no policy calibration, real-fixture execution, or completion claim precedes it.
+   - Resolution: Plan 05-03 Task 1 is the blocking `checkpoint:user-action`. The user supplies exactly three local JD files and the assessment-workspace path; the executor may not browse for substitutes. Plan 05-03 Task 2 records explicit hash-bound acceptance, and Plans 05-04/05-05 depend on that checkpoint.
 
 2. **Which current graph snapshot is authoritative for normal personal comparison?**
    - What we know: Normal comparison must consume admitted `"reviewed-user-truth"` results and resolve all current assessment versions/lineage; `"derived-counterfactual"` is a separate exact authority value. [VERIFIED: src/career_evidence_graph/domain/models.py:328-350,620-701]
-   - What's unclear: Which runtime workspace will provide the accepted complete graph at the fixture checkpoint.
-   - Recommendation: Make graph-location resolution, authority filtering, current-version verification, and user acceptance part of the same blocking preflight; emit no score if the graph is absent, stale, or incomplete.
+   - Resolution: Plan 05-03 Tasks 1-2 obtain the runtime assessment workspace, reopen current versions and policy ancestry, filter normal authority to complete `reviewed-user-truth`, present the graph-manifest hash, and require user acceptance. `jd inspect --expect accepted-corpus-and-graph` exits 2 if the graph is absent, stale, mixed-authority, or incomplete.
 
 3. **What numeric policy becomes active?**
    - What we know: Required/preferred distinctions, core cap, transparency, versioning, and fixture calibration are locked. [VERIFIED: .planning/phases/05-jd-usefulness-and-adversarial-evaluation/05-CONTEXT.md:33-38,107-109]
-   - What's unclear: Exact weights, support points, cap, and route thresholds.
-   - Recommendation: Implement the policy schema and invariants first; calibrate candidate configurations only after the accepted fixtures exist; record the review decision that activates one version.
+   - Resolution: Plans 05-01/05-02 implement only the transparent candidate-policy schema and invariant tests. Plan 05-04 Task 1 compares candidate configurations after the accepted fixtures exist, records the exact inputs and decision, and activates one forward-only version; no earlier task claims an active numeric policy.
 
 4. **How is the raw-text extraction proposal produced in normal use?**
    - What we know: Provider choice remains unfrozen; the repository already has a narrow decision-port pattern that treats delimited JSON as data and validates cited IDs. [VERIFIED: AGENTS.md:42-50; src/career_evidence_graph/audit/decision.py:25-53,132-166]
-   - What's unclear: Whether the execution checkpoint uses an existing Codex CLI proposer or user-reviewed structured entry.
-   - Recommendation: Keep the authoritative core provider-independent. Support accepted recorded JSON for offline replay and, only if selected at execution, reuse the existing narrow Codex boundary as a proposal adapter without adding an SDK; its output never bypasses span validation and acceptance.
+   - Resolution: Plans 05-01/05-02 define one provider-independent seam: `jd prepare` requires exactly one raw source plus one content-bound recorded proposal JSON. Only after the user supplies a JD in Plan 05-03 may the current coding agent author that JSON from the checked-in schema. The CLI validates source hash and spans, calls no model, and cannot bypass the separate user acceptance step.
 
 ## Environment Availability
 
@@ -572,7 +568,7 @@ No numeric routing threshold, weight, file size limit, company alias, baseline o
 | pytest | Validation architecture | ✓ | `9.1.1` | — [VERIFIED: environment probe 2026-08-28; pyproject.toml:15-28] |
 | Ruff | Static gates | ✓ | `0.16.0` | — [VERIFIED: environment probe 2026-08-28; pyproject.toml:15-38] |
 | uv | Locked command runner | ✓ | installed `0.11.29`; project documentation names `0.12.0` | Existing installed version successfully ran locked offline tests; do not expand Phase 5 to a tool upgrade. [VERIFIED: environment probe 2026-08-28; AGENTS.md:53-57] |
-| Codex CLI | Optional proposal/live evaluation only | ✓ | `0.146.0` | Accepted recorded requirement packet; never required for deterministic acceptance. [VERIFIED: environment probe 2026-08-28; .planning/phases/05-jd-usefulness-and-adversarial-evaluation/05-CONTEXT.md:91-94] |
+| Current coding agent | Recorded proposal authoring after user source delivery only | ✓ | User-selected runtime/model | The authoritative core accepts content-bound recorded JSON and never calls a provider; proposal and source still require explicit review and acceptance. [VERIFIED: Phase 5 Plans 05-01 through 05-03] |
 | Database or external service | None | not required | — | Local immutable JSON workspace. [VERIFIED: .planning/phases/05-jd-usefulness-and-adversarial-evaluation/05-CONTEXT.md:9-19] |
 
 **Missing dependencies with no fallback:** None. The blocking inputs are user-provided evidence fixtures, not installable dependencies.
