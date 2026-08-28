@@ -120,3 +120,27 @@ resetting substantive review. The command now derives custody through
 `_materialize_audit`; caller-provided source audit IDs are expected identities
 only. Fresh independent code, security, and goal verification must inspect this
 unchanged revision before any shared status promotion.
+
+## 04-10 Independent Reassessment Remediation
+
+Measured on implementation revision `cc2b67ab9358a16e73c722bcb40f96eeadb08974`.
+These locked, offline checks are local implementation evidence only: they do
+not complete ASS-01, AGG-01, AGG-03, Phase 04, or independent verification.
+
+| Gate | Command | Measured outcome |
+| --- | --- | --- |
+| Focused reassessment matrix | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_assessment_admission.py tests/test_assessment_cli.py -k "reassess or reassessment or later_audit or stale_hash" -x` | 29 passed, 27 deselected in 16.71s |
+| Full offline suite | `uv run --offline --locked python scripts/run_pytest.py -q` | exited 0 |
+| Static gates | `uv run --offline --locked ruff check .` and `uv run --offline --locked ruff format --check .` | both exited 0; 57 files already formatted |
+
+The detached-authority service and CLI tracers now reject a missing victim
+audit without creating its root or record. The invalid-audit matrix covers
+missing, corrupt, incomplete, unconfirmed, and corpus-custody-mismatched
+snapshots with byte-identical assessment sidecars and complete audit trees.
+The valid pre-existing append control retains every prior assessment version,
+preserves the audit tree, binds the exact prior version hash, and resets the
+new substantive review history. Complete Pydantic model equality rejects
+caller changes across identity, source custody, judgments, context, bases, and
+review-state fields. Fresh code review, security review, and goal verification
+must run on a commit strictly after the 04-10 SUMMARY before any shared status
+promotion.
