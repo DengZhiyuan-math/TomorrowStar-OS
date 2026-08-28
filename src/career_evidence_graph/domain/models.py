@@ -717,6 +717,147 @@ class UserSkillView(StrictModel):
         return self
 
 
+# JD comparison contracts deliberately retain source custody and requirement
+# evidence separately from user-Skill mastery.  They contain no role text
+# semantics beyond caller-supplied, source-bound structured records.
+class JDRawSource(StrictModel):
+    schema_version: Literal["jd-raw-source/v1"] = "jd-raw-source/v1"
+    source_id: Identifier = Field(pattern=ID_PATTERN)
+    utf8_text: str = Field(min_length=1)
+    source_hash: str = Field(pattern=SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def validate_source_hash(self) -> JDRawSource:
+        import hashlib
+
+        if self.source_hash != f"sha256:{hashlib.sha256(self.utf8_text.encode()).hexdigest()}":
+            raise ValueError("JD source hash does not match retained UTF-8 text")
+        return self
+
+
+class JDRecordedProposal(StrictModel):
+    schema_version: Literal["jd-recorded-proposal/v1"] = "jd-recorded-proposal/v1"
+    proposal_id: Identifier = Field(pattern=ID_PATTERN)
+    source_hash: str = Field(pattern=SHA256_PATTERN)
+    raw_source_id: Identifier = Field(pattern=ID_PATTERN)
+
+
+class JDSourceSpan(StrictModel):
+    schema_version: Literal["jd-source-span/v1"] = "jd-source-span/v1"
+    start_byte: int = Field(ge=0)
+    end_byte: int = Field(gt=0)
+    text_hash: str = Field(pattern=SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def validate_bounds(self) -> JDSourceSpan:
+        if self.end_byte <= self.start_byte:
+            raise ValueError("JD source span must have a positive byte range")
+        return self
+
+
+class JDRequirement(StrictModel):
+    schema_version: Literal["jd-requirement/v1"] = "jd-requirement/v1"
+    requirement_id: Identifier = Field(pattern=ID_PATTERN)
+    source_span: JDSourceSpan
+    skill_ids: tuple[Identifier, ...] = Field(min_length=1)
+    decision_critical: bool
+    priority: Literal["required", "preferred"]
+    core_hard: bool = False
+    linked_requirement_group_id: Identifier | None = Field(default=None, pattern=ID_PATTERN)
+    minimum_mastery: int = Field(default=1, ge=0, le=100)
+    stated_strength: str | None = None
+    responsibility_expectation: str | None = None
+    context_expectation: str | None = None
+    seniority_expectation: str | None = None
+    duration_expectation: str | None = None
+    experience_expectation: str | None = None
+
+    @model_validator(mode="after")
+    def validate_skill_ids(self) -> JDRequirement:
+        _unique_ids(self.skill_ids, "JD requirement skill_ids")
+        return self
+
+
+class AcceptedJDPacket(StrictModel):
+    schema_version: Literal["accepted-jd-packet/v1"] = "accepted-jd-packet/v1"
+    packet_id: Identifier = Field(pattern=ID_PATTERN)
+    raw_source: JDRawSource
+    recorded_proposal: JDRecordedProposal
+    requirements: tuple[JDRequirement, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_packet_custody(self) -> AcceptedJDPacket:
+        _unique_ids(tuple(item.requirement_id for item in self.requirements), "JD requirement IDs")
+        if not any(item.decision_critical for item in self.requirements):
+            raise ValueError("JD packet requires one decision-critical requirement")
+        if self.recorded_proposal.source_hash != self.raw_source.source_hash:
+            raise ValueError("recorded JD proposal must bind the raw source hash")
+        if self.recorded_proposal.raw_source_id != self.raw_source.source_id:
+            raise ValueError("recorded JD proposal must bind the raw source ID")
+        return self
+
+
+class JDMatchPolicy(StrictModel):
+    schema_version: Literal["jd-match-policy/v1"] = "jd-match-policy/v1"
+    policy_version: str = Field(min_length=1)
+    required_weight: int = Field(gt=0)
+    preferred_weight: int = Field(gt=0)
+    partially_supported_percent: int = Field(ge=0, le=100)
+    customized_min_score: int = Field(ge=0, le=100)
+    standard_min_score: int = Field(ge=0, le=100)
+    missing_core_cap: int = Field(ge=0, le=100)
+    evidence_strong_min_confidence: int = Field(ge=0, le=100)
+
+    @model_validator(mode="after")
+    def validate_routes(self) -> JDMatchPolicy:
+        if self.standard_min_score > self.customized_min_score:
+            raise ValueError("standard route threshold cannot exceed customized threshold")
+        if self.missing_core_cap >= self.standard_min_score:
+            raise ValueError("missing core cap must route below standard-resume")
+        return self
+
+
+class JDRequirementJudgment(StrictModel):
+    schema_version: Literal["jd-requirement-judgment/v1"] = "jd-requirement-judgment/v1"
+    requirement_id: Identifier = Field(pattern=ID_PATTERN)
+    status: Literal["supported", "partially-supported", "unsupported", "uncertain"]
+    skill_ids: tuple[Identifier, ...] = Field(min_length=1)
+    contribution_ids: tuple[Identifier, ...] = ()
+    evidence_ids: tuple[Identifier, ...] = ()
+    limitation: str | None = None
+
+
+class JDGap(StrictModel):
+    schema_version: Literal["jd-gap/v1"] = "jd-gap/v1"
+    requirement_id: Identifier = Field(pattern=ID_PATTERN)
+    kind: Literal["missing-capability", "missing-evidence", "context-mismatch", "uncertainty"]
+    detail: str = Field(min_length=1)
+
+
+class JDReport(StrictModel):
+    schema_version: Literal["jd-report/v1"] = "jd-report/v1"
+    concise: str = Field(min_length=1)
+    technical: str = Field(min_length=1)
+
+
+class JDAnalysisResult(StrictModel):
+    schema_version: Literal["jd-analysis-result/v1"] = "jd-analysis-result/v1"
+    packet_id: Identifier = Field(pattern=ID_PATTERN)
+    score: int = Field(ge=0, le=100)
+    raw_score: int = Field(ge=0, le=100)
+    route: Literal["customized-resume", "standard-resume", "abandon"]
+    ordinary_route: Literal["customized-resume", "standard-resume", "abandon"]
+    route_reason: str = Field(min_length=1)
+    judgments: tuple[JDRequirementJudgment, ...] = Field(min_length=1)
+    gaps: tuple[JDGap, ...] = ()
+    selected_contribution_ids: tuple[Identifier, ...] = ()
+    policy_version: str = Field(min_length=1)
+    policy_hash: str = Field(pattern=SHA256_PATTERN)
+    graph_hash_before: str = Field(pattern=SHA256_PATTERN)
+    graph_hash_after: str = Field(pattern=SHA256_PATTERN)
+    report: JDReport
+
+
 class CareerEvidenceFixture(StrictModel):
     schema_version: Literal["career-evidence-fixture/v1"]
     fixture_notice: str = Field(min_length=1)

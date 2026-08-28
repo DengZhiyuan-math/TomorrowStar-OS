@@ -38,6 +38,8 @@ def _write_reviewed_user_truth(workspace: Path) -> None:
     ).proposal
     payload = seed.model_dump(mode="json")
     payload["source_envelope"]["authority_label"] = "reviewed-user-truth"
+    payload["assessment_status"] = "reviewed"
+    payload["origin_status"] = "audit-verified"
     assessment = ContributionSkillAssessment.model_validate(payload)
     record = build_assessment_run(
         assessment,
@@ -84,6 +86,25 @@ def _write_packet(path: Path) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
+def _write_policy(path: Path) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": "jd-match-policy/v1",
+                "policy_version": "schema-only-policy",
+                "required_weight": 1,
+                "preferred_weight": 1,
+                "partially_supported_percent": 50,
+                "customized_min_score": 70,
+                "standard_min_score": 40,
+                "missing_core_cap": 39,
+                "evidence_strong_min_confidence": 80,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def _run(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, str(LAUNCHER), *args],
@@ -99,11 +120,22 @@ def test_schema_only_packet_reaches_checkout_cli_without_mutating_reviewed_graph
 ) -> None:
     workspace = tmp_path / "workspace"
     packet = tmp_path / "packet.json"
+    policy = tmp_path / "policy.json"
     _write_reviewed_user_truth(workspace)
     _write_packet(packet)
+    _write_policy(policy)
 
     before = AssessmentStore(workspace).path("assessment-audit-e2e-04-baseline-60").read_bytes()
-    completed = _run("jd", "analyze", "--workspace", str(workspace), "--packet", str(packet))
+    completed = _run(
+        "jd",
+        "analyze",
+        "--workspace",
+        str(workspace),
+        "--packet",
+        str(packet),
+        "--policy",
+        str(policy),
+    )
 
     assert completed.returncode == 0, completed.stderr
     emitted = json.loads(completed.stdout)

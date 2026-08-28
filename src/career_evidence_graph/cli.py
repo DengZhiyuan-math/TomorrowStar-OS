@@ -48,6 +48,8 @@ from .domain import (
     verify_source_manifest,
 )
 from .domain.models import ContributionSkillAssessment
+from .domain.models import AcceptedJDPacket, JDMatchPolicy
+from .jd import JDComparisonError, compare_accepted_jd
 from .validation.provenance import ProvenanceValidationError, verify_provenance_registry
 from .validation.replay import replay_recorded_response
 from .validation.store import FormalRunStorageError, FormalRunStore, load_charter
@@ -284,6 +286,13 @@ def _parser() -> argparse.ArgumentParser:
     assessment_activate.add_argument("--expected-active-pointer", required=True)
     assessment_history = assessment_commands.add_parser("history")
     assessment_history.add_argument("--workspace", required=True)
+
+    jd = commands.add_parser("jd")
+    jd_commands = jd.add_subparsers(dest="jd_command", required=True)
+    jd_analyze = jd_commands.add_parser("analyze")
+    jd_analyze.add_argument("--workspace", required=True)
+    jd_analyze.add_argument("--packet", required=True)
+    jd_analyze.add_argument("--policy", required=True)
     return parser
 
 
@@ -677,6 +686,10 @@ def main(argv: list[str] | None = None) -> int:
             _emit(activation)
         elif args.command == "assessment" and args.assessment_command == "history":
             _emit(load_policy_history(Path(args.workspace)))
+        elif args.command == "jd" and args.jd_command == "analyze":
+            packet = AcceptedJDPacket.model_validate(_json_file(args.packet))
+            policy = JDMatchPolicy.model_validate(_json_file(args.policy))
+            _emit(compare_accepted_jd(packet, Path(args.workspace), policy))
         return 0
     except AssessmentWorkflowError as exc:
         _emit_error({"valid": False, "error": "assessment_workflow_error", "message": str(exc)})
@@ -689,6 +702,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     except AuditStorageError as exc:
         _emit_error({"valid": False, "error": "audit_storage_error", "message": str(exc)})
+        return 2
+    except JDComparisonError as exc:
+        _emit_error({"valid": False, "error": "jd_comparison_error", "message": str(exc)})
         return 2
     except FixtureValidationError as exc:
         _emit_error(
