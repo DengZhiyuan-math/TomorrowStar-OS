@@ -335,6 +335,62 @@ def test_reassess_cli_appends_a_materialized_later_audit_version(tmp_path: Path)
     assert emitted["proposal"]["source_envelope"]["authority_label"] == "derived-counterfactual"
 
 
+@pytest.mark.parametrize(
+    ("path", "value"),
+    (
+        (("source_envelope", "authority_label"), "reviewed-user-truth"),
+        (("source_envelope", "audit_snapshot_hash"), "sha256:" + "0" * 64),
+        (("origin_status",), "self-assessed-unverified"),
+        (("assessment_status",), "reviewed"),
+        (("id",), "assessment-caller-forged"),
+        (("skill_id",), "skill.caller-forged"),
+        (("contribution_id",), "contrib-stoa-content-privacy-integrity"),
+        (("lineage", "contribution_id"), "contrib-stoa-content-privacy-integrity"),
+    ),
+)
+def test_reassess_cli_rejects_each_caller_identity_permutation_without_mutation(
+    tmp_path: Path, path: tuple[str, ...], value: str
+) -> None:
+    initial = _run("assessment", "run", "--workspace", str(tmp_path))
+    assert initial.returncode == 0, initial.stderr
+    later_corpus = _later_corpus(tmp_path)
+    later_proposal = propose_assessment(
+        snapshot=AuditStore(tmp_path).read("audit-later-evidence"),
+        corpus=json.loads(later_corpus.read_text(encoding="utf-8")),
+        root=later_corpus.parents[3],
+    )
+    payload = later_proposal.model_dump(mode="json")
+    target = payload
+    for key in path[:-1]:
+        target = target[key]
+    target[path[-1]] = value
+    proposal_path = tmp_path / "mutated-reassessment.json"
+    proposal_path.write_text(json.dumps(payload), encoding="utf-8")
+    sidecar = AssessmentStore(tmp_path).path("assessment-audit-e2e-04-baseline-60")
+    before = sidecar.read_bytes()
+
+    rejected = _run(
+        "assessment",
+        "reassess",
+        "--workspace",
+        str(tmp_path),
+        "--run-id",
+        "assessment-audit-e2e-04-baseline-60",
+        "--later-corpus",
+        str(later_corpus),
+        "--source-audit-id",
+        "audit-later-evidence",
+        "--expected-current-version-hash",
+        json.loads(initial.stdout)["version_hash"],
+        "--assessment-json",
+        str(proposal_path),
+    )
+
+    assert rejected.returncode == 2
+    assert "assessment_workflow_error" in rejected.stderr
+    assert sidecar.read_bytes() == before
+
+
 def test_calibration_cli_compares_activates_and_reopens_redacted_history(tmp_path: Path) -> None:
     compared = _run("assessment", "compare", "--workspace", str(tmp_path))
     assert compared.returncode == 0, compared.stderr
