@@ -181,7 +181,7 @@ This milestone delivers six vertical validation capabilities in dependency order
   4. A user can inspect one aggregated mastery score per specific Skill, its admitted Contribution assessments, and its policy version; duplicate Evidence, duplicate Contributions, and numerous incidental uses do not mechanically promote the Skill.
   5. Evaluators can compare replaceable aggregation and confidence-admission policies on the fixtures, allowing cross-Contribution promotion only when the combined credible behavior satisfies the higher anchor and preserving variance, reviewer disagreement, calibration decisions, and regressions.
 
-**Plans:** 5/5 plans executed
+**Plans:** 8/9 plans executed
 
 **Wave 1**
 
@@ -202,6 +202,22 @@ This milestone delivers six vertical validation capabilities in dependency order
 **Wave 5** *(after 04-04)*
 
 - [x] 04-05-PLAN.md — Calibrate same-input policies, retain disagreements/regressions, and activate explicitly.
+
+**Wave 6** *(after 04-05)*
+
+- [x] 04-06-PLAN.md — Close the AGG-04 calibration-custody blockers without changing the active calibration choice.
+
+**Wave 7** *(after 04-06)*
+
+- [x] 04-07-PLAN.md — Make normal assessment execution idempotent and human decisions append-only.
+
+**Wave 8** *(after 04-07)*
+
+- [x] 04-08-PLAN.md — Close the AGG-03 authority-transfer blocker and hand the remediations to fresh verification.
+
+**Wave 9** *(after 04-08)*
+
+- [ ] 04-09-PLAN.md — Bind reassessment to authoritative later-audit custody and reject caller-forged provenance or authority.
 
 ### Phase 5: JD Usefulness and Adversarial Evaluation
 
