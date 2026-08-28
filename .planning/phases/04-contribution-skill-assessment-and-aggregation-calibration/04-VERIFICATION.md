@@ -1,48 +1,29 @@
 ---
 phase: 04-contribution-skill-assessment-and-aggregation-calibration
-verified: 2026-08-28T12:46:00Z
-status: gaps_found
-score: 7/8 must-haves verified
+verified: 2026-08-28T13:45:36Z
+status: passed
+score: 8/8 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
 re_verification:
   previous_status: gaps_found
-  previous_score: 3/5
+  previous_score: 7/8
   gaps_closed:
-    - "Reassessment no longer accepts a fabricated or detached source-audit as an authority to mutate the caller workspace."
-    - "Rejected missing, corrupt, incomplete, unconfirmed, custody-invalid, stale, and sampled forged reassessments preserve both persistence roots."
-  gaps_remaining:
-    - "The committed whole-proposal regression matrix does not cover every structural group required by 04-10."
+    - "The committed whole-proposal regression matrix now covers every required Pydantic-valid structural group."
+  gaps_remaining: []
   regressions: []
-gaps:
-  - truth: "The committed reassessment regression matrix proves that every valid caller mismatch across full lineage, source-envelope custody, context/duration, attribution, assistance, anchor bases, and all judgment bases is rejected with zero writes."
-    status: failed
-    reason: "Plan 04-10 explicitly requires a valid Pydantic mutation across every named structural group. The committed CLI matrix omits duration, attribution_status, assistance_status, lineage.source_kind, most source-envelope custody fields/ID collections, next_anchor_not_established, and centrality/confidence judgment bases."
-    artifacts:
-      - path: tests/test_assessment_cli.py
-        issue: "The parameterization at lines 383-403 samples 17 leaves but leaves multiple required structural groups unexercised."
-      - path: tests/test_assessment_admission.py
-        issue: "The service matrix at lines 480-541 covers invalid audit states, not the omitted valid proposal mutations."
-    missing:
-      - "Add one Pydantic-valid mutation for each omitted structural group through the service or CLI, asserting exit/rejection plus byte-identical assessment sidecar and complete audits-tree snapshot."
-      - "Keep the committed matrix as the durable regression proof; an ad-hoc verifier probe is not a substitute for repository coverage."
+decision_coverage:
+  honored: 16
+  total: 16
+  not_honored: []
 ---
 
 # Phase 4: Contribution-Skill Assessment and Aggregation Calibration Verification Report
 
 **Phase Goal:** Reviewers can turn confirmed Contribution audits into traceable Skill assessments and calibrate stable user-level mastery without collapsing distinct signals or rewarding evidence volume.
-**Verified:** 2026-08-28T12:46:00Z
-**Status:** gaps_found
-**Re-verification:** Yes — after 04-10 reassessment custody remediation.
-
-## User Flow Coverage
-
-Phase 4 is marked `mode: mvp`, but `user-story.validate` returns `valid: false`: its roadmap goal is not in the required `As a [role], I want to [capability], so that [outcome].` form. A canonical MVP user-flow UAT therefore cannot be generated. This report is the requested technical goal-backward verification; the metadata discrepancy must be corrected before claiming MVP UAT completion.
-
-| Step | Expected | Evidence | Status |
-| --- | --- | --- | --- |
-| Metadata guard | MVP phase goal is a valid user story. | The centralized validator rejected the current Phase 4 goal. | ⚠️ INVALID MVP METADATA |
-| Assessment outcome | Confirmed audit data yields traceable specific-Skill results without false authority promotion. | Technical paths below are exercised; no user-facing UI exists. | ✓ TECHNICAL PATH VERIFIED |
+**Verified:** 2026-08-28T13:45:36Z
+**Status:** passed
+**Re-verification:** Yes — after the 04-11 WR-01 regression-coverage closure.
 
 ## Goal Achievement
 
@@ -50,121 +31,118 @@ Phase 4 is marked `mode: mvp`, but `user-story.validate` returns `valid: false`:
 
 | # | Truth | Status | Evidence |
 | --- | --- | --- | --- |
-| 1 | Specific-Skill assessments originate in confirmed audited Contributions and retain Evidence, answers, attribution, and assessment-basis lineage. | ✓ VERIFIED | `assessment.py:480-540` materializes/validates the audit; proposal and source-envelope tests are active, and reassessment derives the canonical proposal from the read snapshot at `1141-1164`. |
-| 2 | Mastery, centrality, and confidence remain independently assignable and inspectable. | ✓ VERIFIED | Separate Pydantic fields/bases in `domain/models.py:544-568`; active independence and admission-boundary tests were collected and the full suite passed. |
-| 3 | Mastery names an observable anchor; unsupported higher bands fail and high-mastery/low-confidence remains provisional. | ✓ VERIFIED | `MasteryAnchorFit` validates literal anchor identity/range/bases at `277-305`; anchor and provisional-admission tests are active and passed. |
-| 4 | One traceable aggregate per exact Skill does not mechanically reward duplicate Evidence, duplicate Contributions, or incidental use. | ✓ VERIFIED | Aggregate/invariant wiring plus `test_skill_aggregation.py` and `test_anchor_promotion.py` active behavioral tests passed in the full offline suite. |
-| 5 | Calibration compares replaceable policies while retaining variance, disagreement, decisions, regressions, and immutable history. | ✓ VERIFIED | Active policy-calibration custody/history regressions passed; retained policy history is revalidated before use rather than treated as static output. |
-| 6 | 04-10 reassessment consumes only a pre-existing completed/confirmed audit; every rejected audit/proposal request is zero-write, valid reassessment appends one version, and stale rejection is first. | ✓ VERIFIED | `reassess_from_new_evidence()` checks stale hash before corpus read (`1131-1139`), invokes `_materialize_audit(... allow_replay=False)` (`1141-1147`), compares canonical proposal before version creation (`1161-1172`), and the 26 focused reassessment tests passed. |
-| 7 | The committed whole-proposal regression matrix covers every required structural group, so a future sampled comparison cannot silently return. | ✗ FAILED | WR-01 is confirmed: the checked-in matrix omits valid mutations for several groups expressly required by 04-10; see Gaps Summary. Current `proposal != canonical` is sound, but the required durable test evidence is incomplete. |
-| 8 | 04-10 neither expands scope nor falsely promotes Phase 4/requirements. | ✓ VERIFIED | The only post-summary commits are fresh `04-REVIEW.md` and `04-SECURITY.md` audits (`80514ef`, `cf0c37c`); no source, shared tracking, policy history, or promotion change followed `edae898`. |
+| 1 | Specific-Skill assessments originate in confirmed audited Contributions and retain Evidence, answers, attribution, and assessment-basis lineage. | ✓ VERIFIED | `ContributionSkillAssessment` is strict and lineage-bearing in `domain/models.py:544-617`; reassessment re-materializes the stored audit and derives the canonical proposal before comparing it at `assessment.py:1141-1164`. The real CLI matrix validates each forged payload before invoking that path. |
+| 2 | Mastery, centrality, and confidence remain independently assignable and inspectable. | ✓ VERIFIED | Separate model fields and `AssessmentJudgmentBasis` exist in `domain/models.py:308-322,544-617`; focused and full offline tests passed, including independent-field mutations in the 37-case matrix. |
+| 3 | Mastery names an observable anchor; unsupported higher bands fail and high-mastery/low-confidence remains provisional. | ✓ VERIFIED | `MasteryAnchorFit` validates anchor identity/range and basis (`domain/models.py:277-305`); admission-boundary and anchor-promotion tests are active in the passing suite. |
+| 4 | One traceable aggregate per exact Skill does not mechanically reward duplicate Evidence, duplicate Contributions, or incidental use. | ✓ VERIFIED | `aggregate_user_skills` and exact-Skill invariant validation are implemented at `assessment.py:939` and `domain/invariants.py:49`; `test_skill_aggregation.py:118` is an active metamorphic no-inflation test in the passing suite. |
+| 5 | Calibration compares replaceable policies while retaining variance, disagreement, decisions, regressions, and immutable history. | ✓ VERIFIED | Active calibration/history and symlink-alias regressions remain in `tests/test_policy_calibration.py`, including `:321`; the complete offline suite exited 0. |
+| 6 | Reassessment consumes an existing completed/confirmed audit, rejects stale or mismatched requests before persistence, and appends a valid reassessment only after canonical equality. | ✓ VERIFIED | Stale validation precedes corpus load (`assessment.py:1131-1139`); `_materialize_audit(... allow_replay=False)` precedes canonical proposal derivation (`1141-1148`); `proposal != canonical` rejects before `_make_version` (`1161-1172`). The CLI only calls `AssessmentStore.replace` after the service returns (`cli.py:615-635`). |
+| 7 | The committed whole-proposal regression matrix covers every required valid structural group and proves each rejected caller mismatch is zero-write. | ✓ VERIFIED | `tests/test_assessment_cli.py:383-461` contains the retained 17 plus the required 20 additions; collection independently reported **37 tests**. Each case model-validates the proposal, executes the real CLI, requires exit 2 / `assessment_workflow_error`, then compares both exact assessment bytes and the audit-tree snapshot (`464-508`). The independently run focused node exited 0. |
+| 8 | 04-11 adds only acceptance evidence and does not introduce a second authority, parser, schema, policy, persistence flow, or premature Phase/requirement promotion. | ✓ VERIFIED | Since the Wave-11 planning base `87f7350`, the runtime diff is limited to `tests/test_assessment_cli.py` plus validation/review/security/summary documents; `04-11-SUMMARY.md` records `requirements-completed: []` and `completion_authority: independent_verification`. |
 
-**Score:** 7/8 must-haves verified (0 present, behavior-unverified).
+**Score:** 8/8 truths verified (0 present, behavior-unverified).
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 | --- | --- | --- | --- |
-| `src/career_evidence_graph/assessment.py` | Audit-derived assessment, admission, aggregation, calibration, and no-replay reassessment. | ✓ VERIFIED | 1,742 substantive lines; no debt markers/stubs. Reassessment's no-replay and equality branches execute before `_make_version`. |
-| `src/career_evidence_graph/domain/models.py` | Strict separate assessment, lineage, anchor, envelope, version, and policy contracts. | ✓ VERIFIED | 746 substantive lines; frozen strict models retain distinct signals and source custody. |
-| `src/career_evidence_graph/domain/invariants.py` | Exact-Skill/no-inflation/promotion invariants. | ✓ VERIFIED | 482 substantive lines and active aggregation/promotion callers/tests. |
-| `src/career_evidence_graph/cli.py` | `assessment run`, `review`, `reassess`, aggregate, comparison, activation, and inspection wiring. | ✓ VERIFIED | The reassess handler parses a strict model, calls the service, and calls `AssessmentStore.replace` only after success (`615-635`). |
-| `tests/test_assessment_admission.py` | Invalid-audit, stale-first, custody, append-only, and service-boundary regression evidence. | ⚠️ PARTIAL | Invalid audit states and service zero-write controls are substantive, but it does not cover the omitted valid proposal mutations. |
-| `tests/test_assessment_cli.py` | Black-box dual-store regression evidence for every caller mismatch. | ✗ INCOMPLETE | The 17-case parameterization is active and behavioral, but fails 04-10's all-structural-group coverage contract. |
-| `validation/calibration/phase-04/corpus.json` and `policies.json` | Hash-bound calibration inputs and replaceable policy versions. | ✓ VERIFIED | Referenced by actual run/calibration flows; policy history remains unchanged after 04-10. |
-| `04-VALIDATION.md` | Measured local gates without a promotion claim. | ✓ VERIFIED | Records 04-10 commands/results and explicitly withholds Phase/requirement completion. |
+| `src/career_evidence_graph/assessment.py` | Audit-derived assessment, admission, aggregation, calibration, and no-replay reassessment. | ✓ VERIFIED | 1,742 substantive lines; reassessment/aggregation paths are exercised by passing tests, not merely present. |
+| `src/career_evidence_graph/domain/models.py` | Strict separate assessment, lineage, anchor, envelope, and policy contracts. | ✓ VERIFIED | 746 substantive lines; strict Pydantic validation accepts each matrix payload before the real CLI path. |
+| `src/career_evidence_graph/domain/invariants.py` | Exact-Skill, no-inflation, and promotion invariants. | ✓ VERIFIED | 482 substantive lines; `validate_user_skill` is wired from aggregate output and covered by aggregation/promotion regressions. |
+| `src/career_evidence_graph/cli.py` | Assessment run/review/reassess/aggregate/calibration surface. | ✓ VERIFIED | Reassessment parses the strict proposal, calls the service, and persists only after service success. |
+| `tests/test_assessment_cli.py` | Durable black-box whole-proposal zero-write matrix. | ✓ VERIFIED | 555 substantive lines; the parameter table has 37 valid structural cases and uses the production CLI rather than a mock. |
+| `tests/test_assessment_admission.py` | Service-boundary audit custody and zero-write controls. | ✓ VERIFIED | 602 substantive lines; it supplies the real later-audit constructor and the shared audit-tree snapshot used by the black-box matrix. |
+| `tests/test_skill_aggregation.py`, `tests/test_anchor_promotion.py`, `tests/test_policy_calibration.py` | No-inflation, controlled promotion, and policy-history regressions. | ✓ VERIFIED | All are active requirement-linked behavioral tests in the passing offline suite. |
+| `04-VALIDATION.md` | Non-promotional measured Phase 04 evidence. | ✓ VERIFIED | The 04-11 section records actual focused/full/Ruff commands and explicitly withholds completion authority. |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
 | --- | --- | --- | --- | --- |
-| `reassess_from_new_evidence` | `_materialize_audit` | stale guard, then `allow_replay=False` | ✓ WIRED | Direct call at `assessment.py:1141-1147`. The generic key-link query reports a parser limitation for `path::symbol`, not an absent link. |
-| `_materialize_audit` | `AuditStore` | `path_for().lstat()` existence probe then `AuditStore.read()` | ✓ WIRED | No-replay branch at `491-499` has no route to `start_audit`, `transition_audit`, `create`, or `replace`. |
-| Reassessment service | `ContributionSkillAssessment` | full canonical-model equality | ✓ WIRED | `proposal != canonical` at `1161-1164`; 14 additional valid mutations independently rejected with dual-store identity. |
-| CLI reassessment | service / `AssessmentStore.replace` | strict input, service return, then persistence | ✓ WIRED | `cli.py:617-635`; rejected service calls never reach line 634. |
-| Aggregation/promotion | invariants and authority partition | validation plus exact-Skill support | ✓ WIRED | Active aggregation/promotion tests passed; mixed derived/reviewed support remains rejected. |
-| Calibration runner | audit custody and retained history | materialized audit identities plus semantic rehash | ✓ WIRED | Custody and retained-history regressions are active and passed. |
+| `tests/test_assessment_cli.py` | `ContributionSkillAssessment` | `ContributionSkillAssessment.model_validate(payload)` before subprocess. | ✓ WIRED | Direct call at line 486; each collected case crosses strict contract validation. |
+| CLI `assessment reassess` | `reassess_from_new_evidence` | Parsed proposal → service call → `replace` only after success. | ✓ WIRED | `cli.py:615-635`; matrix uses the real subprocess command at test lines 488-503. |
+| `reassess_from_new_evidence` | completed stored audit and canonical proposal | `allow_replay=False`, re-materialization, then whole-model equality. | ✓ WIRED | `assessment.py:1141-1164`; no rejected path reaches `_make_version`. |
+| aggregation/promotion logic | exact-Skill/no-inflation invariants | Aggregate creation validates admitted same-Skill support and promotion decisions. | ✓ WIRED | `assessment.py:939` and `domain/invariants.py:49`, with active aggregation/promotion tests. |
+| calibration runner | retained policy and history records | Validation and history tests invoke real persisted calibration paths. | ✓ WIRED | Full offline suite passed. |
 
 ### Data-Flow Trace (Level 4)
 
 | Artifact | Data Variable | Source | Produces Real Data | Status |
 | --- | --- | --- | --- | --- |
-| Reassessment | `AuditSnapshot` then canonical `ContributionSkillAssessment` | Existing `AuditStore` bytes, validated through `_materialize_audit` | Yes | ✓ FLOWING |
-| Aggregate result | admitted versions / exact-Skill support | Persisted assessment versions and active policy | Yes | ✓ FLOWING |
-| Calibration comparison | policy, run, and comparison histories | Hash-revalidated persisted calibration records | Yes | ✓ FLOWING |
+| Reassessment | canonical `ContributionSkillAssessment` | Existing completed audit bytes read from `AuditStore` and re-materialized. | Yes | ✓ FLOWING |
+| Aggregate result | admitted assessments grouped by exact Skill | Persisted assessment records plus active policy. | Yes | ✓ FLOWING |
+| Calibration comparison | policy/run/comparison history | Hash-validated persisted calibration records. | Yes | ✓ FLOWING |
 
 ### Behavioral Spot-Checks
 
 | Behavior | Command | Result | Status |
 | --- | --- | --- | --- |
-| No-replay, invalid-audit, stale-first, CLI zero-write, append-only, and sampled mismatch controls | `uv run --offline --locked python scripts/run_pytest.py -q` with six named reassessment tests | 26 passed | ✓ PASS |
-| Full Phase/workspace regression | `uv run --offline --locked python scripts/run_pytest.py -q` | Exit 0 | ✓ PASS |
-| Static quality | `uv run --offline --locked ruff check .` and `ruff format --check .` | Both exit 0 | ✓ PASS |
-| Omitted WR-01 field groups on current implementation | Disposable-workspace probe of duration, attribution, assistance, lineage source kind, remaining envelope custody, remaining anchor basis, and remaining judgment bases | 14 valid mutations rejected; assessment sidecar and complete audit tree remained identical | ✓ PASS — current behavior only |
+| Complete valid-mutation, real-CLI, zero-write reassessment matrix | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_assessment_cli.py::test_reassess_cli_rejects_each_caller_identity_permutation_without_mutation -x` | Exit 0. Separate collection reported 37 parameter groups. | ✓ PASS |
+| Full deterministic workspace regression | `uv run --offline --locked python scripts/run_pytest.py -q` | Exit 0. | ✓ PASS |
+| Static quality | `uv run --offline --locked ruff check . && uv run --offline --locked ruff format --check .` | `All checks passed`; 57 files already formatted. | ✓ PASS |
 
 ### Probe Execution
 
-Step 7c: **SKIPPED** — no declared or conventional `scripts/**/tests/probe-*.sh` probe exists for Phase 04.
+Step 7c: **SKIPPED** — no Phase 04 declared or conventional `scripts/**/tests/probe-*.sh` probe exists.
 
 ### Requirements Coverage
 
-| Requirement | Source Plan(s) | Description | Status | Evidence |
-| --- | --- | --- | --- | --- |
-| ASS-01 | 04-01, 04-02, 04-05, 04-09, 04-10 | Specific Skills are grounded in audited Contributions with traceable support. | ✓ SATISFIED | Audit materialization, source envelope, strict models, active proposal tests, and no-replay reassessment wiring. |
-| ASS-02 | 04-01, 04-02, 04-05 | Three judgments remain independent. | ✓ SATISFIED | Separate fields/bases and active independence cases. |
-| ASS-03 | 04-01, 04-02, 04-05 | Anchored mastery rejects unsupported higher-band claims. | ✓ SATISFIED | Literal anchor validators and active boundary/higher-band cases. |
-| ASS-04 | 04-01, 04-03, 04-05, 04-07 | High mastery with inadequate confidence remains provisional. | ✓ SATISFIED | Active admission and immutable review-state regressions. |
-| AGG-01 | 04-01, 04-04, 04-05, 04-09, 04-10 | One traceable aggregate per exact Skill. | ✓ SATISFIED | Aggregate traceability and valid reassessment append behavior. |
-| AGG-02 | 04-01, 04-04, 04-05 | Evidence/contribution/incidental volume cannot inflate mastery. | ✓ SATISFIED | Active metamorphic no-inflation tests. |
-| AGG-03 | 04-01, 04-04, 04-05, 04-08, 04-09, 04-10 | Cross-contribution promotion requires credible behavior and correct authority. | ✓ SATISFIED | Active promotion and authority-partition tests. |
-| AGG-04 | 04-01, 04-05, 04-06 | Policy comparisons preserve variance, disagreement, decisions, and regressions. | ✓ SATISFIED | Active audit-custody and semantic-history regressions. |
+| Requirement | Status | Evidence |
+| --- | --- | --- |
+| ASS-01 | ✓ SATISFIED | Confirmed-audit materialization, strict source/lineage contracts, and the full valid caller-mutation rejection matrix. |
+| ASS-02 | ✓ SATISFIED | Separate mastery, centrality, confidence fields/bases and active independence coverage. |
+| ASS-03 | ✓ SATISFIED | Literal anchor fit validation plus passing anchor-boundary/promotion cases. |
+| ASS-04 | ✓ SATISFIED | Passing admission boundary/provisional-confirmation controls. |
+| AGG-01 | ✓ SATISFIED | One traceable per-Skill aggregate and append-only reassessment lineage. |
+| AGG-02 | ✓ SATISFIED | Active duplicate/contribution/incidental-use metamorphic no-inflation test. |
+| AGG-03 | ✓ SATISFIED | Active credible-behavior and authority-partition promotion tests. |
+| AGG-04 | ✓ SATISFIED | Active retained-history/calibration comparison and tamper-rejection tests. |
 
-All eight Phase 04 requirements are declared by at least one plan; no orphaned Phase 04 requirement was found. The blocking gap is a stated 04-10 regression-artifact acceptance condition, not evidence that a separate requirement implementation is presently absent.
+All eight Phase 04 requirements are claimed by one or more plans; no orphaned Phase 04 requirement was found.
 
 ### Test Quality Audit
 
-| Test File | Linked Requirement | Active | Skipped | Circular | Assertion Level | Verdict |
+| Test File | Linked Req | Active | Skipped | Circular | Assertion Level | Verdict |
 | --- | --- | --- | --- | --- | --- | --- |
-| `tests/test_assessment_admission.py` | ASS-01, ASS-04, AGG-01, AGG-03 | Yes | 0 | No | Behavioral/byte identity | ✓ PASS, partial matrix |
-| `tests/test_assessment_cli.py` | ASS-01, ASS-04, AGG-01, AGG-03 | Yes | 0 | No | Behavioral/CLI exit/byte identity | 🛑 BLOCKER — WR-01 coverage omission |
+| `tests/test_assessment_cli.py` | ASS-01, AGG-01, AGG-03 | Yes | 0 | No | Behavioral: real CLI, exit state, two persistence assertions | ✓ PASS |
+| `tests/test_assessment_admission.py` | ASS-01, ASS-04, AGG-01, AGG-03 | Yes | 0 | No | Behavioral: service and audit custody | ✓ PASS |
 | `tests/test_skill_aggregation.py` | AGG-01, AGG-02 | Yes | 0 | No | Behavioral/metamorphic | ✓ PASS |
 | `tests/test_anchor_promotion.py` | AGG-03 | Yes | 0 | No | Behavioral | ✓ PASS |
 | `tests/test_policy_calibration.py` | AGG-04 | Yes | 0 | No | Behavioral/tamper fail-closed | ✓ PASS |
 
-`107` relevant tests were collected. No disabled requirement-linked tests or circular expected-output generation was found. WR-01 is blocking under 04-10's own matrix: Task 2 requires valid Pydantic mutations across **every structural group** and the acceptance criteria require complete canonical equality rather than sampled fields. The present `proposal != canonical` implementation and the verifier's 14-case probe establish current behavior, but they do not satisfy the committed regression deliverable that prevents a future partial comparison from reintroducing the vulnerability.
+No disabled requirement-linked test was found. Test-created files are inputs or deliberately corrupted state for a test's temporary workspace; expected outcomes are explicit exit codes, byte identity, and model invariants, not values generated by the system under test.
 
 ### Decision Coverage
 
-`check.decision-coverage-verify` reports **16/16** trackable `04-CONTEXT.md` decisions honored. This is advisory and does not override the missing regression evidence.
+`check.decision-coverage-verify` reports **16/16** trackable `04-CONTEXT.md` decisions honored. This is advisory and does not change the pass verdict.
 
 ### Prohibition Review
 
 | Prohibition | Verdict | Evidence |
 | --- | --- | --- |
-| Rejected reassessment must not create, replace, or repair audit/assessment artifacts. | ✓ VERIFIED | Direct service/CLI zero-write tests and focused 26-test run compare exact sidecar and full audit-tree state. |
-| Do not create a second audit authority, staging flow, transaction, or rollback subsystem. | ✓ VERIFIED | The no-replay branch reuses `AuditStore.path_for`/`read`; no new store, staging, transaction, or rollback source exists. |
-| Passing local 04-10 gates must not promote Phase 4 or requirements. | ✓ VERIFIED | Post-summary commits are independent review/security documents only; `04-10-SUMMARY.md` retains empty `requirements-completed`. |
+| Rejected reassessment must not create, replace, or repair audit/assessment artifacts. | ✓ VERIFIED | Every matrix case checks exit 2, exact assessment-sidecar bytes, and the audit-tree snapshot. |
+| Do not create a second audit authority, staging flow, transaction, or rollback subsystem. | ✓ VERIFIED | Reassessment reuses `AuditStore` read/materialization and the existing CLI/service path; no new runtime surface appears in the Wave-11 diff. |
+| 04-11 must not promote Phase 4 or requirement status. | ✓ VERIFIED | `04-11-SUMMARY.md` has empty `requirements-completed`; the independent review/security documents retain promotion outside the executor. |
 
 ### Anti-Patterns Found
 
 | File | Line | Pattern | Severity | Impact |
-| --- | --- | --- | --- | --- |
-| `tests/test_assessment_cli.py` | 383-403 | Partial whole-proposal mismatch parameterization | 🛑 BLOCKER | Fails the explicit 04-10 regression acceptance matrix and leaves future partial-field regressions unguarded. |
-| `ROADMAP.md` Phase 4 metadata | phase goal | MVP mode with a non-User-Story goal | ⚠️ Warning | Canonical MVP user-flow verification remains unavailable. |
+| --- | --- | --- | --- |
+| `tests/test_assessment_cli.py` | 383-465 | Pytest labels cases as `patches0` through `patches36`, rather than semantic names. | ⚠️ Warning | Failure diagnosis and future inventory review are less convenient, but each required field mutation remains explicit and active in the committed table; this does not invalidate the 37-case behavioral proof. |
+| `tests/test_assessment_admission.py` | 134-146 | Inherited audit-tree helper follows same-content symlinks. | ⚠️ Warning | The normal reassessment path is still proven zero-write; an adversarial filesystem-entry-type assertion would need an enriched helper and explicit symlink fixture. No Phase 04 criterion requires hostile concurrent filesystem mutation handling. |
+| `ROADMAP.md` Phase 4 metadata | phase goal | `mode: mvp` has a non-user-story technical goal. | ⚠️ Warning | Canonical MVP user-flow UAT is unavailable. This is pre-existing metadata outside the 04-11 WR-01 closure and does not negate the technical Phase 4 contract verified here. |
 
-No `TBD`, `FIXME`, `XXX`, placeholder, empty implementation, disabled test, or source-level stub was found in Phase 04 implementation/test artifacts.
+No `TBD`, `FIXME`, `XXX`, placeholder, empty implementation, or disabled test was found in the Phase 04 implementation/test artifacts.
 
-### Human Verification Required
+## Human Verification
 
-N/A for the code-level Phase 04 contract: this is an infrastructure/foundation phase with no user-facing surface, and the blocking gap is mechanically observable. The roadmap's invalid MVP user-story metadata must be repaired before a canonical MVP UAT can be created.
+N/A — this is an infrastructure/foundation phase with no user-facing element in the Phase 4 technical contract. All asserted state transitions and custody behavior have direct automated behavioral evidence.
 
-### Gaps Summary
+## Gaps Summary
 
-04-10 closes the prior CR-01 implementation defect: reassessment is now no-replay, reads an existing audit only, preserves stale-first ordering, compares the complete Pydantic model before persistence, and does not promote authority. The decisive remaining defect is **WR-01**.
-
-WR-01 is a **BLOCKER** under the plan's stated acceptance matrix, even though the current code passed direct testing: the plan did not merely require a correct equality expression; it required a committed valid-mutation regression across every named structural group. Several independent custody and judgment leaves remain untested in repository coverage. Add those durable matrix cases, then rerun independent verification. No later roadmap phase clearly owns this Phase 04 reassessment-test obligation, so it is not deferred.
+None. The prior WR-01 blocker is closed: the repository now contains and independently collects all 37 planned valid-mutation cases, and every case exercises the real reassessment CLI and both zero-write persistence checks. The two code-review findings remain warnings, not missing Phase 4 functionality or wiring; they do not justify reopening a test-only completion cycle.
 
 ---
 
-_Verified: 2026-08-28T12:46:00Z_
+_Verified: 2026-08-28T13:45:36Z_
 _Verifier: the agent (gsd-verifier)_
