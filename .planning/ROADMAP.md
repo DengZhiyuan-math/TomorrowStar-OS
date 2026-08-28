@@ -241,10 +241,10 @@ This milestone delivers six vertical validation capabilities in dependency order
   4. An evaluator can run schema, lineage, interval, duplication, split/merge, ontology-non-propagation, JD-isolation, known-good/known-bad, responsibility, assistance, evidence-inflation, dimension-confusion, stale-state, hidden-text, and prompt-injection cases at least three times under one recorded configuration; supported mastery bands remain stable and material variance is reported rather than averaged away.
   5. Independent human reviewers can preserve and adjudicate disagreement across attribution, Skill specificity, anchor fit, centrality, confidence, aggregation, and JD usefulness, then blindly compare graph-based results with the preregistered baseline under fixed criteria with zero critical fabricated capability claims.
 
-**Plans:** 6 plans
+**Plans:** 1/6 plans executed
 **Wave 1**
 
-- [ ] 05-01-PLAN.md
+- [x] 05-01-PLAN.md
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -291,5 +291,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 2. Domain Contracts, STOA Fixture, and Deterministic Invariants | 6/6 | Complete    | 2026-07-30 |
 | 3. Artifact-Aware Grill-Me and Attribution Workflow | 18/18 | Complete    | 2026-08-27 |
 | 4. Contribution–Skill Assessment and Aggregation Calibration | 11/11 | Complete    | 2026-08-28 |
-| 5. JD Usefulness and Adversarial Evaluation | 0/6 | Planned    |  |
+| 5. JD Usefulness and Adversarial Evaluation | 1/6 | In Progress|  |
 | 6. Replication and Core-Hypothesis Decision | 0/TBD | Not started | - |

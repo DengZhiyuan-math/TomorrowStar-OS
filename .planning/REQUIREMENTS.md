@@ -47,9 +47,9 @@ Requirements for the first validation milestone. Each requirement maps to exactl
 ### Structured JD Comparison
 
 - [ ] **JD-01**: An evaluator can represent at least three contrasting JDs as structured requirements containing the source span, Skill, required or preferred status, stated strength or responsibility, context, seniority, duration, and experience expectations where present.
-- [ ] **JD-02**: A user can view each JD requirement as `supported`, `partially supported`, `unsupported`, or `uncertain`, with every positive or partial judgment citing the relevant Contribution–Skill assessments and their limitations.
-- [ ] **JD-03**: Comparing the same user graph with a different JD can change relevance, selected Contributions, gaps, and match judgments but cannot mutate the user's underlying Skill mastery.
-- [ ] **JD-04**: A comparison identifies missing capability, missing evidence, context mismatch, and uncertainty separately and never turns JD wording or résumé keywords into an unsupported capability claim.
+- [x] **JD-02**: A user can view each JD requirement as `supported`, `partially supported`, `unsupported`, or `uncertain`, with every positive or partial judgment citing the relevant Contribution–Skill assessments and their limitations.
+- [x] **JD-03**: Comparing the same user graph with a different JD can change relevance, selected Contributions, gaps, and match judgments but cannot mutate the user's underlying Skill mastery.
+- [x] **JD-04**: A comparison identifies missing capability, missing evidence, context mismatch, and uncertainty separately and never turns JD wording or résumé keywords into an unsupported capability claim.
 
 ### Evaluation, Replication, and Decision
 
@@ -130,9 +130,9 @@ Every v1 requirement maps to exactly one roadmap phase. Deferred v2 requirements
 | AGG-03 | Phase 4 | Complete |
 | AGG-04 | Phase 4 | Complete |
 | JD-01 | Phase 5 | Pending |
-| JD-02 | Phase 5 | Pending |
-| JD-03 | Phase 5 | Pending |
-| JD-04 | Phase 5 | Pending |
+| JD-02 | Phase 5 | Complete |
+| JD-03 | Phase 5 | Complete |
+| JD-04 | Phase 5 | Complete |
 | EVAL-01 | Phase 5 | Pending |
 | EVAL-02 | Phase 5 | Pending |
 | EVAL-03 | Phase 5 | Pending |

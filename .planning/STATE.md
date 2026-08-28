@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 05
 current_phase_name: jd-usefulness-and-adversarial-evaluation
 status: executing
-stopped_at: Phase 5 context gathered
-last_updated: "2026-08-28T16:44:20.073Z"
+stopped_at: Completed 05-01-PLAN.md
+last_updated: "2026-08-28T17:10:30.170Z"
 last_activity: 2026-08-28
-last_activity_desc: Phase 04 complete, transitioned to Phase 5
-state_head: 37fc67e60e2d955666504d5efe1e4be26276c151
+last_activity_desc: Phase 05 execution started
+state_head: 7c74aeb253ee91a852fbcafbd411985eb0452164
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 43
-  completed_plans: 37
+  completed_plans: 38
 milestone_name: milestone
 ---
 
@@ -24,15 +24,15 @@ milestone_name: milestone
 See: .planning/PROJECT.md (updated 2026-07-30)
 
 **Core value:** Accurately determine what the user can genuinely do within specific contributions and convert that understanding into skill scores and graph relationships useful for JD-relevant career decisions.
-**Current focus:** Phase 04 — Contribution–Skill Assessment and Aggregation Calibration
+**Current focus:** Phase 05 — jd-usefulness-and-adversarial-evaluation
 
 ## Current Position
 
-Phase: 05 (jd-usefulness-and-adversarial-evaluation) — READY TO EXECUTE
-Plan: Not started
+Phase: 05 (jd-usefulness-and-adversarial-evaluation) — EXECUTING
+Plan: 2 of 6
 Status: Ready to execute
 Total Plans in Phase: 6
-Last activity: 2026-08-28 — Phase 04 complete, transitioned to Phase 5
+Last activity: 2026-08-28 — Phase 05 execution started
 
 Progress: [███████░░░] 78%
 
@@ -80,6 +80,7 @@ Progress: [███████░░░] 78%
 | Phase 04-contribution-skill-assessment-and-aggregation-calibration P03 | 10min | 2 tasks | 5 files |
 | Phase 04 P04 | 13min | 2 tasks | 7 files |
 | Phase 04 P05 | 21min | 3 tasks | 9 files |
+| Phase 05 P01 | 17min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -128,6 +129,9 @@ Recent decisions affecting current work:
 - [Phase 04]: A cross-Contribution promotion is defaulted to the immediate target anchor's lower bound and requires hash-bound, distinct same-Skill Contribution/context/behavior proof.
 - [Phase 04]: Phase 04-05: zhdeng activated conservative-70 so 60-69 confidence boundary cases remain pending human confirmation.
 - [Phase 04]: Phase 04-05: Re-evaluate conservative-70 after additional real audited samples accumulate; baseline-60 remains comparison-only.
+- [Phase 05]: Phase 05 Plan 01: accepted JD source/proposal custody is content-bound and every span reconstructs from retained UTF-8 bytes.
+- [Phase 05]: Phase 05 Plan 01: JD comparison is a pure relevance projection; inclusive integer routing applies the core cap before any direct-evidence overlay.
+- [Phase 05]: Phase 05 Plan 01: evidence-strong-match requires direct high-confidence reviewed-user-truth evidence for every exact Skill constituent, including linked groups.
 
 ### Pending Todos
 
@@ -154,6 +158,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-28T14:40:48.041Z
-Stopped at: Phase 5 context gathered
-Resume file: .planning/phases/05-jd-usefulness-and-adversarial-evaluation/05-CONTEXT.md
+Last session: 2026-08-28T17:10:30.072Z
+Stopped at: Completed 05-01-PLAN.md
+Resume file: None
