@@ -740,6 +740,9 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
         elif args.command == "jd" and args.jd_command == "inspect":
+            if args.expect is None:
+                _emit(JDIntakeStore(Path(args.workspace)).safe_status())
+                return 0
             actual = JDIntakeStore(Path(args.workspace)).expectation_met(args.expect)
             _emit({"actual": actual, "expected": args.expect, "met": actual})
             return 0 if actual else 2

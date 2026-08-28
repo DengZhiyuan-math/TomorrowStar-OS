@@ -222,6 +222,34 @@ class JDIntakeStore:
             raise JDIntakeError("jd-inspect-expectation-invalid")
         return path.is_file() and not path.is_symlink()
 
+    def safe_status(self) -> dict[str, object]:
+        """Expose workflow counts only; raw source text and packets stay private."""
+        if not self.root.exists():
+            return {
+                "accepted_count": 0,
+                "evaluation_present": False,
+                "prepared_count": 0,
+            }
+        if self.root.is_symlink() or not self.root.is_dir():
+            raise JDIntakeError("jd-private-root-unsafe")
+
+        def bundle_count(name: str) -> int:
+            directory = self.root / name
+            if not directory.exists():
+                return 0
+            if directory.is_symlink() or not directory.is_dir():
+                raise JDIntakeError("jd-private-root-unsafe")
+            return sum(
+                1 for entry in directory.iterdir() if entry.is_dir() and not entry.is_symlink()
+            )
+
+        manifest = self.root / "evaluation" / "manifest.json"
+        return {
+            "accepted_count": bundle_count("accepted"),
+            "evaluation_present": manifest.is_file() and not manifest.is_symlink(),
+            "prepared_count": bundle_count("prepared"),
+        }
+
 
 def _normalized_company_identity(value: str) -> str:
     if _source_disclosures(value):
