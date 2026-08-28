@@ -251,6 +251,7 @@ def _parser() -> argparse.ArgumentParser:
     assessment_reassess = assessment_commands.add_parser("reassess")
     assessment_reassess.add_argument("--workspace", required=True)
     assessment_reassess.add_argument("--run-id", required=True)
+    assessment_reassess.add_argument("--later-corpus", required=True)
     assessment_reassess.add_argument("--source-audit-id", required=True)
     assessment_reassess.add_argument("--expected-current-version-hash", required=True)
     assessment_reassess.add_argument("--assessment-json", required=True)
@@ -624,6 +625,8 @@ def main(argv: list[str] | None = None) -> int:
             updated = reassess_from_new_evidence(
                 record,
                 policy=policy,
+                workspace=Path(args.workspace),
+                later_corpus_path=Path(args.later_corpus),
                 source_audit_id=args.source_audit_id,
                 expected_current_version_hash=args.expected_current_version_hash,
                 proposal=proposal,

@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from test_assessment_admission import _later_corpus
 
 from career_evidence_graph.assessment import (
     AssessmentStorageError,
@@ -20,7 +21,6 @@ from career_evidence_graph.assessment import (
 )
 from career_evidence_graph.audit.store import AuditStore
 from career_evidence_graph.domain.models import ContributionSkillAssessment
-from test_assessment_admission import _later_corpus
 
 ROOT = Path(__file__).parents[1]
 CORPUS = ROOT / "validation/calibration/phase-04/corpus.json"
@@ -307,9 +307,7 @@ def test_reassess_cli_appends_a_materialized_later_audit_version(tmp_path: Path)
         root=later_corpus.parents[3],
     )
     proposal_path = tmp_path / "later-reassessment.json"
-    proposal_path.write_text(
-        json.dumps(later_proposal.model_dump(mode="json")), encoding="utf-8"
-    )
+    proposal_path.write_text(json.dumps(later_proposal.model_dump(mode="json")), encoding="utf-8")
 
     reassessed = _run(
         "assessment",
