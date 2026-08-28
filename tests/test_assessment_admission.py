@@ -230,6 +230,50 @@ def test_confirm_and_correction_preserve_original_proposal_and_ordered_review_ha
     assert confirmed.proposal.skill_centrality == 79
 
 
+def test_two_edits_retain_immutable_versions_and_reopen(tmp_path: Path) -> None:
+    record = run_assessment(
+        workspace=tmp_path,
+        corpus_path=CORPUS,
+        policies_path=POLICIES,
+        audit_id="audit-e2e",
+        policy_version="policy-04-baseline-60",
+    )
+    first_payload = record.proposal.model_dump(mode="json")
+    first_payload["skill_centrality"] = 79
+    first_edit = _review(
+        record,
+        proposal=ContributionSkillAssessment.model_validate(first_payload),
+        outcome="edit",
+    )
+    second_payload = first_edit.proposal.model_dump(mode="json")
+    second_payload["skill_centrality"] = 83
+    second_edit = _review(
+        first_edit,
+        proposal=ContributionSkillAssessment.model_validate(second_payload),
+        outcome="edit",
+    )
+
+    assert len(second_edit.versions) == 3
+    assert [item.version_id for item in second_edit.versions] == [
+        f"assessment-version-{record.proposal.id}-1",
+        f"assessment-version-{record.proposal.id}-2",
+        f"assessment-version-{record.proposal.id}-3",
+    ]
+    assert [item.effective_assessment.skill_centrality for item in second_edit.versions] == [
+        record.proposal.skill_centrality,
+        79,
+        83,
+    ]
+    assert second_edit.versions[1].previous_version_hash == second_edit.versions[0].version_hash
+    assert second_edit.versions[2].previous_version_hash == second_edit.versions[1].version_hash
+    assert [len(item.reviews) for item in second_edit.versions] == [0, 1, 2]
+    assert second_edit.proposal == second_edit.versions[-1].effective_assessment
+
+    store = AssessmentStore(tmp_path)
+    store.replace("assessment-audit-e2e-04-baseline-60", second_edit)
+    assert store.read("assessment-audit-e2e-04-baseline-60") == second_edit
+
+
 def test_insufficient_review_and_later_evidence_preserve_immutable_versions(tmp_path: Path) -> None:
     record = run_assessment(
         workspace=tmp_path,
