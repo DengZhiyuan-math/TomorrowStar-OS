@@ -2,7 +2,7 @@
 status: resolved
 trigger: "深入分析并修复这个问题"
 created: 2026-08-28T17:45:21Z
-updated: 2026-08-28T18:48:13Z
+updated: 2026-08-28T18:50:11Z
 ---
 
 ## Current Focus
@@ -110,6 +110,11 @@ started: Recorded during Phase 2 on 2026-07-30 and acknowledged, but not fixed, 
   checked: Authoritative focused checkout-source suite, Ruff, and scoped diff hygiene.
   found: The exact target, all domain invariant tests, and the sealed one-fault inventory test pass (33/33); Ruff passes; git diff --check passes; only the two intended tracked planning files are modified, while pre-existing untracked .gsd, milestone lock, debug, and research cache paths remain untouched.
   implication: All applicable scoped guardrail signals accept the existing source fix and planning reconciliation; human verification is the remaining resolution gate.
+
+- timestamp: 2026-08-28T18:50:11Z
+  checked: Archive-time semantic knowledge-base indexing configuration.
+  found: `config.mempalace.enabled` is false, so no cross-session semantic index write was attempted; `.planning/debug/knowledge-base.md` was created as the durable fallback.
+  implication: Future sessions can use keyword fallback immediately, and semantic indexing remains disabled by the project's existing configuration.
 
 ## Resolution
 
