@@ -97,3 +97,26 @@ baseline-60 run remains comparison-only evidence and is never active authority.
   passing deterministic replay does not prove JD or employment effectiveness,
   and it must not hide regressions, average reviewer disagreement away, or
   silently overwrite a prior result.
+
+## 04-09 CR-01 Reassessment Custody Closure
+
+Measured on implementation revision `e009b082d4e0bc5d852268457d1629113c76078f`
+with regression controls at `fb74ced`.
+These are local deterministic implementation gates only; they do not complete
+ASS-01, AGG-01, AGG-03, Phase 04, or independent verification.
+
+| Gate | Command | Measured outcome |
+| --- | --- | --- |
+| Focused reassessment controls | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_assessment_admission.py tests/test_assessment_cli.py -k "reassess or fabricated or later_audit or stale_hash or authority_partition or append" -x` | 13 passed, 27 deselected in 7.83s |
+| Full offline suite | `uv run --offline --locked python scripts/run_pytest.py -q` | exited 0 |
+| Static gates | `uv run --offline --locked ruff check .` and `uv run --offline --locked ruff format --check .` | both exited 0; 57 files already formatted |
+
+The focused controls prove that `assessment reassess` rejects the exact
+`audit-fabricated` plus `reviewed-user-truth` relabelling attempt with exit 2
+and byte-identical sidecar output; stale expected-version hashes reject before
+the later corpus is read; and a real completed, confirmed later audit appends
+one hash-linked version while retaining the derived authority partition and
+resetting substantive review. The command now derives custody through
+`_materialize_audit`; caller-provided source audit IDs are expected identities
+only. Fresh independent code, security, and goal verification must inspect this
+unchanged revision before any shared status promotion.
