@@ -166,6 +166,34 @@ def test_mixed_authority_promotion_cannot_elevate_reviewed_user_truth(tmp_path: 
     assert baseline[0].authority_label == "reviewed-user-truth"
 
 
+def test_routine_unflagged_baseline_does_not_require_substantive_review(tmp_path: Path) -> None:
+    """D-05 keeps an audit-verified baseline independent of a promotion review gate."""
+    proposal = _assessment(tmp_path, id="assessment-routine-unflagged")
+    payload = proposal.model_dump(mode="json")
+    payload["source_envelope"]["authority_label"] = "reviewed-user-truth"
+    payload["origin_status"] = "audit-verified"
+    payload["assessment_status"] = "partial"
+    routine = ContributionSkillAssessment.model_validate(payload)
+    record = build_assessment_run(routine, decide_admission(routine, _policy()))
+
+    result = aggregate_user_skills((record,))[0]
+
+    assert record.admission.admission_status.value == "admitted"
+    assert routine.substantive_review_complete is False
+    assert result.mastery == 60
+    assert result.authority_label == "reviewed-user-truth"
+
+
+def test_derived_calibration_promotion_stays_in_its_own_authority_partition(
+    tmp_path: Path,
+) -> None:
+    runs = _runs(tmp_path)
+    results = aggregate_user_skills(runs, promotion_decisions=(_decision(runs),))
+
+    assert results[0].mastery == 70
+    assert results[0].authority_label == "derived-counterfactual"
+
+
 @pytest.mark.parametrize(
     "changes",
     (
