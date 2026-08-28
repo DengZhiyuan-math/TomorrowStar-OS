@@ -11,9 +11,9 @@ provides:
   - measured offline verification evidence for the complete mutation matrix
 affects: [independent-review, security-review, goal-verification]
 actuals:
-  tokens: 1608
+  tokens: 3294
   tasks: 1
-  commits: 1
+  commits: 4
 tech-stack:
   added: []
   patterns:
@@ -54,7 +54,7 @@ status: complete
 ## Performance
 
 - **Duration:** 11 min
-- **Completed:** 2026-08-28T13:24:19Z
+- **Completed:** 2026-08-28T13:29:48Z
 - **Tasks:** 1/1
 - **Files modified:** 2 task files, plus this summary
 
@@ -67,18 +67,21 @@ status: complete
 
 ## Verification
 
-Tested implementation worktree was based at `87f73502daf0f404483b459dcda678f4fa6970a0`; the exact matrix tested is committed in `0ae69f5`.
+The original expansion is `0ae69f5`; the final measured matrix, including the
+scoped Ruff normalization, is `f9c342c` and was reverified on the working tree
+based at `9b185723c00e6e4b765c153d294c01da14f64464`.
 
 | Gate | Outcome |
 | --- | --- |
-| Focused reassessment mutation node | 37 passed in 24.48s |
+| Focused reassessment mutation node | exited 0; all 37 parameter groups passed |
 | Full deterministic offline pytest suite | exited 0 |
 | `ruff check .` | exited 0 |
-| `ruff format --check .` | exited 0 |
+| `ruff format --check .` | exited 0 after the scoped formatter continuation |
 
 ## Task Commit
 
 1. **Task 1: Expand the durable whole-proposal matrix from 17 to 37 valid mutation groups** - `0ae69f5` (`test`)
+2. **Post-wave formatting continuation** - `f9c342c` (`style`)
 
 ## Files Created/Modified
 
@@ -93,7 +96,19 @@ This plan addresses `ASS-01`, `AGG-01`, and `AGG-03` only as acceptance evidence
 
 ## Deviations from Plan
 
-None - plan executed exactly as written.
+### Auto-fixed Issues
+
+**1. [Rule 3 - Blocking issue] Corrected the post-wave Ruff format failure**
+- **Found during:** Post-wave independent gate
+- **Issue:** `ruff format --check .` required two existing single-patch parameter rows to use its canonical one-line format.
+- **Fix:** Ran Ruff on `tests/test_assessment_cli.py` only, then reran the focused 37-group node, full offline suite, Ruff lint, and Ruff format check.
+- **Files modified:** `tests/test_assessment_cli.py`, `04-VALIDATION.md`, and this summary
+- **Verification:** All four final gates exited 0.
+- **Committed in:** `f9c342c` (test and validation); this summary update is committed separately.
+
+**Total deviations:** 1 auto-fixed (Rule 3)
+
+**Impact on plan:** Mechanical formatting only; no runtime behavior, coverage authority, or shared planning status changed.
 
 ## Known Stubs
 
@@ -105,4 +120,5 @@ The committed matrix is ready for fresh independent code review, security review
 
 ## Self-Check: PASSED
 
-`04-11-SUMMARY.md` exists and task commit `0ae69f5` is present in Git history.
+`04-11-SUMMARY.md` exists and both task commit `0ae69f5` and final formatting
+commit `f9c342c` are present in Git history.
