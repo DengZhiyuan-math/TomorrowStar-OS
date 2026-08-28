@@ -1,20 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-status: Awaiting next milestone
-stopped_at: User-approved v1.0 partial closeout; next milestone must build a reviewed personal Skill graph and test user-supplied real JDs
-last_updated: "2026-08-28T17:37:26.416Z"
+milestone: v1.1
+milestone_name: Full Career Graph and Real JD Validation
+status: planning
+last_updated: "2026-08-28T20:12:01.417Z"
 last_activity: 2026-08-28
-last_activity_desc: User-approved v1.0 partial closeout archived; empirical validation deferred
-state_head: fc4cfe773ccfff7024fc6cdac7ea8702d3fd0684
 progress:
-  total_phases: 6
-  completed_phases: 3
-  total_plans: 43
-  completed_plans: 39
-milestone_name: Core Foundation and Deferred Validation
-current_phase: 05
-current_phase_name: jd-usefulness-and-adversarial-evaluation
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -24,14 +20,14 @@ current_phase_name: jd-usefulness-and-adversarial-evaluation
 See: .planning/PROJECT.md (updated 2026-08-28)
 
 **Core value:** Accurately determine what the user can genuinely do within specific contributions and convert that understanding into skill scores and graph relationships useful for JD-relevant career decisions.
-**Current focus:** Planning the next milestone: reviewed personal graph and real JD tests
+**Current focus:** Defining milestone v1.1 requirements for the full-career graph, real JD evaluation, and core-hypothesis decision
 
 ## Current Position
 
-Phase: Milestone v1.0 partially closed by user approval
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-08-28 — Foundation archived; empirical validation deferred to the next milestone
+Status: Defining requirements
+Last activity: 2026-08-28 — Milestone v1.1 started
 
 ## Performance Metrics
 

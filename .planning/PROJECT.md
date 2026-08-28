@@ -4,11 +4,20 @@
 
 This project is the local, evidence-grounded foundation for an agentic, skill-graph-based résumé and career-gap system. Its v1.0 closeout established Contribution-based records, auditable Grill-Me conclusions, attribution, Skill assessment and no-inflation aggregation, plus content-free JD-comparison and private-intake boundaries.
 
-v1.0 is a user-approved partial closeout, not a successful empirical validation of the full hypothesis: no reviewed personal Skill graph was built and no real JD evaluation was run. Those two activities begin the next milestone. The broader product will use a reusable Skill graph to select and rewrite relevant experiences for tailored résumés and propose evidence-producing gap-closing work, but those downstream loops remain outside this foundation.
+v1.0 is a user-approved partial closeout, not a successful empirical validation of the full hypothesis: no reviewed personal Skill graph was built and no real JD evaluation was run. Milestone v1.1 now builds a user-confirmed full-career graph, tests it against exactly three user-supplied real JDs, and makes the frozen core-hypothesis decision. The broader product will use the reusable Skill graph to select and rewrite relevant experiences for tailored résumés and propose evidence-producing gap-closing work, but those downstream loops remain outside this milestone.
 
 ## Core Value
 
 Accurately determine what the user can genuinely do within specific contributions and convert that understanding into skill scores and graph relationships that are useful for JD-relevant career decisions.
+
+## Current Milestone: v1.1 Full Career Graph and Real JD Validation
+
+**Goal:** Build a user-confirmed full-career Skill graph, evaluate it against exactly three real JDs, and make an evidence-backed core-hypothesis decision.
+
+**Target features:**
+- A user-confirmed authoritative inventory of the user's full career history as of a recorded cutoff, with explicit coverage status for every known item.
+- One canonical status-aware `Experience → Contribution → Skill` graph in which only reviewed assessments can establish or increase mastery.
+- User-supplied raw-JD intake, item-level requirement review, immutable acceptance, graph comparison, and the frozen real-input evaluation and decision protocol.
 
 ## Requirements
 
@@ -24,17 +33,16 @@ Accurately determine what the user can genuinely do within specific contribution
 
 ### Active
 
-- [ ] Build a reviewed, user-truth personal Skill graph from real Contributions, Evidence, attribution, and confirmed assessments.
-- [ ] Accept user-supplied real JDs and evaluate them against that reviewed graph without allowing JD wording to create mastery claims.
-- [ ] Run the preregistered deterministic, adversarial, stability, human-review, and blind-baseline evaluation with the real graph and JD inputs.
-- [ ] Resolve or explicitly re-baseline the acknowledged Phase 2 full-suite regression before claiming the repository-wide suite is green.
-- [ ] Run a held-out and minimal non-STOA replication, then make the evidence-backed core-hypothesis decision.
+- [ ] Build and receive user confirmation of an authoritative inventory covering all known career Experiences, Contributions, Evidence, and candidate Skills as of a recorded cutoff.
+- [ ] Generalize the STOA-bounded ingestion and audit path into one canonical full-career graph with explicit reviewed, pending, insufficient-evidence, unresolved-responsibility, and confirmed states.
+- [ ] Admit mastery only from real, attribution-preserving, human-reviewed Contribution–Skill assessments and preserve all unreviewed or unresolved content as non-authoritative for scoring.
+- [ ] Accept exactly three user-supplied real JDs through source-bound extraction, item-level correction, and immutable review, then compare them without mutating the user graph.
+- [ ] Run the frozen deterministic, adversarial, stability, human-review, blind-baseline, holdout, and replication evaluation and make the evidence-backed core-hypothesis decision.
 
 ### Out of Scope
 
 - Full production résumé compiler — tailored résumé generation is a core product output, but implementation is deferred until the skill graph proves useful for JD-relevant selection.
 - One-week Gap Sprint generation and post-project reassessment — part of the broader product loop, deferred until the assessment model is validated.
-- Modeling the user’s entire career history — the first validation uses STOA and only the minimum additional material required for meaningful tests.
 - Finalizing every scoring dimension, weighting, aggregation formula, threshold, or calibration rule during project initialization — these must be developed and tested against concrete cases.
 - Automated job application, recruitment-site automation, recruiter tooling, or job-search automation — unrelated to the first hypothesis.
 - Multi-user SaaS or a complex web interface — unnecessary for validating the audit and scoring model.
@@ -110,12 +118,12 @@ These repositories are pinned under `references/upstream/`; `references/README.m
 
 ## Constraints
 
-- **Validation scope**: Prove the Grill-Me → Contribution–Skill assessment → user Skill graph → JD usefulness hypothesis with STOA and a small JD set before implementing the full product pipeline.
+- **Validation scope**: Prove the Grill-Me → Contribution–Skill assessment → user Skill graph → JD usefulness hypothesis with a user-confirmed full-career inventory and exactly three user-supplied real JDs before implementing the full product pipeline.
 - **Assessment semantics**: Every user-level score evaluates one specific Skill; unrelated capabilities must not be hidden as generic subdimensions of that score.
 - **Audit granularity**: Contribution is the minimum auditable fact unit; Experience alone cannot produce a Skill score.
 - **Score separation**: Mastery, evidence confidence, verified duration, context, and JD match must retain different meanings.
 - **Anchor integrity**: Higher mastery bands require observable higher-order capability; they cannot be reached through mechanical accumulation of weaker evidence.
-- **Truthfulness**: User, team, other-person, Codex-assisted, and third-party work must remain distinguishable wherever responsibility affects assessment.
+- **Truthfulness**: User, team, other-person, coding-agent-assisted, and third-party work must remain distinguishable wherever responsibility affects assessment.
 - **Decision timing**: Formula details, confidence gates, calibration rules, and implementation boundaries are phase-level decisions to validate with fixtures rather than assumptions to freeze during initialization.
 - **Open-source provenance**: Reused or adapted code and patterns must identify their upstream repository, pinned revision, license, and local divergence.
 
@@ -135,10 +143,12 @@ These repositories are pinned under `references/upstream/`; `references/README.m
 | Treat local-first, deterministic scoring, and provenance mechanisms as implementation choices or constraints to validate—not as the product definition | The product is defined by its agentic assessment, skill model, JD adaptation, résumé generation, and gap-closing loop | — Pending |
 | Integrate pinned upstream references before implementation | Existing open-source projects contain relevant interview, ontology, workspace, parsing, and résumé-output patterns that should be evaluated before building substitutes | — Pending |
 | Keep upstreams as licensed submodules with a local reuse matrix | Preserves exact source and attribution while preventing wholesale architecture copying | ✓ Applied in v1.0 foundation |
+| Build one canonical full-career graph with explicit coverage states | Completeness requires every known item to remain visible while mastery authority remains limited to reviewed assessments | — Pending |
+| Use exactly three user-supplied real JDs and finish with the frozen decision protocol | Preserves user source authority and closes the empirical validation loop before product expansion | — Pending |
 
 ## Evolution
 
-v1.0 closed on 2026-08-28 by explicit user authorization as a partial closeout. The archived roadmap and requirements preserve all Phase 5/6 gaps. The next milestone starts with a real reviewed personal graph and user-supplied JD tests; it must not infer a positive product hypothesis from v1.0's content-free foundation.
+v1.0 closed on 2026-08-28 by explicit user authorization as a partial closeout. The archived roadmap and requirements preserve all Phase 5/6 gaps. Milestone v1.1 starts from that content-free foundation and must not infer a positive product hypothesis until the full-career graph, real-JD evaluation, and frozen decision protocol are complete.
 
 ---
-*Last updated: 2026-08-28 after user-approved v1.0 partial closeout*
+*Last updated: 2026-08-28 after starting milestone v1.1*
