@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import json
+import re
+from dataclasses import dataclass
 from pathlib import Path
+
+from pydantic import ValidationError
 
 from .assessment import (
     AssessmentRun,
@@ -32,6 +37,109 @@ from .validation.hashing import canonical_json_bytes, sha256_digest
 
 class JDComparisonError(ValueError):
     """A packet or reviewed graph cannot truthfully be compared."""
+
+
+MAX_RAW_JD_BYTES = 262144
+_UNSAFE_CODEPOINTS = frozenset({"\u200b", "\u200c", "\u200d", "\u2060", "\ufeff"})
+_SAFE_SOURCE_ID = re.compile(r"^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$")
+
+
+class JDIntakeError(ValueError):
+    """A raw JD source cannot become a prepared packet.
+
+    Error text intentionally names only a stable code and never echoes private source text.
+    """
+
+    def __init__(self, code: str, detail: str | None = None) -> None:
+        self.code = code
+        self.detail = detail
+        super().__init__(code if detail is None else f"{code}: {detail}")
+
+
+@dataclass(frozen=True)
+class PreparedJDIntake:
+    """Validated, still-unaccepted source and recorded packet custody."""
+
+    source_id: str
+    source_hash: str
+    source_bytes: int
+    disclosures: tuple[str, ...]
+    packet: AcceptedJDPacket
+    accepted: bool = False
+
+
+def _source_disclosures(text: str) -> tuple[str, ...]:
+    """Return safe code-point labels without copying any private source text."""
+    disclosures: set[str] = set()
+    for codepoint in text:
+        ordinal = ord(codepoint)
+        if codepoint == "\x00" or (ordinal < 32 and codepoint not in {"\n", "\r", "\t"}):
+            disclosures.add(f"control-U+{ordinal:04X}")
+        elif codepoint in _UNSAFE_CODEPOINTS:
+            disclosures.add(f"zero-width-U+{ordinal:04X}")
+        elif 0x202A <= ordinal <= 0x202E or 0x2066 <= ordinal <= 0x2069:
+            disclosures.add(f"bidi-U+{ordinal:04X}")
+    return tuple(sorted(disclosures))
+
+
+def _decode_raw_source(source: bytes, max_raw_jd_bytes: int) -> tuple[str, tuple[str, ...]]:
+    if max_raw_jd_bytes < 1:
+        raise JDIntakeError("jd-source-limit-invalid")
+    if len(source) > max_raw_jd_bytes:
+        raise JDIntakeError("jd-source-too-large")
+    try:
+        text = source.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise JDIntakeError("jd-source-invalid-utf8") from exc
+    disclosures = _source_disclosures(text)
+    if disclosures:
+        code = (
+            "jd-source-unsafe-control"
+            if any(item.startswith("control-") for item in disclosures)
+            else "jd-source-unsafe-codepoint"
+        )
+        raise JDIntakeError(code, ",".join(disclosures))
+    return text, disclosures
+
+
+def prepare_jd_intake(
+    source: bytes,
+    source_id: str,
+    recorded_proposal_json: bytes,
+    *,
+    max_raw_jd_bytes: int = MAX_RAW_JD_BYTES,
+) -> PreparedJDIntake:
+    """Validate one exact source and its independently recorded proposal without writes.
+
+    The caller is responsible for collecting source bytes and proposal JSON.  This seam
+    never invokes a provider, repairs input, accepts the packet, scores a JD, or writes
+    any workspace state.
+    """
+    text, disclosures = _decode_raw_source(source, max_raw_jd_bytes)
+    if not _SAFE_SOURCE_ID.fullmatch(source_id):
+        raise JDIntakeError("jd-source-id-invalid")
+    try:
+        proposal_value = json.loads(recorded_proposal_json.decode("utf-8", errors="strict"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise JDIntakeError("jd-proposal-invalid-json") from exc
+    if not isinstance(proposal_value, dict):
+        raise JDIntakeError("jd-proposal-invalid-json")
+    try:
+        packet = AcceptedJDPacket.model_validate(proposal_value)
+    except ValidationError as exc:
+        raise JDIntakeError("jd-proposal-invalid") from exc
+    source_hash = sha256_digest(source)
+    if packet.raw_source.source_id != source_id:
+        raise JDIntakeError("jd-source-id-mismatch")
+    if packet.raw_source.utf8_text != text or packet.raw_source.source_hash != source_hash:
+        raise JDIntakeError("jd-source-hash-mismatch")
+    return PreparedJDIntake(
+        source_id=source_id,
+        source_hash=source_hash,
+        source_bytes=len(source),
+        disclosures=disclosures,
+        packet=packet,
+    )
 
 
 def _graph_payload(
