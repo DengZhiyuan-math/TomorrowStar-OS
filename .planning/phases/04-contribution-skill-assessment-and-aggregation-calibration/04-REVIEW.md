@@ -1,47 +1,57 @@
 ---
 phase: 04-contribution-skill-assessment-and-aggregation-calibration
-reviewed: 2026-08-28T12:31:44Z
+reviewed: 2026-08-28T13:35:13Z
 depth: standard
-files_reviewed: 3
+files_reviewed: 1
 files_reviewed_list:
-  - src/career_evidence_graph/assessment.py
-  - tests/test_assessment_admission.py
   - tests/test_assessment_cli.py
 findings:
   critical: 0
-  warning: 1
+  warning: 2
   info: 0
-  total: 1
+  total: 2
 status: issues_found
 ---
 
 # Phase 04: Code Review Report
 
-**Reviewed:** 2026-08-28T12:31:44Z
+**Reviewed:** 2026-08-28T13:35:13Z
 **Depth:** standard
-**Files Reviewed:** 3
+**Files Reviewed:** 1
 **Status:** issues_found
 
 ## Summary
 
-The no-replay reassessment path correctly requires a pre-existing audit, delegates persisted-snapshot validation to `AuditStore.read`, preserves stale-hash-before-corpus behavior in the service, and compares the submitted proposal with the complete canonical Pydantic model. The focused reassessment suite passed (56 tests); Ruff lint and format checks for the three scoped files also passed.
+The 37 collected cases preserve the required fresh canonical payload, local Pydantic validation, real reassessment invocation, exit-2 workflow-error check, sidecar-byte comparison, and audit-tree comparison. The complete matrix also retains the planned 17 groups and adds the specified 20 valid groups. The focused node passed: 37 passed.
 
-The remaining gap is regression adequacy. The tests claim whole-proposal coverage but exercise only a subset of independently meaningful fields, so they do not protect the stated complete-canonical-equality contract against a future return to a partial comparison.
+Two regression-quality gaps remain: failed matrix entries are anonymous, and the asserted audit-tree identity does not recognize a same-content symlink replacement.
+
+## Narrative Findings (AI reviewer)
 
 ## Warnings
 
-### WR-01: Whole-proposal equality regression omits several independently valid custody fields
+### WR-01: Anonymous parameter cases make the required mutation inventory non-auditable
 
 **Classification:** WARNING
 
-**File:** `tests/test_assessment_cli.py:383-448`
+**File:** `tests/test_assessment_cli.py:383-465`
 
-**Issue:** The parameterized black-box mismatch matrix mutates selected top-level values, one source-envelope hash, one anchor basis, and one judgment basis, but it does not exercise valid mismatches in `duration`, `attribution_status`, `assistance_status`, `lineage.source_kind`, most source-envelope custody fields (`fixture_hash`, `source_manifest_hash`, conclusion hashes, evidence/question IDs, and `attribution_hash`), the remaining anchor bases, or the centrality/confidence judgment bases. The companion service test in `tests/test_assessment_admission.py:480-541` covers invalid audit states rather than these omitted proposal leaves. This falls short of the plan's required matrix for full lineage, source-envelope custody, context/duration, attribution, assistance, and all judgment bases. The current `proposal != canonical` implementation is sound, but this test set would allow a later sampled-field comparison to reintroduce a caller-controlled custody bypass without a failing regression.
+**Issue:** The matrix passes only `patches` to pytest, so collection and failures are reported as `patches0` through `patches36`. A 37-case result therefore proves only a count; it cannot identify which custody field failed or demonstrate that the retained-17 plus specified-20 inventory is still present. A duplicate or a substituted mutation can leave the same 37 passing cases while silently dropping a required structural group, and a future failure requires manual positional counting to diagnose.
 
-**Fix:** Extend the service or CLI parameterization with one Pydantic-valid forged value for every independently mutable leaf/group. Build the payload from the canonical proposal, validate it with `ContributionSkillAssessment.model_validate`, invoke reassessment, and assert exit/rejection plus byte-identical assessment sidecar and complete audit-tree snapshots for each case. Include valid mutations for duration, all source-envelope hashes/ID collections, attribution/assistance state, lineage source kind, every anchor basis, and all three judgment bases.
+**Fix:** Carry a stable semantic case ID with each ordered patch list and use it as the pytest parameter ID, while retaining the same one-loop patch application. For example: `pytest.param(patches, id="source-envelope-attribution-hash")` for each entry.
+
+### WR-02: The audit-tree assertion cannot detect same-content symlink mutations
+
+**Classification:** WARNING
+
+**File:** `tests/test_assessment_cli.py:485-508`
+
+**Issue:** The asserted `_audit_tree_snapshot` helper records only a relative path, a derived `directory`/`file` label, and `read_bytes()` content. Both `Path.is_dir()` and `Path.read_bytes()` follow symlinks. Consequently, a regression that replaces an audit JSON file with a symlink to identical bytes can change the audit tree while preserving the snapshot tuple, so this matrix would falsely pass its claimed complete audit-tree-identity check. This matters at an identity/custody boundary, where a symlink replacement is materially different from no write.
+
+**Fix:** Make the snapshot used by this test preserve filesystem entry type and symlink target without dereferencing it (for example, use `path.is_symlink()` and `os.readlink(path)` before `is_dir()`/`read_bytes()`, or `lstat()` metadata). Keep byte checks for regular files and compare the enriched snapshot before and after each rejection.
 
 ---
 
-_Reviewed: 2026-08-28T12:31:44Z_
+_Reviewed: 2026-08-28T13:35:13Z_
 _Reviewer: the agent (gsd-code-reviewer)_
 _Depth: standard_
