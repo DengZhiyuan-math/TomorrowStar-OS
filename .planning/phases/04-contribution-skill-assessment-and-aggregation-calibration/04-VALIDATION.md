@@ -1,58 +1,76 @@
 ---
 phase: 04
 slug: contribution-skill-assessment-and-aggregation-calibration
-status: validated
+status: remediation-measured
 nyquist_compliant: true
 wave_0_complete: true
 created: 2026-08-27
-validated: 2026-08-27
+validated: 2026-08-28
 ---
 
 # Phase 04 — Measured Validation Matrix
 
-Phase 4 validates an offline, contribution-grounded assessment seam. The
-synthetic/counterfactual calibration corpus is not reviewed user truth and does
-not establish JD, employment, resume, or gap-work effectiveness.
+Phase 4 has deterministic, offline remediation evidence for five previously
+identified custody and authority gaps. The synthetic/counterfactual calibration
+corpus remains calibration-only evidence, never reviewed user truth. These
+results do not establish JD usefulness, application, interview, hiring,
+employment, resume, gap-work, real-user-case, or job-market effectiveness.
 
-## Executed Gates
+## Executed Gates on the Final Remediation Revision
 
-| Gate | Evidence | Result |
+| Gate | Evidence | Measured outcome |
 |---|---|---|
-| Focused activation/replacement | `tests/test_policy_calibration.py -k "first_activation or competing_bootstrap or stale_pointer or subsequent_replacement"` | 3 passed in 0.29s |
-| Calibration + CLI regression | `tests/test_policy_calibration.py tests/test_assessment_cli.py` | 15 passed in 14.64s |
+| Five-gap regression matrix | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_policy_calibration.py tests/test_assessment_admission.py tests/test_assessment_cli.py tests/test_anchor_promotion.py tests/test_skill_aggregation.py` | 59 passed in 15.07s |
 | Full offline suite | `uv run --offline --locked python scripts/run_pytest.py -q` | exited 0 |
-| Static gates | `ruff check .` and `ruff format --check .` | passed |
-| Sealed input protection | `git diff --exit-code -- validation/fixtures/stoa/v1/known-good.json validation/fixtures/stoa/v1/source-manifest.json` | passed |
-| Same-input comparison and selected activation | `assessment compare`, `assessment activate`, `assessment history` against `validation/calibration/phase-04` | passed; conservative-70 is the sole active pointer |
+| Static gates | `uv run --offline --locked ruff check .` and `uv run --offline --locked ruff format --check .` | both exited 0 |
+| Active calibration custody | `git diff --exit-code -- validation/calibration/phase-04/policy-calibration/history.json` | exited 0; retained `policy-04-conservative-70` history unchanged |
 
-Focused feedback stayed below the 60-second ceiling (0.29s and 14.64s). No
-watch mode, network call, dependency change, provider/model change, or sealed
-fixture mutation was used.
+No watch mode, network call, dependency installation, provider/model change, or
+sealed fixture mutation was used. The focused regression group stayed below the
+60-second feedback ceiling.
+
+## Five-Gap Executable Mapping
+
+| Blocker | Exact regression | Verified contract |
+|---|---|---|
+| CR-01 retained semantic history hashes | `tests/test_policy_calibration.py::test_history_semantic_tamper_fails_closed_before_activation_lookup` | Mutating retained policy, result, or comparison semantics while retaining hashes fails closed before activation lookup. |
+| CR-02 completed-audit custody | `tests/test_policy_calibration.py::test_run_rejects_declared_audit_custody_tampering_before_history_publish` | Calibration materializes and validates audit/conclusion custody instead of trusting corpus declarations. |
+| CR-03 rerun durability | `tests/test_assessment_cli.py::test_rerun_after_insufficient_review_is_byte_idempotent` | A normal rerun retains an insufficient-basis decision and cannot recreate admitted mastery. |
+| CR-04 append-only corrections | `tests/test_assessment_admission.py::test_two_edits_retain_immutable_versions_and_reopen` | Each substantive edit appends a hash-linked immutable version and retains every earlier effective assessment. |
+| CR-05 authority-safe promotion | `tests/test_anchor_promotion.py::test_mixed_authority_promotion_cannot_elevate_reviewed_user_truth` | Derived support cannot promote or relabel a reviewed-user-truth result; unpromoted user truth remains at its strongest baseline. |
+
+The CR-05 control regressions are
+`test_routine_unflagged_baseline_does_not_require_substantive_review`,
+`test_reviewed_user_truth_promotion_accepts_only_retained_review_lineage`, and
+`test_derived_calibration_promotion_stays_in_its_own_authority_partition` in
+`tests/test_anchor_promotion.py`. They preserve D-05 baseline admission,
+require immutable reviewed lineage for a reviewed-user-truth promotion, and
+retain a derived-only promotion as `derived-counterfactual` respectively.
+
+## Evidence and Authority Boundaries
+
+- `tests/test_skill_aggregation.py::test_same_evidence_can_support_two_skills_without_same_skill_weighting`
+  and `::test_same_evidence_keeps_two_reviewed_user_truth_skills_independent`
+  show that one Evidence reference may support distinct Skills independently.
+  Repetition within one exact Skill remains weight-neutral and is recorded only
+  as a suppressed relationship.
+- The aggregate service partitions admitted assessments by exact Skill and
+  authority. A reviewed-user-truth promotion requires audit-verified origin,
+  reviewed status, completed substantive review, and retained immutable review
+  lineage for every cited assessment. A mixed-authority decision fails closed.
+- The active policy remains `policy-04-conservative-70`; baseline-60 remains
+  comparison-only. The accepted activation pointer and its hashes are retained
+  unchanged below.
 
 ## Requirement and Decision Coverage
 
 | Authority | Executable evidence | Checked behavior |
 |---|---|---|
-| ASS-01 / D-01 | `tests/test_assessment_proposal.py`, `tests/test_assessment_cli.py -k tracer` | Specific Skills originate only from the completed audited Contribution and retain source custody. |
-| ASS-02 / D-02 / D-07 | `tests/test_assessment_models.py -k independent`, `tests/test_assessment_proposal.py` | Mastery, centrality, and confidence are separate strict judgments with separate bases. |
-| ASS-03 / D-03 / D-05 / D-06 | `tests/test_mastery_anchors.py`, `tests/test_assessment_proposal.py` | A specific normalization decision and observable anchor fit are required before an exact score. |
-| ASS-04 / D-04 / D-08 / D-09 / D-10 / D-11 / D-12 | `tests/test_assessment_admission.py`, `tests/test_assessment_cli.py -k review` | Low-confidence, self-assessed, disputed, unresolved, corrected, and reassessed records remain visible and require complete substantive review before admission. |
-| AGG-01 / D-13 | `tests/test_skill_aggregation.py -k traceable`, `tests/test_assessment_cli.py -k aggregate` | One traceable result per exact Skill uses an explicit policy-bearing strongest admitted baseline. |
-| AGG-02 / D-15 | `tests/test_skill_aggregation.py -k no_inflation`, `tests/test_policy_calibration.py -k regression` | Duplicate relationships, reused Evidence, centrality, confidence, and incidental volume cannot inflate mastery. |
-| AGG-03 / D-14 | `tests/test_anchor_promotion.py` | Cross-Contribution promotion requires distinct same-Skill Contributions, contexts, and immediate-next-anchor behavior proof. |
-| AGG-04 / D-16 | `tests/test_policy_calibration.py`, `tests/test_assessment_cli.py -k calibration_cli` | Byte-identical candidate inputs, exact deltas, disagreement, zero variance, regressions, human activation, pointer history, bootstrap rejection, stale replacement, and redacted offline CLI history. |
-
-## Edge and Threat Coverage
-
-| Item | Executable evidence | Result |
-|---|---|---|
-| AGG-04 threshold equality | `tests/test_policy_calibration.py -k threshold` | Exact integer equality is retained; the 60-to-69 confidence boundary flip is explicit. |
-| AGG-04 numeric precision | `tests/test_policy_calibration.py -k compare` | Integer values are compared exactly; no average, tolerance, coercion, truncation, or rounding path exists. |
-| T-04-21 corpus tampering | `tests/test_policy_calibration.py -k corpus` | Fixture and manifest hashes plus labeled derived/synthetic cases are revalidated. |
-| T-04-22 comparison tampering | `tests/test_policy_calibration.py -k compare` | Same-input hashes, retained per-case deltas, disagreements, variance, and regressions are verified. |
-| T-04-23 activation elevation | `tests/test_policy_calibration.py -k "first_activation or competing_bootstrap or stale_pointer or subsequent_replacement or activation_requires"` | Only `zhdeng`, exact selected hashes, null/null/absent bootstrap, and stale-safe replacement are accepted. |
-| T-04-24 history tampering/disclosure | `tests/test_policy_calibration.py -k symlink_aliases`, `tests/test_assessment_cli.py -k calibration_cli` | Symlink and malformed history payloads fail closed; history emits IDs, hashes, codes, and the recorded human decision without raw answers. |
-| T-04-25 reviewer provenance | `tests/test_policy_calibration.py -k activation_requires` | `zhdeng` is asserted trusted-local provenance only; no authentication claim is made. |
+| ASS-04 / D-10 | `tests/test_assessment_cli.py::test_rerun_after_insufficient_review_is_byte_idempotent`, `tests/test_assessment_admission.py::test_two_edits_retain_immutable_versions_and_reopen` | Reruns retain reviewer authority and corrections are append-only. |
+| AGG-01 / D-13 | `tests/test_skill_aggregation.py::test_traceable_aggregate_keeps_one_sorted_result_and_strongest_admitted_baseline` | One traceable result per exact Skill and authority partition uses an explicit strongest admitted baseline. |
+| AGG-02 / D-15 | `tests/test_skill_aggregation.py::test_no_inflation_from_duplicate_assessment_contribution_or_incidental_uses`, `tests/test_skill_aggregation.py::test_same_evidence_can_support_two_skills_without_same_skill_weighting` | Duplicate same-Skill support, centrality, confidence, incidental volume, and repeated Evidence cannot inflate mastery. |
+| AGG-03 / D-14 | `tests/test_anchor_promotion.py::test_mixed_authority_promotion_cannot_elevate_reviewed_user_truth` | Cross-Contribution promotion is exact-Skill and authority-partitioned; synthetic support cannot elevate reviewed user truth. |
+| AGG-04 / D-16 | `tests/test_policy_calibration.py::test_history_semantic_tamper_fails_closed_before_activation_lookup`, `tests/test_policy_calibration.py::test_run_rejects_declared_audit_custody_tampering_before_history_publish` | Retained policy semantics and completed-audit custody are revalidated before active-history use. |
 
 ## Activation Record
 

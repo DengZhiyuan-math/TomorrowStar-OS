@@ -9,7 +9,15 @@ from pathlib import Path
 
 import pytest
 
-from career_evidence_graph.assessment import AssessmentStorageError, AssessmentStore, run_assessment
+from career_evidence_graph.assessment import (
+    AssessmentStorageError,
+    AssessmentStore,
+    build_assessment_run,
+    decide_admission,
+    load_policy,
+    run_assessment,
+)
+from career_evidence_graph.domain.models import ContributionSkillAssessment
 
 ROOT = Path(__file__).parents[1]
 CORPUS = ROOT / "validation/calibration/phase-04/corpus.json"
@@ -83,6 +91,33 @@ def test_aggregate_cli_emits_one_sorted_traceable_result_per_skill(tmp_path: Pat
     assert result["suppressed_duplicate_relationships"] == []
 
 
+def test_aggregate_cli_labels_unadmitted_derived_records_as_calibration_only(
+    tmp_path: Path,
+) -> None:
+    initial = run_assessment(
+        workspace=tmp_path,
+        corpus_path=CORPUS,
+        policies_path=POLICIES,
+        audit_id="audit-e2e",
+        policy_version="policy-04-baseline-60",
+    )
+    payload = initial.proposal.model_dump(mode="json")
+    payload["attribution_status"] = "unresolved"
+    proposal = ContributionSkillAssessment.model_validate(payload)
+    unadmitted = build_assessment_run(
+        proposal,
+        decide_admission(proposal, load_policy(POLICIES, "policy-04-baseline-60")),
+    )
+    AssessmentStore(tmp_path).replace("assessment-audit-e2e-04-baseline-60", unadmitted)
+
+    aggregated = _run("assessment", "aggregate", "--workspace", str(tmp_path))
+
+    assert aggregated.returncode == 0, aggregated.stderr
+    excluded = json.loads(aggregated.stdout)["excluded"]
+    assert excluded[0]["authority_label"] == "derived-counterfactual"
+    assert excluded[0]["disposition"] == "calibration-only"
+
+
 def test_inspect_rejects_cross_linked_records_without_leaking_a_raw_answer(tmp_path: Path) -> None:
     """A sidecar contains one proposal chain, never a hidden second assessment."""
     record = run_assessment(
@@ -153,9 +188,7 @@ def test_rerun_after_insufficient_review_is_byte_idempotent(tmp_path: Path) -> N
     initial = _run("assessment", "run", "--workspace", str(tmp_path))
     assert initial.returncode == 0, initial.stderr
     proposal_path = tmp_path / "accepted-assessment.json"
-    proposal_path.write_text(
-        json.dumps(json.loads(initial.stdout)["proposal"]), encoding="utf-8"
-    )
+    proposal_path.write_text(json.dumps(json.loads(initial.stdout)["proposal"]), encoding="utf-8")
 
     reviewed = _run(
         "assessment",
@@ -179,17 +212,15 @@ def test_rerun_after_insufficient_review_is_byte_idempotent(tmp_path: Path) -> N
         "--all-judgments-checked",
     )
     assert reviewed.returncode == 0, reviewed.stderr
-    before = AssessmentStore(tmp_path).path(
-        "assessment-audit-e2e-04-baseline-60"
-    ).read_bytes()
+    before = AssessmentStore(tmp_path).path("assessment-audit-e2e-04-baseline-60").read_bytes()
 
     rerun = _run("assessment", "run", "--workspace", str(tmp_path))
 
     assert rerun.returncode == 0, rerun.stderr
     assert rerun.stdout == reviewed.stdout
-    assert AssessmentStore(tmp_path).path(
-        "assessment-audit-e2e-04-baseline-60"
-    ).read_bytes() == before
+    assert (
+        AssessmentStore(tmp_path).path("assessment-audit-e2e-04-baseline-60").read_bytes() == before
+    )
     emitted = json.loads(rerun.stdout)
     assert emitted["admission"]["admission_status"] == "unverified-candidate"
     assert emitted["admission"]["reason_code"] == "insufficient-basis"
@@ -200,9 +231,7 @@ def test_explicit_reassess_rejects_stale_hash_without_mutating_sidecar(tmp_path:
     initial = _run("assessment", "run", "--workspace", str(tmp_path))
     assert initial.returncode == 0, initial.stderr
     proposal_path = tmp_path / "reassessment.json"
-    proposal_path.write_text(
-        json.dumps(json.loads(initial.stdout)["proposal"]), encoding="utf-8"
-    )
+    proposal_path.write_text(json.dumps(json.loads(initial.stdout)["proposal"]), encoding="utf-8")
     sidecar = AssessmentStore(tmp_path).path("assessment-audit-e2e-04-baseline-60")
     before = sidecar.read_bytes()
 
