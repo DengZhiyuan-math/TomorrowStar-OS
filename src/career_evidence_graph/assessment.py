@@ -990,9 +990,9 @@ def review_assessment(
     )
     latest = record.versions[-1]
     version = _make_version(
-        version_id=latest.version_id,
+        version_id=f"assessment-version-{effective.id}-{len(record.versions) + 1}",
         source_audit_id=latest.source_audit_id,
-        previous_version_hash=latest.previous_version_hash,
+        previous_version_hash=record.version_hash,
         original_proposal=latest.original_proposal,
         effective_assessment=effective,
         admission=admission,
@@ -1003,7 +1003,7 @@ def review_assessment(
         if admission.admission_status == AssessmentAdmissionStatus.ADMITTED
         else None
     )
-    return _record_from_versions((*record.versions[:-1], version), result)
+    return _record_from_versions((*record.versions, version), result)
 
 
 def reassess_from_new_evidence(
@@ -1020,7 +1020,9 @@ def reassess_from_new_evidence(
     if not re.fullmatch(r"audit-[a-z0-9-]+", source_audit_id):
         raise AssessmentWorkflowError("later evidence source audit is invalid")
     if source_audit_id == record.versions[-1].source_audit_id:
-        raise AssessmentWorkflowError("later evidence source audit must differ from the current audit")
+        raise AssessmentWorkflowError(
+            "later evidence source audit must differ from the current audit"
+        )
     if proposal.id != record.proposal.id or proposal.skill_id != record.proposal.skill_id:
         raise AssessmentWorkflowError("reassessment must retain the same assessment and Skill")
     payload = proposal.model_dump(mode="json")
@@ -1087,7 +1089,7 @@ def run_assessment(
         ):
             raise AssessmentWorkflowError(
                 "existing assessment run does not match the requested audit and policy identity"
-            )
+            ) from exc
         return existing
     return store.read(run_id)
 
