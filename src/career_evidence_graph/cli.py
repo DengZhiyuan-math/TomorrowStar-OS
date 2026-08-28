@@ -43,6 +43,7 @@ from .domain import (
     load_candidate_packet,
     load_fixture_mutation_case,
     load_sealed_fixture,
+    resolve_checkpoint_summary,
     seal_reviewed_fixture,
     validate_mutation_suite,
     verify_source_manifest,
@@ -367,11 +368,7 @@ def main(argv: list[str] | None = None) -> int:
             _emit(result)
         elif args.command == "fixture" and args.fixture_command == "seal":
             candidates, review = load_candidate_packet(Path(args.candidates), Path(args.review))
-            checkpoint_summary = (
-                Path.cwd()
-                / ".planning/phases/02-domain-contracts-stoa-fixture-and-deterministic-invariants"
-                / "02-04-SUMMARY.md"
-            )
+            checkpoint_summary = resolve_checkpoint_summary(Path.cwd())
             _emit(
                 seal_reviewed_fixture(
                     workspace=Path(args.workspace),

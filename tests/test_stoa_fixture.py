@@ -17,6 +17,7 @@ from career_evidence_graph.domain.fixtures import (
     load_candidate_packet,
     load_sealed_fixture,
     materialize_review_decisions,
+    resolve_checkpoint_summary,
     seal_reviewed_fixture,
     verify_source_manifest,
 )
@@ -28,11 +29,7 @@ MANIFEST = ROOT / "validation/fixtures/stoa/v1/source-manifest.json"
 CANDIDATES = ROOT / "validation/fixtures/stoa/v1/candidates.json"
 REVIEW = ROOT / "validation/fixtures/stoa/v1/review.json"
 LAUNCHER = ROOT / "scripts" / "run_career_evidence.py"
-CHECKPOINT_SUMMARY = (
-    ROOT
-    / ".planning/phases/02-domain-contracts-stoa-fixture-and-deterministic-invariants"
-    / "02-04-SUMMARY.md"
-)
+CHECKPOINT_SUMMARY = resolve_checkpoint_summary(ROOT)
 
 
 def _sealed_workspace(tmp_path: Path) -> Path:
@@ -50,6 +47,25 @@ def _sealed_workspace(tmp_path: Path) -> Path:
     checkpoint.mkdir(parents=True)
     shutil.copyfile(CHECKPOINT_SUMMARY, checkpoint / "02-04-SUMMARY.md")
     return workspace
+
+
+def test_checkpoint_summary_resolves_active_or_archived_layout_and_rejects_ambiguity(
+    tmp_path: Path,
+) -> None:
+    phase = "02-domain-contracts-stoa-fixture-and-deterministic-invariants"
+    active = tmp_path / ".planning/phases" / phase / "02-04-SUMMARY.md"
+    active.parent.mkdir(parents=True)
+    active.write_text("active", encoding="utf-8")
+    assert resolve_checkpoint_summary(tmp_path) == active
+
+    archived = tmp_path / ".planning/milestones/v1.0-phases" / phase / "02-04-SUMMARY.md"
+    archived.parent.mkdir(parents=True)
+    archived.write_text("archived", encoding="utf-8")
+    with pytest.raises(SourceScopeError, match="exactly one"):
+        resolve_checkpoint_summary(tmp_path)
+
+    active.unlink()
+    assert resolve_checkpoint_summary(tmp_path) == archived
 
 
 def test_source_manifest_verifies_exact_pinned_document_inventory() -> None:
@@ -196,11 +212,7 @@ def test_candidate_packet_rejects_documentary_personal_claim_and_planned_lineage
 def test_review_materialization_preserves_human_corrections_and_unresolved_values() -> None:
     """The confirmed checkpoint response is complete without fabricating mastery."""
     candidates, pending_review = load_candidate_packet(CANDIDATES, REVIEW)
-    summary_path = (
-        ROOT
-        / ".planning/phases/02-domain-contracts-stoa-fixture-and-deterministic-invariants"
-        / "02-04-SUMMARY.md"
-    )
+    summary_path = CHECKPOINT_SUMMARY
 
     review, fixture = materialize_review_decisions(
         candidates, pending_review, summary_path.read_bytes()
@@ -235,11 +247,7 @@ def test_rejected_fact_is_omitted_but_unresolved_fact_cannot_be_sealed() -> None
     _, fixture = materialize_review_decisions(
         candidates,
         rejected,
-        (
-            ROOT
-            / ".planning/phases/02-domain-contracts-stoa-fixture-and-deterministic-invariants"
-            / "02-04-SUMMARY.md"
-        ).read_bytes(),
+        CHECKPOINT_SUMMARY.read_bytes(),
     )
     assert rejected.items[0].candidate_id not in {claim.id for claim in fixture.claims}
 

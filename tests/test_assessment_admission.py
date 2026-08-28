@@ -34,6 +34,7 @@ from career_evidence_graph.audit.models import (
 )
 from career_evidence_graph.audit.store import AuditStore
 from career_evidence_graph.audit.workflow import start_audit, transition_audit
+from career_evidence_graph.domain.fixtures import resolve_checkpoint_summary
 from career_evidence_graph.domain.models import (
     MASTERY_ANCHORS,
     AggregationPolicy,
@@ -101,7 +102,7 @@ def _later_corpus(workspace: Path) -> Path:
         "02-04-SUMMARY.md"
     )
     (root / checkpoint_summary).parent.mkdir(parents=True)
-    shutil.copy2(ROOT / checkpoint_summary, root / checkpoint_summary)
+    shutil.copy2(resolve_checkpoint_summary(ROOT), root / checkpoint_summary)
     corpus = json.loads(CORPUS.read_text(encoding="utf-8"))
     corpus["audit_id"] = "audit-later-evidence"
     journey = corpus["audit_journey"]

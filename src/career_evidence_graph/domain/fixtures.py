@@ -334,6 +334,10 @@ _CHECKPOINT_SUMMARY_RELATIVE_PATH = Path(
     ".planning/phases/02-domain-contracts-stoa-fixture-and-deterministic-invariants/"
     "02-04-SUMMARY.md"
 )
+_CHECKPOINT_SUMMARY_ARCHIVE_GLOB = (
+    ".planning/milestones/*-phases/"
+    "02-domain-contracts-stoa-fixture-and-deterministic-invariants/02-04-SUMMARY.md"
+)
 _FIXTURE_NOTICE = (
     "This sealed STOA fixture records human-confirmed fixture test expectations only. "
     "It makes no calibration, aggregation, confidence-admission, JD, resume, product, "
@@ -731,6 +735,18 @@ def _validation_root(manifest_path: Path) -> Path:
     return validation_dir.parent
 
 
+def resolve_checkpoint_summary(root: Path) -> Path:
+    """Resolve one canonical Phase 2 checkpoint across active and archived layouts."""
+    candidates = [root / _CHECKPOINT_SUMMARY_RELATIVE_PATH]
+    candidates.extend(sorted(root.glob(_CHECKPOINT_SUMMARY_ARCHIVE_GLOB)))
+    existing = tuple(path for path in candidates if path.is_file())
+    if len(existing) != 1:
+        raise _source_scope_error(
+            f"expected exactly one canonical Phase 2 checkpoint summary, found {len(existing)}"
+        )
+    return existing[0]
+
+
 def _publish_known_good(path: Path, value: SealedFixtureRecord) -> None:
     """Publish a canonical file once; permit only exact idempotent recovery."""
     expected = canonical_json_bytes(value.model_dump(mode="json"))
@@ -822,7 +838,7 @@ def _sealed_input_paths(workspace: Path) -> tuple[Path, Path, Path]:
     manifest_path = workspace / "source-manifest.json"
     review_path = workspace / "review.json"
     root = _validation_root(manifest_path)
-    return manifest_path, review_path, root / _CHECKPOINT_SUMMARY_RELATIVE_PATH
+    return manifest_path, review_path, resolve_checkpoint_summary(root)
 
 
 def seal_reviewed_fixture(

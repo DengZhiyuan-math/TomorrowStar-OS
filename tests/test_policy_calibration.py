@@ -16,6 +16,7 @@ from career_evidence_graph.assessment import (
     load_policy_history,
     run_calibration_policy,
 )
+from career_evidence_graph.domain.fixtures import resolve_checkpoint_summary
 from career_evidence_graph.validation.hashing import sha256_digest
 
 ROOT = Path(__file__).parents[1]
@@ -342,7 +343,7 @@ def _scratch_calibration_artifacts(tmp_path: Path) -> tuple[Path, Path]:
     summary_path = repository / ".planning/phases" / phase_two / "02-04-SUMMARY.md"
     summary_path.parent.mkdir(parents=True)
     shutil.copy2(
-        ROOT / ".planning/phases" / phase_two / "02-04-SUMMARY.md",
+        resolve_checkpoint_summary(ROOT),
         summary_path,
     )
     return (
