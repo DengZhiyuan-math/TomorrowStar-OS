@@ -171,3 +171,23 @@ These are local acceptance-evidence measurements only. They do not complete
 ASS-01, AGG-01, AGG-03, Phase 04, or independent verification; fresh
 independent code review, security review, and goal verification remain required
 before any shared status promotion.
+
+## 04-11 Post-Wave Formatting Reverification
+
+The independent gate found that Ruff would reformat two single-patch parameter
+rows in `tests/test_assessment_cli.py`. `uv run --offline --locked ruff format
+tests/test_assessment_cli.py` performed that mechanical two-row normalization
+only. Final gates were measured on the working tree based at
+`9b185723c00e6e4b765c153d294c01da14f64464` with that scoped formatter result.
+
+| Gate | Command | Measured outcome |
+| --- | --- | --- |
+| Focused 37-group matrix | `uv run --offline --locked python scripts/run_pytest.py -q tests/test_assessment_cli.py::test_reassess_cli_rejects_each_caller_identity_permutation_without_mutation -x` | exited 0; all 37 parameter groups passed |
+| Full offline suite | `uv run --offline --locked python scripts/run_pytest.py -q` | exited 0 |
+| Ruff lint | `uv run --offline --locked ruff check .` | exited 0 |
+| Ruff format check | `uv run --offline --locked ruff format --check .` | exited 0 |
+
+This formatter-only continuation preserves the same canonical payload source,
+Pydantic validation, CLI rejection boundary, exact assessment-sidecar bytes,
+and complete audit-tree identity assertions. It remains local evidence only and
+does not complete requirements, Phase 04, or independent verification.

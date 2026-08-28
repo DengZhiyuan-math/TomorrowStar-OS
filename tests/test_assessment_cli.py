@@ -386,9 +386,7 @@ def test_reassess_cli_appends_a_materialized_later_audit_version(tmp_path: Path)
         ((("source_envelope", "authority_label"), "reviewed-user-truth"),),
         ((("source_envelope", "audit_snapshot_hash"), "sha256:" + "0" * 64),),
         ((("source_envelope", "answer_ids"), ["answer:question-caller-forged"]),),
-        (
-            (("source_envelope", "contribution_id"), "contrib-stoa-content-privacy-integrity"),
-        ),
+        ((("source_envelope", "contribution_id"), "contrib-stoa-content-privacy-integrity"),),
         ((("origin_status",), "self-assessed-unverified"),),
         ((("assessment_status",), "reviewed"),),
         ((("substantive_review_complete",), True),),
@@ -399,9 +397,7 @@ def test_reassess_cli_appends_a_materialized_later_audit_version(tmp_path: Path)
         ((("basis_claim_ids",), ["claim-caller-forged"]),),
         ((("mastery_anchor_fit", "anchor_basis"), "caller-forged anchor basis"),),
         ((("exact_score_basis",), "caller-forged exact score basis"),),
-        (
-            (("judgment_basis", "demonstrated_mastery_basis"), "caller-forged mastery basis"),
-        ),
+        ((("judgment_basis", "demonstrated_mastery_basis"), "caller-forged mastery basis"),),
         ((("id",), "assessment-caller-forged"),),
         ((("skill_id",), "skill.caller-forged"),),
         (
