@@ -195,6 +195,18 @@ def test_inspect_expectation_is_read_only_and_returns_status_two_when_unmet(
     assert not (tmp_path / ".career-evidence").exists()
 
 
+def test_inspect_without_expectation_exposes_safe_status_without_mutation(tmp_path: Path) -> None:
+    result = _run("jd", "inspect", "--workspace", str(tmp_path))
+
+    assert result.returncode == 0
+    assert json.loads(result.stdout) == {
+        "accepted_count": 0,
+        "evaluation_present": False,
+        "prepared_count": 0,
+    }
+    assert not (tmp_path / ".career-evidence").exists()
+
+
 def test_priority_overlay_changes_only_route_reason_and_forward_list_version(
     tmp_path: Path,
 ) -> None:
