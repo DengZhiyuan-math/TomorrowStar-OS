@@ -2,6 +2,8 @@
 
 ## 2026-07-30 — pre-existing Phase 02 full-suite regression
 
+- **Status:** acknowledged
+- **Acknowledged at:** v1.0 user-approved partial closeout on 2026-08-28
 - `tests/test_cli_tracer.py::test_domain_fixture_rejects_missing_assessment_contribution`
   expects only `assessment.contribution_missing`, but the current Phase 02 invariant
   implementation also returns `assessment.basis_claim_mismatch` and

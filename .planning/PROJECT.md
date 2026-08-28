@@ -2,9 +2,9 @@
 
 ## What This Is
 
-This is the first validation project for an agentic, skill-graph-based résumé generation and career-gap system. It tests whether a Grill-Me workflow can accurately audit what a user understands and can independently explain, implement, reproduce, defend, or operate within their real experiences, then turn those findings into stable skill assessments that are useful when comparing the user with a small set of job descriptions.
+This project is the local, evidence-grounded foundation for an agentic, skill-graph-based résumé and career-gap system. Its v1.0 closeout established Contribution-based records, auditable Grill-Me conclusions, attribution, Skill assessment and no-inflation aggregation, plus content-free JD-comparison and private-intake boundaries.
 
-The broader product will use this reusable skill-oriented career graph to dynamically select and rewrite relevant experiences for tailored résumés and to propose evidence-producing gap-closing work. Those downstream product loops remain central to the product vision, but this project deliberately stops at validating the Grill-Me → skill graph → JD usefulness hypothesis before building the complete pipeline.
+v1.0 is a user-approved partial closeout, not a successful empirical validation of the full hypothesis: no reviewed personal Skill graph was built and no real JD evaluation was run. Those two activities begin the next milestone. The broader product will use a reusable Skill graph to select and rewrite relevant experiences for tailored résumés and propose evidence-producing gap-closing work, but those downstream loops remain outside this foundation.
 
 ## Core Value
 
@@ -18,17 +18,17 @@ Accurately determine what the user can genuinely do within specific contribution
 - [x] **Validated in Phase 2:** Contribution is the minimum auditable assessment unit; direct mastery paths from Experience, credential, title, repository, résumé skill list, or ontology relationships fail closed.
 - [x] **Validated in Phase 2:** Contribution–Skill records keep mastery, centrality, confidence, context, duration, basis, responsibility, and assistance as distinct validated fields without selecting a calibration or aggregation policy.
 - [x] **Validated in Phase 2:** A document-bounded, item-by-item human-reviewed STOA fixture can be sealed with immutable provenance and exercised against deterministic known-good and single-fault known-bad cases.
+- [x] **Implemented in Phase 3:** A selected Contribution can be inspected, questioned one decision at a time, attributed across user/team/coding-agent/third-party work, resumed, and concluded through a reviewable local audit.
+- [x] **Implemented in Phase 4:** Reviewed Contribution–Skill assessments can be admitted and aggregated with explicit anchors, confidence gates, immutable reassessment history, and no mechanical score inflation.
+- [x] **Implemented in Phase 5 foundation:** Content-free JD packets, deterministic pure graph projections, private JD intake, and a preregistered evaluation charter enforce truthful source and graph-isolation boundaries.
 
 ### Active
 
-- [ ] Audit a Contribution deeply enough to determine what the user personally understands and can explain, implement, reproduce, defend, debug, or operate.
-- [ ] Extract specific Skills from audited Contributions without inferring mastery directly from an Experience, education credential, repository, or ontology relationship.
-- [ ] Aggregate credible Contribution–Skill assessments into one relatively stable 0–100 mastery score for each specific user Skill while keeping evidence confidence, verified duration, context, and JD match separate.
-- [ ] Use observable capability anchors for the 0–100 mastery scale and prevent numerous low-level Contributions from mechanically accumulating into advanced mastery.
-- [ ] Build and audit a representative STOA Experience with distinguishable Contributions, Evidence, Skills, responsibility attribution, and Contribution–Skill assessments.
-- [ ] Parse a small number of representative JDs into structured skill expectations and test whether the resulting user skill graph supports meaningful comparison and relevant experience selection.
-- [ ] Evaluate the hypothesis with reproducible fixtures, golden cases, human review, and documented calibration findings before expanding into the complete résumé and gap-planning pipeline.
-- [ ] Establish a version-pinned open-source reference baseline before original implementation, with explicit reuse, adaptation, rejection, attribution, and license boundaries for each upstream project.
+- [ ] Build a reviewed, user-truth personal Skill graph from real Contributions, Evidence, attribution, and confirmed assessments.
+- [ ] Accept user-supplied real JDs and evaluate them against that reviewed graph without allowing JD wording to create mastery claims.
+- [ ] Run the preregistered deterministic, adversarial, stability, human-review, and blind-baseline evaluation with the real graph and JD inputs.
+- [ ] Resolve or explicitly re-baseline the acknowledged Phase 2 full-suite regression before claiming the repository-wide suite is green.
+- [ ] Run a held-out and minimal non-STOA replication, then make the evidence-backed core-hypothesis decision.
 
 ### Out of Scope
 
@@ -123,7 +123,7 @@ These repositories are pinned under `references/upstream/`; `references/README.m
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Scope this project to the first core hypothesis rather than the complete final pipeline | Validate assessment usefulness before investing in résumé compilation and gap-planning implementation | — Pending |
+| Scope this project to the first core hypothesis rather than the complete final pipeline | Validate assessment usefulness before investing in résumé compilation and gap-planning implementation | ⚠ v1.0 established the foundation only; the empirical test moved to the next milestone |
 | Keep dynamic JD-tailored résumé generation as a core product output | The product must generate role-specific résumés from the skill graph, not merely present an evidence graph | — Pending |
 | Use `Experience → Contribution → Skill`, with Evidence supporting Contribution | Supports heterogeneous career history while grounding every Skill judgment in distinguishable work | — Pending |
 | Make Contribution the smallest Grill-Me audit unit | Whole experiences are too coarse, while Skill-first interviews lose the concrete work context | — Pending |
@@ -131,27 +131,14 @@ These repositories are pinned under `references/upstream/`; `references/README.m
 | Use the agreed observable capability anchors | Makes score ranges interpretable in terms of what the user can actually do | — Pending |
 | Separate demonstrated mastery, skill centrality, and evidence confidence on Contribution–Skill assessments | Prevents capability, relevance, and credibility from collapsing into one ambiguous relationship score | — Pending |
 | Allow combined Contributions to justify a higher mastery band only when they satisfy that band’s observable conditions | Supports repeated cross-context evidence without permitting mathematical score inflation | — Pending |
-| Defer the exact aggregation formula and calibration rules | Concrete fixtures and human-reviewed cases are required before those details can be trusted | — Pending |
+| Defer the exact aggregation formula and calibration rules | Concrete fixtures and human-reviewed cases are required before those details can be trusted | ✓ Conservative policy and explicit anchors are implemented; real-user calibration remains pending |
 | Treat local-first, deterministic scoring, and provenance mechanisms as implementation choices or constraints to validate—not as the product definition | The product is defined by its agentic assessment, skill model, JD adaptation, résumé generation, and gap-closing loop | — Pending |
 | Integrate pinned upstream references before implementation | Existing open-source projects contain relevant interview, ontology, workspace, parsing, and résumé-output patterns that should be evaluated before building substitutes | — Pending |
-| Keep upstreams as licensed submodules with a local reuse matrix | Preserves exact source and attribution while preventing wholesale architecture copying | — Pending |
+| Keep upstreams as licensed submodules with a local reuse matrix | Preserves exact source and attribution while preventing wholesale architecture copying | ✓ Applied in v1.0 foundation |
 
 ## Evolution
 
-This document evolves at phase transitions and milestone boundaries.
-
-**After each phase transition** (via `$gsd-transition`):
-1. Requirements invalidated? → Move to Out of Scope with reason
-2. Requirements validated? → Move to Validated with phase reference
-3. New requirements emerged? → Add to Active
-4. Decisions to log? → Add to Key Decisions
-5. "What This Is" still accurate? → Update if drifted
-
-**After each milestone** (via `$gsd-complete-milestone`):
-1. Full review of all sections
-2. Core Value check — still the right priority?
-3. Audit Out of Scope — reasons still valid?
-4. Update Context with current state
+v1.0 closed on 2026-08-28 by explicit user authorization as a partial closeout. The archived roadmap and requirements preserve all Phase 5/6 gaps. The next milestone starts with a real reviewed personal graph and user-supplied JD tests; it must not infer a positive product hypothesis from v1.0's content-free foundation.
 
 ---
-*Last updated: 2026-07-30 after Phase 2 validation*
+*Last updated: 2026-08-28 after user-approved v1.0 partial closeout*

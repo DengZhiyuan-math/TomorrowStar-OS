@@ -1,40 +1,37 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.0
-current_phase: 05
-current_phase_name: jd-usefulness-and-adversarial-evaluation
-status: executing
-stopped_at: Phase 05 awaiting user-supplied JDs and reviewed-user-truth assessment workspace
-last_updated: "2026-08-28T17:27:55.679Z"
+status: Awaiting next milestone
+stopped_at: User-approved v1.0 partial closeout; next milestone must build a reviewed personal Skill graph and test user-supplied real JDs
+last_updated: "2026-08-28T17:37:26.416Z"
 last_activity: 2026-08-28
-last_activity_desc: Phase 05 execution started
-state_head: 87768fda0619753ec0517d365f6e3a9f391cedeb
+last_activity_desc: User-approved v1.0 partial closeout archived; empirical validation deferred
+state_head: fc4cfe773ccfff7024fc6cdac7ea8702d3fd0684
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 43
   completed_plans: 39
-milestone_name: milestone
+milestone_name: Core Foundation and Deferred Validation
+current_phase: 05
+current_phase_name: jd-usefulness-and-adversarial-evaluation
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-30)
+See: .planning/PROJECT.md (updated 2026-08-28)
 
 **Core value:** Accurately determine what the user can genuinely do within specific contributions and convert that understanding into skill scores and graph relationships useful for JD-relevant career decisions.
-**Current focus:** Phase 05 — jd-usefulness-and-adversarial-evaluation
+**Current focus:** Planning the next milestone: reviewed personal graph and real JD tests
 
 ## Current Position
 
-Phase: 05 (jd-usefulness-and-adversarial-evaluation) — EXECUTING
-Plan: 3 of 6
-Status: Ready to execute
-Total Plans in Phase: 6
-Last activity: 2026-08-28 — Phase 05 execution started
-
-Progress: [███████░░░] 78%
+Phase: Milestone v1.0 partially closed by user approval
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-08-28 — Foundation archived; empirical validation deferred to the next milestone
 
 ## Performance Metrics
 
@@ -159,9 +156,17 @@ None yet.
 | Product capability | Dynamic JD-tailored résumé selection, rewriting, review, and export | Next milestone after a justified expansion decision | v1 initialization |
 | Product capability | Evidence-producing Gap Sprints and reassessment | Deferred beyond validation | v1 initialization |
 | Product scale | Broader career workspace, multi-user SaaS, and complex interface | Deferred beyond validation | v1 initialization |
+| v1.0 closeout | Reviewed personal Skill graph from real Contributions and confirmed assessments | Required first work of the next milestone | 2026-08-28 |
+| v1.0 closeout | User-supplied real JD intake and graph comparison | Required next-milestone empirical input | 2026-08-28 |
+| v1.0 closeout | Phase 5 real evaluation, Phase 6 replication, and core-hypothesis decision | Not run; no empirical outcome claimed | 2026-08-28 |
+| Verification override | Phase 2 full-suite regression in `test_domain_fixture_rejects_missing_assessment_contribution` | Acknowledged at closeout, not fixed | 2026-08-28 |
 
 ## Session Continuity
 
-Last session: 2026-08-28T17:27:55.492Z
-Stopped at: Phase 05 awaiting user-supplied JDs and reviewed-user-truth assessment workspace
-Resume file: .planning/phases/05-jd-usefulness-and-adversarial-evaluation/05-03-PLAN.md
+Last session: 2026-08-28
+Stopped at: v1.0 partial closeout. The archived Phase 5 plan is historical evidence, not a resume target.
+Resume file: none — create the next milestone before planning new work.
+
+## Operator Next Steps
+
+- Start the next milestone with $gsd-new-milestone
