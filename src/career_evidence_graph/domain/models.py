@@ -787,6 +787,7 @@ class JDRequirement(StrictModel):
     decision_critical: bool
     priority: Literal["required", "preferred"]
     core_hard: bool = False
+    evidence_strong_eligible: bool = False
     linked_requirement_group_id: Identifier | None = Field(default=None, pattern=ID_PATTERN)
     minimum_mastery: int = Field(default=1, ge=0, le=100)
     stated_strength: str | None = None
@@ -799,6 +800,8 @@ class JDRequirement(StrictModel):
     @model_validator(mode="after")
     def validate_skill_ids(self) -> JDRequirement:
         _unique_ids(self.skill_ids, "JD requirement skill_ids")
+        if self.evidence_strong_eligible and not self.core_hard:
+            raise ValueError("evidence-strong eligibility requires a core hard requirement")
         return self
 
 
@@ -908,6 +911,17 @@ class JDReport(StrictModel):
     schema_version: Literal["jd-report/v1"] = "jd-report/v1"
     concise: str = Field(min_length=1)
     technical: str = Field(min_length=1)
+    header_score: int = Field(ge=0, le=100)
+    header_route: Literal["customized-resume", "standard-resume", "abandon"]
+    key_reasons: tuple[str, ...] = Field(min_length=1)
+    strongest_match_requirement_id: Identifier | None = Field(default=None, pattern=ID_PATTERN)
+    most_important_core_gap_requirement_id: Identifier | None = Field(
+        default=None, pattern=ID_PATTERN
+    )
+    customization_reason: str = Field(min_length=1)
+    decision_critical_requirement_ids: tuple[Identifier, ...] = Field(min_length=1)
+    expanded_requirement_ids: tuple[Identifier, ...] = Field(min_length=1)
+    selected_contribution_ids: tuple[Identifier, ...] = ()
 
 
 class JDAnalysisResult(StrictModel):
@@ -915,14 +929,19 @@ class JDAnalysisResult(StrictModel):
     packet_id: Identifier = Field(pattern=ID_PATTERN)
     score: int = Field(ge=0, le=100)
     raw_score: int = Field(ge=0, le=100)
+    capped_score: int = Field(ge=0, le=100)
+    core_cap_applied: bool
     route: Literal["customized-resume", "standard-resume", "abandon"]
     ordinary_route: Literal["customized-resume", "standard-resume", "abandon"]
+    route_trigger: Literal["ordinary", "evidence-strong-match"]
     route_reason: str = Field(min_length=1)
     judgments: tuple[JDRequirementJudgment, ...] = Field(min_length=1)
     gaps: tuple[JDGap, ...] = ()
     selected_contribution_ids: tuple[Identifier, ...] = ()
+    selected_contributions: tuple[JDContributionSelection, ...] = ()
     policy_version: str = Field(min_length=1)
     policy_hash: str = Field(pattern=SHA256_PATTERN)
+    policy_snapshot: JDMatchPolicy
     graph_hash_before: str = Field(pattern=SHA256_PATTERN)
     graph_hash_after: str = Field(pattern=SHA256_PATTERN)
     report: JDReport

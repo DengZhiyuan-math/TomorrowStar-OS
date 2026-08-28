@@ -10,10 +10,17 @@ from .assessment import (
     aggregate_user_skills,
     list_assessment_runs,
 )
+from .domain.invariants import (
+    canonical_jd_contribution_selections,
+    canonical_jd_gaps,
+    canonical_jd_judgments,
+    canonical_jd_requirements,
+)
 from .domain.models import (
     AcceptedJDPacket,
     CalibratedUserSkillResult,
     JDAnalysisResult,
+    JDContributionSelection,
     JDGap,
     JDMatchPolicy,
     JDReport,
@@ -178,15 +185,121 @@ def _route(score: int, policy: JDMatchPolicy) -> str:
     return "abandon"
 
 
+def _gap_for(
+    requirement: JDRequirement,
+    judgment: JDRequirementJudgment,
+    results_by_skill: dict[str, CalibratedUserSkillResult],
+) -> JDGap | None:
+    """Preserve one non-interchangeable reason for each unsatisfied requirement."""
+    if judgment.status == "supported":
+        return None
+    if judgment.status == "unsupported":
+        kind = "missing-capability"
+    elif judgment.status == "uncertain":
+        kind = "missing-evidence"
+    elif requirement.context_expectation and all(
+        requirement.context_expectation not in results_by_skill[skill_id].supporting_contexts
+        for skill_id in requirement.skill_ids
+    ):
+        kind = "context-mismatch"
+    else:
+        kind = "uncertainty"
+    return JDGap(
+        requirement_id=requirement.requirement_id,
+        kind=kind,
+        detail=judgment.limitation or "The accepted requirement remains unresolved.",
+    )
+
+
+def _is_evidence_strong_group(
+    requirements: tuple[JDRequirement, ...],
+    judgments_by_requirement: dict[str, JDRequirementJudgment],
+    records: tuple[AssessmentRun, ...],
+    results: tuple[CalibratedUserSkillResult, ...],
+    policy: JDMatchPolicy,
+) -> bool:
+    """Allow the named route overlay only for direct high-confidence exact-Skill evidence."""
+    records_by_id = {record.proposal.id: record for record in records}
+    results_by_skill = {result.skill_id: result for result in results}
+    eligible = tuple(
+        requirement
+        for requirement in requirements
+        if requirement.core_hard and requirement.evidence_strong_eligible
+    )
+    for requirement in eligible:
+        group = (
+            tuple(
+                item
+                for item in requirements
+                if item.linked_requirement_group_id == requirement.linked_requirement_group_id
+            )
+            if requirement.linked_requirement_group_id
+            else (requirement,)
+        )
+        if all(
+            judgments_by_requirement[item.requirement_id].status == "supported"
+            and all(
+                results_by_skill[skill_id].baseline_assessment_id in records_by_id
+                and records_by_id[
+                    results_by_skill[skill_id].baseline_assessment_id
+                ].proposal.evidence_confidence
+                >= policy.evidence_strong_min_confidence
+                and records_by_id[
+                    results_by_skill[skill_id].baseline_assessment_id
+                ].proposal.source_envelope
+                is not None
+                and records_by_id[
+                    results_by_skill[skill_id].baseline_assessment_id
+                ].proposal.source_envelope.authority_label
+                == "reviewed-user-truth"
+                for skill_id in item.skill_ids
+            )
+            for item in group
+        ):
+            return True
+    return False
+
+
+def _selected_contributions(
+    requirements: tuple[JDRequirement, ...],
+    judgments_by_requirement: dict[str, JDRequirementJudgment],
+) -> tuple[JDContributionSelection, ...]:
+    """Select only Contribution evidence that already grounds a judgment."""
+    selections_by_id: dict[str, JDContributionSelection] = {}
+    for requirement in requirements:
+        judgment = judgments_by_requirement[requirement.requirement_id]
+        if judgment.status not in {"supported", "partially-supported"}:
+            continue
+        for contribution_id in judgment.contribution_ids:
+            candidate = JDContributionSelection(
+                contribution_id=contribution_id,
+                source_byte_offset=requirement.source_span.start_byte,
+                rank=0 if requirement.decision_critical else 1,
+                reason=(
+                    "Direct admitted reviewed-user-truth evidence grounds the exact Skill "
+                    "constituent for this accepted requirement."
+                ),
+            )
+            existing = selections_by_id.get(contribution_id)
+            if existing is None or (
+                candidate.rank,
+                candidate.source_byte_offset,
+                candidate.contribution_id,
+            ) < (existing.rank, existing.source_byte_offset, existing.contribution_id):
+                selections_by_id[contribution_id] = candidate
+    return canonical_jd_contribution_selections(tuple(selections_by_id.values()))
+
+
 def compare_accepted_jd(
     packet: AcceptedJDPacket, workspace: Path, policy: JDMatchPolicy
 ) -> JDAnalysisResult:
     """Compare read-only reviewed truth with a validated packet and return one report."""
     records, results, graph_hash_before = load_reviewed_user_graph(workspace)
-    judgments = tuple(
-        _judgment_for(requirement, records, results) for requirement in packet.requirements
-    )
-    total_weight = sum(_weight(requirement, policy) for requirement in packet.requirements)
+    requirements = canonical_jd_requirements(packet.requirements)
+    judgments = tuple(_judgment_for(requirement, records, results) for requirement in requirements)
+    judgments = canonical_jd_judgments(judgments, requirements)
+    judgments_by_requirement = {item.requirement_id: item for item in judgments}
+    total_weight = sum(_weight(requirement, policy) for requirement in requirements)
     earned = sum(
         _weight(requirement, policy)
         * (
@@ -196,55 +309,101 @@ def compare_accepted_jd(
             if judgment.status == "partially-supported"
             else 0
         )
-        for requirement, judgment in zip(packet.requirements, judgments, strict=True)
+        for requirement, judgment in zip(requirements, judgments, strict=True)
     )
     raw_score = earned // total_weight
     core_missing = any(
         requirement.core_hard and judgment.status in {"unsupported", "uncertain"}
-        for requirement, judgment in zip(packet.requirements, judgments, strict=True)
+        for requirement, judgment in zip(requirements, judgments, strict=True)
     )
-    score = min(raw_score, policy.missing_core_cap) if core_missing else raw_score
-    ordinary_route = _route(score, policy)
-    gaps = tuple(
-        JDGap(
-            requirement_id=requirement.requirement_id,
-            kind="missing-capability" if judgment.status == "unsupported" else "uncertainty",
-            detail=judgment.limitation or "A supplied core requirement remains unresolved.",
-        )
-        for requirement, judgment in zip(packet.requirements, judgments, strict=True)
-        if judgment.status in {"unsupported", "uncertain"}
+    capped_score = min(raw_score, policy.missing_core_cap) if core_missing else raw_score
+    ordinary_route = _route(capped_score, policy)
+    evidence_strong = _is_evidence_strong_group(
+        requirements, judgments_by_requirement, records, results, policy
+    )
+    route = "customized-resume" if evidence_strong else ordinary_route
+    route_trigger = "evidence-strong-match" if evidence_strong else "ordinary"
+    results_by_skill = {result.skill_id: result for result in results}
+    gaps = canonical_jd_gaps(
+        tuple(
+            gap
+            for requirement in requirements
+            if (
+                gap := _gap_for(
+                    requirement,
+                    judgments_by_requirement[requirement.requirement_id],
+                    results_by_skill,
+                )
+            )
+            is not None
+        ),
+        requirements,
     )
     graph_hash_after = sha256_digest(canonical_json_bytes(_graph_payload(records, results)))
     if graph_hash_before != graph_hash_after:
         raise JDComparisonError("comparison changed the reviewed graph")
     policy_hash = sha256_digest(canonical_json_bytes(policy))
-    selected_contribution_ids = tuple(
-        sorted({item for judgment in judgments for item in judgment.contribution_ids})
+    selected_contributions = _selected_contributions(requirements, judgments_by_requirement)
+    selected_contribution_ids = tuple(item.contribution_id for item in selected_contributions)
+    strongest_match = next(
+        (
+            item.requirement_id
+            for item in requirements
+            if judgments_by_requirement[item.requirement_id].status == "supported"
+        ),
+        None,
+    )
+    core_gap = next(
+        (
+            item.requirement_id
+            for item in requirements
+            if item.core_hard and item.requirement_id in {gap.requirement_id for gap in gaps}
+        ),
+        None,
+    )
+    route_reason = (
+        "evidence-strong-match"
+        if evidence_strong
+        else "Core hard requirement capped the ordinary route."
+        if core_missing
+        else "Ordinary route follows the supplied inclusive policy threshold."
     )
     return JDAnalysisResult(
         packet_id=packet.packet_id,
-        score=score,
+        score=capped_score,
         raw_score=raw_score,
-        route=ordinary_route,
+        capped_score=capped_score,
+        core_cap_applied=core_missing,
+        route=route,
         ordinary_route=ordinary_route,
-        route_reason=(
-            "Core hard requirement capped the ordinary route."
-            if core_missing
-            else "Ordinary route follows the supplied inclusive policy threshold."
-        ),
+        route_trigger=route_trigger,
+        route_reason=route_reason,
         judgments=judgments,
         gaps=gaps,
         selected_contribution_ids=selected_contribution_ids,
+        selected_contributions=selected_contributions,
         policy_version=policy.policy_version,
         policy_hash=policy_hash,
+        policy_snapshot=policy,
         graph_hash_before=graph_hash_before,
         graph_hash_after=graph_hash_after,
         report=JDReport(
-            concise=f"{score}/100 · {ordinary_route}",
+            concise=f"{capped_score}/100 · {route}",
             technical=(
                 "Read-only comparison of reviewed-user-truth Contribution evidence; "
                 "this report makes no application, interview, offer, hiring, or employment "
                 "effectiveness claim."
             ),
+            header_score=capped_score,
+            header_route=route,
+            key_reasons=(route_reason,),
+            strongest_match_requirement_id=strongest_match,
+            most_important_core_gap_requirement_id=core_gap,
+            customization_reason=route_reason,
+            decision_critical_requirement_ids=tuple(
+                item.requirement_id for item in requirements if item.decision_critical
+            ),
+            expanded_requirement_ids=tuple(item.requirement_id for item in requirements),
+            selected_contribution_ids=selected_contribution_ids,
         ),
     )

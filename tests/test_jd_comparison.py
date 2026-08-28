@@ -11,6 +11,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from career_evidence_graph import jd as jd_module
 from career_evidence_graph.assessment import (
     AssessmentStore,
     build_assessment_run,
@@ -24,7 +25,7 @@ from career_evidence_graph.domain.models import (
     JDMatchPolicy,
 )
 from career_evidence_graph.jd import compare_accepted_jd
-from career_evidence_graph.validation.hashing import sha256_digest
+from career_evidence_graph.validation.hashing import canonical_json_bytes, sha256_digest
 
 ROOT = Path(__file__).parents[1]
 CORPUS = ROOT / "validation/calibration/phase-04/corpus.json"
@@ -283,11 +284,11 @@ def test_scoring_uses_inclusive_thresholds_and_core_cap_without_mutating_graph(
 
     capped = compare_accepted_jd(
         _packet_with_requirements(
-                [
-                    {
-                        "core_hard": True,
-                        "skill_ids": ["skill.unsupported-schema-only"],
-                    },
+            [
+                {
+                    "core_hard": True,
+                    "skill_ids": ["skill.unsupported-schema-only"],
+                },
                 {"priority": "preferred", "minimum_mastery": 1},
             ]
         ),
@@ -348,6 +349,30 @@ def test_evidence_strong_exception_requires_every_ordered_skill_constituent(
     assert negative.route == "abandon"
     assert negative.route_reason != "evidence-strong-match"
 
+    linked_group = compare_accepted_jd(
+        _packet_with_requirements(
+            [
+                {
+                    "core_hard": True,
+                    "evidence_strong_eligible": True,
+                    "linked_requirement_group_id": "group-schema-only",
+                    "minimum_mastery": 1,
+                },
+                {
+                    "linked_requirement_group_id": "group-schema-only",
+                    "minimum_mastery": 1,
+                },
+                {
+                    "priority": "preferred",
+                    "skill_ids": ["skill.unsupported-schema-only"],
+                },
+            ]
+        ),
+        workspace,
+        _policy(),
+    )
+    assert linked_group.route_reason == "evidence-strong-match"
+
 
 def test_report_projects_typed_gaps_and_canonical_evidence_selection(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
@@ -378,3 +403,27 @@ def test_report_projects_typed_gaps_and_canonical_evidence_selection(tmp_path: P
     )
     assert result.report.expanded_requirement_ids == result.report.decision_critical_requirement_ids
     assert result.report.technical.startswith("Read-only comparison")
+
+
+def test_missing_evidence_stays_distinct_from_uncertainty(tmp_path: Path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace"
+    _write_reviewed_user_truth(workspace)
+    records, results, _graph_hash = jd_module.load_reviewed_user_graph(workspace)
+    source_envelope = records[0].proposal.source_envelope.model_copy(update={"evidence_ids": ()})
+    record = records[0].model_copy(
+        update={
+            "proposal": records[0].proposal.model_copy(update={"source_envelope": source_envelope})
+        }
+    )
+    result = results[0].model_copy(update={"source_envelope": source_envelope})
+    graph_hash = sha256_digest(canonical_json_bytes(jd_module._graph_payload((record,), (result,))))
+    monkeypatch.setattr(
+        jd_module, "load_reviewed_user_graph", lambda _workspace: ((record,), (result,), graph_hash)
+    )
+
+    analysis = compare_accepted_jd(
+        _packet_with_requirements([{"minimum_mastery": 1}]), workspace, _policy()
+    )
+
+    assert analysis.judgments[0].status == "uncertain"
+    assert analysis.gaps[0].kind == "missing-evidence"

@@ -47,8 +47,7 @@ from .domain import (
     validate_mutation_suite,
     verify_source_manifest,
 )
-from .domain.models import ContributionSkillAssessment
-from .domain.models import AcceptedJDPacket, JDMatchPolicy
+from .domain.models import AcceptedJDPacket, ContributionSkillAssessment, JDMatchPolicy
 from .jd import JDComparisonError, compare_accepted_jd
 from .validation.provenance import ProvenanceValidationError, verify_provenance_registry
 from .validation.replay import replay_recorded_response
