@@ -9,7 +9,14 @@ from pathlib import Path
 
 import pytest
 
-from career_evidence_graph.jd import JDIntakeError, prepare_jd_intake
+from career_evidence_graph.jd import (
+    JDIntakeError,
+    PriorityCompanyInput,
+    PriorityCompanyStore,
+    apply_priority_company_overlay,
+    load_evaluation_charter,
+    prepare_jd_intake,
+)
 from career_evidence_graph.validation.hashing import sha256_digest
 
 ROOT = Path(__file__).parents[1]
@@ -186,3 +193,60 @@ def test_inspect_expectation_is_read_only_and_returns_status_two_when_unmet(
     emitted = json.loads(result.stdout)
     assert emitted == {"actual": False, "expected": expectation, "met": False}
     assert not (tmp_path / ".career-evidence").exists()
+
+
+def test_priority_overlay_changes_only_route_reason_and_forward_list_version(tmp_path: Path) -> None:
+    base = {
+        "score": 47,
+        "ordinary_route": "abandon",
+        "judgments": ("judgment-a",),
+        "gaps": ("gap-a",),
+        "selected_contribution_ids": ("contribution-a",),
+        "graph_hash_before": sha256_digest(b"graph-before"),
+        "graph_hash_after": sha256_digest(b"graph-after"),
+    }
+    priorities_v1 = PriorityCompanyInput(
+        version="priority-v1",
+        companies=(("Example Company", ("example",)),),
+    )
+    priorities_v2 = PriorityCompanyInput(
+        version="priority-v2",
+        companies=(("Example Company", ("example",)),),
+    )
+
+    overlaid = apply_priority_company_overlay(base, priorities_v1, "example")
+    store = PriorityCompanyStore(tmp_path)
+    stored_v1 = store.publish(priorities_v1)
+    stored_v1_bytes = stored_v1.read_bytes()
+    stored_v2 = store.publish(priorities_v2)
+
+    assert overlaid.final_route == "customized-resume"
+    assert overlaid.route_reason == "user-priority-company"
+    assert overlaid.priority_list_version == "priority-v1"
+    assert overlaid.analysis == base
+    assert stored_v1.read_bytes() == stored_v1_bytes
+    assert stored_v2 != stored_v1
+
+
+def test_priority_alias_collisions_and_hidden_controls_fail_closed() -> None:
+    with pytest.raises(JDIntakeError, match="jd-priority-alias-collision"):
+        PriorityCompanyInput(
+            version="priority-v1",
+            companies=(("Company A", ("shared",)), ("Company B", ("shared",))),
+        )
+    with pytest.raises(JDIntakeError, match="jd-priority-company-unsafe"):
+        PriorityCompanyInput(version="priority-v1", companies=(("Company\u200b", ()),))
+
+
+def test_checked_in_evaluation_charter_rejects_missing_preregistered_field(tmp_path: Path) -> None:
+    charter_path = ROOT / "validation/jd/evaluation-charter.json"
+    charter = load_evaluation_charter(charter_path)
+    assert charter["attempts_per_case"] == 3
+
+    invalid = dict(charter)
+    invalid.pop("zero_critical_fabricated_capability_claims")
+    invalid_path = tmp_path / "charter.json"
+    invalid_path.write_text(json.dumps(invalid), encoding="utf-8")
+
+    with pytest.raises(JDIntakeError, match="jd-evaluation-charter-invalid"):
+        load_evaluation_charter(invalid_path)
