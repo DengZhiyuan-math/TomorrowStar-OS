@@ -60,7 +60,7 @@ coverage:
         ref: tests/test_assessment_admission.py#test_two_edits_retain_immutable_versions_and_reopen
         status: pass
     human_judgment: false
-duration: 19min
+duration: 5min
 completed: 2026-08-28
 status: complete
 ---
@@ -71,9 +71,9 @@ status: complete
 
 ## Performance
 
-- **Duration:** 19 min
+- **Duration:** 5 min
 - **Started:** 2026-08-28T08:30:59Z
-- **Completed:** 2026-08-28T08:49:59Z
+- **Completed:** 2026-08-28T08:36:01Z
 - **Tasks:** 2/2
 - **Files modified:** 4
 
