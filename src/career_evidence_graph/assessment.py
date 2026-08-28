@@ -1011,11 +1011,16 @@ def reassess_from_new_evidence(
     *,
     policy: AggregationPolicy,
     source_audit_id: str,
+    expected_current_version_hash: str,
     proposal: ContributionSkillAssessment,
 ) -> AssessmentRun:
     """Create a later source-audit version and renew admission without overwriting history."""
+    if expected_current_version_hash != record.version_hash:
+        raise AssessmentWorkflowError("reassessment expected current version hash is stale")
     if not re.fullmatch(r"audit-[a-z0-9-]+", source_audit_id):
         raise AssessmentWorkflowError("later evidence source audit is invalid")
+    if source_audit_id == record.versions[-1].source_audit_id:
+        raise AssessmentWorkflowError("later evidence source audit must differ from the current audit")
     if proposal.id != record.proposal.id or proposal.skill_id != record.proposal.skill_id:
         raise AssessmentWorkflowError("reassessment must retain the same assessment and Skill")
     payload = proposal.model_dump(mode="json")
@@ -1074,7 +1079,16 @@ def run_assessment(
     except AssessmentStorageError as exc:
         if "already exists" not in str(exc):
             raise
-        store.replace(run_id, record)
+        existing = store.read(run_id)
+        first_version = existing.versions[0]
+        if (
+            first_version.original_proposal != proposal
+            or first_version.admission.policy_version != admission.policy_version
+        ):
+            raise AssessmentWorkflowError(
+                "existing assessment run does not match the requested audit and policy identity"
+            )
+        return existing
     return store.read(run_id)
 
 

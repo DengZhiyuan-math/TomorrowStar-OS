@@ -23,6 +23,7 @@ from .assessment import (
     list_pending_assessments,
     load_policy,
     load_policy_history,
+    reassess_from_new_evidence,
     review_assessment,
     run_assessment,
     run_calibration_policy,
@@ -247,6 +248,15 @@ def _parser() -> argparse.ArgumentParser:
     assessment_review.add_argument("--attribution-checked", action="store_true")
     assessment_review.add_argument("--anchor-fit-checked", action="store_true")
     assessment_review.add_argument("--all-judgments-checked", action="store_true")
+    assessment_reassess = assessment_commands.add_parser("reassess")
+    assessment_reassess.add_argument("--workspace", required=True)
+    assessment_reassess.add_argument("--run-id", required=True)
+    assessment_reassess.add_argument("--source-audit-id", required=True)
+    assessment_reassess.add_argument("--expected-current-version-hash", required=True)
+    assessment_reassess.add_argument("--assessment-json", required=True)
+    assessment_reassess.add_argument(
+        "--policies", default="validation/calibration/phase-04/policies.json"
+    )
     assessment_compare = assessment_commands.add_parser("compare")
     assessment_compare.add_argument("--workspace", required=True)
     assessment_compare.add_argument(
@@ -587,6 +597,25 @@ def main(argv: list[str] | None = None) -> int:
                 outcome=args.outcome,
             )
             store = AssessmentStore(Path(args.workspace))
+            store.replace(args.run_id, updated)
+            _emit(updated)
+        elif args.command == "assessment" and args.assessment_command == "reassess":
+            try:
+                proposal = ContributionSkillAssessment.model_validate(
+                    _json_file(args.assessment_json)
+                )
+            except (OSError, ValueError, ValidationError) as exc:
+                raise AssessmentWorkflowError("reassessment payload is invalid") from exc
+            store = AssessmentStore(Path(args.workspace))
+            record = store.read(args.run_id)
+            policy = load_policy(Path(args.policies), record.admission.policy_version)
+            updated = reassess_from_new_evidence(
+                record,
+                policy=policy,
+                source_audit_id=args.source_audit_id,
+                expected_current_version_hash=args.expected_current_version_hash,
+                proposal=proposal,
+            )
             store.replace(args.run_id, updated)
             _emit(updated)
         elif args.command == "assessment" and args.assessment_command == "compare":

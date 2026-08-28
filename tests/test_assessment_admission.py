@@ -243,6 +243,7 @@ def test_insufficient_review_and_later_evidence_preserve_immutable_versions(tmp_
         withheld,
         policy=_policy("policy-04-baseline-60", 60),
         source_audit_id="audit-later-evidence",
+        expected_current_version_hash=withheld.version_hash,
         proposal=withheld.proposal,
     )
 
