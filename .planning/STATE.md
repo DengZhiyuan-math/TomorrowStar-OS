@@ -159,7 +159,7 @@ None yet.
 | v1.0 closeout | Reviewed personal Skill graph from real Contributions and confirmed assessments | Required first work of the next milestone | 2026-08-28 |
 | v1.0 closeout | User-supplied real JD intake and graph comparison | Required next-milestone empirical input | 2026-08-28 |
 | v1.0 closeout | Phase 5 real evaluation, Phase 6 replication, and core-hypothesis decision | Not run; no empirical outcome claimed | 2026-08-28 |
-| Verification override | Phase 2 full-suite regression in `test_domain_fixture_rejects_missing_assessment_contribution` | Acknowledged at closeout, not fixed | 2026-08-28 |
+| Verification override | Phase 2 full-suite regression in `test_domain_fixture_rejects_missing_assessment_contribution` | Resolved by `987cc7c`; focused historical/current revalidation green on 2026-08-28 | 2026-08-28 |
 
 ## Session Continuity
 
