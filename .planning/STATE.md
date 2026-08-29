@@ -5,16 +5,16 @@ milestone_name: Full Career Graph and Real JD Validation
 current_phase: 07
 current_phase_name: Career Source Custody and Private Workspace
 status: executing
-stopped_at: Completed 07-00-PLAN.md
-last_updated: "2026-08-29T13:12:21.538Z"
+stopped_at: Completed 07-01-PLAN.md
+last_updated: "2026-08-29T13:28:31.644Z"
 last_activity: 2026-08-29
 last_activity_desc: Phase 07 execution started
-state_head: 34e9c16f24af1eead07f6ef4ca530e2a9c07838a
+state_head: 3f1a9118b9a66a87a2bb1fdb7cb2a05aa3cb392a
 progress:
   total_phases: 8
   completed_phases: 0
   total_plans: 4
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-28)
 ## Current Position
 
 Phase: 07 (Career Source Custody and Private Workspace) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-08-29 — Phase 07 execution started
 
@@ -83,6 +83,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05 P01 | 17min | 3 tasks | 6 files |
 | Phase 05 P02 | 10min | 3 tasks | 8 files |
 | Phase 07 P00 | 13min | 2 tasks | 2 files |
+| Phase 07 P01 | 15min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -138,6 +139,7 @@ Recent decisions affecting current work:
 - [Phase 05]: Priority-company preference is a separate forward-only private input that changes only the final route and reason.
 - [Phase 05]: The evaluation inventory, fallback baseline, blind review conditions, and no-employment-effectiveness limitation are frozen without any JD body.
 - [Phase 07]: Phase 07-00: Wave 0 contracts use synthetic sentinels only; production availability guards keep collection independent of private data.
+- [Phase 07]: Phase 07 Plan 01: private career-source custody requires runtime-only --workspace and creates candidate-only lineage.
 
 ### Pending Todos
 
@@ -168,8 +170,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-29T13:12:21.527Z
-Stopped at: Completed 07-00-PLAN.md
+Last session: 2026-08-29T13:28:31.601Z
+Stopped at: Completed 07-01-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
