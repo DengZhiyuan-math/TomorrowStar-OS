@@ -299,7 +299,6 @@ class CareerSourceStore:
         captures = self.root / "captures"
         transformations = self.root / "transformations"
         return {
-            "backup_state": "not-configured",
             "candidate_only": True,
             "capture_count": len(tuple(captures.glob("*"))) if captures.is_dir() else 0,
             "declaration_present": (self.root / "declarations" / "current.json").is_file(),
