@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 1
+open_count: 3
 waived_count: 0
 fixed_count: 3
-total_count: 4
-last_updated: 2026-08-27T19:04:30.593Z
+total_count: 6
+last_updated: 2026-08-29T13:12:00.980Z
 ---
 
 # Broken Windows Ledger
@@ -19,6 +19,8 @@ last_updated: 2026-08-27T19:04:30.593Z
 | 2 | 02 | deviation | .planning/phases/02-domain-contracts-stoa-fixture-and-deterministic-invariants/02-03-SUMMARY.md |  | Local locked package rebuild was required before Task 1 verification | fixed |  | 2026-07-30T14:58:00.022Z | 2026-07-30T14:58:42.984Z |
 | 3 | 02 | deviation | src/career_evidence_graph/domain/fixtures.py |  | Offline package rebuild used source-path validation because uncached flit-core could not be downloaded. | open |  | 2026-07-30T15:41:06.836Z |  |
 | 4 | 04 | deviation | validation/calibration/phase-04/corpus.json |  | Synthetic calibration proposal now records the mandatory independent bases and anchor details. | fixed |  | 2026-08-27T19:03:55.444Z | 2026-08-27T19:04:30.593Z |
+| 5 | 07 | skipped-test | tests/test_career_source_custody.py | 21 | Explicit module-availability guard skips custody contracts until Plan 07-01 provides career_sources. | open |  | 2026-08-29T13:12:00.860Z |  |
+| 6 | 07 | skipped-test | tests/test_career_source_security.py | 29 | Explicit module-availability guard skips security contracts until Plan 07-01 provides career_sources. | open |  | 2026-08-29T13:12:00.980Z |  |
 
 ````json
 [
@@ -69,6 +71,30 @@ last_updated: 2026-08-27T19:04:30.593Z
     "reason": "",
     "recorded_at": "2026-08-27T19:03:55.444Z",
     "resolved_at": "2026-08-27T19:04:30.593Z"
+  },
+  {
+    "id": 5,
+    "kind": "skipped-test",
+    "phase": "07",
+    "file": "tests/test_career_source_custody.py",
+    "line": 21,
+    "description": "Explicit module-availability guard skips custody contracts until Plan 07-01 provides career_sources.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-29T13:12:00.860Z",
+    "resolved_at": null
+  },
+  {
+    "id": 6,
+    "kind": "skipped-test",
+    "phase": "07",
+    "file": "tests/test_career_source_security.py",
+    "line": 29,
+    "description": "Explicit module-availability guard skips security contracts until Plan 07-01 provides career_sources.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-29T13:12:00.980Z",
+    "resolved_at": null
   }
 ]
 ````
