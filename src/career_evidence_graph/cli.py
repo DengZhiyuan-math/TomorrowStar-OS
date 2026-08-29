@@ -32,6 +32,7 @@ from .audit.decision import RecordedDecisionPort
 from .audit.models import AuditAction, BoundaryDecision, ProbePlan
 from .audit.store import AuditStorageError, AuditStore
 from .audit.workflow import AuditWorkflowError, inspect_contribution, start_audit, transition_audit
+from .career_sources import CareerSourceError, CareerSourceStore
 from .domain import (
     KNOWN_BAD_CASE_IDS,
     FixtureMutationError,
@@ -59,6 +60,7 @@ from .jd import (
 from .validation.provenance import ProvenanceValidationError, verify_provenance_registry
 from .validation.replay import replay_recorded_response
 from .validation.store import FormalRunStorageError, FormalRunStore, load_charter
+from .validation.hashing import sha256_digest
 
 
 def _json_file(path: str) -> Any:
@@ -323,6 +325,27 @@ def _parser() -> argparse.ArgumentParser:
             "finalized",
         ),
     )
+
+    career_source = commands.add_parser("career-source")
+    source_commands = career_source.add_subparsers(dest="career_source_command", required=True)
+    source_declare = source_commands.add_parser("declare")
+    source_declare.add_argument("--workspace", required=True)
+    source_declare.add_argument("--cutoff", required=True)
+    source_declare.add_argument("--category", required=True)
+    source_declare.add_argument("--source-id", required=True)
+    source_declare.add_argument("--availability", required=True)
+    source_capture = source_commands.add_parser("capture")
+    source_capture.add_argument("--workspace", required=True)
+    source_capture.add_argument("--source-id", required=True)
+    source_capture.add_argument("--paste", required=True)
+    source_transform = source_commands.add_parser("transform")
+    source_transform.add_argument("--workspace", required=True)
+    source_transform.add_argument("--source-id", required=True)
+    source_transform.add_argument("--transformer", required=True)
+    source_transform.add_argument("--version", required=True)
+    source_transform.add_argument("--configuration-json", required=True)
+    source_inspect = source_commands.add_parser("inspect")
+    source_inspect.add_argument("--workspace", required=True)
     return parser
 
 
@@ -743,7 +766,77 @@ def main(argv: list[str] | None = None) -> int:
             actual = JDIntakeStore(Path(args.workspace)).expectation_met(args.expect)
             _emit({"actual": actual, "expected": args.expect, "met": actual})
             return 0 if actual else 2
+        elif args.command == "career-source" and args.career_source_command == "declare":
+            store = CareerSourceStore(Path(args.workspace))
+            store.declare(
+                {
+                    "schema_version": "career-source-universe/v1",
+                    "revision_id": "revision-current",
+                    "career_fact_cutoff": args.cutoff,
+                    "categories": ({"category_id": "category-primary", "kind": args.category},),
+                    "sources": (
+                        {
+                            "source_id": args.source_id,
+                            "category_id": "category-primary",
+                            "source_type": "document",
+                            "availability": args.availability,
+                        },
+                    ),
+                    "authority": "candidate-only",
+                }
+            )
+            _emit({"declared": True, "candidate_only": True})
+        elif args.command == "career-source" and args.career_source_command == "capture":
+            source = args.paste.encode("utf-8")
+            source_hash = sha256_digest(source)
+            capture_id = f"capture-{source_hash.removeprefix('sha256:')[:16]}"
+            CareerSourceStore(Path(args.workspace)).capture(
+                {
+                    "schema_version": "career-source-capture/v1",
+                    "capture_id": capture_id,
+                    "source_id": args.source_id,
+                    "content_hash": source_hash,
+                    "acquired_at": "2026-08-29T00:00:00+00:00",
+                    "method": "utf8-paste",
+                    "predecessor_capture_id": None,
+                    "authority": "candidate-only",
+                },
+                source,
+            )
+            _emit({"captured": True, "candidate_only": True})
+        elif args.command == "career-source" and args.career_source_command == "transform":
+            store = CareerSourceStore(Path(args.workspace))
+            captures = store.root / "captures"
+            capture_paths = tuple(sorted(captures.iterdir())) if captures.is_dir() else ()
+            if len(capture_paths) != 1 or capture_paths[0].is_symlink():
+                raise CareerSourceError("career-source-capture-missing")
+            manifest = json.loads((capture_paths[0] / "manifest.json").read_text(encoding="utf-8"))
+            configuration = json.loads(args.configuration_json)
+            store.transform(
+                {
+                    "schema_version": "career-source-transformation/v1",
+                    "transformation_id": "transform-current",
+                    "input_capture_id": manifest["capture_id"],
+                    "predecessor_capture_id": manifest["capture_id"],
+                    "input_hash": manifest["content_hash"],
+                    "transformer": {
+                        "identity": args.transformer,
+                        "version": args.version,
+                        "configuration": configuration,
+                    },
+                    "output_hash": manifest["content_hash"],
+                    "locator": {"kind": "whole-source", "declared_fallback": True},
+                    "authority": "candidate-only",
+                    "candidate_only": True,
+                }
+            )
+            _emit({"transformed": True, "candidate_only": True})
+        elif args.command == "career-source" and args.career_source_command == "inspect":
+            _emit(CareerSourceStore(Path(args.workspace)).safe_status())
         return 0
+    except CareerSourceError as exc:
+        _emit_error({"valid": False, "error": exc.code, "message": str(exc)})
+        return 2
     except AssessmentWorkflowError as exc:
         _emit_error({"valid": False, "error": "assessment_workflow_error", "message": str(exc)})
         return 2

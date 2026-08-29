@@ -67,6 +67,79 @@ class AssessmentAdmissionStatus(StrEnum):
     UNVERIFIED_CANDIDATE = "unverified-candidate"
 
 
+class SourceAvailability(StrEnum):
+    """Why a logical source is or is not available for later work."""
+
+    AVAILABLE = "available"
+    TEMPORARILY_UNAVAILABLE = "temporarily-unavailable"
+    PERMANENTLY_LOST = "permanently-lost"
+    ACCESS_RESTRICTED = "access-restricted"
+    NEVER_CREATED = "never-created"
+    LOCATION_UNKNOWN = "location-unknown"
+    USER_DECLINED = "user-declined"
+
+
+class CareerSourceCategory(StrictModel):
+    schema_version: Literal["career-source-category/v1"] = "career-source-category/v1"
+    category_id: Identifier
+    kind: str = Field(min_length=1)
+
+
+class LogicalCareerSource(StrictModel):
+    schema_version: Literal["logical-career-source/v1"] = "logical-career-source/v1"
+    source_id: Identifier
+    category_id: Identifier
+    source_type: str = Field(min_length=1)
+    availability: SourceAvailability
+    explanation: str | None = None
+
+
+class CareerSourceUniverse(StrictModel):
+    schema_version: Literal["career-source-universe/v1"] = "career-source-universe/v1"
+    revision_id: Identifier
+    career_fact_cutoff: str = Field(min_length=1)
+    categories: tuple[CareerSourceCategory, ...] = Field(min_length=1)
+    sources: tuple[LogicalCareerSource, ...] = Field(min_length=1)
+    authority: Literal["candidate-only"] = "candidate-only"
+
+    @model_validator(mode="after")
+    def validate_source_registry(self) -> CareerSourceUniverse:
+        category_ids = {category.category_id for category in self.categories}
+        _unique_ids(tuple(category_ids), "category IDs")
+        _unique_ids(tuple(source.source_id for source in self.sources), "source IDs")
+        if any(source.category_id not in category_ids for source in self.sources):
+            raise ValueError("source category must be declared")
+        return self
+
+
+class CareerSourceLocator(StrictModel):
+    schema_version: Literal["career-source-locator/v1"] = "career-source-locator/v1"
+    kind: Literal["whole-source"]
+    declared_fallback: Literal[True]
+
+
+class CareerSourceCapture(StrictModel):
+    schema_version: Literal["career-source-capture/v1"] = "career-source-capture/v1"
+    capture_id: Identifier
+    source_id: Identifier
+    content_hash: str = Field(min_length=1)
+    acquired_at: str = Field(min_length=1)
+    method: str = Field(min_length=1)
+    predecessor_capture_id: Identifier | None = None
+    authority: Literal["candidate-only"] = "candidate-only"
+
+
+class CareerSourceTransformation(StrictModel):
+    schema_version: Literal["career-source-transformation/v1"] = "career-source-transformation/v1"
+    transformation_id: Identifier
+    input_capture_id: Identifier
+    input_hash: str = Field(min_length=1)
+    transformer: dict[str, object]
+    output_hash: str = Field(min_length=1)
+    locator: CareerSourceLocator
+    authority: Literal["candidate-only"] = "candidate-only"
+
+
 def _unique_ids(values: tuple[str, ...], field_name: str) -> tuple[str, ...]:
     if len(values) != len(set(values)):
         raise ValueError(f"{field_name} must contain unique identifiers")
