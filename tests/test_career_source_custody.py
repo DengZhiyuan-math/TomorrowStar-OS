@@ -17,7 +17,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
+from career_evidence_graph.domain.models import CareerSourceUniverse
 from career_evidence_graph.validation.hashing import sha256_digest
 
 _CAREER_SOURCE_MODULE = "career_evidence_graph.career_sources"
@@ -156,6 +158,50 @@ def test_declaration_keeps_unavailable_source_visible_without_capability_effect(
     status = module.CareerSourceStore(tmp_path).declare(synthetic_source_universe())
     assert status["unavailable_source_count"] == 1
     assert status["created_skill_count"] == 0
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    (
+        lambda declaration: declaration.update({"categories": ()}),
+        lambda declaration: declaration.update({"sources": ()}),
+        lambda declaration: declaration["sources"][0].update({"category_id": "category-missing"}),
+        lambda declaration: declaration.update({"career_fact_cutoff": "not-a-date"}),
+        lambda declaration: declaration["sources"][1].update({"availability": "available"}),
+    ),
+)
+def test_declaration_rejects_incomplete_or_invalid_source_universe(mutate) -> None:
+    declaration = synthetic_source_universe()
+    mutate(declaration)
+
+    with pytest.raises(ValidationError):
+        CareerSourceUniverse.model_validate(declaration)
+
+
+def test_declaration_round_trip_is_canonical_and_new_pre_cutoff_revision_preserves_original(
+    tmp_path,
+) -> None:
+    module = _require_career_sources()
+    store = module.CareerSourceStore(tmp_path)
+    original = synthetic_source_universe()
+    store.declare(original)
+    revised = synthetic_source_universe(revision_id="revision-synthetic-b")
+    revised["predecessor_revision_id"] = original["revision_id"]
+    revised["sources"] = (*revised["sources"], {
+        "source_id": "source-synthetic-later-discovery",
+        "category_id": "category-projects",
+        "source_type": "document",
+        "availability": "available",
+    })
+    store.declare(revised)
+
+    declarations = tmp_path / ".career-evidence/sources/declarations"
+    original_bytes = (declarations / original["revision_id"] / "manifest.json").read_bytes()
+    revised_bytes = (declarations / revised["revision_id"] / "manifest.json").read_bytes()
+    assert original_bytes == CareerSourceUniverse.model_validate(original).canonical_bytes()
+    assert revised_bytes == CareerSourceUniverse.model_validate(revised).canonical_bytes()
+    assert original_bytes != revised_bytes
+    assert json.loads((declarations / "current.json").read_text()) == json.loads(revised_bytes)
 
 
 def test_capture_recapture_creates_immutable_predecessor_link(tmp_path) -> None:
