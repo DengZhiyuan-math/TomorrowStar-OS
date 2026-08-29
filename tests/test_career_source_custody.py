@@ -78,11 +78,12 @@ def unavailable_source() -> dict[str, str]:
 
 
 def synthetic_capture(*, capture_id: str = "capture-synthetic-a") -> dict[str, Any]:
+    source = b"synthetic-raw-body-sentinel"
     return {
         "schema_version": "career-source-capture/v1",
         "capture_id": capture_id,
         "source_id": "source-synthetic-a",
-        "content_hash": "a" * 64,
+        "content_hash": sha256_digest(source),
         "acquired_at": datetime(2001, 2, 3, tzinfo=UTC).isoformat(),
         "method": "synthetic-text",
         "predecessor_capture_id": None,
@@ -92,7 +93,12 @@ def synthetic_capture(*, capture_id: str = "capture-synthetic-a") -> dict[str, A
 
 def synthetic_recapture() -> dict[str, Any]:
     capture = synthetic_capture(capture_id="capture-synthetic-b")
-    capture.update({"content_hash": "b" * 64, "predecessor_capture_id": "capture-synthetic-a"})
+    capture.update(
+        {
+            "content_hash": sha256_digest(b"synthetic-raw-body-sentinel-v2"),
+            "predecessor_capture_id": "capture-synthetic-a",
+        }
+    )
     return capture
 
 
@@ -101,17 +107,18 @@ def synthetic_locator() -> dict[str, Any]:
 
 
 def synthetic_transformation() -> dict[str, Any]:
+    input_hash = sha256_digest(b"synthetic-raw-body-sentinel")
     return {
         "schema_version": "career-source-transformation/v1",
         "transformation_id": "transform-synthetic-a",
         "input_capture_id": "capture-synthetic-a",
-        "input_hash": "a" * 64,
+        "input_hash": input_hash,
         "transformer": {
             "identity": "synthetic-transformer",
             "version": "v1",
             "configuration": {"mode": "synthetic"},
         },
-        "output_hash": "c" * 64,
+        "output_hash": sha256_digest(b"synthetic-derived-output-sentinel"),
         "locator": synthetic_locator(),
         "authority": "candidate-only",
     }
@@ -247,6 +254,82 @@ def test_duplicate_content_retains_logical_source_provenance_without_authority_i
     assert outcome["logical_source_count"] == 2
     assert outcome["created_fact_count"] == 0
     assert outcome["created_confidence_count"] == 0
+
+
+@pytest.mark.parametrize(
+    "field",
+    ("capture_id", "source_id", "content_hash", "predecessor_capture_id", "acquired_at", "method"),
+)
+def test_capture_verification_fails_closed_for_manifest_mutations_and_undeclared_payload(
+    tmp_path, field: str
+) -> None:
+    module = _require_career_sources()
+    store = module.CareerSourceStore(tmp_path)
+    store.declare(synthetic_source_universe())
+    capture = store.capture(synthetic_capture(), b"synthetic-raw-body-sentinel")
+    capture_path = tmp_path / ".career-evidence/sources/captures" / capture["capture_id"]
+    control = deepcopy(capture)
+    mutated = tampered(capture, field, "capture-tampered" if field != "content_hash" else sha256_digest(b"tampered"))
+    (capture_path / "manifest.json").write_text(json.dumps(mutated), encoding="utf-8")
+
+    with pytest.raises(module.CareerSourceError):
+        store.verify_capture(mutated)
+
+    assert control["capture_id"] == "capture-synthetic-a"
+
+
+def test_capture_verification_rejects_substituted_raw_bytes_and_preserves_prior_capture(tmp_path) -> None:
+    module = _require_career_sources()
+    store = module.CareerSourceStore(tmp_path)
+    store.declare(synthetic_source_universe())
+    first = store.capture(synthetic_capture(), b"synthetic-raw-body-sentinel")
+    second = store.capture(synthetic_recapture(), b"synthetic-raw-body-sentinel-v2")
+    raw = tmp_path / ".career-evidence/raw" / first["content_hash"].removeprefix("sha256:")
+    raw.write_bytes(b"substituted")
+
+    with pytest.raises(module.CareerSourceError):
+        store.verify_capture(first)
+
+    store.verify_capture(second)
+
+
+def test_transformation_binds_capture_hash_transformer_and_precise_locator(tmp_path) -> None:
+    module = _require_career_sources()
+    store = module.CareerSourceStore(tmp_path)
+    store.declare(synthetic_source_universe())
+    capture = store.capture(synthetic_capture(), b"synthetic-raw-body-sentinel")
+    transformation = store.transform(synthetic_transformation())
+
+    for field, replacement in (
+        ("input_capture_id", "capture-missing"),
+        ("input_hash", sha256_digest(b"substituted")),
+        ("transformer", {"identity": "other", "version": "v2", "configuration": {}}),
+        ("output_hash", sha256_digest(b"substituted-output")),
+        ("locator", {"kind": "page", "page": 0}),
+    ):
+        with pytest.raises(module.CareerSourceError):
+            store.verify_transformation(tampered(transformation, field, replacement))
+
+    store.verify_capture(capture)
+
+
+def test_duplicate_bytes_share_one_raw_object_without_merging_logical_source_relations(tmp_path) -> None:
+    module = _require_career_sources()
+    store = module.CareerSourceStore(tmp_path)
+    store.declare(synthetic_source_universe())
+    first, second = duplicate_content_sources()
+    body = b"synthetic-duplicate-body"
+    first["content_hash"] = sha256_digest(body)
+    second["content_hash"] = sha256_digest(body)
+    outcome = store.capture_duplicates(first, second, body)
+
+    raw_root = tmp_path / ".career-evidence/raw"
+    assert [path.name for path in raw_root.iterdir()] == [sha256_digest(body).removeprefix("sha256:")]
+    assert outcome == {
+        "logical_source_count": 2,
+        "created_fact_count": 0,
+        "created_confidence_count": 0,
+    }
 
 
 def test_tracer_declares_captures_transforms_and_inspects_without_authority(tmp_path: Path) -> None:
