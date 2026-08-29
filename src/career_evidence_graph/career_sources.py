@@ -141,9 +141,8 @@ class CareerSourceStore:
         try:
             stored = CareerSourceCapture.model_validate(capture)
             capture_id = self._safe_id(stored.capture_id)
-            if (
-                not isinstance(source_bytes, bytes)
-                or stored.content_hash != sha256_digest(source_bytes)
+            if not isinstance(source_bytes, bytes) or stored.content_hash != sha256_digest(
+                source_bytes
             ):
                 raise ValueError
         except (TypeError, ValueError) as exc:
@@ -290,6 +289,7 @@ class CareerSourceStore:
     def safe_status(self) -> dict[str, object]:
         if not self.root.exists():
             return {
+                "backup_state": "not-configured",
                 "candidate_only": True,
                 "capture_count": 0,
                 "declaration_present": False,
@@ -299,6 +299,7 @@ class CareerSourceStore:
         captures = self.root / "captures"
         transformations = self.root / "transformations"
         return {
+            "backup_state": "not-configured",
             "candidate_only": True,
             "capture_count": len(tuple(captures.glob("*"))) if captures.is_dir() else 0,
             "declaration_present": (self.root / "declarations" / "current.json").is_file(),
@@ -306,3 +307,38 @@ class CareerSourceStore:
                 len(tuple(transformations.glob("*"))) if transformations.is_dir() else 0
             ),
         }
+
+    def verify(self) -> None:
+        """Verify existing source lineage without creating a private namespace."""
+        if not self.root.exists() or self.root.is_symlink():
+            raise CareerSourceError("career-source-verification-failed")
+        try:
+            declarations = self.root / "declarations"
+            current = json.loads((declarations / "current.json").read_text(encoding="utf-8"))
+            universe = CareerSourceUniverse.model_validate(current)
+            revision = self._read_declaration(universe.revision_id)
+            if canonical_json_bytes(revision) != canonical_json_bytes(universe):
+                raise ValueError
+            captures = self.root / "captures"
+            if captures.exists():
+                if captures.is_symlink() or not captures.is_dir():
+                    raise ValueError
+                for path in captures.iterdir():
+                    self._verify_capture(path.name, ancestry=frozenset())
+        except (
+            CareerSourceError,
+            OSError,
+            ValueError,
+            json.JSONDecodeError,
+            ValidationError,
+        ) as exc:
+            if isinstance(exc, CareerSourceError):
+                raise CareerSourceError("career-source-verification-failed") from exc
+            raise CareerSourceError("career-source-verification-failed") from exc
+
+    def _read_declaration(self, revision_id: str) -> CareerSourceUniverse:
+        try:
+            manifest = self.root / "declarations" / self._safe_id(revision_id) / "manifest.json"
+            return CareerSourceUniverse.model_validate_json(manifest.read_bytes())
+        except (OSError, ValueError, ValidationError) as exc:
+            raise CareerSourceError("career-source-declaration-invalid") from exc

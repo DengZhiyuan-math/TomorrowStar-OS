@@ -337,7 +337,11 @@ def _parser() -> argparse.ArgumentParser:
     source_capture = source_commands.add_parser("capture")
     source_capture.add_argument("--workspace", required=True)
     source_capture.add_argument("--source-id", required=True)
-    source_capture.add_argument("--paste", required=True)
+    source_capture.add_argument("--capture-id")
+    source_capture.add_argument("--predecessor-capture-id")
+    raw_source = source_capture.add_mutually_exclusive_group(required=True)
+    raw_source.add_argument("--paste")
+    raw_source.add_argument("--file")
     source_transform = source_commands.add_parser("transform")
     source_transform.add_argument("--workspace", required=True)
     source_transform.add_argument("--source-id", required=True)
@@ -346,6 +350,8 @@ def _parser() -> argparse.ArgumentParser:
     source_transform.add_argument("--configuration-json", required=True)
     source_inspect = source_commands.add_parser("inspect")
     source_inspect.add_argument("--workspace", required=True)
+    source_verify = source_commands.add_parser("verify")
+    source_verify.add_argument("--workspace", required=True)
     return parser
 
 
@@ -787,9 +793,24 @@ def main(argv: list[str] | None = None) -> int:
             )
             _emit({"declared": True, "candidate_only": True})
         elif args.command == "career-source" and args.career_source_command == "capture":
-            source = args.paste.encode("utf-8")
+            if args.paste is not None:
+                source = args.paste.encode("utf-8")
+                method = "utf8-paste"
+            else:
+                source_path = Path(args.file)
+                if (
+                    source_path.is_symlink()
+                    or not source_path.is_file()
+                    or source_path.suffix.lower() not in {".json", ".txt"}
+                ):
+                    raise CareerSourceError("career-source-format-unsupported")
+                try:
+                    source = source_path.read_bytes()
+                except OSError as exc:
+                    raise CareerSourceError("career-source-file-unsafe") from exc
+                method = f"file-{source_path.suffix.lower().removeprefix('.')}"
             source_hash = sha256_digest(source)
-            capture_id = f"capture-{source_hash.removeprefix('sha256:')[:16]}"
+            capture_id = args.capture_id or f"capture-{source_hash.removeprefix('sha256:')[:16]}"
             store = CareerSourceStore(Path(args.workspace))
             store.validate_source_bytes(source, args.source_id)
             store.capture(
@@ -799,8 +820,8 @@ def main(argv: list[str] | None = None) -> int:
                     "source_id": args.source_id,
                     "content_hash": source_hash,
                     "acquired_at": "2026-08-29T00:00:00+00:00",
-                    "method": "utf8-paste",
-                    "predecessor_capture_id": None,
+                    "method": method,
+                    "predecessor_capture_id": args.predecessor_capture_id,
                     "authority": "candidate-only",
                 },
                 source,
@@ -808,12 +829,19 @@ def main(argv: list[str] | None = None) -> int:
             _emit({"captured": True, "candidate_only": True})
         elif args.command == "career-source" and args.career_source_command == "transform":
             store = CareerSourceStore(Path(args.workspace))
-            captures = store.root / "captures"
-            capture_paths = tuple(sorted(captures.iterdir())) if captures.is_dir() else ()
-            if len(capture_paths) != 1 or capture_paths[0].is_symlink():
-                raise CareerSourceError("career-source-capture-missing")
-            manifest = json.loads((capture_paths[0] / "manifest.json").read_text(encoding="utf-8"))
-            configuration = json.loads(args.configuration_json)
+            try:
+                captures = store.root / "captures"
+                capture_paths = tuple(sorted(captures.iterdir())) if captures.is_dir() else ()
+                if len(capture_paths) != 1 or capture_paths[0].is_symlink():
+                    raise CareerSourceError("career-source-capture-missing")
+                manifest = json.loads(
+                    (capture_paths[0] / "manifest.json").read_text(encoding="utf-8")
+                )
+                configuration = json.loads(args.configuration_json)
+            except CareerSourceError:
+                raise
+            except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+                raise CareerSourceError("career-source-corrupt-state") from exc
             store.transform(
                 {
                     "schema_version": "career-source-transformation/v1",
@@ -835,9 +863,12 @@ def main(argv: list[str] | None = None) -> int:
             _emit({"transformed": True, "candidate_only": True})
         elif args.command == "career-source" and args.career_source_command == "inspect":
             _emit(CareerSourceStore(Path(args.workspace)).safe_status())
+        elif args.command == "career-source" and args.career_source_command == "verify":
+            CareerSourceStore(Path(args.workspace)).verify()
+            _emit({"candidate_only": True, "verified": True})
         return 0
     except CareerSourceError as exc:
-        _emit_error({"valid": False, "error": exc.code, "message": str(exc)})
+        _emit_error({"valid": False, "error": exc.code})
         return 2
     except AssessmentWorkflowError as exc:
         _emit_error({"valid": False, "error": "assessment_workflow_error", "message": str(exc)})

@@ -142,7 +142,7 @@ def test_cli_file_capture_rejects_unsupported_format_without_echoing_private_val
     )
 
     assert result.returncode == 2
-    assert json.loads(result.stdout) == {
+    assert json.loads(result.stderr) == {
         "error": "career-source-format-unsupported",
         "valid": False,
     }
@@ -168,7 +168,7 @@ def test_cli_verify_and_routine_status_are_content_free_and_backup_honest(tmp_pa
 
     verify = _run("career-source", "verify", "--workspace", str(tmp_path))
     assert verify.returncode == 2
-    assert json.loads(verify.stdout) == {
+    assert json.loads(verify.stderr) == {
         "error": "career-source-verification-failed",
         "valid": False,
     }
