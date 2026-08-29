@@ -9,11 +9,13 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from datetime import date
 from enum import StrEnum
 from typing import Annotated, Literal
 
 from pydantic import Field, model_validator
 
+from ..validation.hashing import canonical_json_bytes
 from ..validation.models import StrictModel
 
 ID_PATTERN = r"^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
@@ -82,34 +84,69 @@ class SourceAvailability(StrEnum):
 class CareerSourceCategory(StrictModel):
     schema_version: Literal["career-source-category/v1"] = "career-source-category/v1"
     category_id: Identifier
-    kind: str = Field(min_length=1)
+    kind: Literal[
+        "employment",
+        "projects",
+        "research",
+        "publications",
+        "education",
+        "teaching",
+        "internships",
+        "open-source",
+        "related-work",
+    ]
 
 
 class LogicalCareerSource(StrictModel):
     schema_version: Literal["logical-career-source/v1"] = "logical-career-source/v1"
     source_id: Identifier
     category_id: Identifier
-    source_type: str = Field(min_length=1)
+    source_type: Literal[
+        "document",
+        "self-reported",
+        "formal-credential",
+        "repository",
+        "web-snapshot",
+        "cloud-export",
+        "audit-record",
+        "examination-record",
+    ]
     availability: SourceAvailability
     explanation: str | None = None
+
+    @model_validator(mode="after")
+    def validate_availability_reason(self) -> LogicalCareerSource:
+        if self.availability is SourceAvailability.AVAILABLE and self.explanation is not None:
+            raise ValueError("available source cannot have an unavailable disposition explanation")
+        return self
 
 
 class CareerSourceUniverse(StrictModel):
     schema_version: Literal["career-source-universe/v1"] = "career-source-universe/v1"
     revision_id: Identifier
-    career_fact_cutoff: str = Field(min_length=1)
+    career_fact_cutoff: date
+    predecessor_revision_id: Identifier | None = None
     categories: tuple[CareerSourceCategory, ...] = Field(min_length=1)
     sources: tuple[LogicalCareerSource, ...] = Field(min_length=1)
     authority: Literal["candidate-only"] = "candidate-only"
 
     @model_validator(mode="after")
     def validate_source_registry(self) -> CareerSourceUniverse:
-        category_ids = {category.category_id for category in self.categories}
-        _unique_ids(tuple(category_ids), "category IDs")
+        category_ids = tuple(category.category_id for category in self.categories)
+        _unique_ids(category_ids, "category IDs")
         _unique_ids(tuple(source.source_id for source in self.sources), "source IDs")
-        if any(source.category_id not in category_ids for source in self.sources):
+        if any(source.category_id not in set(category_ids) for source in self.sources):
             raise ValueError("source category must be declared")
+        if self.predecessor_revision_id == self.revision_id:
+            raise ValueError("declaration revision cannot precede itself")
         return self
+
+    def canonical_bytes(self) -> bytes:
+        """Serialize one declaration with source/category order independent of input order."""
+        payload = self.model_dump(mode="json")
+        payload["categories"] = sorted(payload["categories"], key=lambda item: item["category_id"])
+        payload["sources"] = sorted(payload["sources"], key=lambda item: item["source_id"])
+        return canonical_json_bytes(payload) + b"\n"
 
 
 class CareerSourceLocator(StrictModel):

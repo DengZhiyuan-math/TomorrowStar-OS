@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from .domain.models import CareerSourceUniverse
 from .validation.hashing import canonical_json_bytes, sha256_digest
 from .validation.store import (
     FormalRunStorageError,
@@ -56,35 +57,32 @@ class CareerSourceStore:
 
     def declare(self, declaration: dict[str, Any]) -> dict[str, Any]:
         try:
-            revision_id = self._safe_id(str(declaration["revision_id"]))
-            categories = tuple(declaration["categories"])
-            sources = tuple(declaration["sources"])
-            if not categories or not sources or declaration.get("authority") != "candidate-only":
-                raise ValueError
-            category_ids = [self._safe_id(str(item["category_id"])) for item in categories]
-            source_ids = [self._safe_id(str(item["source_id"])) for item in sources]
-            if (
-                len(category_ids) != len(set(category_ids))
-                or len(source_ids) != len(set(source_ids))
-            ):
-                raise ValueError
-            if any(str(item["category_id"]) not in category_ids for item in sources):
-                raise ValueError
-        except (KeyError, TypeError, ValueError) as exc:
+            universe = CareerSourceUniverse.model_validate(declaration)
+            revision_id = self._safe_id(universe.revision_id)
+        except (TypeError, ValueError) as exc:
             raise CareerSourceError("career-source-declaration-invalid") from exc
         self._ensure_root()
         declarations = self.root / "declarations"
         declarations.mkdir(exist_ok=True)
+        predecessor = universe.predecessor_revision_id
+        if predecessor is not None and not (declarations / predecessor / "manifest.json").is_file():
+            raise CareerSourceError("career-source-declaration-predecessor-missing")
         try:
-            create_only_canonical_bundle(declarations, revision_id, {"manifest.json": declaration})
-            atomic_write_canonical_json(declarations / "current.json", declaration)
+            create_only_canonical_bundle(
+                declarations,
+                revision_id,
+                {"manifest.json": json.loads(universe.canonical_bytes())},
+            )
+            atomic_write_canonical_json(
+                declarations / "current.json", json.loads(universe.canonical_bytes())
+            )
         except FormalRunStorageError as exc:
             raise CareerSourceError("career-source-declaration-already-exists") from exc
         return {
             "authority": "candidate-only",
             "created_skill_count": 0,
             "unavailable_source_count": sum(
-                item.get("availability") != "available" for item in sources
+                source.availability.value != "available" for source in universe.sources
             ),
         }
 
