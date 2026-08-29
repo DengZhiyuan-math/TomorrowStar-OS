@@ -394,17 +394,17 @@ The exact existing boundary follows the equivalent `JDIntakeError` code pattern:
 | A1 | [ASSUMED] The initial declared private corpus can be captured with standard-library deterministic adapters before PDF/DOCX/OCR/model extraction is needed. | Standard Stack / Architecture Patterns | A concrete source may require a later gated adapter task; do not silently omit it. |
 | A2 | [ASSUMED] The user will create/select the separate private Git repository during execution rather than expecting the public repository to create or record it. | Environment Availability | The plan needs a human checkpoint because D-08 forbids public path/remote storage. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Which source formats are present in the first declared personal corpus?**
    - What we know: dependencies for PDF/DOCX/OCR/browser/model conversion are explicitly prohibited until a measured corpus gap. [VERIFIED: .planning/phases/07-career-source-custody-and-private-workspace/07-CONTEXT.md:124-135]
-   - Recommendation: plan an operator checkpoint after declaration; implement only declared deterministic format adapters and fail closed with a safe code for unsupported types.
+   - Resolution: Gate adapters on the user-declared corpus. Raw bytes plus deterministic text/JSON are the only Phase 7 baseline; any unsupported format fails closed with a stable content-free code and no adapter or dependency is added speculatively.
 2. **What capture metadata can be safely emitted in private routine status?**
    - What we know: safe identifiers/counts/hashes/byte counts are allowed in private routine operation, while public artifacts may contain none derived from real material. [VERIFIED: .planning/phases/07-career-source-custody-and-private-workspace/07-CONTEXT.md:39-57]
-   - Recommendation: make separate private-status and public-fixture contracts and test their boundary explicitly.
+   - Resolution: Private routine status uses only the locked safe fields: safe identifiers, counts, hashes, byte counts, and stable redacted diagnostic codes. Public outputs and fixtures remain wholly synthetic and independent of real private-derived values.
 3. **Is an encrypted backup available for the ignored raw vault?**
    - What we know: encryption/backup mechanism is deferred, and absence must be reported rather than masked. [VERIFIED: .planning/phases/07-career-source-custody-and-private-workspace/07-CONTEXT.md:124-135]
-   - Recommendation: include a human-visible private diagnostic such as a backup-state code; do not implement encryption in Phase 7.
+   - Resolution: Backup and encryption remain deferred. Phase 7 reports absence or unknown state through a content-free private diagnostic and does not implement, imply, or claim backup durability.
 
 ## Environment Availability
 

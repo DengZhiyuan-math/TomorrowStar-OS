@@ -54,7 +54,21 @@ Milestone v1.1 proceeds through eight requirement-driven delivery boundaries. It
   2. An evaluator can trace every accepted inventory fact and Evidence item to its source identity, content hash, capture metadata, and versioned transformations.
   3. The operator can process raw career sources in the ignored private workspace while routine output, logs, errors, and committed artifacts expose only safe identifiers, counts, hashes, and redacted diagnostics.
 
-**Plans**: TBD
+**Plans:** 4 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 07-00-PLAN.md — Create the synthetic Nyquist Wave 0 test and fixture surface.
+- [ ] 07-01-PLAN.md — Prove the end-to-end private-workspace custody tracer and security boundary.
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 07-02-PLAN.md — Complete declaration, recapture, transformation-lineage, and deduplication contracts.
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 07-03-PLAN.md — Finish the safe operator surface, adversarial leak boundary, and private-workspace handoff.
 
 ### Phase 8: Full-Career Inventory Review and Seal
 

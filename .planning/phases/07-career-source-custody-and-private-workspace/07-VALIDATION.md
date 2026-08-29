@@ -42,22 +42,30 @@ The task IDs are provisional seeds for the planner and must be synchronized with
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 07-01-01 | 01 | 1 | INV-01 | T-07-05 | Invalid, duplicate, or incomplete source-universe declarations fail closed while a valid revision round-trips byte-for-byte | unit + golden | `uv run --locked python scripts/run_pytest.py -q tests/test_career_source_custody.py -k declaration` | ❌ W0 | ⬜ pending |
-| 07-02-01 | 02 | 2 | INV-06 | T-07-03 | Source/capture identity, acquisition metadata, predecessor links, hashes, transformation inputs/outputs, and locators remain traceable; substitution or tampering rejects | unit + lineage mutation | `uv run --locked python scripts/run_pytest.py -q tests/test_career_source_custody.py -k 'capture or lineage or transform'` | ❌ W0 | ⬜ pending |
-| 07-03-01 | 03 | 2 | INV-07 | T-07-01, T-07-02, T-07-04 | Raw body, private labels/paths, and private-derived values never enter routine output or the public tree; unsafe paths, links, IDs, controls, and instruction-like input fail safely | adversarial CLI + filesystem | `uv run --locked python scripts/run_pytest.py -q tests/test_career_source_security.py` | ❌ W0 | ⬜ pending |
+| 07-00-01 | 00 | 0 | INV-01, INV-06 | T-07-03, T-07-05 | Custody selectors and synthetic lineage builders exist before implementation | collection scaffold | `uv run --locked python scripts/run_pytest.py --collect-only -q tests/test_career_source_custody.py` | Created by task | ⬜ pending |
+| 07-00-02 | 00 | 0 | INV-07 | T-07-01, T-07-02, T-07-04 | Security selectors and disclosure sentinels exist before implementation | collection scaffold | `uv run --locked python scripts/run_pytest.py --collect-only -q tests/test_career_source_security.py` | Created by task | ⬜ pending |
+| 07-01-01 | 01 | 1 | INV-07 | T-07-07 | Human confirms the one-way public/private boundary without recording any private value | checkpoint + structural | `git diff --check` | N/A | ⬜ pending |
+| 07-01-02 | 01 | 1 | INV-01, INV-06, INV-07 | T-07-02, T-07-03, T-07-05, T-07-07 | One synthetic declaration-capture-transform-inspect path is immutable, candidate-only, and content-free | end-to-end tracer | `uv run --locked python scripts/run_pytest.py -q tests/test_career_source_custody.py -k tracer` | 07-00 dependency | ⬜ pending |
+| 07-01-03 | 01 | 1 | INV-07 | T-07-01, T-07-02, T-07-04, T-07-06 | Traversal, symlinks, disclosure, instruction-like text, and create-only collisions fail safely | adversarial filesystem + CLI | `uv run --locked python scripts/run_pytest.py -q tests/test_career_source_security.py` | 07-00 dependency | ⬜ pending |
+| 07-02-00 | 02 | 2 | INV-06 | T-07-03 | Human confirms the versioned D-18/D-19 reader/writer replacement seam without disclosing private values | checkpoint + structural | `git diff --check` | N/A | ⬜ pending |
+| 07-02-01 | 02 | 2 | INV-01 | T-07-05, T-07-08 | Invalid, duplicate, empty, or incomplete declarations fail closed while valid immutable revisions round-trip byte-for-byte | unit + golden | `uv run --locked python scripts/run_pytest.py -q tests/test_career_source_custody.py -k declaration` | 07-00 dependency | ⬜ pending |
+| 07-02-02 | 02 | 2 | INV-06 | T-07-03, T-07-05, T-07-06, T-07-09 | Capture/predecessor/transform/locator substitution rejects and duplicate content retains provenance without authority inflation | lineage mutation | `uv run --locked python scripts/run_pytest.py -q tests/test_career_source_custody.py -k 'capture or lineage or transform or duplicate'` | 07-00 dependency | ⬜ pending |
+| 07-03-01 | 03 | 3 | INV-07 | T-07-01, T-07-02, T-07-04, T-07-09 | Every operator route requires explicit workspace and emits stable content-free diagnostics | adversarial CLI | `uv run --locked python scripts/run_pytest.py -q tests/test_career_source_security.py -k 'cli or output or inspect or format'` | 07-00 dependency | ⬜ pending |
+| 07-03-02 | 03 | 3 | INV-01, INV-07 | T-07-07, T-07-08 | User selects the private repository, confirms raw-vault ignore and actual formats, and records no private value publicly | checkpoint + quick gate | `uv run --locked python scripts/run_pytest.py -q tests/test_career_source_custody.py tests/test_career_source_security.py` | 07-00 dependency | ⬜ pending |
+| 07-03-03 | 03 | 3 | INV-01, INV-06, INV-07 | T-07-01 through T-07-09 | Full offline suite proves public-tree independence, complete threat coverage, and zero later-authority side effects | full regression + lint | `uv run --locked python scripts/run_pytest.py -q && uv run --locked ruff check . && uv run --locked ruff format --check .` | Existing + 07-00 dependency | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
 ---
 
-## Wave 0 Requirements
+## Wave 0 Requirements (Plan 07-00)
 
 - [ ] `tests/test_career_source_custody.py` — declaration, capture, recapture, duplicate-source/content, and transformation-lineage coverage for INV-01 and INV-06.
 - [ ] `tests/test_career_source_security.py` — public/private boundary, traversal and symlink rejection, content-free stdout/stderr/errors, raw-vault containment, read-only inspection, and operator failure modes for INV-07.
 - [ ] Synthetic fixture builders — include raw-body, private-label/path, private-derived hash, hostile Unicode/control, oversized input, and instruction-like sentinels without using any real resume, Skill graph, count, hash, path, report, or career source.
 - [ ] Public-tree and simulated staged-diff scan helpers — reject private-workspace artifacts and private-derived sentinel values without inspecting or serializing real private content.
 
-No dependency installation or lockfile change is required.
+Plan `07-00-PLAN.md` creates these modules and builders before Plan 01. Plans 01-03 execute their real selectors after depending directly or transitively on 07-00. No dependency installation or lockfile change is required.
 
 ---
 
