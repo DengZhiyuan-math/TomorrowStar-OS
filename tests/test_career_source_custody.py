@@ -197,12 +197,15 @@ def test_declaration_round_trip_is_canonical_and_new_pre_cutoff_revision_preserv
     store.declare(original)
     revised = synthetic_source_universe(revision_id="revision-synthetic-b")
     revised["predecessor_revision_id"] = original["revision_id"]
-    revised["sources"] = (*revised["sources"], {
-        "source_id": "source-synthetic-later-discovery",
-        "category_id": "category-projects",
-        "source_type": "document",
-        "availability": "available",
-    })
+    revised["sources"] = (
+        *revised["sources"],
+        {
+            "source_id": "source-synthetic-later-discovery",
+            "category_id": "category-projects",
+            "source_type": "document",
+            "availability": "available",
+        },
+    )
     store.declare(revised)
 
     declarations = tmp_path / ".career-evidence/sources/declarations"
@@ -360,23 +363,48 @@ def test_tracer_declares_captures_transforms_and_inspects_without_authority(tmp_
     workspace = str(tmp_path)
 
     declared = _run(
-        "career-source", "declare", "--workspace", workspace, "--cutoff", "2026-08-01",
-        "--category", "project", "--source-id", "source-probe", "--availability", "available",
+        "career-source",
+        "declare",
+        "--workspace",
+        workspace,
+        "--cutoff",
+        "2026-08-01",
+        "--category",
+        "project",
+        "--source-id",
+        "source-probe",
+        "--availability",
+        "available",
     )
     assert declared.returncode == 0, declared.stderr
     assert json.loads(declared.stdout) == {"declared": True, "candidate_only": True}
 
     captured = _run(
-        "career-source", "capture", "--workspace", workspace, "--source-id", "source-probe",
-        "--paste", source.decode("utf-8"),
+        "career-source",
+        "capture",
+        "--workspace",
+        workspace,
+        "--source-id",
+        "source-probe",
+        "--paste",
+        source.decode("utf-8"),
     )
     assert captured.returncode == 0, captured.stderr
     assert json.loads(captured.stdout) == {"captured": True, "candidate_only": True}
 
     transformed = _run(
-        "career-source", "transform", "--workspace", workspace, "--source-id", "source-probe",
-        "--transformer", "deterministic-whole-source", "--version", "v1",
-        "--configuration-json", "{}",
+        "career-source",
+        "transform",
+        "--workspace",
+        workspace,
+        "--source-id",
+        "source-probe",
+        "--transformer",
+        "deterministic-whole-source",
+        "--version",
+        "v1",
+        "--configuration-json",
+        "{}",
     )
     assert transformed.returncode == 0, transformed.stderr
     assert json.loads(transformed.stdout) == {"transformed": True, "candidate_only": True}
@@ -384,9 +412,11 @@ def test_tracer_declares_captures_transforms_and_inspects_without_authority(tmp_
     inspected = _run("career-source", "inspect", "--workspace", workspace)
     assert inspected.returncode == 0, inspected.stderr
     assert json.loads(inspected.stdout) == {
+        "backup_state": "not-configured",
         "candidate_only": True,
         "capture_count": 1,
         "declaration_present": True,
+        "source_revision_count": 1,
         "transformation_count": 1,
     }
     assert source.decode("utf-8") not in inspected.stdout
@@ -399,10 +429,7 @@ def test_tracer_declares_captures_transforms_and_inspects_without_authority(tmp_
     assert manifest["source_id"] == "source-probe"
     assert manifest["content_hash"] == sha256_digest(source)
     assert (
-        tmp_path
-        / ".career-evidence"
-        / "raw"
-        / manifest["content_hash"].removeprefix("sha256:")
+        tmp_path / ".career-evidence" / "raw" / manifest["content_hash"].removeprefix("sha256:")
     ).read_bytes() == source
     transformation = next((root / "transformations").iterdir())
     transformed_manifest = json.loads((transformation / "manifest.json").read_text())
