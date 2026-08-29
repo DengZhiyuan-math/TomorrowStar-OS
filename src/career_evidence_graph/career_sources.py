@@ -281,27 +281,58 @@ class CareerSourceStore:
         if any(sentinel in payload for sentinel in sentinels):
             raise CareerSourceError("career-source-public-disclosure")
 
+    @staticmethod
+    def scan_public_tree(
+        paths: tuple[Path, ...], *, public_root: Path, sentinels: tuple[str, ...]
+    ) -> None:
+        """Fail closed on synthetic private artifacts in declared public paths only."""
+        try:
+            root = public_root.resolve(strict=True)
+            for path in paths:
+                if path.is_symlink() or not path.is_file():
+                    raise ValueError
+                relative = path.resolve(strict=True).relative_to(root)
+                if relative.parts[:2] == (".career-evidence", "raw"):
+                    raise ValueError
+                payload = path.read_bytes()
+                if len(payload) > _MAX_SOURCE_BYTES or any(
+                    sentinel.encode("utf-8") in payload for sentinel in sentinels
+                ):
+                    raise ValueError
+        except (OSError, ValueError) as exc:
+            raise CareerSourceError("career-source-public-disclosure") from exc
+
     def prepare_raw_vault(self) -> Path:
         """Create the ignored raw boundary only after full symlink checks."""
         self._ensure_root()
         return self.raw_root
 
     def safe_status(self) -> dict[str, object]:
+        empty_status = {
+            "backup_state": "not-configured",
+            "candidate_only": True,
+            "capture_count": 0,
+            "declaration_present": False,
+            "source_revision_count": 0,
+            "transformation_count": 0,
+        }
         if not self.root.exists():
-            return {
-                "backup_state": "not-configured",
-                "candidate_only": True,
-                "capture_count": 0,
-                "declaration_present": False,
-                "source_revision_count": 0,
-                "transformation_count": 0,
-            }
+            return empty_status
+        if self.root.parent.is_symlink() or self.root.is_symlink() or not self.root.is_dir():
+            raise CareerSourceError("career-source-private-root-unsafe")
+        declarations = self.root / "declarations"
         captures = self.root / "captures"
         transformations = self.root / "transformations"
         return {
+            "backup_state": "not-configured",
             "candidate_only": True,
             "capture_count": len(tuple(captures.glob("*"))) if captures.is_dir() else 0,
-            "declaration_present": (self.root / "declarations" / "current.json").is_file(),
+            "declaration_present": (declarations / "current.json").is_file(),
+            "source_revision_count": (
+                len(tuple(path for path in declarations.iterdir() if path.is_dir()))
+                if declarations.is_dir()
+                else 0
+            ),
             "transformation_count": (
                 len(tuple(transformations.glob("*"))) if transformations.is_dir() else 0
             ),
