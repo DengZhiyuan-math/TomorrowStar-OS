@@ -114,6 +114,102 @@ def test_format_rejects_undeclared_payload_and_public_staged_diff_sentinels(tmp_
         store.scan_public_payload(simulated_staged_diff(), public_tree_sentinels())
 
 
+def test_public_tree_scan_rejects_raw_namespace_and_synthetic_derived_sentinel(
+    tmp_path: Path,
+) -> None:
+    """The public-only scanner never needs a selected private workspace."""
+    module = _require_career_sources()
+    public_tree = tmp_path / "public-tree"
+    raw_artifact = public_tree / ".career-evidence" / "raw" / "synthetic-object"
+    raw_artifact.parent.mkdir(parents=True)
+    raw_artifact.write_text("synthetic", encoding="utf-8")
+    derived_artifact = public_tree / "report.txt"
+    derived_artifact.write_text(RAW_BODY, encoding="utf-8")
+
+    with pytest.raises(module.CareerSourceError) as raised:
+        module.CareerSourceStore.scan_public_tree(
+            (raw_artifact, derived_artifact),
+            public_root=public_tree,
+            sentinels=public_tree_sentinels(),
+        )
+
+    assert raised.value.code == "career-source-public-disclosure"
+
+
+def test_routine_status_keeps_the_same_safe_contract_after_private_materialization(
+    tmp_path: Path,
+) -> None:
+    module = _require_career_sources()
+    store = module.CareerSourceStore(tmp_path)
+    store.declare(
+        {
+            "schema_version": "career-source-universe/v1",
+            "revision_id": "revision-synthetic-status",
+            "career_fact_cutoff": "2001-02-03",
+            "categories": ({"category_id": "category-projects", "kind": "projects"},),
+            "sources": (
+                {
+                    "source_id": "source-synthetic-status",
+                    "category_id": "category-projects",
+                    "source_type": "self-reported",
+                    "availability": "available",
+                },
+            ),
+            "authority": "candidate-only",
+        }
+    )
+
+    assert set(store.safe_status()) == {
+        "backup_state",
+        "candidate_only",
+        "capture_count",
+        "declaration_present",
+        "source_revision_count",
+        "transformation_count",
+    }
+
+
+def test_complete_synthetic_cli_flow_has_no_later_phase_authority_side_effects(
+    tmp_path: Path,
+) -> None:
+    workspace = str(tmp_path)
+    source = "synthetic authority boundary"
+    forbidden_names = (
+        "accepted-facts",
+        "inventory",
+        "skill-graph",
+        "mastery",
+        "assessments",
+        "assessment-confidence",
+        "market-proof",
+        "jd",
+        "gaps",
+        "resumes",
+    )
+
+    for command in (
+        (
+            "career-source", "declare", "--workspace", workspace, "--cutoff", "2001-02-03",
+            "--category", "projects", "--source-id", "source-synthetic-authority",
+            "--availability", "available",
+        ),
+        (
+            "career-source", "capture", "--workspace", workspace,
+            "--source-id", "source-synthetic-authority", "--paste", source,
+        ),
+        (
+            "career-source", "transform", "--workspace", workspace,
+            "--source-id", "source-synthetic-authority", "--transformer", "deterministic",
+            "--version", "v1", "--configuration-json", "{}",
+        ),
+        ("career-source", "verify", "--workspace", workspace),
+    ):
+        result = _run(*command)
+        assert result.returncode == 0, result.stderr
+
+    assert all(not (tmp_path / name).exists() for name in forbidden_names)
+
+
 def test_format_rejects_symlinked_raw_vault_and_create_only_collision(tmp_path: Path) -> None:
     module = _require_career_sources()
     external = tmp_path / "external"
