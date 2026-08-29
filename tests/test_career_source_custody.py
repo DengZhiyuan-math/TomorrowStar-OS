@@ -128,6 +128,9 @@ def duplicate_content_sources() -> tuple[dict[str, Any], dict[str, Any]]:
     first = synthetic_capture(capture_id="capture-synthetic-duplicate-a")
     second = synthetic_capture(capture_id="capture-synthetic-duplicate-b")
     second["source_id"] = "source-synthetic-unavailable"
+    content_hash = sha256_digest(b"synthetic-duplicate-body")
+    first["content_hash"] = content_hash
+    second["content_hash"] = content_hash
     return first, second
 
 
@@ -269,7 +272,8 @@ def test_capture_verification_fails_closed_for_manifest_mutations_and_undeclared
     capture = store.capture(synthetic_capture(), b"synthetic-raw-body-sentinel")
     capture_path = tmp_path / ".career-evidence/sources/captures" / capture["capture_id"]
     control = deepcopy(capture)
-    mutated = tampered(capture, field, "capture-tampered" if field != "content_hash" else sha256_digest(b"tampered"))
+    replacement = "capture-tampered" if field != "content_hash" else sha256_digest(b"tampered")
+    mutated = tampered(capture, field, replacement)
     (capture_path / "manifest.json").write_text(json.dumps(mutated), encoding="utf-8")
 
     with pytest.raises(module.CareerSourceError):
@@ -278,7 +282,9 @@ def test_capture_verification_fails_closed_for_manifest_mutations_and_undeclared
     assert control["capture_id"] == "capture-synthetic-a"
 
 
-def test_capture_verification_rejects_substituted_raw_bytes_and_preserves_prior_capture(tmp_path) -> None:
+def test_capture_verification_rejects_substituted_raw_bytes_and_preserves_prior_capture(
+    tmp_path,
+) -> None:
     module = _require_career_sources()
     store = module.CareerSourceStore(tmp_path)
     store.declare(synthetic_source_universe())
@@ -290,7 +296,20 @@ def test_capture_verification_rejects_substituted_raw_bytes_and_preserves_prior_
     with pytest.raises(module.CareerSourceError):
         store.verify_capture(first)
 
-    store.verify_capture(second)
+    raw = tmp_path / ".career-evidence/raw" / second["content_hash"].removeprefix("sha256:")
+    assert raw.read_bytes() == b"synthetic-raw-body-sentinel-v2"
+
+
+def test_capture_verification_rejects_undeclared_bundle_payload(tmp_path) -> None:
+    module = _require_career_sources()
+    store = module.CareerSourceStore(tmp_path)
+    store.declare(synthetic_source_universe())
+    capture = store.capture(synthetic_capture(), b"synthetic-raw-body-sentinel")
+    bundle = tmp_path / ".career-evidence/sources/captures" / capture["capture_id"]
+    (bundle / "undeclared.json").write_text("{}", encoding="utf-8")
+
+    with pytest.raises(module.CareerSourceError):
+        store.verify_capture(capture)
 
 
 def test_transformation_binds_capture_hash_transformer_and_precise_locator(tmp_path) -> None:
@@ -313,7 +332,9 @@ def test_transformation_binds_capture_hash_transformer_and_precise_locator(tmp_p
     store.verify_capture(capture)
 
 
-def test_duplicate_bytes_share_one_raw_object_without_merging_logical_source_relations(tmp_path) -> None:
+def test_duplicate_bytes_share_one_raw_object_without_merging_logical_source_relations(
+    tmp_path,
+) -> None:
     module = _require_career_sources()
     store = module.CareerSourceStore(tmp_path)
     store.declare(synthetic_source_universe())
@@ -324,7 +345,9 @@ def test_duplicate_bytes_share_one_raw_object_without_merging_logical_source_rel
     outcome = store.capture_duplicates(first, second, body)
 
     raw_root = tmp_path / ".career-evidence/raw"
-    assert [path.name for path in raw_root.iterdir()] == [sha256_digest(body).removeprefix("sha256:")]
+    assert [path.name for path in raw_root.iterdir()] == [
+        sha256_digest(body).removeprefix("sha256:")
+    ]
     assert outcome == {
         "logical_source_count": 2,
         "created_fact_count": 0,
@@ -375,7 +398,12 @@ def test_tracer_declares_captures_transforms_and_inspects_without_authority(tmp_
     manifest = json.loads((capture / "manifest.json").read_text())
     assert manifest["source_id"] == "source-probe"
     assert manifest["content_hash"] == sha256_digest(source)
-    assert (tmp_path / ".career-evidence" / "raw" / manifest["capture_id"]).read_bytes() == source
+    assert (
+        tmp_path
+        / ".career-evidence"
+        / "raw"
+        / manifest["content_hash"].removeprefix("sha256:")
+    ).read_bytes() == source
     transformation = next((root / "transformations").iterdir())
     transformed_manifest = json.loads((transformation / "manifest.json").read_text())
     assert transformed_manifest["predecessor_capture_id"] == manifest["capture_id"]

@@ -86,6 +86,7 @@ class CareerSourceCategory(StrictModel):
     category_id: Identifier
     kind: Literal[
         "employment",
+        "project",
         "projects",
         "research",
         "publications",
@@ -151,17 +152,64 @@ class CareerSourceUniverse(StrictModel):
 
 class CareerSourceLocator(StrictModel):
     schema_version: Literal["career-source-locator/v1"] = "career-source-locator/v1"
-    kind: Literal["whole-source"]
-    declared_fallback: Literal[True]
+    kind: Literal["page", "heading", "line", "byte-span", "git-blob", "whole-source"]
+    page: int | None = Field(default=None, ge=1)
+    heading: str | None = Field(default=None, min_length=1)
+    start_line: int | None = Field(default=None, ge=1)
+    end_line: int | None = Field(default=None, ge=1)
+    start_byte: int | None = Field(default=None, ge=0)
+    end_byte: int | None = Field(default=None, gt=0)
+    git_blob: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    declared_fallback: bool = False
+
+    @model_validator(mode="after")
+    def validate_precise_locator(self) -> CareerSourceLocator:
+        if self.kind == "whole-source":
+            if self.declared_fallback is not True:
+                raise ValueError("whole-source locator requires an explicit fallback declaration")
+            return self
+        if self.declared_fallback:
+            raise ValueError("precise locator cannot declare whole-source fallback")
+        required = {
+            "page": self.page is not None,
+            "heading": self.heading is not None,
+            "line": self.start_line is not None
+            and self.end_line is not None
+            and self.start_line <= self.end_line,
+            "byte-span": self.start_byte is not None
+            and self.end_byte is not None
+            and self.start_byte < self.end_byte,
+            "git-blob": self.git_blob is not None,
+        }
+        if not required[self.kind]:
+            raise ValueError("locator lacks the fields required by its kind")
+        return self
+
+
+class CareerSourceTransformer(StrictModel):
+    schema_version: Literal["career-source-transformer/v1"] = "career-source-transformer/v1"
+    identity: str = Field(min_length=1)
+    version: str = Field(min_length=1)
+    configuration: dict[str, object]
 
 
 class CareerSourceCapture(StrictModel):
     schema_version: Literal["career-source-capture/v1"] = "career-source-capture/v1"
     capture_id: Identifier
     source_id: Identifier
-    content_hash: str = Field(min_length=1)
+    content_hash: str = Field(pattern=SHA256_PATTERN)
     acquired_at: str = Field(min_length=1)
-    method: str = Field(min_length=1)
+    method: Literal[
+        "synthetic-text",
+        "utf8-paste",
+        "exact-file-bytes",
+        "git-pinned-blob",
+        "web-snapshot",
+        "cloud-export",
+        "self-report-record",
+        "audit-record",
+        "examination-record",
+    ]
     predecessor_capture_id: Identifier | None = None
     authority: Literal["candidate-only"] = "candidate-only"
 
@@ -170,11 +218,22 @@ class CareerSourceTransformation(StrictModel):
     schema_version: Literal["career-source-transformation/v1"] = "career-source-transformation/v1"
     transformation_id: Identifier
     input_capture_id: Identifier
-    input_hash: str = Field(min_length=1)
-    transformer: dict[str, object]
-    output_hash: str = Field(min_length=1)
+    input_hash: str = Field(pattern=SHA256_PATTERN)
+    predecessor_capture_id: Identifier | None = None
+    transformer: CareerSourceTransformer
+    output_hash: str = Field(pattern=SHA256_PATTERN)
     locator: CareerSourceLocator
     authority: Literal["candidate-only"] = "candidate-only"
+    candidate_only: Literal[True] = True
+
+    @model_validator(mode="after")
+    def validate_input_lineage(self) -> CareerSourceTransformation:
+        if (
+            self.predecessor_capture_id is not None
+            and self.predecessor_capture_id != self.input_capture_id
+        ):
+            raise ValueError("transformation predecessor must match its exact input capture")
+        return self
 
 
 def _unique_ids(values: tuple[str, ...], field_name: str) -> tuple[str, ...]:

@@ -8,7 +8,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .domain.models import CareerSourceUniverse
+from pydantic import ValidationError
+
+from .domain.models import CareerSourceCapture, CareerSourceTransformation, CareerSourceUniverse
 from .validation.hashing import canonical_json_bytes, sha256_digest
 from .validation.store import (
     FormalRunStorageError,
@@ -89,70 +91,147 @@ class CareerSourceStore:
     def _capture_path(self, capture_id: str) -> Path:
         return self.root / "captures" / self._safe_id(capture_id)
 
+    def _raw_path(self, content_hash: str) -> Path:
+        return self.raw_root / content_hash.removeprefix("sha256:")
+
+    def _read_capture(self, capture_id: str) -> CareerSourceCapture:
+        bundle = self._capture_path(capture_id)
+        manifest = bundle / "manifest.json"
+        try:
+            if bundle.is_symlink() or not bundle.is_dir():
+                raise ValueError
+            if {path.name for path in bundle.iterdir()} != {"manifest.json"}:
+                raise ValueError
+            value = json.loads(manifest.read_text(encoding="utf-8"))
+            capture = CareerSourceCapture.model_validate(value)
+        except (OSError, json.JSONDecodeError, ValidationError) as exc:
+            raise CareerSourceError("career-source-capture-invalid") from exc
+        if manifest.is_symlink() or capture.capture_id != capture_id:
+            raise CareerSourceError("career-source-capture-lineage-invalid")
+        return capture
+
+    def _verify_capture(self, capture_id: str, *, ancestry: frozenset[str]) -> CareerSourceCapture:
+        if capture_id in ancestry:
+            raise CareerSourceError("career-source-capture-lineage-cycle")
+        capture = self._read_capture(capture_id)
+        raw_path = self._raw_path(capture.content_hash)
+        if raw_path.is_symlink() or not raw_path.is_file():
+            raise CareerSourceError("career-source-capture-raw-invalid")
+        if sha256_digest(raw_path.read_bytes()) != capture.content_hash:
+            raise CareerSourceError("career-source-capture-raw-invalid")
+        try:
+            current = json.loads(
+                (self.root / "declarations/current.json").read_text(encoding="utf-8")
+            )
+            universe = CareerSourceUniverse.model_validate(current)
+            datetime.fromisoformat(capture.acquired_at)
+        except (OSError, ValueError, json.JSONDecodeError, ValidationError) as exc:
+            raise CareerSourceError("career-source-capture-lineage-invalid") from exc
+        if capture.source_id not in {source.source_id for source in universe.sources}:
+            raise CareerSourceError("career-source-capture-source-undeclared")
+        if capture.predecessor_capture_id is not None:
+            parent = self._verify_capture(
+                capture.predecessor_capture_id, ancestry=ancestry | {capture_id}
+            )
+            if parent.source_id != capture.source_id:
+                raise CareerSourceError("career-source-capture-predecessor-invalid")
+        return capture
+
     def capture(self, capture: dict[str, Any], source_bytes: bytes) -> dict[str, Any]:
         try:
-            capture_id = self._safe_id(str(capture["capture_id"]))
-            self._safe_id(str(capture["source_id"]))
-            if capture.get("authority") != "candidate-only" or not isinstance(source_bytes, bytes):
+            stored = CareerSourceCapture.model_validate(capture)
+            capture_id = self._safe_id(stored.capture_id)
+            if (
+                not isinstance(source_bytes, bytes)
+                or stored.content_hash != sha256_digest(source_bytes)
+            ):
                 raise ValueError
-        except (KeyError, TypeError, ValueError) as exc:
+        except (TypeError, ValueError) as exc:
             raise CareerSourceError("career-source-capture-invalid") from exc
         self._ensure_root()
         captures = self.root / "captures"
         captures.mkdir(exist_ok=True)
-        raw_path = self.raw_root / capture_id
-        if raw_path.exists() or raw_path.is_symlink():
-            raise CareerSourceError("career-source-capture-already-exists")
-        manifest = dict(capture)
-        manifest["content_hash"] = manifest.get("content_hash") or sha256_digest(source_bytes)
         try:
-            create_only_canonical_bundle(captures, capture_id, {"manifest.json": manifest})
-            raw_path.write_bytes(source_bytes)
+            current = json.loads(
+                (self.root / "declarations/current.json").read_text(encoding="utf-8")
+            )
+            universe = CareerSourceUniverse.model_validate(current)
+        except (OSError, json.JSONDecodeError, ValidationError) as exc:
+            raise CareerSourceError("career-source-declaration-invalid") from exc
+        if stored.source_id not in {source.source_id for source in universe.sources}:
+            raise CareerSourceError("career-source-capture-source-undeclared")
+        if stored.predecessor_capture_id is not None:
+            parent = self._verify_capture(stored.predecessor_capture_id, ancestry=frozenset())
+            if parent.source_id != stored.source_id:
+                raise CareerSourceError("career-source-capture-predecessor-invalid")
+        raw_path = self._raw_path(stored.content_hash)
+        if raw_path.is_symlink():
+            raise CareerSourceError("career-source-capture-raw-unsafe")
+        try:
+            if not raw_path.exists():
+                with raw_path.open("xb") as raw_file:
+                    raw_file.write(source_bytes)
+            elif sha256_digest(raw_path.read_bytes()) != stored.content_hash:
+                raise CareerSourceError("career-source-capture-raw-invalid")
+            create_only_canonical_bundle(
+                captures, capture_id, {"manifest.json": stored.model_dump(mode="json")}
+            )
+            current_root = self.root / "current-captures"
+            current_root.mkdir(exist_ok=True)
+            atomic_write_canonical_json(
+                current_root / f"{stored.source_id}.json", {"capture_id": stored.capture_id}
+            )
         except (FormalRunStorageError, OSError) as exc:
             raise CareerSourceError("career-source-capture-already-exists") from exc
-        return manifest
+        return stored.model_dump(mode="json")
 
     def verify_capture(self, capture: dict[str, Any]) -> None:
-        capture_id = self._safe_id(str(capture.get("capture_id", "")))
-        path = self._capture_path(capture_id) / "manifest.json"
         try:
-            stored = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
+            expected = CareerSourceCapture.model_validate(capture)
+            stored = self._verify_capture(expected.capture_id, ancestry=frozenset())
+        except (TypeError, ValueError) as exc:
             raise CareerSourceError("career-source-capture-invalid") from exc
-        if canonical_json_bytes(stored) != canonical_json_bytes(capture):
+        if canonical_json_bytes(stored) != canonical_json_bytes(expected):
             raise CareerSourceError("career-source-capture-lineage-invalid")
 
     def transform(self, transformation: dict[str, Any]) -> dict[str, Any]:
         try:
-            transformation_id = self._safe_id(str(transformation["transformation_id"]))
-            capture_id = self._safe_id(str(transformation["input_capture_id"]))
-            if (
-                transformation.get("authority") != "candidate-only"
-                or not self._capture_path(capture_id).is_dir()
-            ):
+            stored = CareerSourceTransformation.model_validate(transformation)
+            transformation_id = self._safe_id(stored.transformation_id)
+            capture = self._verify_capture(stored.input_capture_id, ancestry=frozenset())
+            if capture.content_hash != stored.input_hash:
                 raise ValueError
-        except (KeyError, TypeError, ValueError) as exc:
+        except (TypeError, ValueError) as exc:
             raise CareerSourceError("career-source-transformation-invalid") from exc
         self._ensure_root()
         transformations = self.root / "transformations"
         transformations.mkdir(exist_ok=True)
         try:
             create_only_canonical_bundle(
-                transformations, transformation_id, {"manifest.json": transformation}
+                transformations,
+                transformation_id,
+                {"manifest.json": stored.model_dump(mode="json")},
             )
         except FormalRunStorageError as exc:
             raise CareerSourceError("career-source-transformation-already-exists") from exc
-        return transformation
+        return stored.model_dump(mode="json")
 
     def verify_transformation(self, transformation: dict[str, Any]) -> None:
-        transformation_id = self._safe_id(str(transformation.get("transformation_id", "")))
         try:
-            stored = json.loads(
-                (self.root / "transformations" / transformation_id / "manifest.json").read_text()
+            expected = CareerSourceTransformation.model_validate(transformation)
+            manifest = self.root / "transformations" / expected.transformation_id / "manifest.json"
+            stored = CareerSourceTransformation.model_validate(
+                json.loads(manifest.read_text(encoding="utf-8"))
             )
-        except (OSError, json.JSONDecodeError) as exc:
+            capture = self._verify_capture(stored.input_capture_id, ancestry=frozenset())
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
             raise CareerSourceError("career-source-transformation-invalid") from exc
-        if canonical_json_bytes(stored) != canonical_json_bytes(transformation):
+        if (
+            manifest.is_symlink()
+            or stored.transformation_id != expected.transformation_id
+            or capture.content_hash != stored.input_hash
+            or canonical_json_bytes(stored) != canonical_json_bytes(expected)
+        ):
             raise CareerSourceError("career-source-transformation-lineage-invalid")
 
     def capture_duplicates(
