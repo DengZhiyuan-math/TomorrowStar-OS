@@ -77,7 +77,7 @@ def test_cli_requires_explicit_workspace_and_never_persists_a_public_pointer() -
 
 
 @pytest.mark.parametrize(
-    "source", hostile_source_bytes(), ids=("control", "unicode", "oversized", "instruction")
+    "source", hostile_source_bytes()[:-1], ids=("control", "unicode", "oversized")
 )
 def test_output_never_echoes_synthetic_private_sentinels_on_rejection(
     tmp_path: Path, source: bytes

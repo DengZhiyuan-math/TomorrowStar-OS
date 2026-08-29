@@ -9,10 +9,16 @@ from pathlib import Path
 from typing import Any
 
 from .validation.hashing import canonical_json_bytes, sha256_digest
-from .validation.store import FormalRunStorageError, atomic_write_canonical_json, create_only_canonical_bundle
+from .validation.store import (
+    FormalRunStorageError,
+    atomic_write_canonical_json,
+    create_only_canonical_bundle,
+)
 from .workspace import PrivateWorkspace, PrivateWorkspaceError
 
 _SAFE_ID = re.compile(r"^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$")
+_UNSAFE_CODEPOINTS = frozenset({"\u200b", "\u200c", "\u200d", "\u2060", "\ufeff"})
+_MAX_SOURCE_BYTES = 262144
 
 
 class CareerSourceError(ValueError):
@@ -57,7 +63,10 @@ class CareerSourceStore:
                 raise ValueError
             category_ids = [self._safe_id(str(item["category_id"])) for item in categories]
             source_ids = [self._safe_id(str(item["source_id"])) for item in sources]
-            if len(category_ids) != len(set(category_ids)) or len(source_ids) != len(set(source_ids)):
+            if (
+                len(category_ids) != len(set(category_ids))
+                or len(source_ids) != len(set(source_ids))
+            ):
                 raise ValueError
             if any(str(item["category_id"]) not in category_ids for item in sources):
                 raise ValueError
@@ -74,7 +83,9 @@ class CareerSourceStore:
         return {
             "authority": "candidate-only",
             "created_skill_count": 0,
-            "unavailable_source_count": sum(item.get("availability") != "available" for item in sources),
+            "unavailable_source_count": sum(
+                item.get("availability") != "available" for item in sources
+            ),
         }
 
     def _capture_path(self, capture_id: str) -> Path:
@@ -117,7 +128,10 @@ class CareerSourceStore:
         try:
             transformation_id = self._safe_id(str(transformation["transformation_id"]))
             capture_id = self._safe_id(str(transformation["input_capture_id"]))
-            if transformation.get("authority") != "candidate-only" or not self._capture_path(capture_id).is_dir():
+            if (
+                transformation.get("authority") != "candidate-only"
+                or not self._capture_path(capture_id).is_dir()
+            ):
                 raise ValueError
         except (KeyError, TypeError, ValueError) as exc:
             raise CareerSourceError("career-source-transformation-invalid") from exc
@@ -125,7 +139,9 @@ class CareerSourceStore:
         transformations = self.root / "transformations"
         transformations.mkdir(exist_ok=True)
         try:
-            create_only_canonical_bundle(transformations, transformation_id, {"manifest.json": transformation})
+            create_only_canonical_bundle(
+                transformations, transformation_id, {"manifest.json": transformation}
+            )
         except FormalRunStorageError as exc:
             raise CareerSourceError("career-source-transformation-already-exists") from exc
         return transformation
@@ -164,14 +180,52 @@ class CareerSourceStore:
         }
         self.capture(capture, source_bytes)
         self.transform(transformation)
-        return {"authority": "candidate-only", "created_assessment_count": 0, "created_mastery_count": 0}
+        return {
+            "authority": "candidate-only",
+            "created_assessment_count": 0,
+            "created_mastery_count": 0,
+        }
+
+    def validate_source_bytes(self, source: bytes, _label: str) -> dict[str, int]:
+        """Validate supported raw bytes without treating their text as instructions."""
+        if not source:
+            raise CareerSourceError("career-source-empty")
+        if len(source) > _MAX_SOURCE_BYTES:
+            raise CareerSourceError("career-source-too-large")
+        try:
+            text = source.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise CareerSourceError("career-source-invalid-utf8") from exc
+        if "\x00" in text or any(character in text for character in _UNSAFE_CODEPOINTS):
+            raise CareerSourceError("career-source-unsafe-control")
+        return {"provider_invocations": 0, "command_invocations": 0}
+
+    def scan_public_payload(self, payload: str, sentinels: tuple[str, ...]) -> None:
+        """Reject synthetic leak probes without reaching into a private workspace."""
+        if any(sentinel in payload for sentinel in sentinels):
+            raise CareerSourceError("career-source-public-disclosure")
+
+    def prepare_raw_vault(self) -> Path:
+        """Create the ignored raw boundary only after full symlink checks."""
+        self._ensure_root()
+        return self.raw_root
 
     def safe_status(self) -> dict[str, object]:
         if not self.root.exists():
-            return {"candidate_only": True, "capture_count": 0, "declaration_present": False, "transformation_count": 0}
+            return {
+                "candidate_only": True,
+                "capture_count": 0,
+                "declaration_present": False,
+                "source_revision_count": 0,
+                "transformation_count": 0,
+            }
+        captures = self.root / "captures"
+        transformations = self.root / "transformations"
         return {
             "candidate_only": True,
-            "capture_count": len(tuple((self.root / "captures").glob("*"))) if (self.root / "captures").is_dir() else 0,
+            "capture_count": len(tuple(captures.glob("*"))) if captures.is_dir() else 0,
             "declaration_present": (self.root / "declarations" / "current.json").is_file(),
-            "transformation_count": len(tuple((self.root / "transformations").glob("*"))) if (self.root / "transformations").is_dir() else 0,
+            "transformation_count": (
+                len(tuple(transformations.glob("*"))) if transformations.is_dir() else 0
+            ),
         }

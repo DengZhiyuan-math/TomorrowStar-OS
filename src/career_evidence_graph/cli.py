@@ -57,10 +57,10 @@ from .jd import (
     compare_accepted_jd,
     prepare_jd_intake,
 )
+from .validation.hashing import sha256_digest
 from .validation.provenance import ProvenanceValidationError, verify_provenance_registry
 from .validation.replay import replay_recorded_response
 from .validation.store import FormalRunStorageError, FormalRunStore, load_charter
-from .validation.hashing import sha256_digest
 
 
 def _json_file(path: str) -> Any:
@@ -790,7 +790,9 @@ def main(argv: list[str] | None = None) -> int:
             source = args.paste.encode("utf-8")
             source_hash = sha256_digest(source)
             capture_id = f"capture-{source_hash.removeprefix('sha256:')[:16]}"
-            CareerSourceStore(Path(args.workspace)).capture(
+            store = CareerSourceStore(Path(args.workspace))
+            store.validate_source_bytes(source, args.source_id)
+            store.capture(
                 {
                     "schema_version": "career-source-capture/v1",
                     "capture_id": capture_id,
