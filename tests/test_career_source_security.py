@@ -121,3 +121,56 @@ def test_format_rejects_symlinked_raw_vault_and_create_only_collision(tmp_path: 
     (tmp_path / ".career-evidence").symlink_to(external, target_is_directory=True)
     with pytest.raises(module.CareerSourceError):
         module.CareerSourceStore(tmp_path).prepare_raw_vault()
+
+
+def test_cli_file_capture_rejects_unsupported_format_without_echoing_private_values(
+    tmp_path: Path,
+) -> None:
+    _require_career_sources()
+    source = tmp_path / f"{RAW_LABEL}.pdf"
+    source.write_bytes(b"synthetic-pdf-bytes")
+
+    result = _run(
+        "career-source",
+        "capture",
+        "--workspace",
+        str(tmp_path),
+        "--source-id",
+        RAW_LABEL,
+        "--file",
+        str(source),
+    )
+
+    assert result.returncode == 2
+    assert json.loads(result.stdout) == {
+        "error": "career-source-format-unsupported",
+        "valid": False,
+    }
+    for sentinel in (RAW_LABEL, RAW_PATH, str(source), str(tmp_path)):
+        assert sentinel not in result.stdout + result.stderr
+    assert not (tmp_path / ".career-evidence").exists()
+
+
+def test_cli_verify_and_routine_status_are_content_free_and_backup_honest(tmp_path: Path) -> None:
+    _require_career_sources()
+
+    inspect = _run("career-source", "inspect", "--workspace", str(tmp_path))
+    assert inspect.returncode == 0, inspect.stderr
+    assert json.loads(inspect.stdout) == {
+        "backup_state": "not-configured",
+        "candidate_only": True,
+        "capture_count": 0,
+        "declaration_present": False,
+        "source_revision_count": 0,
+        "transformation_count": 0,
+    }
+    assert str(tmp_path) not in inspect.stdout + inspect.stderr
+
+    verify = _run("career-source", "verify", "--workspace", str(tmp_path))
+    assert verify.returncode == 2
+    assert json.loads(verify.stdout) == {
+        "error": "career-source-verification-failed",
+        "valid": False,
+    }
+    assert str(tmp_path) not in verify.stdout + verify.stderr
+    assert not (tmp_path / ".career-evidence").exists()
