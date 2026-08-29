@@ -57,9 +57,12 @@ Milestone v1.1 proceeds through eight requirement-driven delivery boundaries. It
 **Plans:** 4 plans
 
 Plans:
-**Wave 1**
+**Wave 0**
 
 - [ ] 07-00-PLAN.md — Create the synthetic Nyquist Wave 0 test and fixture surface.
+
+**Wave 1** *(blocked on Wave 0 completion)*
+
 - [ ] 07-01-PLAN.md — Prove the end-to-end private-workspace custody tracer and security boundary.
 
 **Wave 2** *(blocked on Wave 1 completion)*
