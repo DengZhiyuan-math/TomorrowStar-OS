@@ -225,8 +225,9 @@ class CareerSourceStore:
         capture: dict[str, Any],
         source_bytes: bytes,
         *,
-        expected_workspace_commit: str | None = None,
+        expected_workspace_commit: str,
     ) -> dict[str, Any]:
+        self._commit_blob_inventory(expected_workspace_commit)
         try:
             if capture.get("schema_version") == "career-source-capture/v1":
                 raise CareerSourceError("career-source-capture-migration-required")
@@ -254,8 +255,6 @@ class CareerSourceStore:
             raise
         except (TypeError, ValueError) as exc:
             raise CareerSourceError("career-source-capture-invalid") from exc
-        if expected_workspace_commit is not None:
-            self._commit_blob_inventory(expected_workspace_commit)
         self._ensure_root()
         try:
             captures = self._workspace_path("sources", "captures")
@@ -350,8 +349,9 @@ class CareerSourceStore:
         transformation: dict[str, Any],
         output_bytes: bytes | None = None,
         *,
-        expected_workspace_commit: str | None = None,
+        expected_workspace_commit: str,
     ) -> dict[str, Any]:
+        self._commit_blob_inventory(expected_workspace_commit)
         try:
             if transformation.get("schema_version") == "career-source-transformation/v1":
                 raise CareerSourceError("career-source-transformation-migration-required")
@@ -380,8 +380,6 @@ class CareerSourceStore:
             raise
         except (OSError, TypeError, ValueError, KeyError) as exc:
             raise CareerSourceError("career-source-transformation-invalid") from exc
-        if expected_workspace_commit is not None:
-            self._commit_blob_inventory(expected_workspace_commit)
         self._ensure_root()
         raw_created = False
         try:
@@ -1224,14 +1222,24 @@ class CareerSourceStore:
         return {"adjudicated": True, "candidate_only": True, "workspace_commit": candidate}
 
     def capture_duplicates(
-        self, first: dict[str, Any], second: dict[str, Any], source_bytes: bytes
+        self,
+        first: dict[str, Any],
+        second: dict[str, Any],
+        source_bytes: bytes,
+        *,
+        expected_workspace_commit: str,
     ) -> dict[str, Any]:
-        self.capture(first, source_bytes)
-        self.capture(second, source_bytes)
+        self.capture(first, source_bytes, expected_workspace_commit=expected_workspace_commit)
+        self.capture(second, source_bytes, expected_workspace_commit=expected_workspace_commit)
         return {"logical_source_count": 2, "created_fact_count": 0, "created_confidence_count": 0}
 
     def run_synthetic_tracer(
-        self, *, declaration: dict[str, Any], source_bytes: bytes, transformation: dict[str, Any]
+        self,
+        *,
+        declaration: dict[str, Any],
+        source_bytes: bytes,
+        transformation: dict[str, Any],
+        expected_workspace_commit: str,
     ) -> dict[str, Any]:
         self.declare(declaration)
         capture = {
@@ -1244,8 +1252,8 @@ class CareerSourceStore:
             "predecessor_capture_id": None,
             "authority": "candidate-only",
         }
-        self.capture(capture, source_bytes)
-        self.transform(transformation)
+        self.capture(capture, source_bytes, expected_workspace_commit=expected_workspace_commit)
+        self.transform(transformation, expected_workspace_commit=expected_workspace_commit)
         return {
             "authority": "candidate-only",
             "created_assessment_count": 0,

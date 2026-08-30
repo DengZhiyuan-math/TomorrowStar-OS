@@ -91,6 +91,16 @@ def test_cli_requires_explicit_workspace_and_never_persists_a_public_pointer() -
     assert "--workspace" in result.stderr
 
 
+def test_store_mutation_apis_require_an_explicit_commit_baseline(tmp_path: Path) -> None:
+    module = _require_career_sources()
+    store = module.CareerSourceStore(tmp_path)
+
+    with pytest.raises(TypeError):
+        store.capture({}, b"synthetic")
+    with pytest.raises(TypeError):
+        store.transform({})
+
+
 @pytest.mark.parametrize(
     "source", hostile_source_bytes()[:-1], ids=("control", "unicode", "oversized")
 )
