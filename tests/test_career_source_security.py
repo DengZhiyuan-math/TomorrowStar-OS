@@ -141,6 +141,67 @@ def test_bidi_controls_are_rejected_before_raw_or_structured_custody(
         )
 
 
+@pytest.mark.parametrize("control", BIDI_CONTROLS)
+def test_transform_rejects_every_bidi_control_before_publishing_output(
+    tmp_path: Path, control: str
+) -> None:
+    module = _require_career_sources()
+    store = module.CareerSourceStore(tmp_path)
+    source = b"synthetic-transform-input"
+    content_hash = f"sha256:{hashlib.sha256(source).hexdigest()}"
+    store.declare(
+        {
+            "schema_version": "career-source-universe/v1",
+            "revision_id": "revision-transform-control",
+            "career_fact_cutoff": "2001-02-03",
+            "categories": ({"category_id": "category-projects", "kind": "projects"},),
+            "sources": (
+                {
+                    "source_id": "source-transform-control",
+                    "category_id": "category-projects",
+                    "source_type": "self-reported",
+                    "availability": "available",
+                },
+            ),
+        }
+    )
+    store.capture(
+        {
+            "schema_version": "career-source-capture/v2",
+            "capture_id": "capture-transform-control",
+            "source_id": "source-transform-control",
+            "content_hash": content_hash,
+            "acquired_at": "2001-02-03T00:00:00+00:00",
+            "method": "synthetic-text",
+        },
+        source,
+    )
+    output = f"synthetic{control}output".encode("utf-8")
+    output_hash = f"sha256:{hashlib.sha256(output).hexdigest()}"
+    with pytest.raises(module.CareerSourceError) as raised:
+        store.transform(
+            {
+                "schema_version": "career-source-transformation/v2",
+                "transformation_id": "transform-control",
+                "input_capture_id": "capture-transform-control",
+                "transformer": {
+                    "identity": "synthetic-transformer",
+                    "version": "v1",
+                    "configuration": {},
+                },
+                "locator": {"kind": "whole-source", "declared_fallback": True},
+            },
+            output,
+        )
+
+    assert raised.value.code == "career-source-unsafe-control"
+    assert not (tmp_path / ".career-evidence/raw" / output_hash.removeprefix("sha256:")).exists()
+    assert not (
+        tmp_path / ".career-evidence/sources/derived-outputs" / output_hash.removeprefix("sha256:")
+    ).exists()
+    assert not (tmp_path / ".career-evidence/sources/transformations/transform-control").exists()
+
+
 def test_output_instruction_like_source_is_inert_data(tmp_path: Path) -> None:
     module = _require_career_sources()
     result = module.CareerSourceStore(tmp_path).validate_source_bytes(

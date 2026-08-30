@@ -361,6 +361,7 @@ class CareerSourceStore:
                 output_bytes = self._raw_path(capture.content_hash).read_bytes()
             if not isinstance(output_bytes, bytes):
                 raise ValueError
+            self.validate_source_bytes(output_bytes, "transformed-output", allow_empty=True)
             expected = {
                 "source_id": capture.source_id,
                 "input_hash": capture.content_hash,
@@ -1251,9 +1252,11 @@ class CareerSourceStore:
             "created_mastery_count": 0,
         }
 
-    def validate_source_bytes(self, source: bytes, _label: str) -> dict[str, int]:
+    def validate_source_bytes(
+        self, source: bytes, _label: str, *, allow_empty: bool = False
+    ) -> dict[str, int]:
         """Validate supported raw bytes without treating their text as instructions."""
-        if not source:
+        if not source and not allow_empty:
             raise CareerSourceError("career-source-empty")
         if len(source) > _MAX_SOURCE_BYTES:
             raise CareerSourceError("career-source-too-large")
