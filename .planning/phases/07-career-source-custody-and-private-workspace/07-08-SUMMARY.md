@@ -12,9 +12,9 @@ provides:
   - explicit-baseline raw cleanup that preserves committed and working references
 affects: [phase-07-verification, private-workspace-custody, career-source-cli]
 actuals:
-  tokens: 8411.75
+  tokens: 8644.75
   tasks: 3
-  commits: 5
+  commits: 6
 tech-stack:
   added: []
   patterns:
@@ -53,11 +53,11 @@ coverage:
         status: pass
     human_judgment: false
   - id: D3
-    description: Failed explicit-baseline publication removes only a newly created unreferenced raw object.
+    description: Failed explicit-baseline publication removes only a newly created unreferenced raw object, while committed evidence protects bytes after a working manifest disappears.
     requirement: INV-06
     verification:
       - kind: integration
-        ref: "tests/test_career_source_custody.py#test_raw_cleanup_removes_only_new_unreferenced_attempt_object"
+        ref: "tests/test_career_source_custody.py#test_committed_raw_reference_survives_deleted_working_manifest"
         status: pass
     human_judgment: false
 duration: 27m
@@ -86,7 +86,7 @@ status: complete
 
 1. **Task 1: Enforce component-safe semantic operations** — `0c7e691` (RED), `eaa8b5b` (feature)
 2. **Task 2: Reject bidi controls before publication** — `3fe5e02` (RED), `863a59e` (feature)
-3. **Task 3: Guard failed raw cleanup with exact references** — `acb11f9` (feature and synthetic regression)
+3. **Task 3: Guard failed raw cleanup with exact references** — `acb11f9` (feature and synthetic regression), `dec83c2` (committed-reference regression)
 
 ## Verification
 
@@ -112,4 +112,4 @@ The repository's source-selecting pytest runner was used because direct `uv run 
 ## Self-Check: PASSED
 
 - Confirmed all five implementation/test files and this summary exist.
-- Confirmed commits `0c7e691`, `eaa8b5b`, `3fe5e02`, `863a59e`, and `acb11f9` exist in Git history.
+- Confirmed commits `0c7e691`, `eaa8b5b`, `3fe5e02`, `863a59e`, `acb11f9`, and `dec83c2` exist in Git history.
