@@ -74,8 +74,21 @@ class CareerSourceStore:
             self.workspace = PrivateWorkspace(workspace)
         except PrivateWorkspaceError as exc:
             raise CareerSourceError(exc.args[0]) from exc
-        self.root = self.workspace.root / ".career-evidence" / "sources"
-        self.raw_root = self.workspace.root / ".career-evidence" / "raw"
+
+    def _workspace_path(self, *parts: str) -> Path:
+        """Resolve one custody path through the single component-safe workspace seam."""
+        try:
+            return self.workspace.child(".career-evidence", *parts)
+        except PrivateWorkspaceError as exc:
+            raise CareerSourceError(exc.args[0]) from exc
+
+    @property
+    def root(self) -> Path:
+        return self._workspace_path("sources")
+
+    @property
+    def raw_root(self) -> Path:
+        return self._workspace_path("raw")
 
     @staticmethod
     def _safe_id(value: str) -> str:
@@ -84,12 +97,16 @@ class CareerSourceStore:
         return value
 
     def _ensure_root(self) -> None:
-        for path in (self.root.parent, self.root, self.raw_root):
-            if path.is_symlink():
-                raise CareerSourceError("career-source-private-root-unsafe")
-            path.mkdir(exist_ok=True)
-            if path.resolve() != path:
-                raise CareerSourceError("career-source-private-root-unsafe")
+        try:
+            for parts in ((), ("sources",), ("raw",)):
+                path = self._workspace_path(*parts)
+                if path.is_symlink():
+                    raise ValueError
+                path.mkdir(exist_ok=True)
+                if path.is_symlink() or path.resolve(strict=True) != path:
+                    raise ValueError
+        except (OSError, ValueError, CareerSourceError) as exc:
+            raise CareerSourceError("career-source-private-root-unsafe") from exc
 
     def declare(self, declaration: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -98,8 +115,11 @@ class CareerSourceStore:
         except (TypeError, ValueError) as exc:
             raise CareerSourceError("career-source-declaration-invalid") from exc
         self._ensure_root()
-        declarations = self.root / "declarations"
-        declarations.mkdir(exist_ok=True)
+        try:
+            declarations = self._workspace_path("sources", "declarations")
+            declarations.mkdir(exist_ok=True)
+        except (OSError, CareerSourceError) as exc:
+            raise CareerSourceError("career-source-path-unsafe") from exc
         predecessor = universe.predecessor_revision_id
         if predecessor is not None and not (declarations / predecessor / "manifest.json").is_file():
             raise CareerSourceError("career-source-declaration-predecessor-missing")
@@ -129,7 +149,7 @@ class CareerSourceStore:
         digest = content_hash.removeprefix("sha256:")
         if not re.fullmatch(r"[0-9a-f]{64}", digest):
             raise CareerSourceError("career-source-capture-invalid")
-        return self.raw_root / digest
+        return self._workspace_path("raw", digest)
 
     def _declaration_binding(self) -> tuple[CareerSourceUniverse, str]:
         try:
@@ -221,8 +241,11 @@ class CareerSourceStore:
         except (TypeError, ValueError) as exc:
             raise CareerSourceError("career-source-capture-invalid") from exc
         self._ensure_root()
-        captures = self.workspace.child(".career-evidence", "sources", "captures")
-        captures.mkdir(exist_ok=True)
+        try:
+            captures = self._workspace_path("sources", "captures")
+            captures.mkdir(exist_ok=True)
+        except (OSError, CareerSourceError) as exc:
+            raise CareerSourceError("career-source-path-unsafe") from exc
         if stored.source_id not in {source.source_id for source in universe.sources}:
             raise CareerSourceError("career-source-capture-source-undeclared")
         if stored.predecessor_capture_id is not None:
@@ -241,7 +264,7 @@ class CareerSourceStore:
             create_only_canonical_bundle(
                 captures, capture_id, {"manifest.json": stored.model_dump(mode="json")}
             )
-            current_root = self.workspace.child(".career-evidence", "sources", "current-captures")
+            current_root = self._workspace_path("sources", "current-captures")
             current_root.mkdir(exist_ok=True)
             atomic_write_canonical_json(
                 self._semantic_path(f"current-captures/{stored.source_id}.json"),
@@ -253,6 +276,8 @@ class CareerSourceStore:
                     declaration_hash=stored.declaration_hash,
                 ).model_dump(mode="json"),
             )
+        except CareerSourceError:
+            raise
         except (FormalRunStorageError, OSError) as exc:
             raise CareerSourceError("career-source-capture-already-exists") from exc
         return stored.model_dump(mode="json")
@@ -329,8 +354,11 @@ class CareerSourceStore:
         except (OSError, TypeError, ValueError, KeyError) as exc:
             raise CareerSourceError("career-source-transformation-invalid") from exc
         self._ensure_root()
-        transformations = self.workspace.child(".career-evidence", "sources", "transformations")
-        transformations.mkdir(exist_ok=True)
+        try:
+            transformations = self._workspace_path("sources", "transformations")
+            transformations.mkdir(exist_ok=True)
+        except (OSError, CareerSourceError) as exc:
+            raise CareerSourceError("career-source-path-unsafe") from exc
         try:
             transformation_manifest = self._semantic_path(
                 f"transformations/{transformation_id}/manifest.json"
@@ -369,6 +397,8 @@ class CareerSourceStore:
                 transformation_id,
                 {"manifest.json": stored.model_dump(mode="json")},
             )
+        except CareerSourceError:
+            raise
         except (FormalRunStorageError, OSError, ValidationError) as exc:
             raise CareerSourceError("career-source-transformation-already-exists") from exc
         return stored.model_dump(mode="json")
@@ -1376,7 +1406,7 @@ class CareerSourceStore:
         if not self._is_semantic_path(relative):
             raise CareerSourceError("career-source-snapshot-invalid")
         try:
-            return self.workspace.child(".career-evidence", "sources", *relative.split("/"))
+            return self._workspace_path("sources", *relative.split("/"))
         except PrivateWorkspaceError as exc:
             raise CareerSourceError("career-source-snapshot-invalid") from exc
 
