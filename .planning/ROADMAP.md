@@ -54,7 +54,7 @@ Milestone v1.1 proceeds through eight requirement-driven delivery boundaries. It
   2. An evaluator can trace every accepted inventory fact and Evidence item to its source identity, content hash, capture metadata, and versioned transformations.
   3. The operator can process raw career sources in the ignored private workspace while routine output, logs, errors, and committed artifacts expose only safe identifiers, counts, hashes, and redacted diagnostics.
 
-**Plans:** 9/9 plans executed
+**Plans:** 9/10 plans executed
 
 Plans:
 **Wave 0**
@@ -92,6 +92,10 @@ Plans:
 **Wave 8** *(blocked on Wave 7 completion)*
 
 - [x] 07-08-PLAN.md — Close symlink, bidi-control, and commit-aware raw-cleanup boundary failures.
+
+**Wave 9** *(blocked on Wave 8 completion)*
+
+- [ ] 07-09-PLAN.md — Repair source-aware closure gates and record explicit current-HEAD execution evidence.
 
 ### Phase 8: Full-Career Inventory Review and Seal
 
@@ -201,7 +205,7 @@ Phases execute in numeric order: 7 → 8 → 9 → 10 → 11 → 12 → 13 → 1
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 7. Career Source Custody and Private Workspace | v1.1 | 9/9 | In Progress|  |
+| 7. Career Source Custody and Private Workspace | v1.1 | 9/10 | In Progress |  |
 | 8. Full-Career Inventory Review and Seal | v1.1 | 0/TBD | Not started | - |
 | 9. Generic Contribution Audit and Attribution | v1.1 | 0/TBD | Not started | - |
 | 10. Skill Resolution and Reviewed Mastery | v1.1 | 0/TBD | Not started | - |

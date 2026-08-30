@@ -10,13 +10,13 @@ Requirements for this milestone. Each requirement must map to exactly one roadma
 
 ### Full-Career Inventory and Source Custody
 
-- [x] **INV-01**: The user can declare the career-source universe, unavailable sources, and a cutoff that define what “all known career history” means for one inventory revision.
+- [ ] **INV-01**: The user can declare the career-source universe, unavailable sources, and a cutoff that define what “all known career history” means for one inventory revision.
 - [ ] **INV-02**: The user can record every known employment, project, research, publication, education, teaching, open-source, internship, and related Experience in one inventory without a résumé or repository list being treated as complete by itself.
 - [ ] **INV-03**: The user can review every discovered or user-added inventory item and explicitly confirm, edit, add, split, merge, exclude with reason, or retain it as unresolved without silent omission.
 - [ ] **INV-04**: The user can inspect a coverage report for every supported Experience category, declared source, candidate item, unresolved item, and unavailable source before the inventory is called complete.
 - [ ] **INV-05**: The user can seal one exact inventory revision and cutoff only after every candidate has a recorded disposition; any later correction creates a new immutable revision instead of rewriting the accepted inventory.
-- [x] **INV-06**: An evaluator can trace every accepted inventory fact and Evidence item to a retained source identity, content hash, capture metadata, and any versioned transformation that produced derived text.
-- [x] **INV-07**: The operator can process raw career sources in the ignored private workspace while committed artifacts, routine status output, logs, and errors expose only safe identifiers, counts, hashes, and redacted diagnostics.
+- [ ] **INV-06**: An evaluator can trace every accepted inventory fact and Evidence item to a retained source identity, content hash, capture metadata, and any versioned transformation that produced derived text.
+- [ ] **INV-07**: The operator can process raw career sources in the ignored private workspace while committed artifacts, routine status output, logs, and errors expose only safe identifiers, counts, hashes, and redacted diagnostics.
 
 ### Canonical Skill Graph and Assessment Authority
 
@@ -94,13 +94,13 @@ Every active v1.1 requirement maps to exactly one roadmap phase. Future requirem
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INV-01 | Phase 7 | Complete |
+| INV-01 | Phase 7 | Gaps Found |
 | INV-02 | Phase 8 | Pending |
 | INV-03 | Phase 8 | Pending |
 | INV-04 | Phase 8 | Pending |
 | INV-05 | Phase 8 | Pending |
-| INV-06 | Phase 7 | Complete |
-| INV-07 | Phase 7 | Complete |
+| INV-06 | Phase 7 | Gaps Found |
+| INV-07 | Phase 7 | Gaps Found |
 | GRF-01 | Phase 9 | Pending |
 | GRF-02 | Phase 9 | Pending |
 | GRF-03 | Phase 10 | Pending |
