@@ -575,7 +575,9 @@ def test_expected_zero_transformation_namespace_still_requires_snapshot_anchor(
         store.verify(expected_workspace_commit=commit[:12])
 
 
-@pytest.mark.parametrize("pointer", ({"capture_id": "capture-missing"}, {"capture_id": "capture-synthetic-a"}))
+@pytest.mark.parametrize(
+    "pointer", ({"capture_id": "capture-missing"}, {"capture_id": "capture-synthetic-a"})
+)
 def test_current_capture_pointer_must_match_its_source_and_existing_capture(
     tmp_path: Path, pointer: dict[str, str]
 ) -> None:

@@ -24,6 +24,15 @@ _SAFE_ID = re.compile(r"^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$")
 _UNSAFE_CODEPOINTS = frozenset({"\u200b", "\u200c", "\u200d", "\u2060", "\ufeff"})
 _MAX_SOURCE_BYTES = 262144
 _GIT_OID_LENGTHS = {"sha1": 40, "sha256": 64}
+_SEMANTIC_NAMESPACES = (
+    ("declaration-manifests", re.compile(r"declarations/[a-z][a-z0-9._-]*/manifest\.json")),
+    ("declaration-current", re.compile(r"declarations/current\.json")),
+    ("capture-manifests", re.compile(r"captures/[a-z][a-z0-9._-]*/manifest\.json")),
+    ("current-captures", re.compile(r"current-captures/[a-z][a-z0-9._-]*\.json")),
+    ("transformation-manifests", re.compile(r"transformations/[a-z][a-z0-9._-]*/manifest\.json")),
+    ("migration-receipts", re.compile(r"migration-receipts/[a-z][a-z0-9._-]*/manifest\.json")),
+    ("derived-outputs", re.compile(r"derived-outputs/[a-z][a-z0-9._-]*/manifest\.json")),
+)
 
 
 class CareerSourceError(ValueError):
@@ -42,8 +51,8 @@ class CareerSourceStore:
             self.workspace = PrivateWorkspace(workspace)
         except PrivateWorkspaceError as exc:
             raise CareerSourceError(exc.args[0]) from exc
-        self.root = self.workspace.child(".career-evidence", "sources")
-        self.raw_root = self.workspace.child(".career-evidence", "raw")
+        self.root = self.workspace.root / ".career-evidence" / "sources"
+        self.raw_root = self.workspace.root / ".career-evidence" / "raw"
 
     @staticmethod
     def _safe_id(value: str) -> str:
@@ -395,14 +404,53 @@ class CareerSourceStore:
             if mode != "100644" or object_type != "blob":
                 raise CareerSourceError("career-source-snapshot-invalid")
             relative = path.removeprefix(".career-evidence/sources/")
-            if not relative or relative in blobs:
+            if not relative or relative in blobs or not self._is_semantic_path(relative):
                 raise CareerSourceError("career-source-snapshot-invalid")
             blobs[relative] = self._git("cat-file", "blob", object_id)
         return blobs
 
+    @staticmethod
+    def _is_semantic_path(relative: str) -> bool:
+        return any(pattern.fullmatch(relative) for _, pattern in _SEMANTIC_NAMESPACES)
+
+    @staticmethod
+    def _is_semantic_directory(relative: str) -> bool:
+        parts = tuple(relative.split("/"))
+        if len(parts) == 1:
+            return parts[0] in {
+                "declarations",
+                "captures",
+                "current-captures",
+                "transformations",
+                "migration-receipts",
+                "derived-outputs",
+            }
+        return (
+            len(parts) == 2
+            and parts[0]
+            in {
+                "declarations",
+                "captures",
+                "transformations",
+                "migration-receipts",
+                "derived-outputs",
+            }
+            and _SAFE_ID.fullmatch(parts[1]) is not None
+        )
+
+    def _semantic_path(self, relative: str) -> Path:
+        if not self._is_semantic_path(relative):
+            raise CareerSourceError("career-source-snapshot-invalid")
+        try:
+            return self.workspace.child(".career-evidence", "sources", *relative.split("/"))
+        except PrivateWorkspaceError as exc:
+            raise CareerSourceError("career-source-snapshot-invalid") from exc
+
     def _working_blob_inventory(self) -> dict[str, bytes]:
         """Collect regular source files without following a mutable symlink."""
-        if not self.root.exists() or self.root.is_symlink() or not self.root.is_dir():
+        if not self.root.exists():
+            return {}
+        if self.root.is_symlink() or not self.root.is_dir():
             raise CareerSourceError("career-source-snapshot-invalid")
         blobs: dict[str, bytes] = {}
         try:
@@ -411,12 +459,74 @@ class CareerSourceStore:
                     raise ValueError
                 if path.is_file():
                     relative = path.relative_to(self.root).as_posix()
-                    blobs[relative] = path.read_bytes()
-                elif not path.is_dir():
+                    blobs[relative] = self._semantic_path(relative).read_bytes()
+                elif not path.is_dir() or not self._is_semantic_directory(
+                    path.relative_to(self.root).as_posix()
+                ):
                     raise ValueError
         except (OSError, ValueError) as exc:
             raise CareerSourceError("career-source-snapshot-invalid") from exc
         return blobs
+
+    def _verify_current_captures(self) -> tuple[CareerSourceCapture, ...]:
+        captures = self.root / "captures"
+        capture_values = tuple(
+            self._read_capture(path.name) for path in captures.iterdir()
+        ) if captures.exists() else ()
+        expected_sources = {capture.source_id for capture in capture_values}
+        pointers = self.root / "current-captures"
+        if not pointers.exists():
+            if expected_sources:
+                raise CareerSourceError("career-source-snapshot-invalid")
+            return capture_values
+        actual_sources: set[str] = set()
+        try:
+            for pointer in pointers.iterdir():
+                relative = f"current-captures/{pointer.name}"
+                if (
+                    pointer.is_symlink()
+                    or not pointer.is_file()
+                    or not self._is_semantic_path(relative)
+                ):
+                    raise ValueError
+                source_id = pointer.stem
+                value = json.loads(self._semantic_path(relative).read_text(encoding="utf-8"))
+                if set(value) != {"capture_id"} or not isinstance(value["capture_id"], str):
+                    raise ValueError
+                capture = self._read_capture(value["capture_id"])
+                if capture.source_id != source_id:
+                    raise ValueError
+                actual_sources.add(source_id)
+        except (OSError, ValueError, json.JSONDecodeError, CareerSourceError) as exc:
+            raise CareerSourceError("career-source-snapshot-invalid") from exc
+        if actual_sources != expected_sources:
+            raise CareerSourceError("career-source-snapshot-invalid")
+        return capture_values
+
+    def _verify_raw_objects(self, captures: tuple[CareerSourceCapture, ...]) -> int:
+        expected = {capture.content_hash.removeprefix("sha256:") for capture in captures}
+        if not self.raw_root.exists():
+            if expected:
+                raise CareerSourceError("career-source-snapshot-invalid")
+            return 0
+        if self.raw_root.is_symlink() or not self.raw_root.is_dir():
+            raise CareerSourceError("career-source-snapshot-invalid")
+        total = 0
+        found: set[str] = set()
+        try:
+            for raw_path in self.raw_root.iterdir():
+                if raw_path.is_symlink() or not raw_path.is_file() or raw_path.name not in expected:
+                    raise ValueError
+                payload = raw_path.read_bytes()
+                if sha256_digest(payload) != f"sha256:{raw_path.name}":
+                    raise ValueError
+                found.add(raw_path.name)
+                total += len(payload)
+        except (OSError, ValueError) as exc:
+            raise CareerSourceError("career-source-snapshot-invalid") from exc
+        if found != expected:
+            raise CareerSourceError("career-source-snapshot-invalid")
+        return total
 
     def verify(self, *, expected_workspace_commit: str) -> dict[str, object]:
         """Authenticate the current source snapshot against one exact Git commit."""
@@ -424,6 +534,12 @@ class CareerSourceStore:
         working = self._working_blob_inventory()
         if committed != working:
             raise CareerSourceError("career-source-snapshot-invalid")
+        if not committed:
+            return {
+                "candidate_only": True,
+                "raw_byte_count": self._verify_raw_objects(()),
+                "semantic_entry_count": 0,
+            }
         try:
             declarations = self.root / "declarations"
             current = json.loads((declarations / "current.json").read_text(encoding="utf-8"))
@@ -431,12 +547,9 @@ class CareerSourceStore:
             revision = self._read_declaration(universe.revision_id)
             if canonical_json_bytes(revision) != canonical_json_bytes(universe):
                 raise ValueError
-            captures = self.root / "captures"
-            if captures.exists():
-                if captures.is_symlink() or not captures.is_dir():
-                    raise ValueError
-                for path in captures.iterdir():
-                    self._verify_capture(path.name, ancestry=frozenset())
+            capture_values = self._verify_current_captures()
+            for capture in capture_values:
+                self._verify_capture(capture.capture_id, ancestry=frozenset())
             transformations = self.root / "transformations"
             if transformations.exists():
                 if transformations.is_symlink() or not transformations.is_dir():
@@ -457,16 +570,9 @@ class CareerSourceStore:
             if isinstance(exc, CareerSourceError):
                 raise CareerSourceError("career-source-snapshot-invalid") from exc
             raise CareerSourceError("career-source-snapshot-invalid") from exc
-        raw_byte_count = 0
-        raw_hashes: set[str] = set()
-        for path in captures.iterdir() if captures.exists() else ():
-            capture = self._read_capture(path.name)
-            if capture.content_hash not in raw_hashes:
-                raw_byte_count += len(self._raw_path(capture.content_hash).read_bytes())
-                raw_hashes.add(capture.content_hash)
         return {
             "candidate_only": True,
-            "raw_byte_count": raw_byte_count,
+            "raw_byte_count": self._verify_raw_objects(capture_values),
             "semantic_entry_count": len(committed),
         }
 

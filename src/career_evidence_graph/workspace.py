@@ -18,7 +18,17 @@ class PrivateWorkspace:
         self.root = path.resolve(strict=True)
 
     def child(self, *parts: str) -> Path:
-        candidate = self.root.joinpath(*parts)
-        if not candidate.is_relative_to(self.root):
+        candidate = self.root
+        for part in parts:
+            component = Path(part)
+            if component.is_absolute() or ".." in component.parts:
+                raise PrivateWorkspaceError("career-source-path-unsafe")
+            candidate = candidate / component
+            if candidate.exists() and candidate.is_symlink():
+                raise PrivateWorkspaceError("career-source-path-unsafe")
+        existing_parent = candidate
+        while not existing_parent.exists():
+            existing_parent = existing_parent.parent
+        if existing_parent.is_symlink() or not existing_parent.resolve().is_relative_to(self.root):
             raise PrivateWorkspaceError("career-source-path-unsafe")
         return candidate

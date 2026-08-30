@@ -40,6 +40,17 @@ def _run(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _git(workspace: Path, *args: str) -> str:
+    completed = subprocess.run(
+        ["git", *args],
+        cwd=workspace,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return completed.stdout.strip()
+
+
 def hostile_source_bytes() -> tuple[bytes, ...]:
     return (
         b"contains\x00synthetic-control",
@@ -226,10 +237,25 @@ def test_complete_synthetic_cli_flow_has_no_later_phase_authority_side_effects(
             "--configuration-json",
             "{}",
         ),
-        ("career-source", "verify", "--workspace", workspace),
     ):
         result = _run(*command)
         assert result.returncode == 0, result.stderr
+
+    (tmp_path / ".gitignore").write_text(".career-evidence/raw/\n", encoding="utf-8")
+    _git(tmp_path, "init", "--quiet")
+    _git(tmp_path, "config", "user.email", "synthetic@example.invalid")
+    _git(tmp_path, "config", "user.name", "Synthetic Test")
+    _git(tmp_path, "add", ".gitignore", ".career-evidence/sources")
+    _git(tmp_path, "commit", "--quiet", "-m", "synthetic custody snapshot")
+    verified = _run(
+        "career-source",
+        "verify",
+        "--workspace",
+        workspace,
+        "--expected-workspace-commit",
+        _git(tmp_path, "rev-parse", "HEAD"),
+    )
+    assert verified.returncode == 0, verified.stderr
 
     assert all(not (tmp_path / name).exists() for name in forbidden_names)
 
@@ -286,10 +312,17 @@ def test_cli_verify_and_routine_status_are_content_free_and_backup_honest(tmp_pa
     }
     assert str(tmp_path) not in inspect.stdout + inspect.stderr
 
-    verify = _run("career-source", "verify", "--workspace", str(tmp_path))
+    verify = _run(
+        "career-source",
+        "verify",
+        "--workspace",
+        str(tmp_path),
+        "--expected-workspace-commit",
+        "0" * 40,
+    )
     assert verify.returncode == 2
     assert json.loads(verify.stderr) == {
-        "error": "career-source-verification-failed",
+        "error": "career-source-snapshot-anchor-invalid",
         "valid": False,
     }
     assert str(tmp_path) not in verify.stdout + verify.stderr
