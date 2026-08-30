@@ -15,7 +15,7 @@ findings:
   warning: 0
   info: 0
   total: 5
-status: issues_found
+status: resolved
 ---
 
 # Phase 07: Code Review Report
@@ -23,11 +23,15 @@ status: issues_found
 **Reviewed:** 2026-08-30T22:53:24Z
 **Depth:** standard
 **Files Reviewed:** 6
-**Status:** issues_found
+**Status:** resolved
 
 ## Summary
 
-The six scoped files were read in full against Phase 07's explicit-workspace, full-OID, symlink, raw-byte, and synthetic-only contracts. The synthetic suite passes (`111 passed`) and scoped Ruff passes, but five custody boundary violations remain. In particular, the library API can mutate without a commit anchor, multiple operations bypass the semantic resolver, transformed output bytes bypass the hostile-control gate, and path checks are vulnerable to an operation-time symlink swap.
+The six scoped files were read in full against Phase 07's explicit-workspace, full-OID, symlink, raw-byte, and synthetic-only contracts. The original review found five custody boundary violations; all five are resolved by the commits recorded in `07-REVIEW-FIX.md`. The full source-aware synthetic custody and security suites now pass (`132 passed`), and scoped Ruff passes.
+
+## Resolution
+
+All five blockers are resolved. The final regression migration in `7727182` updates only synthetic test helpers and call sites to construct and pass an explicit full-OID Git baseline; it adds no production fallback or unanchored mutation path.
 
 ## Narrative Findings (AI reviewer)
 

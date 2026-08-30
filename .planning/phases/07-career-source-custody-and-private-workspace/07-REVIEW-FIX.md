@@ -21,7 +21,7 @@ verification_environment: isolated review worktree
 - Findings in scope: 5
 - Fixed: 5
 - Skipped: 0
-- Targeted verification: `66 passed` in `tests/test_career_source_security.py`; scoped Ruff and Python AST parsing passed in the isolated review worktree.
+- Full source-aware verification: `132 passed` across `tests/test_career_source_custody.py` and `tests/test_career_source_security.py`; scoped Ruff and Python AST parsing passed.
 
 ## Fixed Issues
 
@@ -55,9 +55,9 @@ verification_environment: isolated review worktree
 **Commit:** f4dd682
 **Applied fix:** Added descriptor-bound `O_NOFOLLOW` raw and core semantic publication operations, with directory identity revalidation before create, replace, and unlink; added deterministic raw, manifest, and pointer parent-swap regressions.
 
-## Verification Note
+## Verification Resolution
 
-The full legacy `tests/test_career_source_custody.py` suite currently has 55 expected API-migration failures because those historical synthetic tests omit the newly required `expected_workspace_commit` argument. This report does not treat that as a reason to reintroduce an unanchored mutation API. Those test call sites need a follow-up mechanical migration to create and pass an explicit synthetic full-OID baseline.
+`7727182` migrated the legacy synthetic helpers and mutation call sites to construct and pass explicit full-OID Git baselines. The strict production API remains unchanged; no test or runtime fallback selects an ambient commit.
 
 ---
 
