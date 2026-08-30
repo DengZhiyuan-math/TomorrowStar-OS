@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -33,6 +35,7 @@ _SAFE_ID = re.compile(r"^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$")
 _UNSAFE_CODEPOINTS = frozenset({"\u200b", "\u200c", "\u200d", "\u2060", "\ufeff"})
 _MAX_SOURCE_BYTES = 262144
 _GIT_OID_LENGTHS = {"sha1": 40, "sha256": 64}
+_CUSTODY_RETENTION_REF = "refs/career-evidence/custody"
 _SEMANTIC_NAMESPACES = (
     ("declaration-manifests", re.compile(r"declarations/[a-z][a-z0-9._-]*/manifest\.json")),
     ("declaration-current", re.compile(r"declarations/current\.json")),
@@ -822,6 +825,230 @@ class CareerSourceStore:
             "transformation_count": len(successor_transformations),
         }
 
+    def _git_object_format(self) -> tuple[str, int]:
+        try:
+            object_format = self._git("rev-parse", "--show-object-format").decode("ascii").strip()
+            return object_format, _GIT_OID_LENGTHS[object_format]
+        except (UnicodeDecodeError, KeyError, CareerSourceError) as exc:
+            raise CareerSourceError("career-source-retention-ref-invalid") from exc
+
+    def _retention_ref_value(self, oid_length: int) -> str | None:
+        """Read the one retention ref without treating it as verification authority."""
+        try:
+            completed = subprocess.run(
+                ["git", "rev-parse", "--verify", "--quiet", _CUSTODY_RETENTION_REF],
+                cwd=self.workspace.root,
+                check=False,
+                capture_output=True,
+            )
+        except OSError as exc:
+            raise CareerSourceError("career-source-retention-ref-invalid") from exc
+        if completed.returncode == 1:
+            return None
+        if completed.returncode != 0:
+            raise CareerSourceError("career-source-retention-ref-invalid")
+        try:
+            value = completed.stdout.decode("ascii").strip()
+        except UnicodeDecodeError as exc:
+            raise CareerSourceError("career-source-retention-ref-invalid") from exc
+        if not re.fullmatch(rf"[0-9a-f]{{{oid_length}}}", value):
+            raise CareerSourceError("career-source-retention-ref-invalid")
+        return value
+
+    @staticmethod
+    def _pointer_bytes(capture: CareerSourceCapture) -> bytes:
+        return canonical_json_bytes(
+            DeclarationBoundCurrentCapturePointer(
+                source_id=capture.source_id,
+                capture_id=capture.capture_id,
+                content_hash=capture.content_hash,
+                declaration_revision_id=capture.declaration_revision_id,
+                declaration_hash=capture.declaration_hash,
+            ).model_dump(mode="json")
+        ) + b"\n"
+
+    def _replace_pointer_if_exact(self, path: Path, expected: bytes, replacement: bytes) -> bool:
+        """Make an operator-owned pointer change only from its exact known bytes."""
+        try:
+            if path.read_bytes() != expected:
+                raise ValueError
+            atomic_write_canonical_json(path, json.loads(replacement.decode("utf-8")))
+            return True
+        except (OSError, ValueError, json.JSONDecodeError, FormalRunStorageError) as exc:
+            raise CareerSourceError("career-source-workspace-drift") from exc
+
+    def _restore_attempt_pointers(self, changed: list[tuple[Path, bytes, bytes]]) -> None:
+        """Never overwrite a third-party value while undoing a failed attempt."""
+        for path, legacy, successor in reversed(changed):
+            try:
+                if path.read_bytes() == successor:
+                    atomic_write_canonical_json(path, json.loads(legacy.decode("utf-8")))
+            except (OSError, ValueError, json.JSONDecodeError, FormalRunStorageError):
+                # A later verification catches any unsupported external writer without disclosure.
+                continue
+
+    def _deterministic_migration_commit(
+        self,
+        *,
+        preflight: _MigrationPreflight,
+        successors: dict[str, CareerSourceCapture],
+        transformations: dict[str, CareerSourceTransformation],
+        receipt: WorkspaceMigrationReceipt,
+        pointer_values: dict[str, bytes],
+    ) -> str:
+        """Build an unreachable child commit with a private temporary index only."""
+        staged_paths = [
+            *(
+                f".career-evidence/sources/captures/{value.capture_id}/manifest.json"
+                for value in successors.values()
+            ),
+            *(
+                f".career-evidence/sources/transformations/{value.transformation_id}/manifest.json"
+                for value in transformations.values()
+            ),
+            *(
+                f".career-evidence/sources/derived-outputs/{value.output_hash.removeprefix('sha256:')}/manifest.json"
+                for value in transformations.values()
+            ),
+            f".career-evidence/sources/migration-receipts/{receipt.receipt_id}/manifest.json",
+        ]
+        timestamp = preflight.request.staged_at
+        try:
+            datetime.fromisoformat(timestamp)
+        except ValueError as exc:
+            raise CareerSourceError("career-source-migration-request-invalid") from exc
+        with tempfile.TemporaryDirectory(prefix="career-source-index-") as temporary:
+            index_path = str(Path(temporary) / "index")
+            environment = {"GIT_INDEX_FILE": index_path}
+            self._git("read-tree", preflight.request.baseline_commit, environment=environment)
+            self._git("add", "--", *staged_paths, environment=environment)
+            for source_id, value in sorted(pointer_values.items()):
+                blob = self._git(
+                    "hash-object", "-w", "--stdin", input_bytes=value, environment=environment
+                ).decode("ascii").strip()
+                self._git(
+                    "update-index",
+                    "--add",
+                    "--cacheinfo",
+                    f"100644,{blob},.career-evidence/sources/current-captures/{source_id}.json",
+                    environment=environment,
+                )
+            tree = self._git("write-tree", environment=environment).decode("ascii").strip()
+            identity = {
+                "GIT_AUTHOR_NAME": "career-evidence-custody",
+                "GIT_AUTHOR_EMAIL": "career-evidence-custody@invalid",
+                "GIT_AUTHOR_DATE": timestamp,
+                "GIT_COMMITTER_NAME": "career-evidence-custody",
+                "GIT_COMMITTER_EMAIL": "career-evidence-custody@invalid",
+                "GIT_COMMITTER_DATE": timestamp,
+            }
+            return self._git(
+                "commit-tree",
+                tree,
+                "-p",
+                preflight.request.baseline_commit,
+                "-m",
+                "career-source custody migration",
+                environment=environment | identity,
+            ).decode("ascii").strip()
+
+    def adjudicate_workspace_migration(
+        self,
+        request: dict[str, Any],
+        *,
+        expected_workspace_commit: str,
+        expected_retention_ref_oid: str,
+        fail_after: str | None = None,
+    ) -> dict[str, object]:
+        """Finalize one complete migration through the sole expected-old ref CAS."""
+        preflight = self._migration_preflight(request)
+        if expected_workspace_commit != preflight.request.baseline_commit:
+            raise CareerSourceError("career-source-migration-request-invalid")
+        _, oid_length = self._git_object_format()
+        if not re.fullmatch(rf"[0-9a-f]{{{oid_length}}}", expected_retention_ref_oid):
+            raise CareerSourceError("career-source-retention-ref-invalid")
+        self.stage_workspace_migration(request)
+        preflight = self._migration_preflight(request)
+        successors, transformations, receipt = self._migration_stage_values(preflight)
+        successor_by_id = {value.capture_id: value for value in successors.values()}
+        pointer_changes: list[tuple[Path, bytes, bytes]] = []
+        pointer_values: dict[str, bytes] = {}
+        for chain in preflight.request.chains:
+            if not chain.is_current_head:
+                continue
+            legacy = preflight.captures[chain.legacy_current_capture_id]
+            successor = successor_by_id[chain.successor_current_capture_id]
+            if legacy.source_id != chain.source_id or successor.source_id != chain.source_id:
+                raise CareerSourceError("career-source-migration-request-invalid")
+            pointer_values[chain.source_id] = self._pointer_bytes(successor)
+        candidate = self._deterministic_migration_commit(
+            preflight=preflight,
+            successors=successors,
+            transformations=transformations,
+            receipt=receipt,
+            pointer_values=pointer_values,
+        )
+        if not re.fullmatch(rf"[0-9a-f]{{{oid_length}}}", candidate):
+            raise CareerSourceError("career-source-migration-finalization-invalid")
+        actual_ref = self._retention_ref_value(oid_length)
+        zero = "0" * oid_length
+        if actual_ref == candidate:
+            if any(
+                self._semantic_path(f"current-captures/{source_id}.json").read_bytes() != value
+                for source_id, value in pointer_values.items()
+            ):
+                raise CareerSourceError("career-source-workspace-drift")
+            self.verify(expected_workspace_commit=candidate)
+            return {"adjudicated": True, "candidate_only": True, "workspace_commit": candidate}
+        if actual_ref is None:
+            if expected_retention_ref_oid != zero:
+                raise CareerSourceError("career-source-retention-ref-stale")
+        elif actual_ref != expected_retention_ref_oid:
+            raise CareerSourceError("career-source-retention-ref-stale")
+        for source_id, successor in sorted(pointer_values.items()):
+            path = self._semantic_path(f"current-captures/{source_id}.json")
+            legacy_capture_id = next(
+                chain.legacy_current_capture_id
+                for chain in preflight.request.chains
+                if chain.source_id == source_id and chain.is_current_head
+            )
+            legacy = self._pointer_bytes(preflight.captures[legacy_capture_id])
+            current = path.read_bytes()
+            if current == successor:
+                continue
+            if current != legacy:
+                raise CareerSourceError("career-source-workspace-drift")
+            self._replace_pointer_if_exact(path, legacy, successor)
+            pointer_changes.append((path, legacy, successor))
+        try:
+            self.verify(expected_workspace_commit=candidate)
+            if fail_after == "before-ref":
+                raise CareerSourceError("career-source-migration-finalization-interrupted")
+            try:
+                completed = subprocess.run(
+                    [
+                        "git",
+                        "update-ref",
+                        _CUSTODY_RETENTION_REF,
+                        candidate,
+                        expected_retention_ref_oid,
+                    ],
+                    cwd=self.workspace.root,
+                    check=False,
+                    capture_output=True,
+                )
+            except OSError as exc:
+                raise CareerSourceError("career-source-retention-ref-invalid") from exc
+            if completed.returncode != 0:
+                raise CareerSourceError("career-source-retention-ref-stale")
+        except CareerSourceError:
+            self._restore_attempt_pointers(pointer_changes)
+            raise
+        if self._retention_ref_value(oid_length) != candidate:
+            raise CareerSourceError("career-source-retention-ref-stale")
+        self.verify(expected_workspace_commit=candidate)
+        return {"adjudicated": True, "candidate_only": True, "workspace_commit": candidate}
+
     def capture_duplicates(
         self, first: dict[str, Any], second: dict[str, Any], source_bytes: bytes
     ) -> dict[str, Any]:
@@ -927,7 +1154,12 @@ class CareerSourceStore:
             ),
         }
 
-    def _git(self, *args: str) -> bytes:
+    def _git(
+        self,
+        *args: str,
+        input_bytes: bytes | None = None,
+        environment: dict[str, str] | None = None,
+    ) -> bytes:
         """Run a redacted Git query only in the selected private workspace."""
         try:
             completed = subprocess.run(
@@ -935,6 +1167,8 @@ class CareerSourceStore:
                 cwd=self.workspace.root,
                 check=False,
                 capture_output=True,
+                input=input_bytes,
+                env=os.environ | (environment or {}),
             )
         except OSError as exc:
             raise CareerSourceError("career-source-snapshot-anchor-invalid") from exc

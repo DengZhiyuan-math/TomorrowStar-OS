@@ -1105,6 +1105,18 @@ def test_migration_staging_retry_accepts_only_byte_identical_request_derived_fil
 
     assert interrupted.value.code == "career-source-migration-staging-interrupted"
     assert pointers_before == {path.name: path.read_bytes() for path in pointer_root.iterdir()}
+    assert store.stage_workspace_migration(request)["staged"] is True
+
+    successor = tmp_path / ".career-evidence/sources/captures/capture-successor-a/manifest.json"
+    successor.write_text("{}", encoding="utf-8")
+    with pytest.raises(module.CareerSourceError) as conflict:
+        store.stage_workspace_migration(request)
+
+    assert conflict.value.code in {
+        "career-source-migration-request-invalid",
+        "career-source-migration-staging-invalid",
+    }
+    assert pointers_before == {path.name: path.read_bytes() for path in pointer_root.iterdir()}
 
 
 def test_adjudicate_complete_workspace_creates_only_the_dedicated_retention_ref(
@@ -1127,15 +1139,101 @@ def test_adjudicate_complete_workspace_creates_only_the_dedicated_retention_ref(
     assert len(workspace_commit) == len(baseline)
     assert _git(tmp_path, "rev-parse", "refs/career-evidence/custody") == workspace_commit
     assert "career-evidence/custody" in _git(tmp_path, "show-ref")
-    assert store.stage_workspace_migration(request)["staged"] is True
 
-    successor = tmp_path / ".career-evidence/sources/captures/capture-successor-a/manifest.json"
-    successor.write_text("{}", encoding="utf-8")
-    with pytest.raises(module.CareerSourceError) as conflict:
-        store.stage_workspace_migration(request)
 
-    assert conflict.value.code in {
-        "career-source-migration-request-invalid",
-        "career-source-migration-staging-invalid",
-    }
-    assert pointers_before == {path.name: path.read_bytes() for path in pointer_root.iterdir()}
+def test_adjudicate_cli_requires_explicit_baseline_and_retention_ref_oid(tmp_path: Path) -> None:
+    """The public route cannot select a commit or retention state from ambient Git."""
+    _, baseline, records = _two_capture_migration_baseline(tmp_path)
+    request_path = tmp_path / "synthetic-migration-request.json"
+    request = _workspace_migration_request(baseline, records)
+    request_path.write_text(json.dumps(request), encoding="utf-8")
+
+    completed = _run(
+        "career-source",
+        "adjudicate",
+        "--workspace",
+        str(tmp_path),
+        "--request",
+        str(request_path),
+        "--expected-workspace-commit",
+        baseline,
+        "--expected-retention-ref-oid",
+        "0" * len(baseline),
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout)["adjudicated"] is True
+
+
+def test_retention_ref_cas_rejects_nonzero_absent_ref_and_pre_cas_interruptions(
+    tmp_path: Path,
+) -> None:
+    """Only the repository-format zero OID may create a missing custody ref."""
+    module = _require_career_sources()
+    store, baseline, records = _two_capture_migration_baseline(tmp_path)
+    request = _workspace_migration_request(baseline, records)
+    pointer = tmp_path / ".career-evidence/sources/current-captures/source-synthetic-a.json"
+    legacy = pointer.read_bytes()
+
+    with pytest.raises(module.CareerSourceError) as absent:
+        store.adjudicate_workspace_migration(
+            request,
+            expected_workspace_commit=baseline,
+            expected_retention_ref_oid=baseline,
+        )
+
+    assert absent.value.code == "career-source-retention-ref-stale"
+    assert pointer.read_bytes() == legacy
+    with pytest.raises(module.CareerSourceError) as interrupted:
+        store.adjudicate_workspace_migration(
+            request,
+            expected_workspace_commit=baseline,
+            expected_retention_ref_oid="0" * len(baseline),
+            fail_after="before-ref",
+        )
+
+    assert interrupted.value.code == "career-source-migration-finalization-interrupted"
+    assert pointer.read_bytes() == legacy
+    assert "career-evidence/custody" not in _git(tmp_path, "show-ref")
+
+
+def test_retention_ref_cas_failure_restores_only_this_attempts_exact_pointers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A third ref value makes CAS fail without leaving a successor pointer authoritative."""
+    import career_evidence_graph.career_sources as custody_module
+
+    module = _require_career_sources()
+    store, baseline, records = _two_capture_migration_baseline(tmp_path)
+    request = _workspace_migration_request(baseline, records)
+    pointer = tmp_path / ".career-evidence/sources/current-captures/source-synthetic-a.json"
+    legacy = pointer.read_bytes()
+    original_run = custody_module.subprocess.run
+
+    def race_ref(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        if args[:2] == ["git", "update-ref"] and args[2] == "refs/career-evidence/custody":
+            original_run(
+                [
+                    "git",
+                    "update-ref",
+                    "refs/career-evidence/custody",
+                    baseline,
+                    "0" * len(baseline),
+                ],
+                cwd=tmp_path,
+                check=True,
+                capture_output=True,
+            )
+        return original_run(args, **kwargs)
+
+    monkeypatch.setattr(custody_module.subprocess, "run", race_ref)
+    with pytest.raises(module.CareerSourceError) as error:
+        store.adjudicate_workspace_migration(
+            request,
+            expected_workspace_commit=baseline,
+            expected_retention_ref_oid="0" * len(baseline),
+        )
+
+    assert error.value.code == "career-source-retention-ref-stale"
+    assert _git(tmp_path, "rev-parse", "refs/career-evidence/custody") == baseline
+    assert pointer.read_bytes() == legacy

@@ -354,6 +354,11 @@ def _parser() -> argparse.ArgumentParser:
     source_verify = source_commands.add_parser("verify")
     source_verify.add_argument("--workspace", required=True)
     source_verify.add_argument("--expected-workspace-commit", required=True)
+    source_adjudicate = source_commands.add_parser("adjudicate")
+    source_adjudicate.add_argument("--workspace", required=True)
+    source_adjudicate.add_argument("--request", required=True)
+    source_adjudicate.add_argument("--expected-workspace-commit", required=True)
+    source_adjudicate.add_argument("--expected-retention-ref-oid", required=True)
     return parser
 
 
@@ -862,6 +867,21 @@ def main(argv: list[str] | None = None) -> int:
                 expected_workspace_commit=args.expected_workspace_commit
             )
             _emit({"candidate_only": True, "verified": True})
+        elif args.command == "career-source" and args.career_source_command == "adjudicate":
+            request_path = Path(args.request)
+            try:
+                if request_path.is_symlink() or not request_path.is_file():
+                    raise ValueError
+                request = json.loads(request_path.read_bytes())
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                raise CareerSourceError("career-source-migration-request-invalid") from exc
+            _emit(
+                CareerSourceStore(Path(args.workspace)).adjudicate_workspace_migration(
+                    request,
+                    expected_workspace_commit=args.expected_workspace_commit,
+                    expected_retention_ref_oid=args.expected_retention_ref_oid,
+                )
+            )
         return 0
     except CareerSourceError as exc:
         _emit_error({"valid": False, "error": exc.code})
