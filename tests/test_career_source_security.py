@@ -238,56 +238,41 @@ def test_complete_synthetic_cli_flow_has_no_later_phase_authority_side_effects(
         "resumes",
     )
 
-    for command in (
-        (
-            "career-source",
-            "declare",
-            "--workspace",
-            workspace,
-            "--cutoff",
-            "2001-02-03",
-            "--category",
-            "projects",
-            "--source-id",
-            "source-synthetic-authority",
-            "--availability",
-            "available",
-        ),
-        (
-            "career-source",
-            "capture",
-            "--workspace",
-            workspace,
-            "--source-id",
-            "source-synthetic-authority",
-            "--paste",
-            source,
-        ),
-        (
-            "career-source",
-            "transform",
-            "--workspace",
-            workspace,
-            "--source-id",
-            "source-synthetic-authority",
-            "--transformation-id",
-            "transform-synthetic-authority",
-            "--transformer",
-            "deterministic",
-            "--version",
-            "v1",
-            "--configuration-json",
-            "{}",
-        ),
-    ):
-        result = _run(*command)
-        assert result.returncode == 0, result.stderr
-
+    declared = _run(
+        "career-source", "declare", "--workspace", workspace, "--cutoff", "2001-02-03",
+        "--category", "projects", "--source-id", "source-synthetic-authority", "--availability",
+        "available",
+    )
+    assert declared.returncode == 0, declared.stderr
     (tmp_path / ".gitignore").write_text(".career-evidence/raw/\n", encoding="utf-8")
     _git(tmp_path, "init", "--quiet")
     _git(tmp_path, "config", "user.email", "synthetic@example.invalid")
     _git(tmp_path, "config", "user.name", "Synthetic Test")
     _git(tmp_path, "add", ".gitignore", ".career-evidence/sources")
+    _git(tmp_path, "commit", "--quiet", "-m", "synthetic declaration baseline")
+    capture = _run(
+        "career-source",
+        "capture",
+        "--workspace",
+        workspace,
+        "--expected-workspace-commit",
+        _git(tmp_path, "rev-parse", "HEAD"),
+        "--source-id",
+        "source-synthetic-authority",
+        "--paste",
+        source,
+    )
+    assert capture.returncode == 0, capture.stderr
+    _git(tmp_path, "add", ".career-evidence/sources")
+    _git(tmp_path, "commit", "--quiet", "-m", "synthetic capture baseline")
+    transformed = _run(
+        "career-source", "transform", "--workspace", workspace, "--expected-workspace-commit",
+        _git(tmp_path, "rev-parse", "HEAD"), "--source-id", "source-synthetic-authority",
+        "--transformation-id", "transform-synthetic-authority", "--transformer", "deterministic",
+        "--version", "v1", "--configuration-json", "{}",
+    )
+    assert transformed.returncode == 0, transformed.stderr
+    _git(tmp_path, "add", ".career-evidence/sources")
     _git(tmp_path, "commit", "--quiet", "-m", "synthetic custody snapshot")
     verified = _run(
         "career-source",
@@ -364,10 +349,12 @@ def test_cli_file_capture_rejects_unsupported_format_without_echoing_private_val
 
     result = _run(
         "career-source",
-        "capture",
-        "--workspace",
-        str(tmp_path),
-        "--source-id",
+            "capture",
+            "--workspace",
+            str(tmp_path),
+            "--expected-workspace-commit",
+            "0" * 40,
+            "--source-id",
         RAW_LABEL,
         "--file",
         str(source),

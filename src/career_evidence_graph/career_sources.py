@@ -213,7 +213,13 @@ class CareerSourceStore:
                 raise CareerSourceError("career-source-capture-predecessor-invalid")
         return capture
 
-    def capture(self, capture: dict[str, Any], source_bytes: bytes) -> dict[str, Any]:
+    def capture(
+        self,
+        capture: dict[str, Any],
+        source_bytes: bytes,
+        *,
+        expected_workspace_commit: str | None = None,
+    ) -> dict[str, Any]:
         try:
             if capture.get("schema_version") == "career-source-capture/v1":
                 raise CareerSourceError("career-source-capture-migration-required")
@@ -241,6 +247,8 @@ class CareerSourceStore:
             raise
         except (TypeError, ValueError) as exc:
             raise CareerSourceError("career-source-capture-invalid") from exc
+        if expected_workspace_commit is not None:
+            self._commit_blob_inventory(expected_workspace_commit)
         self._ensure_root()
         try:
             captures = self._workspace_path("sources", "captures")
@@ -256,10 +264,12 @@ class CareerSourceStore:
         raw_path = self._raw_path(stored.content_hash)
         if raw_path.is_symlink():
             raise CareerSourceError("career-source-capture-raw-unsafe")
+        raw_created = False
         try:
             if not raw_path.exists():
                 with raw_path.open("xb") as raw_file:
                     raw_file.write(source_bytes)
+                raw_created = True
             elif sha256_digest(raw_path.read_bytes()) != stored.content_hash:
                 raise CareerSourceError("career-source-capture-raw-invalid")
             create_only_canonical_bundle(
@@ -278,8 +288,12 @@ class CareerSourceStore:
                 ).model_dump(mode="json"),
             )
         except CareerSourceError:
+            if raw_created and expected_workspace_commit is not None:
+                self._cleanup_attempt_raw(stored.content_hash, expected_workspace_commit)
             raise
         except (FormalRunStorageError, OSError) as exc:
+            if raw_created and expected_workspace_commit is not None:
+                self._cleanup_attempt_raw(stored.content_hash, expected_workspace_commit)
             raise CareerSourceError("career-source-capture-already-exists") from exc
         return stored.model_dump(mode="json")
 
@@ -325,7 +339,11 @@ class CareerSourceStore:
         return self._semantic_path(f"derived-outputs/{digest}/manifest.json")
 
     def transform(
-        self, transformation: dict[str, Any], output_bytes: bytes | None = None
+        self,
+        transformation: dict[str, Any],
+        output_bytes: bytes | None = None,
+        *,
+        expected_workspace_commit: str | None = None,
     ) -> dict[str, Any]:
         try:
             if transformation.get("schema_version") == "career-source-transformation/v1":
@@ -354,7 +372,10 @@ class CareerSourceStore:
             raise
         except (OSError, TypeError, ValueError, KeyError) as exc:
             raise CareerSourceError("career-source-transformation-invalid") from exc
+        if expected_workspace_commit is not None:
+            self._commit_blob_inventory(expected_workspace_commit)
         self._ensure_root()
+        raw_created = False
         try:
             transformations = self._workspace_path("sources", "transformations")
             transformations.mkdir(exist_ok=True)
@@ -372,6 +393,7 @@ class CareerSourceStore:
             if not raw_path.exists():
                 with raw_path.open("xb") as raw_file:
                     raw_file.write(output_bytes)
+                raw_created = True
             elif sha256_digest(raw_path.read_bytes()) != stored.output_hash:
                 raise OSError
             output_manifest = DerivedOutputManifest(
@@ -399,8 +421,12 @@ class CareerSourceStore:
                 {"manifest.json": stored.model_dump(mode="json")},
             )
         except CareerSourceError:
+            if raw_created and expected_workspace_commit is not None:
+                self._cleanup_attempt_raw(stored.output_hash, expected_workspace_commit)
             raise
         except (FormalRunStorageError, OSError, ValidationError) as exc:
+            if raw_created and expected_workspace_commit is not None:
+                self._cleanup_attempt_raw(stored.output_hash, expected_workspace_commit)
             raise CareerSourceError("career-source-transformation-already-exists") from exc
         return stored.model_dump(mode="json")
 
@@ -1364,6 +1390,45 @@ class CareerSourceStore:
                 raise CareerSourceError("career-source-snapshot-invalid")
             blobs[relative] = self._git("cat-file", "blob", object_id)
         return blobs
+
+    @staticmethod
+    def _raw_hashes_in_value(value: object) -> set[str]:
+        """Find canonical raw-object references without treating any other text as a path."""
+        if isinstance(value, str) and re.fullmatch(r"sha256:[0-9a-f]{64}", value):
+            return {value}
+        if isinstance(value, dict):
+            return set().union(
+                *(CareerSourceStore._raw_hashes_in_value(item) for item in value.values())
+            )
+        if isinstance(value, list):
+            return set().union(*(CareerSourceStore._raw_hashes_in_value(item) for item in value))
+        return set()
+
+    def _raw_reference_set(self, blobs: dict[str, bytes]) -> set[str]:
+        try:
+            values = (json.loads(payload) for payload in blobs.values())
+            return set().union(*(self._raw_hashes_in_value(value) for value in values))
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise CareerSourceError("career-source-cleanup-needed") from exc
+
+    def _cleanup_attempt_raw(self, content_hash: str, expected_workspace_commit: str) -> None:
+        """Unlink only an attempt-owned object absent from exact commit and current state."""
+        try:
+            committed_references = self._raw_reference_set(
+                self._commit_blob_inventory(expected_workspace_commit)
+            )
+            working_references = self._raw_reference_set(self._working_blob_inventory())
+            raw_path = self._raw_path(content_hash)
+            if (
+                content_hash in committed_references | working_references
+                or raw_path.is_symlink()
+                or not raw_path.is_file()
+                or self._raw_path(content_hash) != raw_path
+            ):
+                raise CareerSourceError("career-source-cleanup-needed")
+            raw_path.unlink()
+        except (OSError, CareerSourceError) as exc:
+            raise CareerSourceError("career-source-cleanup-needed") from exc
 
     @staticmethod
     def _is_semantic_path(relative: str) -> bool:

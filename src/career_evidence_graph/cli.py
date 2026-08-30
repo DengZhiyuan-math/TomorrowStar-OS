@@ -336,6 +336,7 @@ def _parser() -> argparse.ArgumentParser:
     source_declare.add_argument("--availability", required=True)
     source_capture = source_commands.add_parser("capture")
     source_capture.add_argument("--workspace", required=True)
+    source_capture.add_argument("--expected-workspace-commit", required=True)
     source_capture.add_argument("--source-id", required=True)
     source_capture.add_argument("--capture-id")
     source_capture.add_argument("--predecessor-capture-id")
@@ -344,6 +345,7 @@ def _parser() -> argparse.ArgumentParser:
     raw_source.add_argument("--file")
     source_transform = source_commands.add_parser("transform")
     source_transform.add_argument("--workspace", required=True)
+    source_transform.add_argument("--expected-workspace-commit", required=True)
     source_transform.add_argument("--source-id", required=True)
     source_transform.add_argument("--transformation-id", required=True)
     source_transform.add_argument("--transformer", required=True)
@@ -832,6 +834,7 @@ def main(argv: list[str] | None = None) -> int:
                     "authority": "candidate-only",
                 },
                 source,
+                expected_workspace_commit=args.expected_workspace_commit,
             )
             _emit({"captured": True, "candidate_only": True})
         elif args.command == "career-source" and args.career_source_command == "transform":
@@ -857,7 +860,8 @@ def main(argv: list[str] | None = None) -> int:
                     "locator": {"kind": "whole-source", "declared_fallback": True},
                     "authority": "candidate-only",
                     "candidate_only": True,
-                }
+                },
+                expected_workspace_commit=args.expected_workspace_commit,
             )
             _emit({"transformed": True, "candidate_only": True})
         elif args.command == "career-source" and args.career_source_command == "inspect":

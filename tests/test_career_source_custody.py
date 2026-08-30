@@ -168,6 +168,20 @@ def committed_synthetic_snapshot(tmp_path: Path) -> tuple[Any, str]:
     return store, _git(tmp_path, "rev-parse", "HEAD")
 
 
+def test_raw_cleanup_removes_only_new_unreferenced_attempt_object(tmp_path: Path) -> None:
+    """A failed publication may clean an exact new orphan, never an existing custody object."""
+    store, baseline = committed_synthetic_snapshot(tmp_path)
+    duplicate = synthetic_capture()
+    body = b"synthetic-new-orphan"
+    duplicate["content_hash"] = sha256_digest(body)
+    raw = tmp_path / ".career-evidence/raw" / duplicate["content_hash"].removeprefix("sha256:")
+
+    with pytest.raises(_require_career_sources().CareerSourceError):
+        store.capture(duplicate, body, expected_workspace_commit=baseline)
+
+    assert not raw.exists()
+
+
 def test_tracer_synthetic_path_is_candidate_only_and_has_no_assessment_authority(tmp_path) -> None:
     module = _require_career_sources()
     store = module.CareerSourceStore(tmp_path)
@@ -406,12 +420,20 @@ def test_tracer_declares_captures_transforms_and_inspects_without_authority(tmp_
     )
     assert declared.returncode == 0, declared.stderr
     assert json.loads(declared.stdout) == {"declared": True, "candidate_only": True}
+    (tmp_path / ".gitignore").write_text(".career-evidence/raw/\n", encoding="utf-8")
+    _git(tmp_path, "init", "--quiet")
+    _git(tmp_path, "config", "user.email", "synthetic@example.invalid")
+    _git(tmp_path, "config", "user.name", "Synthetic Test")
+    _git(tmp_path, "add", ".gitignore", ".career-evidence/sources")
+    _git(tmp_path, "commit", "--quiet", "-m", "synthetic declaration baseline")
 
     captured = _run(
         "career-source",
         "capture",
         "--workspace",
         workspace,
+        "--expected-workspace-commit",
+        _git(tmp_path, "rev-parse", "HEAD"),
         "--source-id",
         "source-probe",
         "--paste",
@@ -419,12 +441,16 @@ def test_tracer_declares_captures_transforms_and_inspects_without_authority(tmp_
     )
     assert captured.returncode == 0, captured.stderr
     assert json.loads(captured.stdout) == {"captured": True, "candidate_only": True}
+    _git(tmp_path, "add", ".career-evidence/sources")
+    _git(tmp_path, "commit", "--quiet", "-m", "synthetic capture baseline")
 
     transformed = _run(
         "career-source",
         "transform",
         "--workspace",
         workspace,
+        "--expected-workspace-commit",
+        _git(tmp_path, "rev-parse", "HEAD"),
         "--source-id",
         "source-probe",
         "--transformation-id",
@@ -658,12 +684,20 @@ def test_exact_source_id_transform_uses_only_its_current_capture_pointer(tmp_pat
     )
     store.capture(alpha, b"synthetic-alpha")
     store.capture(beta, b"synthetic-beta")
+    (tmp_path / ".gitignore").write_text(".career-evidence/raw/\n", encoding="utf-8")
+    _git(tmp_path, "init", "--quiet")
+    _git(tmp_path, "config", "user.email", "synthetic@example.invalid")
+    _git(tmp_path, "config", "user.name", "Synthetic Test")
+    _git(tmp_path, "add", ".gitignore", ".career-evidence/sources")
+    _git(tmp_path, "commit", "--quiet", "-m", "synthetic transform baseline")
 
     transformed = _run(
         "career-source",
         "transform",
         "--workspace",
         str(tmp_path),
+        "--expected-workspace-commit",
+        _git(tmp_path, "rev-parse", "HEAD"),
         "--source-id",
         "source-alpha",
         "--transformation-id",
