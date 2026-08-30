@@ -281,6 +281,33 @@ def test_routine_status_keeps_the_same_safe_contract_after_private_materializati
     }
 
 
+@pytest.mark.parametrize(
+    "namespace",
+    (
+        "declarations",
+        "captures",
+        "current-captures",
+        "transformations",
+        "migration-receipts",
+        "derived-outputs",
+    ),
+)
+def test_routine_status_rejects_every_semantic_namespace_symlink(
+    tmp_path: Path, namespace: str
+) -> None:
+    module = _require_career_sources()
+    source_root = tmp_path / ".career-evidence" / "sources"
+    source_root.mkdir(parents=True)
+    external = tmp_path / "synthetic-status-external"
+    external.mkdir()
+    (source_root / namespace).symlink_to(external, target_is_directory=True)
+
+    with pytest.raises(module.CareerSourceError) as raised:
+        module.CareerSourceStore(tmp_path).safe_status()
+
+    assert raised.value.code == "career-source-private-root-unsafe"
+
+
 def test_complete_synthetic_cli_flow_has_no_later_phase_authority_side_effects(
     tmp_path: Path,
 ) -> None:

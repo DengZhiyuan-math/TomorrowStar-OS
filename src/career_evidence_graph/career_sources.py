@@ -1316,14 +1316,34 @@ class CareerSourceStore:
             return empty_status
         if self.root.parent.is_symlink() or self.root.is_symlink() or not self.root.is_dir():
             raise CareerSourceError("career-source-private-root-unsafe")
-        declarations = self.root / "declarations"
-        captures = self.root / "captures"
-        transformations = self.root / "transformations"
+        try:
+            namespaces = {
+                name: self._workspace_path("sources", name)
+                for name in (
+                    "declarations",
+                    "captures",
+                    "current-captures",
+                    "transformations",
+                    "migration-receipts",
+                    "derived-outputs",
+                )
+            }
+            for namespace in (*namespaces.values(), self.raw_root):
+                if namespace.is_symlink() or (namespace.exists() and not namespace.is_dir()):
+                    raise ValueError
+        except (CareerSourceError, OSError, ValueError) as exc:
+            raise CareerSourceError("career-source-private-root-unsafe") from exc
+        declarations = namespaces["declarations"]
+        captures = namespaces["captures"]
+        transformations = namespaces["transformations"]
         return {
             "backup_state": "not-configured",
             "candidate_only": True,
             "capture_count": len(tuple(captures.glob("*"))) if captures.is_dir() else 0,
-            "declaration_present": (declarations / "current.json").is_file(),
+            "declaration_present": (
+                not (declarations / "current.json").is_symlink()
+                and (declarations / "current.json").is_file()
+            ),
             "source_revision_count": (
                 len(tuple(path for path in declarations.iterdir() if path.is_dir()))
                 if declarations.is_dir()
