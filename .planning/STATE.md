@@ -5,16 +5,16 @@ milestone_name: Full Career Graph and Real JD Validation
 current_phase: 07
 current_phase_name: Career Source Custody and Private Workspace
 status: verifying
-stopped_at: Completed 07-04-PLAN.md
-last_updated: "2026-08-30T21:55:59.105Z"
+stopped_at: Completed 07-05-PLAN.md
+last_updated: "2026-08-30T22:06:26.652Z"
 last_activity: 2026-08-29
 last_activity_desc: Phase 07 execution started
-state_head: da16043b01ba8b205d8339ec8ec504cf029e25da
+state_head: 8f5a4981b73e9fb3741394c2fe0e8e24d7304777
 progress:
   total_phases: 8
   completed_phases: 0
   total_plans: 9
-  completed_plans: 5
+  completed_plans: 6
   percent: 0
 ---
 
@@ -87,6 +87,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 07 P02 | 38min | 3 tasks | 3 files |
 | Phase 07 P03 | 37min | 3 tasks | 4 files |
 | Phase 07 P04 | 43min | 2 tasks | 5 files |
+| Phase 07-career-source-custody-and-private-workspace P05 | 10min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -148,6 +149,9 @@ Recent decisions affecting current work:
 - [Phase 07]: Phase 07: Approved external custody authorizes the generic workflow only; it establishes no source review or actual-format inventory.
 - [Phase 07]: Phase 07-04: Global source custody verification requires a caller-supplied complete private-Git commit OID and rejects refs, tags, abbreviations, and ambient state.
 - [Phase 07]: Phase 07-04: A single semantic namespace registry and exact committed-versus-working blob comparison authorize expected-zero and empty custody snapshots.
+- [Phase 07]: Transforms resolve only the caller-named current-capture pointer; capture-directory order is never authority.
+- [Phase 07]: Derived candidate bytes share the existing private raw vault while their tracked manifest is addressed by the unprefixed SHA-256 digest.
+- [Phase 07]: A global verification snapshot requires bidirectional closure between transformations, output manifests, and recomputed retained bytes.
 
 ### Pending Todos
 
@@ -178,8 +182,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-30T21:55:59.091Z
-Stopped at: Completed 07-04-PLAN.md
+Last session: 2026-08-30T22:06:26.612Z
+Stopped at: Completed 07-05-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
