@@ -5,16 +5,16 @@ milestone_name: Full Career Graph and Real JD Validation
 current_phase: 07
 current_phase_name: Career Source Custody and Private Workspace
 status: verifying
-stopped_at: Completed 07-07-PLAN.md
-last_updated: "2026-08-30T22:34:40.450Z"
+stopped_at: Completed 07-08-PLAN.md
+last_updated: "2026-08-30T22:44:57.138Z"
 last_activity: 2026-08-29
 last_activity_desc: Phase 07 execution started
-state_head: f736e7489b4ec18daf8e76fea3505d2a50e5be90
+state_head: acb11f96e27df20a0145498f20be4c6dddac8886
 progress:
   total_phases: 8
   completed_phases: 0
   total_plans: 9
-  completed_plans: 8
+  completed_plans: 9
   percent: 0
 ---
 
@@ -90,6 +90,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 07-career-source-custody-and-private-workspace P05 | 10min | 2 tasks | 4 files |
 | Phase 07 P06 | 5min | 2 tasks | 3 files |
 | Phase 07-career-source-custody-and-private-workspace P07 | 10m | 2 tasks | 3 files |
+| Phase 07-career-source-custody-and-private-workspace P08 | 27m | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -158,6 +159,8 @@ Recent decisions affecting current work:
 - [Phase 07]: Retry staging accepts only byte-identical request-derived files and cannot move pointers or create Git authority.
 - [Phase 07]: Phase 07-07: refs/career-evidence/custody is the sole migration retention ref; retries require deterministic explicit-commit verification.
 - [Phase 07]: Phase 07-07: later current heads must prove the immutable receipt successor through a fully authenticated same-source predecessor chain.
+- [Phase 07]: Capture and transform mutations require a caller-supplied full baseline OID; cleanup never derives authority from HEAD, refs, or pointers.
+- [Phase 07]: Raw cleanup unlinks only attempt-created objects absent from exact committed and validated working references.
 
 ### Pending Todos
 
@@ -188,8 +191,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-30T22:34:40.434Z
-Stopped at: Completed 07-07-PLAN.md
+Last session: 2026-08-30T22:44:57.123Z
+Stopped at: Completed 07-08-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
