@@ -1410,6 +1410,166 @@ class CareerSourceStore:
             raise CareerSourceError("career-source-snapshot-invalid")
         return referenced
 
+    def _is_git_ancestor(self, ancestor: str, descendant: str) -> bool:
+        try:
+            completed = subprocess.run(
+                ["git", "merge-base", "--is-ancestor", ancestor, descendant],
+                cwd=self.workspace.root,
+                check=False,
+                capture_output=True,
+            )
+        except OSError as exc:
+            raise CareerSourceError("career-source-snapshot-invalid") from exc
+        if completed.returncode not in {0, 1}:
+            raise CareerSourceError("career-source-snapshot-invalid")
+        return completed.returncode == 0
+
+    def _receipt_baseline_records(
+        self, receipt: WorkspaceMigrationReceipt
+    ) -> tuple[dict[str, CareerSourceCapture], dict[str, CareerSourceTransformation]]:
+        """Read immutable legacy records only from a receipt's committed baseline."""
+        try:
+            captures: dict[str, CareerSourceCapture] = {}
+            transformations: dict[str, CareerSourceTransformation] = {}
+            for relative, payload in self._commit_blob_inventory(receipt.baseline_commit).items():
+                parts = tuple(relative.split("/"))
+                if parts[:1] == ("captures",):
+                    capture = CareerSourceCapture.model_validate_json(payload)
+                    if parts != ("captures", capture.capture_id, "manifest.json"):
+                        raise ValueError
+                    captures[capture.capture_id] = capture
+                elif parts[:1] == ("transformations",):
+                    transformation = CareerSourceTransformation.model_validate_json(payload)
+                    if parts != (
+                        "transformations",
+                        transformation.transformation_id,
+                        "manifest.json",
+                    ):
+                        raise ValueError
+                    transformations[transformation.transformation_id] = transformation
+            if not captures or set(
+                item.legacy_capture_id for item in receipt.captures
+            ) != set(captures):
+                raise ValueError
+            if set(item.legacy_transformation_id for item in receipt.transformations) != set(
+                transformations
+            ):
+                raise ValueError
+            return captures, transformations
+        except (CareerSourceError, ValueError, ValidationError) as exc:
+            raise CareerSourceError("career-source-snapshot-invalid") from exc
+
+    def _verified_descendant_contains(
+        self, *, capture: CareerSourceCapture, source_id: str, expected_ancestor: str
+    ) -> bool:
+        """Walk an authenticated same-source predecessor chain with cycle detection."""
+        seen: set[str] = set()
+        current = capture
+        while True:
+            if current.source_id != source_id or current.capture_id in seen:
+                raise CareerSourceError("career-source-snapshot-invalid")
+            if current.capture_id == expected_ancestor:
+                return True
+            seen.add(current.capture_id)
+            if current.predecessor_capture_id is None:
+                return False
+            current = self._verify_capture(
+                current.predecessor_capture_id, ancestry=frozenset(seen)
+            )
+
+    def _verify_migration_receipts(
+        self,
+        *,
+        expected_workspace_commit: str,
+        capture_values: tuple[CareerSourceCapture, ...],
+    ) -> None:
+        """Keep receipts immutable while accepting verified same-source recapture descendants."""
+        receipt_root = self.root / "migration-receipts"
+        if not receipt_root.exists():
+            return
+        if receipt_root.is_symlink() or not receipt_root.is_dir():
+            raise CareerSourceError("career-source-snapshot-invalid")
+        current_by_source = {
+            capture.source_id: self.current_capture(capture.source_id)
+            for capture in capture_values
+        }
+        capture_by_id = {capture.capture_id: capture for capture in capture_values}
+        transformation_root = self.root / "transformations"
+        try:
+            for receipt_path in receipt_root.iterdir():
+                if (
+                    receipt_path.is_symlink()
+                    or not receipt_path.is_dir()
+                    or {item.name for item in receipt_path.iterdir()} != {"manifest.json"}
+                ):
+                    raise ValueError
+                receipt = WorkspaceMigrationReceipt.model_validate_json(
+                    (receipt_path / "manifest.json").read_bytes()
+                )
+                if receipt.receipt_id != receipt_path.name or not self._is_git_ancestor(
+                    receipt.baseline_commit, expected_workspace_commit
+                ):
+                    raise ValueError
+                legacy_captures, legacy_transformations = self._receipt_baseline_records(receipt)
+                capture_mapping = {
+                    item.legacy_capture_id: item.successor_capture_id for item in receipt.captures
+                }
+                if set(capture_mapping) != set(legacy_captures):
+                    raise ValueError
+                for legacy_id, successor_id in capture_mapping.items():
+                    legacy = legacy_captures[legacy_id]
+                    expected = legacy.model_copy(
+                        update={
+                            "capture_id": successor_id,
+                            "predecessor_capture_id": (
+                                None
+                                if legacy.predecessor_capture_id is None
+                                else capture_mapping[legacy.predecessor_capture_id]
+                            ),
+                        }
+                    )
+                    if successor_id not in capture_by_id or canonical_json_bytes(
+                        capture_by_id[successor_id]
+                    ) != canonical_json_bytes(expected):
+                        raise ValueError
+                receipt_sources = {chain.source_id for chain in receipt.chains}
+                if set(current_by_source) != receipt_sources:
+                    raise ValueError
+                for chain in receipt.chains:
+                    if not self._verified_descendant_contains(
+                        capture=current_by_source[chain.source_id],
+                        source_id=chain.source_id,
+                        expected_ancestor=chain.successor_current_capture_id,
+                    ):
+                        raise ValueError
+                transformation_mapping = {
+                    item.legacy_transformation_id: item.successor_transformation_id
+                    for item in receipt.transformations
+                }
+                if set(transformation_mapping) != set(legacy_transformations):
+                    raise ValueError
+                for legacy_id, successor_id in transformation_mapping.items():
+                    legacy = legacy_transformations[legacy_id]
+                    expected = legacy.model_copy(
+                        update={
+                            "transformation_id": successor_id,
+                            "input_capture_id": capture_mapping[legacy.input_capture_id],
+                            "predecessor_capture_id": capture_mapping[legacy.input_capture_id],
+                        }
+                    )
+                    manifest = transformation_root / successor_id / "manifest.json"
+                    if (
+                        manifest.is_symlink()
+                        or not manifest.is_file()
+                        or canonical_json_bytes(
+                            CareerSourceTransformation.model_validate_json(manifest.read_bytes())
+                        )
+                        != canonical_json_bytes(expected)
+                    ):
+                        raise ValueError
+        except (CareerSourceError, OSError, ValueError, ValidationError) as exc:
+            raise CareerSourceError("career-source-snapshot-invalid") from exc
+
     def verify(self, *, expected_workspace_commit: str) -> dict[str, object]:
         """Authenticate the current source snapshot against one exact Git commit."""
         committed = self._commit_blob_inventory(expected_workspace_commit)
@@ -1433,6 +1593,10 @@ class CareerSourceStore:
             for capture in capture_values:
                 self._verify_capture(capture.capture_id, ancestry=frozenset())
             output_hashes = self._verify_transformation_inventory()
+            self._verify_migration_receipts(
+                expected_workspace_commit=expected_workspace_commit,
+                capture_values=capture_values,
+            )
         except (
             CareerSourceError,
             OSError,

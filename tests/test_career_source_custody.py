@@ -1237,3 +1237,87 @@ def test_retention_ref_cas_failure_restores_only_this_attempts_exact_pointers(
     assert error.value.code == "career-source-retention-ref-stale"
     assert _git(tmp_path, "rev-parse", "refs/career-evidence/custody") == baseline
     assert pointer.read_bytes() == legacy
+
+
+def test_post_migration_recapture_requires_a_same_source_descendant_chain(tmp_path: Path) -> None:
+    """A later snapshot may advance only the receipt source through its successor head."""
+    module = _require_career_sources()
+    store, baseline, records = _two_capture_migration_baseline(tmp_path)
+    request = _workspace_migration_request(baseline, records)
+    migration = store.adjudicate_workspace_migration(
+        request,
+        expected_workspace_commit=baseline,
+        expected_retention_ref_oid="0" * len(baseline),
+    )
+    successor = synthetic_recapture()
+    successor.update(
+        {
+            "capture_id": "capture-post-migration-a",
+            "predecessor_capture_id": "capture-successor-b",
+        }
+    )
+    store.capture(successor, b"synthetic-raw-body-sentinel-v2")
+    descendant = _commit_synthetic_sources(tmp_path, "synthetic post-migration recapture")
+
+    assert store.verify(expected_workspace_commit=descendant)["candidate_only"] is True
+    assert migration["workspace_commit"] != descendant
+
+    other = synthetic_capture(capture_id="capture-post-migration-other")
+    other.update(
+        {
+            "source_id": "source-synthetic-unavailable",
+            "content_hash": sha256_digest(b"synthetic-other-source"),
+        }
+    )
+    store.capture(other, b"synthetic-other-source")
+    unrelated = _commit_synthetic_sources(tmp_path, "synthetic unrelated source recapture")
+
+    with pytest.raises(module.CareerSourceError):
+        store.verify(expected_workspace_commit=unrelated)
+
+
+def test_migration_head_temporal_allows_grandchildren_but_rejects_a_skipped_successor(
+    tmp_path: Path,
+) -> None:
+    """Temporal receipt checks require the migrated head in every later source chain."""
+    module = _require_career_sources()
+    store, baseline, records = _two_capture_migration_baseline(tmp_path)
+    request = _workspace_migration_request(baseline, records)
+    store.adjudicate_workspace_migration(
+        request,
+        expected_workspace_commit=baseline,
+        expected_retention_ref_oid="0" * len(baseline),
+    )
+    child = synthetic_recapture()
+    child.update(
+        {
+            "capture_id": "capture-post-migration-child",
+            "predecessor_capture_id": "capture-successor-b",
+        }
+    )
+    store.capture(child, b"synthetic-raw-body-sentinel-v2")
+    _commit_synthetic_sources(tmp_path, "synthetic migration child")
+    grandchild = synthetic_recapture()
+    grandchild.update(
+        {
+            "capture_id": "capture-post-migration-grandchild",
+            "predecessor_capture_id": "capture-post-migration-child",
+        }
+    )
+    store.capture(grandchild, b"synthetic-raw-body-sentinel-v2")
+    descendant = _commit_synthetic_sources(tmp_path, "synthetic migration grandchild")
+
+    assert store.verify(expected_workspace_commit=descendant)["candidate_only"] is True
+
+    skipped = synthetic_recapture()
+    skipped.update(
+        {
+            "capture_id": "capture-post-migration-skipped",
+            "predecessor_capture_id": "capture-successor-a",
+        }
+    )
+    store.capture(skipped, b"synthetic-raw-body-sentinel-v2")
+    skipped_commit = _commit_synthetic_sources(tmp_path, "synthetic skipped migration head")
+
+    with pytest.raises(module.CareerSourceError):
+        store.verify(expected_workspace_commit=skipped_commit)
