@@ -132,14 +132,11 @@ class CareerSourceStore:
             except (CareerSourceError, OSError, ValueError) as exc:
                 raise CareerSourceError("career-source-declaration-predecessor-missing") from exc
         try:
-            create_only_canonical_bundle(
-                declarations,
-                revision_id,
-                {"manifest.json": json.loads(universe.canonical_bytes())},
-            )
-            atomic_write_canonical_json(
-                declarations / "current.json", json.loads(universe.canonical_bytes())
-            )
+            if self._semantic_path(f"declarations/{revision_id}/manifest.json").exists():
+                raise FormalRunStorageError("declaration already exists")
+            value = json.loads(universe.canonical_bytes())
+            self._write_semantic_bundle("declarations", revision_id, value)
+            self._replace_semantic_file("declarations", "current.json", value)
         except FormalRunStorageError as exc:
             raise CareerSourceError("career-source-declaration-already-exists") from exc
         return {
@@ -158,6 +155,51 @@ class CareerSourceStore:
         if not re.fullmatch(r"[0-9a-f]{64}", digest):
             raise CareerSourceError("career-source-capture-invalid")
         return self._workspace_path("raw", digest)
+
+    def _raw_parts(self, content_hash: str) -> tuple[str, str, str]:
+        digest = content_hash.removeprefix("sha256:")
+        if not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise CareerSourceError("career-source-capture-invalid")
+        return (".career-evidence", "raw", digest)
+
+    def _write_raw_once(self, content_hash: str, payload: bytes) -> bool:
+        try:
+            return self.workspace.write_new_regular_bytes(
+                *self._raw_parts(content_hash), payload=payload
+            )
+        except PrivateWorkspaceError as exc:
+            raise CareerSourceError("career-source-capture-raw-unsafe") from exc
+
+    def _read_raw(self, content_hash: str) -> bytes:
+        try:
+            return self.workspace.read_regular_bytes(*self._raw_parts(content_hash))
+        except PrivateWorkspaceError as exc:
+            raise CareerSourceError("career-source-capture-raw-invalid") from exc
+
+    def _write_semantic_bundle(self, namespace: str, bundle_name: str, value: Any) -> None:
+        try:
+            self.workspace.create_only_bundle_regular_bytes(
+                ".career-evidence",
+                "sources",
+                namespace,
+                bundle_name=bundle_name,
+                filename="manifest.json",
+                payload=canonical_json_bytes(value) + b"\n",
+            )
+        except PrivateWorkspaceError as exc:
+            raise CareerSourceError("career-source-path-unsafe") from exc
+
+    def _replace_semantic_file(self, namespace: str, filename: str, value: Any) -> None:
+        try:
+            self.workspace.replace_regular_bytes(
+                ".career-evidence",
+                "sources",
+                namespace,
+                filename,
+                payload=canonical_json_bytes(value) + b"\n",
+            )
+        except PrivateWorkspaceError as exc:
+            raise CareerSourceError("career-source-path-unsafe") from exc
 
     def _declaration_binding(self) -> tuple[CareerSourceUniverse, str]:
         try:
@@ -259,6 +301,8 @@ class CareerSourceStore:
         try:
             captures = self._workspace_path("sources", "captures")
             captures.mkdir(exist_ok=True)
+            current_root = self._workspace_path("sources", "current-captures")
+            current_root.mkdir(exist_ok=True)
         except (OSError, CareerSourceError) as exc:
             raise CareerSourceError("career-source-path-unsafe") from exc
         if stored.source_id not in {source.source_id for source in universe.sources}:
@@ -267,24 +311,20 @@ class CareerSourceStore:
             parent = self._verify_capture(stored.predecessor_capture_id, ancestry=frozenset())
             if parent.source_id != stored.source_id:
                 raise CareerSourceError("career-source-capture-predecessor-invalid")
-        raw_path = self._raw_path(stored.content_hash)
-        if raw_path.is_symlink():
-            raise CareerSourceError("career-source-capture-raw-unsafe")
         raw_created = False
         try:
-            if not raw_path.exists():
-                with raw_path.open("xb") as raw_file:
-                    raw_file.write(source_bytes)
-                raw_created = True
-            elif sha256_digest(raw_path.read_bytes()) != stored.content_hash:
+            raw_created = self._write_raw_once(stored.content_hash, source_bytes)
+            if (
+                not raw_created
+                and sha256_digest(self._read_raw(stored.content_hash)) != stored.content_hash
+            ):
                 raise CareerSourceError("career-source-capture-raw-invalid")
-            create_only_canonical_bundle(
-                captures, capture_id, {"manifest.json": stored.model_dump(mode="json")}
-            )
-            current_root = self._workspace_path("sources", "current-captures")
-            current_root.mkdir(exist_ok=True)
-            atomic_write_canonical_json(
-                self._semantic_path(f"current-captures/{stored.source_id}.json"),
+            if self._semantic_path(f"captures/{capture_id}/manifest.json").exists():
+                raise FormalRunStorageError("capture already exists")
+            self._write_semantic_bundle("captures", capture_id, stored.model_dump(mode="json"))
+            self._replace_semantic_file(
+                "current-captures",
+                f"{stored.source_id}.json",
                 DeclarationBoundCurrentCapturePointer(
                     source_id=stored.source_id,
                     capture_id=stored.capture_id,
@@ -393,14 +433,11 @@ class CareerSourceStore:
             )
             if transformation_manifest.exists():
                 raise FormalRunStorageError("transformation already exists")
-            raw_path = self._raw_path(stored.output_hash)
-            if raw_path.is_symlink():
-                raise OSError
-            if not raw_path.exists():
-                with raw_path.open("xb") as raw_file:
-                    raw_file.write(output_bytes)
-                raw_created = True
-            elif sha256_digest(raw_path.read_bytes()) != stored.output_hash:
+            raw_created = self._write_raw_once(stored.output_hash, output_bytes)
+            if (
+                not raw_created
+                and sha256_digest(self._read_raw(stored.output_hash)) != stored.output_hash
+            ):
                 raise OSError
             output_manifest = DerivedOutputManifest(
                 output_hash=stored.output_hash,
@@ -414,17 +451,15 @@ class CareerSourceStore:
                 if canonical_json_bytes(existing_output) != canonical_json_bytes(output_manifest):
                     raise FormalRunStorageError("derived output already exists")
             else:
-                output_root = output_path.parent.parent
-                output_root.mkdir(exist_ok=True)
-                create_only_canonical_bundle(
-                    output_root,
+                self._write_semantic_bundle(
+                    "derived-outputs",
                     stored.output_hash.removeprefix("sha256:"),
-                    {"manifest.json": output_manifest.model_dump(mode="json")},
+                    output_manifest.model_dump(mode="json"),
                 )
-            create_only_canonical_bundle(
-                transformations,
+            self._write_semantic_bundle(
+                "transformations",
                 transformation_id,
-                {"manifest.json": stored.model_dump(mode="json")},
+                stored.model_dump(mode="json"),
             )
         except CareerSourceError:
             if raw_created and expected_workspace_commit is not None:
@@ -1464,7 +1499,7 @@ class CareerSourceStore:
                 or self._raw_path(content_hash) != raw_path
             ):
                 raise CareerSourceError("career-source-cleanup-needed")
-            raw_path.unlink()
+            self.workspace.unlink_regular(*self._raw_parts(content_hash))
         except (OSError, CareerSourceError) as exc:
             raise CareerSourceError("career-source-cleanup-needed") from exc
 

@@ -55,6 +55,17 @@ def _git(workspace: Path, *args: str) -> str:
     return completed.stdout.strip()
 
 
+def _commit_source_baseline(workspace: Path) -> str:
+    """Create an explicit synthetic full-OID baseline after declaration setup."""
+    (workspace / ".gitignore").write_text(".career-evidence/raw/\n", encoding="utf-8")
+    _git(workspace, "init", "--quiet")
+    _git(workspace, "config", "user.email", "synthetic@example.invalid")
+    _git(workspace, "config", "user.name", "Synthetic Test")
+    _git(workspace, "add", ".gitignore", ".career-evidence/sources")
+    _git(workspace, "commit", "--quiet", "-m", "synthetic source baseline")
+    return _git(workspace, "rev-parse", "HEAD")
+
+
 def hostile_source_bytes() -> tuple[bytes, ...]:
     return (
         b"contains\x00synthetic-control",
@@ -175,6 +186,7 @@ def test_transform_rejects_every_bidi_control_before_publishing_output(
             ),
         }
     )
+    baseline = _commit_source_baseline(tmp_path)
     store.capture(
         {
             "schema_version": "career-source-capture/v2",
@@ -185,8 +197,9 @@ def test_transform_rejects_every_bidi_control_before_publishing_output(
             "method": "synthetic-text",
         },
         source,
+        expected_workspace_commit=baseline,
     )
-    output = f"synthetic{control}output".encode("utf-8")
+    output = f"synthetic{control}output".encode()
     output_hash = f"sha256:{hashlib.sha256(output).hexdigest()}"
     with pytest.raises(module.CareerSourceError) as raised:
         store.transform(
@@ -202,6 +215,7 @@ def test_transform_rejects_every_bidi_control_before_publishing_output(
                 "locator": {"kind": "whole-source", "declared_fallback": True},
             },
             output,
+            expected_workspace_commit=baseline,
         )
 
     assert raised.value.code == "career-source-unsafe-control"
@@ -394,6 +408,76 @@ def test_format_rejects_symlinked_raw_vault_and_create_only_collision(tmp_path: 
         module.CareerSourceStore(tmp_path).prepare_raw_vault()
 
 
+def test_no_follow_raw_write_and_cleanup_reject_a_parent_swap(tmp_path: Path, monkeypatch) -> None:
+    """Descriptor-bound raw operations refuse a swapped namespace before publication."""
+    module = _require_career_sources()
+    workspace = module.PrivateWorkspace(tmp_path)
+    raw_parts = (".career-evidence", "raw")
+    assert workspace.write_new_regular_bytes(*raw_parts, "object", payload=b"synthetic")
+    raw_dir = tmp_path / ".career-evidence" / "raw"
+    moved = tmp_path / "synthetic-moved-raw"
+    external = tmp_path / "synthetic-external-raw"
+    external.mkdir()
+    original_revalidate = workspace._revalidate_directory
+
+    def swap_before_revalidation(descriptor: int, parts: tuple[str, ...]) -> None:
+        if parts == raw_parts:
+            raw_dir.rename(moved)
+            raw_dir.symlink_to(external, target_is_directory=True)
+        original_revalidate(descriptor, parts)
+
+    monkeypatch.setattr(workspace, "_revalidate_directory", swap_before_revalidation)
+    with pytest.raises(module.PrivateWorkspaceError):
+        workspace.write_new_regular_bytes(*raw_parts, "new-object", payload=b"synthetic")
+
+    assert tuple(external.iterdir()) == ()
+    assert (moved / "object").read_bytes() == b"synthetic"
+
+
+@pytest.mark.parametrize(
+    ("operation", "namespace"),
+    (("bundle", "captures"), ("pointer", "current-captures")),
+)
+def test_no_follow_semantic_publication_rejects_a_parent_swap(
+    tmp_path: Path, monkeypatch, operation: str, namespace: str
+) -> None:
+    """A stale manifest or pointer directory descriptor cannot publish through a replacement."""
+    module = _require_career_sources()
+    workspace = module.PrivateWorkspace(tmp_path)
+    namespace_parts = (".career-evidence", "sources", namespace)
+    if operation == "pointer":
+        workspace.replace_regular_bytes(*namespace_parts, "source.json", payload=b"{}\n")
+    namespace_path = tmp_path / ".career-evidence" / "sources" / namespace
+    moved = tmp_path / f"synthetic-moved-{namespace}"
+    external = tmp_path / f"synthetic-external-{namespace}"
+    external.mkdir()
+    original_revalidate = workspace._revalidate_directory
+
+    def swap_before_revalidation(descriptor: int, parts: tuple[str, ...]) -> None:
+        if parts == namespace_parts:
+            namespace_path.rename(moved)
+            namespace_path.symlink_to(external, target_is_directory=True)
+        original_revalidate(descriptor, parts)
+
+    monkeypatch.setattr(workspace, "_revalidate_directory", swap_before_revalidation)
+    with pytest.raises(module.PrivateWorkspaceError):
+        if operation == "bundle":
+            workspace.create_only_bundle_regular_bytes(
+                *namespace_parts,
+                bundle_name="capture-swap",
+                filename="manifest.json",
+                payload=b"{}\n",
+            )
+        else:
+            workspace.replace_regular_bytes(*namespace_parts, "source.json", payload=b"{}\n")
+
+    assert tuple(external.iterdir()) == ()
+    if operation == "bundle":
+        assert not (moved / "capture-swap").exists()
+    else:
+        assert (moved / "source.json").read_bytes() == b"{}\n"
+
+
 def test_semantic_namespace_symlink_rejects_capture_without_outside_write(tmp_path: Path) -> None:
     """A mutable semantic namespace cannot redirect a capture pointer outside its workspace."""
     module = _require_career_sources()
@@ -419,6 +503,7 @@ def test_semantic_namespace_symlink_rejects_capture_without_outside_write(tmp_pa
     outside = tmp_path / "synthetic-outside"
     outside.mkdir()
     current_captures = tmp_path / ".career-evidence" / "sources" / "current-captures"
+    baseline = _commit_source_baseline(tmp_path)
     current_captures.symlink_to(outside, target_is_directory=True)
 
     with pytest.raises(module.CareerSourceError) as raised:
@@ -432,6 +517,7 @@ def test_semantic_namespace_symlink_rejects_capture_without_outside_write(tmp_pa
                 "method": "synthetic-text",
             },
             body,
+            expected_workspace_commit=baseline,
         )
 
     assert raised.value.code == "career-source-path-unsafe"
