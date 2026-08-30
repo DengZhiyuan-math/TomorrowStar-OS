@@ -54,7 +54,7 @@ Milestone v1.1 proceeds through eight requirement-driven delivery boundaries. It
   2. An evaluator can trace every accepted inventory fact and Evidence item to its source identity, content hash, capture metadata, and versioned transformations.
   3. The operator can process raw career sources in the ignored private workspace while routine output, logs, errors, and committed artifacts expose only safe identifiers, counts, hashes, and redacted diagnostics.
 
-**Plans:** 4/4 plans executed
+**Plans:** 4/9 plans executed
 
 Plans:
 **Wave 0**
@@ -72,6 +72,26 @@ Plans:
 **Wave 3** *(blocked on Wave 2 completion)*
 
 - [x] 07-03-PLAN.md — Finish the safe operator surface, adversarial leak boundary, and private-workspace handoff.
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 07-04-PLAN.md — Make one explicit full Git commit OID authenticate the complete custody snapshot.
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 07-05-PLAN.md — Bind exact-source transformations and retained outputs to immutable declaration revisions.
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
+- [ ] 07-06-PLAN.md — Authenticate retained outputs and stage every legacy chain in one exhaustive workspace migration.
+
+**Wave 7** *(blocked on Wave 6 completion)*
+
+- [ ] 07-07-PLAN.md — Finalize and retain the migration through dedicated-ref CAS while preserving later recapture verification.
+
+**Wave 8** *(blocked on Wave 7 completion)*
+
+- [ ] 07-08-PLAN.md — Close symlink, bidi-control, and commit-aware raw-cleanup boundary failures.
 
 ### Phase 8: Full-Career Inventory Review and Seal
 
@@ -181,7 +201,7 @@ Phases execute in numeric order: 7 → 8 → 9 → 10 → 11 → 12 → 13 → 1
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 7. Career Source Custody and Private Workspace | v1.1 | 4/4 | In Progress|  |
+| 7. Career Source Custody and Private Workspace | v1.1 | 4/9 | In Progress|  |
 | 8. Full-Career Inventory Review and Seal | v1.1 | 0/TBD | Not started | - |
 | 9. Generic Contribution Audit and Attribution | v1.1 | 0/TBD | Not started | - |
 | 10. Skill Resolution and Reviewed Mastery | v1.1 | 0/TBD | Not started | - |

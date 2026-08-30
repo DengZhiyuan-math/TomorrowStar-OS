@@ -1,19 +1,16 @@
 ---
 phase: 07
 slug: career-source-custody-and-private-workspace
-# status lifecycle: draft (seeded by plan-phase) → validated (set by validate-phase §6)
-# audit-milestone §5.5 distinguishes NOT-VALIDATED (draft) from PARTIAL (validated + nyquist_compliant: false) (#2117)
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: validated
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-08-29
+updated: 2026-08-30
 ---
 
 # Phase 07 — Validation Strategy
 
-> Per-phase validation contract for feedback sampling during execution.
-
----
+> Planning-time selector contract for Plans 07-00 through 07-08. `nyquist_compliant: true` means every final task has a runnable automated check and its test module exists; it is not evidence that unexecuted Plans 07-04 through 07-08 pass.
 
 ## Test Infrastructure
 
@@ -23,85 +20,95 @@ created: 2026-08-29
 | **Config file** | `pyproject.toml` |
 | **Quick run command** | `uv run --locked python scripts/run_pytest.py -q tests/test_career_source_custody.py tests/test_career_source_security.py` |
 | **Full suite command** | `uv run --locked python scripts/run_pytest.py -q && uv run --locked ruff check . && uv run --locked ruff format --check .` |
-| **Estimated runtime** | Target: less than 30 seconds offline; measure and record during execution |
+| **Evidence boundary** | Synthetic private Git repositories and invented sentinels only; no personal workspace, source, path, hash, count, or remote is used. |
 
----
+## Wave and Dependency Map
+
+| Wave | Plan | Depends on | Validation focus |
+|------|------|------------|------------------|
+| 0 | 07-00 | none | Test modules, synthetic builders, and collection surface |
+| 1 | 07-01 | 07-00 | End-to-end explicit-workspace custody tracer |
+| 2 | 07-02 | 07-00, 07-01 | Declaration, capture, transformation, and duplicate lineage |
+| 3 | 07-03 | 07-00, 07-02 | CLI/no-echo/public-boundary completion |
+| 4 | 07-04 | 07-03 | Mandatory full-OID snapshot and complete inventory verification |
+| 5 | 07-05 | 07-04 | Exact source, declaration-bound captures, and retained outputs |
+| 6 | 07-06 | 07-05 | Workspace-complete legacy input, output authentication, and successor staging |
+| 7 | 07-07 | 07-06 | Single-process deterministic commit, Git-ref-only CAS, and temporal descendant verification |
+| 8 | 07-08 | 07-07 | All-namespace symlinks, nine bidi controls, and synchronous same-failure-path raw cleanup |
 
 ## Sampling Rate
 
-- **After every task commit:** Run the smallest relevant custody/security test selection plus Ruff on changed Python files.
-- **After every plan wave:** Run the full suite command.
-- **Before `$gsd-verify-work`:** The full offline suite, public/private boundary scan, and every declared lineage mutation must be green.
-- **Max feedback latency:** 30 seconds for offline automated checks.
-
----
+- **After every task commit:** Run the task's focused selector plus Ruff on changed Python files.
+- **After every plan wave:** Run both Phase 07 test modules.
+- **Before `$gsd-verify-work`:** Run the full offline suite, public/private boundary scan, full-OID mutation matrix, and every declared lineage/ref/cleanup mutation.
+- **Default gate:** No watch mode, network, provider call, dependency installation, or personal source.
 
 ## Per-Task Verification Map
 
-The task IDs are provisional seeds for the planner and must be synchronized with the final PLAN.md files before execution.
+`✅ existing` means the task was already executed and its selector/module is recorded in 07-00 through 07-03 summaries; no command was rerun during this planning revision. `⬜ planned` means selector coverage is specified for execution, not that it currently passes.
 
-| Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
-|---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 07-00-01 | 00 | 0 | INV-01, INV-06 | T-07-03, T-07-05 | Custody selectors and synthetic lineage builders exist before implementation | collection scaffold | `uv run --locked python scripts/run_pytest.py --collect-only -q tests/test_career_source_custody.py` | Created by task | ⬜ pending |
-| 07-00-02 | 00 | 0 | INV-07 | T-07-01, T-07-02, T-07-04 | Security selectors and disclosure sentinels exist before implementation | collection scaffold | `uv run --locked python scripts/run_pytest.py --collect-only -q tests/test_career_source_security.py` | Created by task | ⬜ pending |
-| 07-01-01 | 01 | 1 | INV-07 | T-07-07 | Human confirms the one-way public/private boundary without recording any private value | checkpoint + structural | `git diff --check` | N/A | ⬜ pending |
-| 07-01-02 | 01 | 1 | INV-01, INV-06, INV-07 | T-07-02, T-07-03, T-07-05, T-07-07 | One synthetic declaration-capture-transform-inspect path is immutable, candidate-only, and content-free | end-to-end tracer | `uv run --locked python scripts/run_pytest.py -q tests/test_career_source_custody.py -k tracer` | 07-00 dependency | ⬜ pending |
-| 07-01-03 | 01 | 1 | INV-07 | T-07-01, T-07-02, T-07-04, T-07-06 | Traversal, symlinks, disclosure, instruction-like text, and create-only collisions fail safely | adversarial filesystem + CLI | `uv run --locked python scripts/run_pytest.py -q tests/test_career_source_security.py` | 07-00 dependency | ⬜ pending |
-| 07-02-00 | 02 | 2 | INV-06 | T-07-03 | Human confirms the versioned D-18/D-19 reader/writer replacement seam without disclosing private values | checkpoint + structural | `git diff --check` | N/A | ⬜ pending |
-| 07-02-01 | 02 | 2 | INV-01 | T-07-05, T-07-08 | Invalid, duplicate, empty, or incomplete declarations fail closed while valid immutable revisions round-trip byte-for-byte | unit + golden | `uv run --locked python scripts/run_pytest.py -q tests/test_career_source_custody.py -k declaration` | 07-00 dependency | ⬜ pending |
-| 07-02-02 | 02 | 2 | INV-06 | T-07-03, T-07-05, T-07-06, T-07-09 | Capture/predecessor/transform/locator substitution rejects and duplicate content retains provenance without authority inflation | lineage mutation | `uv run --locked python scripts/run_pytest.py -q tests/test_career_source_custody.py -k 'capture or lineage or transform or duplicate'` | 07-00 dependency | ⬜ pending |
-| 07-03-01 | 03 | 3 | INV-07 | T-07-01, T-07-02, T-07-04, T-07-09 | Every operator route requires explicit workspace and emits stable content-free diagnostics | adversarial CLI | `uv run --locked python scripts/run_pytest.py -q tests/test_career_source_security.py -k 'cli or output or inspect or format'` | 07-00 dependency | ⬜ pending |
-| 07-03-02 | 03 | 3 | INV-01, INV-07 | T-07-07, T-07-08 | User selects the private repository, confirms raw-vault ignore and actual formats, and records no private value publicly | checkpoint + quick gate | `uv run --locked python scripts/run_pytest.py -q tests/test_career_source_custody.py tests/test_career_source_security.py` | 07-00 dependency | ⬜ pending |
-| 07-03-03 | 03 | 3 | INV-01, INV-06, INV-07 | T-07-01 through T-07-09 | Full offline suite proves public-tree independence, complete threat coverage, and zero later-authority side effects | full regression + lint | `uv run --locked python scripts/run_pytest.py -q && uv run --locked ruff check . && uv run --locked ruff format --check .` | Existing + 07-00 dependency | ⬜ pending |
+| Task ID | Plan | Wave | Requirement | Secure behavior | Automated command | Test file | Status |
+|---------|------|------|-------------|-----------------|-------------------|-----------|--------|
+| 07-00-01 | 00 | 0 | INV-01, INV-06 | Custody selectors and synthetic lineage builders collect before implementation | `uv run --locked python scripts/run_pytest.py --collect-only -q tests/test_career_source_custody.py` | existing | ✅ existing |
+| 07-00-02 | 00 | 0 | INV-07 | Security selectors and synthetic disclosure sentinels collect | `uv run --locked python scripts/run_pytest.py --collect-only -q tests/test_career_source_security.py` | existing | ✅ existing |
+| 07-01-01 | 01 | 1 | INV-07 | One-way public/private decision records no private value | `git diff --check` | N/A | ✅ existing |
+| 07-01-02 | 01 | 1 | INV-01, INV-06, INV-07 | Synthetic declaration-capture-transform-inspect path is candidate-only | `uv run --locked python scripts/run_pytest.py -q tests/test_career_source_custody.py -k tracer` | existing | ✅ existing |
+| 07-01-03 | 01 | 1 | INV-07 | Initial traversal, symlink, disclosure, and collision cases fail safely | `uv run --locked python scripts/run_pytest.py -q tests/test_career_source_security.py` | existing | ✅ existing |
+| 07-02-00 | 02 | 2 | INV-06 | Versioned D-18/D-19 seam is confirmed without private values | `git diff --check` | N/A | ✅ existing |
+| 07-02-01 | 02 | 2 | INV-01 | Strict declaration revisions and unavailable dispositions round-trip | `uv run --locked python scripts/run_pytest.py -q tests/test_career_source_custody.py -k declaration` | existing | ✅ existing |
+| 07-02-02 | 02 | 2 | INV-06 | Capture/predecessor/transform/locator/duplicate mutations reject | `uv run --locked python scripts/run_pytest.py -q tests/test_career_source_custody.py -k 'capture or lineage or transform or duplicate'` | existing | ✅ existing |
+| 07-03-01 | 03 | 3 | INV-07 | Explicit-workspace CLI and content-free diagnostics are enforced | `uv run --locked python scripts/run_pytest.py -q tests/test_career_source_security.py -k 'cli or output or inspect or format'` | existing | ✅ existing |
+| 07-03-02 | 03 | 3 | INV-01, INV-07 | Private boundary checkpoint is paired with the synthetic quick gate | `uv run --locked python scripts/run_pytest.py -q tests/test_career_source_custody.py tests/test_career_source_security.py` | existing | ✅ existing |
+| 07-03-03 | 03 | 3 | INV-01, INV-06, INV-07 | Full offline public-boundary and zero-authority regression gate | `uv run --locked python scripts/run_pytest.py -q && uv run --locked ruff check . && uv run --locked ruff format --check .` | existing | ✅ existing |
+| 07-04-01 | 04 | 4 | INV-06 | Exact full OID authenticates one complete commit/raw snapshot | `uv run --locked pytest tests/test_career_source_custody.py -k 'explicit_commit or snapshot_anchor or raw_authentication' -x` | existing, expanded by task | ⬜ planned |
+| 07-04-02 | 04 | 4 | INV-06 | Committed/working inventories match bidirectionally, expected-zero included | `uv run --locked pytest tests/test_career_source_custody.py tests/test_career_source_security.py -k 'inventory or expected_zero or empty_workspace or coordinated_edit or current_capture' -x` | existing, expanded by task | ⬜ planned |
+| 07-05-01 | 05 | 5 | INV-06 | Exact source selection, declaration binding, and retained output authenticate | `uv run --locked pytest tests/test_career_source_custody.py -k 'exact_source_id or declaration_bound or retained_output or migration_required' -x` | existing, expanded by task | ⬜ planned |
+| 07-05-02 | 05 | 5 | INV-06 | Every transformation/output participates in explicit-commit verification | `uv run --locked pytest tests/test_career_source_custody.py -k 'transformation_inventory or transformation_tamper or derived_output or stale_commit' -x` | existing, expanded by task | ⬜ planned |
+| 07-06-01 | 06 | 6 | INV-06 | Complete request authenticates each retained non-identity output before writes | `uv run --locked pytest tests/test_career_source_custody.py -k 'workspace_migration_request or retained_output_artifact or non_identity_output' -x` | existing, expanded by task | ⬜ planned |
+| 07-06-02 | 06 | 6 | INV-06 | Two-source/multi-chain staging and receipt coverage are exhaustive | `uv run --locked pytest tests/test_career_source_custody.py -k 'two_source_multi_chain or exhaustive_migration_coverage or migration_staging_retry' -x` | existing, expanded by task | ⬜ planned |
+| 07-07-01 | 07 | 7 | INV-06 | One operator process finalizes synchronously; Git expected-old CAS alone protects the dedicated ref, and detected external workspace drift fails closed | `uv run --locked pytest tests/test_career_source_custody.py -k 'retention_ref or ref_cas or finalization_interrupt or adjudicate_complete_workspace' -x` | existing, expanded by task | ⬜ planned |
+| 07-07-02 | 07 | 7 | INV-06 | Migration head equality becomes verified same-source descendant semantics later | `uv run --locked pytest tests/test_career_source_custody.py -k 'migration_head_temporal or post_migration_recapture or descendant_chain' -x` | existing, expanded by task | ⬜ planned |
+| 07-08-01 | 08 | 8 | INV-07 | Every semantic namespace rejects directory/nested/dangling/leaf symlinks | `uv run --locked pytest tests/test_career_source_security.py -k 'symlink and semantic_namespace' -x` | existing, expanded by task | ⬜ planned |
+| 07-08-02 | 08 | 8 | INV-07 | All nine bidi controls reject recursively before side effects | `uv run --locked pytest tests/test_career_source_security.py -k 'bidi or unicode_control' -x` | existing, expanded by task | ⬜ planned |
+| 07-08-03 | 08 | 8 | INV-06, INV-07 | Cleanup completes synchronously in the failed call, unions exact committed and validated working references, and retains on drift or uncertainty | `uv run --locked pytest tests/test_career_source_custody.py tests/test_career_source_security.py -k 'committed_raw_reference or deleted_working_manifest or raw_cleanup or shared_raw or manifest_collision' -x` | existing, expanded by task | ⬜ planned |
 
-*Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
+## Wave 0 Completion Evidence
 
----
+- [x] `tests/test_career_source_custody.py` exists and 07-00-SUMMARY records its collection scaffold and named selector families.
+- [x] `tests/test_career_source_security.py` exists and 07-00-SUMMARY records its collection scaffold and synthetic disclosure sentinels.
+- [x] Builders use invented raw-body, label/path, digest, hostile Unicode/control, oversized, instruction-like, public-tree, and staged-diff values only.
+- [x] Plans 07-04 through 07-08 extend the same modules under TDD; no missing test module or dependency installation is required.
 
-## Wave 0 Requirements (Plan 07-00)
-
-- [ ] `tests/test_career_source_custody.py` — declaration, capture, recapture, duplicate-source/content, and transformation-lineage coverage for INV-01 and INV-06.
-- [ ] `tests/test_career_source_security.py` — public/private boundary, traversal and symlink rejection, content-free stdout/stderr/errors, raw-vault containment, read-only inspection, and operator failure modes for INV-07.
-- [ ] Synthetic fixture builders — include raw-body, private-label/path, private-derived hash, hostile Unicode/control, oversized input, and instruction-like sentinels without using any real resume, Skill graph, count, hash, path, report, or career source.
-- [ ] Public-tree and simulated staged-diff scan helpers — reject private-workspace artifacts and private-derived sentinel values without inspecting or serializing real private content.
-
-Plan `07-00-PLAN.md` creates these modules and builders before Plan 01. Plans 01-03 execute their real selectors after depending directly or transitively on 07-00. No dependency installation or lockfile change is required.
-
----
+This revision did not rerun tests. Wave 0 completion is based on existing files and the executed 07-00 summary, while the gap-plan rows remain planned until execution.
 
 ## Manual-Only Verifications
 
-| Behavior | Requirement | Why Manual | Test Instructions |
-|----------|-------------|------------|-------------------|
-| Select and bootstrap the separate private career repository without recording its path or contents in the public checkout | INV-07 | Repository ownership, location, and privacy setting are user-controlled external state | At the gated checkpoint, select/create the private repository, verify it is private, verify `.career-evidence/raw/` is ignored there, and confirm no pointer, submodule, path, identifier, count, or derived value was written to the public repository. |
-| Declare the first source universe and confirm the raw-vault boundary | INV-01, INV-07 | Completeness and source availability are user claims; automated tests can validate structure but cannot decide the user's full-career boundary | Review every source category, available/unavailable disposition, career-fact cutoff, capture timestamp, and raw-vault destination; confirm omissions explicitly and retain the private declaration only in the private workspace. |
+| Behavior | Requirement | Why manual | Instruction |
+|----------|-------------|------------|-------------|
+| Select and bootstrap the separate private career repository without recording its identity publicly | INV-07 | Repository ownership/location/privacy are user-controlled external state | Use the already approved runtime-only `--workspace` boundary; never paste the path, remote, personal IDs, hashes, counts, or contents into public artifacts. |
+| Declare the first personal source universe and confirm the raw-vault boundary | INV-01, INV-07 | Completeness and availability are user claims | Review privately; return only the approved/safe outcome. This does not create Phase 8 inventory acceptance. |
 
-Real-source execution is not a prerequisite for the public harness tests and must not be simulated with personal material. Phase completion may claim the generic workflow and gated private bootstrap; it may claim a completed personal source declaration only after the user performs and confirms the manual step.
+## Security and Failure Coverage
 
----
-
-## Threat References
-
-| Ref | Threat | Required verification |
-|-----|--------|-----------------------|
-| T-07-01 | Path traversal or symlink escape from the explicit private workspace/raw vault | Reject absolute, parent, nested-separator, out-of-root, and symlinked roots/files with stable content-free codes. |
-| T-07-02 | Raw or private-derived data disclosure through stdout, stderr, exceptions, fixtures, reports, cache, or Git | Adversarial sentinel and public-tree/staged-diff scans remain clean; routine envelopes contain only contractually safe fields. |
-| T-07-03 | Capture, predecessor, locator, or transformation substitution/laundering | Mutating any bound byte/hash/config/locator/path makes end-to-end lineage verification fail closed. |
-| T-07-04 | Instruction-like or hostile source text changes workflow behavior | Treat permitted source text as inert data; no provider, command, path, or transition is selected from source content. |
-| T-07-05 | Duplicate content, duplicate logical sources, or availability metadata becomes false corroboration or capability evidence | Preserve declared source identities, deduplicate content without multiplying facts, and create no inventory acceptance, Skill, mastery, or assessment side effect. |
-
----
+| Area | Plans | Required proof |
+|------|-------|----------------|
+| Full-OID snapshot authority and expected-zero inventory | 07-04 | Omitted/short/symbolic/stale anchors, missing/extra paths, and coordinated edits fail. |
+| Exact source/declaration/output lineage | 07-05 | Two-source selection, immutable declaration binding, retained bytes, and transform/output tampering fail. |
+| Workspace-complete legacy migration | 07-06 | Every chain and output artifact is present, authenticated, and bidirectionally receipt-mapped; two-source coverage is mandatory. |
+| Commit retention and temporal heads | 07-07 | Single-process finalization, absent/existing/stale Git-ref CAS, interruptions, detected workspace drift, deterministic retry, migration equality, and later same-source descendants are covered. |
+| Filesystem, Unicode, and destructive cleanup | 07-08 | All semantic symlinks, nine bidi controls, synchronous same-failure-path cleanup, committed-reference/working-deletion, shared objects, detected drift, and uncertainty-retains cases are covered. |
+| Public/private and later-authority fences | 07-00 through 07-08 | No personal fixture/output and no inventory seal, graph, mastery, JD, gap, or resume side effect. |
 
 ## Validation Sign-Off
 
-- [ ] Final PLAN.md task IDs and waves are synchronized with this map.
-- [ ] All tasks have `<automated>` verification or an explicit Wave 0 dependency.
-- [ ] Sampling continuity: no three consecutive tasks lack automated verification.
-- [ ] Wave 0 covers every missing test and synthetic fixture reference.
-- [ ] No watch-mode flag, live model/provider call, network dependency, or personal source is part of the default gate.
-- [ ] Every INV-01, INV-06, and INV-07 failure path returns a stable content-free diagnostic.
-- [ ] Public-tree scans cover fixtures, routine outputs, generated artifacts, and simulated staged changes without deriving expectations from personal content.
-- [ ] Feedback latency remains below 30 seconds or the slow checks are explicitly separated while preserving a per-task quick gate.
-- [ ] `nyquist_compliant: true` and `wave_0_complete: true` are set only after final task IDs match, referenced files exist, and the full suite is green.
+- [x] Final task IDs, plan count, dependencies, and waves are synchronized through 07-08.
+- [x] Every task has an `<automated>` command; checkpoint tasks retain structural/quick automated checks.
+- [x] Sampling continuity has no three consecutive tasks without automated verification.
+- [x] Wave 0 modules and synthetic builders exist; later tasks expand them test-first.
+- [x] No default selector uses watch mode, network, provider calls, personal sources, or a new dependency.
+- [x] Full explicit commit OIDs remain mandatory for authoritative verify and cleanup-baseline paths, including expected-zero cases.
+- [x] Workspace mutations are planned as one synchronous operator-owned CLI process: no workspace-lock or cross-process guarantee is introduced, Git expected-old CAS remains the sole ref-race protection, and cleanup completes inline before failure returns.
+- [x] Planned selectors cover all five checker blockers plus symlink, bidi, public/private, and no-later-authority regressions.
+- [x] `nyquist_compliant: true` records complete planned selector coverage only; runtime pass evidence for Plans 07-04 through 07-08 remains pending execution.
 
-**Approval:** pending
+**Approval:** Validation contract synchronized for execution; no implementation result is claimed for unexecuted gap plans.
