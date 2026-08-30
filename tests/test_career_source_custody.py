@@ -997,3 +997,123 @@ def test_workspace_migration_request_rejects_incomplete_or_unauthenticated_input
     assert before == {
         path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()
     }
+
+
+def _two_source_migration_request(tmp_path: Path) -> tuple[Any, dict[str, Any]]:
+    """Extend the synthetic baseline with a second logical source and chain."""
+    store, _, records = _two_capture_migration_baseline(tmp_path)
+    third = synthetic_capture(capture_id="capture-migration-c")
+    third.update(
+        {
+            "source_id": "source-synthetic-unavailable",
+            "content_hash": sha256_digest(b"synthetic-migration-input-c"),
+        }
+    )
+    stored_third = store.capture(third, b"synthetic-migration-input-c")
+    third_transform = synthetic_transformation()
+    third_transform.update(
+        {
+            "transformation_id": "transform-migration-c",
+            "input_capture_id": stored_third["capture_id"],
+            "input_hash": stored_third["content_hash"],
+        }
+    )
+    third_transform.pop("output_hash")
+    stored_third_transform = store.transform(third_transform, b"synthetic-migration-output-c")
+    records["third"] = stored_third
+    records["third_transform"] = stored_third_transform
+    records["third_output"] = b"synthetic-migration-output-c"
+    baseline = _commit_synthetic_sources(tmp_path, "second synthetic migration source")
+    request = _workspace_migration_request(baseline, records)
+    request["chains"] += (
+        {
+            "source_id": "source-synthetic-unavailable",
+            "legacy_capture_ids": (stored_third["capture_id"],),
+            "successor_capture_ids": ("capture-successor-c",),
+            "legacy_current_capture_id": stored_third["capture_id"],
+            "successor_current_capture_id": "capture-successor-c",
+            "is_current_head": True,
+        },
+    )
+    request["captures"] += (
+        {
+            "legacy_capture_id": stored_third["capture_id"],
+            "declaration_revision_id": stored_third["declaration_revision_id"],
+            "declaration_hash": stored_third["declaration_hash"],
+            "successor_capture_id": "capture-successor-c",
+        },
+    )
+    request["transformations"] += (
+        {
+            "legacy_transformation_id": stored_third_transform["transformation_id"],
+            "successor_transformation_id": "transform-successor-c",
+            "input_capture_id": stored_third_transform["input_capture_id"],
+            "output_hash": stored_third_transform["output_hash"],
+            "retained_output_locator": "raw/"
+            + stored_third_transform["output_hash"].removeprefix("sha256:"),
+        },
+    )
+    return store, request
+
+
+def test_two_source_multi_chain_stage_has_exhaustive_non_authoritative_receipt(
+    tmp_path: Path,
+) -> None:
+    store, request = _two_source_migration_request(tmp_path)
+    pointer_root = tmp_path / ".career-evidence/sources/current-captures"
+    pointers_before = {path.name: path.read_bytes() for path in pointer_root.iterdir()}
+    refs_before = _git(tmp_path, "show-ref")
+
+    result = store.stage_workspace_migration(request)
+
+    assert result == {
+        "candidate_only": True,
+        "staged": True,
+        "capture_count": 3,
+        "transformation_count": 3,
+    }
+    receipt = json.loads(
+        (
+            tmp_path
+            / ".career-evidence"
+            / "sources"
+            / "migration-receipts"
+            / "receipt-migration-synthetic"
+            / "manifest.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert {item["legacy_capture_id"] for item in receipt["captures"]} == {
+        item["legacy_capture_id"] for item in request["captures"]
+    }
+    assert {item["legacy_transformation_id"] for item in receipt["transformations"]} == {
+        item["legacy_transformation_id"] for item in request["transformations"]
+    }
+    assert pointers_before == {path.name: path.read_bytes() for path in pointer_root.iterdir()}
+    assert _git(tmp_path, "show-ref") == refs_before
+
+
+def test_migration_staging_retry_accepts_only_byte_identical_request_derived_files(
+    tmp_path: Path,
+) -> None:
+    module = _require_career_sources()
+    store, request = _two_source_migration_request(tmp_path)
+    pointer_root = tmp_path / ".career-evidence/sources/current-captures"
+    pointers_before = {path.name: path.read_bytes() for path in pointer_root.iterdir()}
+
+    with pytest.raises(module.CareerSourceError) as interrupted:
+        store.stage_workspace_migration(request, fail_after="captures")
+
+    assert interrupted.value.code == "career-source-migration-staging-interrupted"
+    assert pointers_before == {path.name: path.read_bytes() for path in pointer_root.iterdir()}
+    assert store.stage_workspace_migration(request)["staged"] is True
+
+    successor = tmp_path / ".career-evidence/sources/captures/capture-successor-a/manifest.json"
+    successor.write_text("{}", encoding="utf-8")
+    with pytest.raises(module.CareerSourceError) as conflict:
+        store.stage_workspace_migration(request)
+
+    assert conflict.value.code in {
+        "career-source-migration-request-invalid",
+        "career-source-migration-staging-invalid",
+    }
+    assert pointers_before == {path.name: path.read_bytes() for path in pointer_root.iterdir()}

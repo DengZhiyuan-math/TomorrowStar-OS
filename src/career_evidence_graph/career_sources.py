@@ -49,6 +49,7 @@ class _MigrationPreflight:
     """Verified request data kept private until an explicit later finalizer."""
 
     request: WorkspaceMigrationRequest
+    baseline_blobs: dict[str, bytes]
     captures: dict[str, CareerSourceCapture]
     transformations: dict[str, CareerSourceTransformation]
     output_bytes: dict[str, bytes]
@@ -410,13 +411,14 @@ class CareerSourceStore:
         dict[str, CareerSourceCapture],
         dict[str, CareerSourceTransformation],
         dict[str, DeclarationBoundCurrentCapturePointer],
+        dict[str, bytes],
     ]:
         """Load a complete legacy inventory only from the requested commit snapshot."""
         try:
-            # This first proves that the currently selected workspace is exactly the
-            # caller-selected snapshot before any request-derived stage is written.
-            self.verify(expected_workspace_commit=request.baseline_commit)
             blobs = self._commit_blob_inventory(request.baseline_commit)
+            working = self._working_blob_inventory()
+            if any(working.get(path) != value for path, value in blobs.items()):
+                raise ValueError
             declarations: dict[str, CareerSourceUniverse] = {}
             captures: dict[str, CareerSourceCapture] = {}
             transformations: dict[str, CareerSourceTransformation] = {}
@@ -496,9 +498,10 @@ class CareerSourceStore:
                     or output.byte_count != transformation.output_byte_count
                 ):
                     raise ValueError
+            self._verify_raw_objects(tuple(captures.values()), frozenset(outputs))
         except (CareerSourceError, KeyError, ValueError, ValidationError) as exc:
             raise CareerSourceError("career-source-migration-request-invalid") from exc
-        return captures, transformations, pointers
+        return captures, transformations, pointers, blobs
 
     @staticmethod
     def _migration_chains(
@@ -575,7 +578,7 @@ class CareerSourceStore:
         """Validate all baseline records and retained outputs before any stage write."""
         try:
             parsed = WorkspaceMigrationRequest.model_validate(request)
-            captures, transformations, pointers = self._migration_baseline(parsed)
+            captures, transformations, pointers, baseline_blobs = self._migration_baseline(parsed)
             actual_chains = self._migration_chains(captures, pointers)
             requested_chains = {
                 (chain.source_id, tuple(chain.legacy_capture_ids)): chain for chain in parsed.chains
@@ -637,41 +640,21 @@ class CareerSourceStore:
             ):
                 raise
             raise CareerSourceError("career-source-migration-request-invalid") from exc
-        return _MigrationPreflight(parsed, captures, transformations, output_bytes)
-
-    def preflight_workspace_migration(self, request: dict[str, Any]) -> dict[str, object]:
-        """Authenticate a complete private migration input graph without writing it."""
-        preflight = self._migration_preflight(request)
-        return {
-            "candidate_only": True,
-            "capture_count": len(preflight.captures),
-            "transformation_count": len(preflight.transformations),
-            "output_byte_count": sum(len(value) for value in preflight.output_bytes.values()),
-        }
+        preflight = _MigrationPreflight(
+            parsed, baseline_blobs, captures, transformations, output_bytes
+        )
+        self._validate_migration_overlay(preflight)
+        return preflight
 
     @staticmethod
-    def _stage_bundle(root: Path, bundle_id: str, value: object) -> None:
-        """Publish one deterministic bundle or accept its byte-identical retry state."""
-        destination = root / bundle_id / "manifest.json"
-        try:
-            if destination.exists():
-                if (
-                    destination.is_symlink()
-                    or {item.name for item in destination.parent.iterdir()} != {"manifest.json"}
-                    or canonical_json_bytes(json.loads(destination.read_text(encoding="utf-8")))
-                    != canonical_json_bytes(value)
-                ):
-                    raise ValueError
-                return
-            create_only_canonical_bundle(root, bundle_id, {"manifest.json": value})
-        except (FormalRunStorageError, OSError, ValueError, json.JSONDecodeError) as exc:
-            raise CareerSourceError("career-source-migration-staging-invalid") from exc
-
-    def stage_workspace_migration(
-        self, request: dict[str, Any], *, fail_after: str | None = None
-    ) -> dict[str, object]:
-        """Stage all successors without moving pointers or creating Git authority."""
-        preflight = self._migration_preflight(request)
+    def _migration_stage_values(
+        preflight: _MigrationPreflight,
+    ) -> tuple[
+        dict[str, CareerSourceCapture],
+        dict[str, CareerSourceTransformation],
+        WorkspaceMigrationReceipt,
+    ]:
+        """Derive the complete successor graph without touching the workspace."""
         capture_requests = {item.legacy_capture_id: item for item in preflight.request.captures}
         transformation_requests = {
             item.legacy_transformation_id: item for item in preflight.request.transformations
@@ -711,6 +694,86 @@ class CareerSourceStore:
             captures=preflight.request.captures,
             transformations=preflight.request.transformations,
         )
+        return successors, successor_transformations, receipt
+
+    def _validate_migration_overlay(self, preflight: _MigrationPreflight) -> None:
+        """Allow retries only over exact deterministic files derived from the request."""
+        try:
+            successors, transformations, receipt = self._migration_stage_values(preflight)
+            expected: dict[str, object] = {
+                f"captures/{value.capture_id}/manifest.json": value.model_dump(mode="json")
+                for value in successors.values()
+            }
+            expected.update(
+                {
+                    f"transformations/{value.transformation_id}/manifest.json": value.model_dump(
+                        mode="json"
+                    )
+                    for value in transformations.values()
+                }
+            )
+            expected.update(
+                {
+                    f"derived-outputs/{value.output_hash.removeprefix('sha256:')}/manifest.json": (
+                        DerivedOutputManifest(
+                            output_hash=value.output_hash,
+                            byte_count=len(preflight.output_bytes[legacy_id]),
+                        ).model_dump(mode="json")
+                    )
+                    for legacy_id, value in transformations.items()
+                }
+            )
+            expected[f"migration-receipts/{receipt.receipt_id}/manifest.json"] = receipt.model_dump(
+                mode="json"
+            )
+            working = self._working_blob_inventory()
+            if set(preflight.baseline_blobs) - set(working):
+                raise ValueError
+            for path, payload in working.items():
+                if path in preflight.baseline_blobs:
+                    if payload != preflight.baseline_blobs[path]:
+                        raise ValueError
+                elif path not in expected or canonical_json_bytes(
+                    json.loads(payload.decode("utf-8"))
+                ) != canonical_json_bytes(expected[path]):
+                    raise ValueError
+        except (OSError, ValueError, json.JSONDecodeError, ValidationError) as exc:
+            raise CareerSourceError("career-source-migration-request-invalid") from exc
+
+    def preflight_workspace_migration(self, request: dict[str, Any]) -> dict[str, object]:
+        """Authenticate a complete private migration input graph without writing it."""
+        preflight = self._migration_preflight(request)
+        return {
+            "candidate_only": True,
+            "capture_count": len(preflight.captures),
+            "transformation_count": len(preflight.transformations),
+            "output_byte_count": sum(len(value) for value in preflight.output_bytes.values()),
+        }
+
+    @staticmethod
+    def _stage_bundle(root: Path, bundle_id: str, value: object) -> None:
+        """Publish one deterministic bundle or accept its byte-identical retry state."""
+        destination = root / bundle_id / "manifest.json"
+        try:
+            if destination.exists():
+                if (
+                    destination.is_symlink()
+                    or {item.name for item in destination.parent.iterdir()} != {"manifest.json"}
+                    or canonical_json_bytes(json.loads(destination.read_text(encoding="utf-8")))
+                    != canonical_json_bytes(value)
+                ):
+                    raise ValueError
+                return
+            create_only_canonical_bundle(root, bundle_id, {"manifest.json": value})
+        except (FormalRunStorageError, OSError, ValueError, json.JSONDecodeError) as exc:
+            raise CareerSourceError("career-source-migration-staging-invalid") from exc
+
+    def stage_workspace_migration(
+        self, request: dict[str, Any], *, fail_after: str | None = None
+    ) -> dict[str, object]:
+        """Stage all successors without moving pointers or creating Git authority."""
+        preflight = self._migration_preflight(request)
+        successors, successor_transformations, receipt = self._migration_stage_values(preflight)
         try:
             self._ensure_root()
             capture_root = self.workspace.child(".career-evidence", "sources", "captures")
