@@ -11,7 +11,13 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from .domain.models import CareerSourceCapture, CareerSourceTransformation, CareerSourceUniverse
+from .domain.models import (
+    CareerSourceCapture,
+    CareerSourceTransformation,
+    CareerSourceUniverse,
+    DeclarationBoundCurrentCapturePointer,
+    DerivedOutputManifest,
+)
 from .validation.hashing import canonical_json_bytes, sha256_digest
 from .validation.store import (
     FormalRunStorageError,
@@ -31,7 +37,7 @@ _SEMANTIC_NAMESPACES = (
     ("current-captures", re.compile(r"current-captures/[a-z][a-z0-9._-]*\.json")),
     ("transformation-manifests", re.compile(r"transformations/[a-z][a-z0-9._-]*/manifest\.json")),
     ("migration-receipts", re.compile(r"migration-receipts/[a-z][a-z0-9._-]*/manifest\.json")),
-    ("derived-outputs", re.compile(r"derived-outputs/[a-z][a-z0-9._-]*/manifest\.json")),
+    ("derived-outputs", re.compile(r"derived-outputs/[0-9a-f]{64}/manifest\.json")),
 )
 
 
@@ -100,10 +106,24 @@ class CareerSourceStore:
         }
 
     def _capture_path(self, capture_id: str) -> Path:
-        return self.root / "captures" / self._safe_id(capture_id)
+        return self._semantic_path(f"captures/{self._safe_id(capture_id)}/manifest.json").parent
 
     def _raw_path(self, content_hash: str) -> Path:
-        return self.raw_root / content_hash.removeprefix("sha256:")
+        digest = content_hash.removeprefix("sha256:")
+        if not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise CareerSourceError("career-source-capture-invalid")
+        return self.raw_root / digest
+
+    def _declaration_binding(self) -> tuple[CareerSourceUniverse, str]:
+        try:
+            current_path = self._semantic_path("declarations/current.json")
+            current = CareerSourceUniverse.model_validate_json(current_path.read_bytes())
+            revision = self._read_declaration(current.revision_id)
+            if canonical_json_bytes(revision) != canonical_json_bytes(current):
+                raise ValueError
+        except (CareerSourceError, OSError, ValidationError, ValueError) as exc:
+            raise CareerSourceError("career-source-declaration-invalid") from exc
+        return revision, sha256_digest(revision.canonical_bytes())
 
     def _read_capture(self, capture_id: str) -> CareerSourceCapture:
         bundle = self._capture_path(capture_id)
@@ -113,8 +133,16 @@ class CareerSourceStore:
                 raise ValueError
             if {path.name for path in bundle.iterdir()} != {"manifest.json"}:
                 raise ValueError
-            value = json.loads(manifest.read_text(encoding="utf-8"))
+            value = json.loads(
+                self._semantic_path(f"captures/{capture_id}/manifest.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            if value.get("schema_version") == "career-source-capture/v1":
+                raise CareerSourceError("career-source-capture-migration-required")
             capture = CareerSourceCapture.model_validate(value)
+        except CareerSourceError:
+            raise
         except (OSError, json.JSONDecodeError, ValidationError) as exc:
             raise CareerSourceError("career-source-capture-invalid") from exc
         if manifest.is_symlink() or capture.capture_id != capture_id:
@@ -131,13 +159,12 @@ class CareerSourceStore:
         if sha256_digest(raw_path.read_bytes()) != capture.content_hash:
             raise CareerSourceError("career-source-capture-raw-invalid")
         try:
-            current = json.loads(
-                (self.root / "declarations/current.json").read_text(encoding="utf-8")
-            )
-            universe = CareerSourceUniverse.model_validate(current)
+            universe = self._read_declaration(capture.declaration_revision_id)
             datetime.fromisoformat(capture.acquired_at)
-        except (OSError, ValueError, json.JSONDecodeError, ValidationError) as exc:
+        except (CareerSourceError, OSError, ValueError, ValidationError) as exc:
             raise CareerSourceError("career-source-capture-lineage-invalid") from exc
+        if sha256_digest(universe.canonical_bytes()) != capture.declaration_hash:
+            raise CareerSourceError("career-source-capture-lineage-invalid")
         if capture.source_id not in {source.source_id for source in universe.sources}:
             raise CareerSourceError("career-source-capture-source-undeclared")
         if capture.predecessor_capture_id is not None:
@@ -150,24 +177,35 @@ class CareerSourceStore:
 
     def capture(self, capture: dict[str, Any], source_bytes: bytes) -> dict[str, Any]:
         try:
-            stored = CareerSourceCapture.model_validate(capture)
+            if capture.get("schema_version") == "career-source-capture/v1":
+                raise CareerSourceError("career-source-capture-migration-required")
+            universe, declaration_hash = self._declaration_binding()
+            payload = dict(capture)
+            supplied_binding = {
+                key: payload.pop(key)
+                for key in ("declaration_revision_id", "declaration_hash")
+                if key in payload
+            }
+            expected_binding = {
+                "declaration_revision_id": universe.revision_id,
+                "declaration_hash": declaration_hash,
+            }
+            if supplied_binding and supplied_binding != expected_binding:
+                raise ValueError
+            payload.update(expected_binding)
+            stored = CareerSourceCapture.model_validate(payload)
             capture_id = self._safe_id(stored.capture_id)
             if not isinstance(source_bytes, bytes) or stored.content_hash != sha256_digest(
                 source_bytes
             ):
                 raise ValueError
+        except CareerSourceError:
+            raise
         except (TypeError, ValueError) as exc:
             raise CareerSourceError("career-source-capture-invalid") from exc
         self._ensure_root()
-        captures = self.root / "captures"
+        captures = self.workspace.child(".career-evidence", "sources", "captures")
         captures.mkdir(exist_ok=True)
-        try:
-            current = json.loads(
-                (self.root / "declarations/current.json").read_text(encoding="utf-8")
-            )
-            universe = CareerSourceUniverse.model_validate(current)
-        except (OSError, json.JSONDecodeError, ValidationError) as exc:
-            raise CareerSourceError("career-source-declaration-invalid") from exc
         if stored.source_id not in {source.source_id for source in universe.sources}:
             raise CareerSourceError("career-source-capture-source-undeclared")
         if stored.predecessor_capture_id is not None:
@@ -186,10 +224,17 @@ class CareerSourceStore:
             create_only_canonical_bundle(
                 captures, capture_id, {"manifest.json": stored.model_dump(mode="json")}
             )
-            current_root = self.root / "current-captures"
+            current_root = self.workspace.child(".career-evidence", "sources", "current-captures")
             current_root.mkdir(exist_ok=True)
             atomic_write_canonical_json(
-                current_root / f"{stored.source_id}.json", {"capture_id": stored.capture_id}
+                self._semantic_path(f"current-captures/{stored.source_id}.json"),
+                DeclarationBoundCurrentCapturePointer(
+                    source_id=stored.source_id,
+                    capture_id=stored.capture_id,
+                    content_hash=stored.content_hash,
+                    declaration_revision_id=stored.declaration_revision_id,
+                    declaration_hash=stored.declaration_hash,
+                ).model_dump(mode="json"),
             )
         except (FormalRunStorageError, OSError) as exc:
             raise CareerSourceError("career-source-capture-already-exists") from exc
@@ -197,26 +242,98 @@ class CareerSourceStore:
 
     def verify_capture(self, capture: dict[str, Any]) -> None:
         try:
+            if capture.get("schema_version") == "career-source-capture/v1":
+                raise CareerSourceError("career-source-capture-migration-required")
             expected = CareerSourceCapture.model_validate(capture)
             stored = self._verify_capture(expected.capture_id, ancestry=frozenset())
+        except CareerSourceError:
+            raise
         except (TypeError, ValueError) as exc:
             raise CareerSourceError("career-source-capture-invalid") from exc
         if canonical_json_bytes(stored) != canonical_json_bytes(expected):
             raise CareerSourceError("career-source-capture-lineage-invalid")
 
-    def transform(self, transformation: dict[str, Any]) -> dict[str, Any]:
+    def current_capture(self, source_id: str) -> CareerSourceCapture:
+        """Resolve one source through its exact strict current-capture pointer."""
+        source_id = self._safe_id(source_id)
         try:
-            stored = CareerSourceTransformation.model_validate(transformation)
-            transformation_id = self._safe_id(stored.transformation_id)
-            capture = self._verify_capture(stored.input_capture_id, ancestry=frozenset())
-            if capture.content_hash != stored.input_hash:
+            pointer_path = self._semantic_path(f"current-captures/{source_id}.json")
+            value = json.loads(pointer_path.read_text(encoding="utf-8"))
+            pointer = DeclarationBoundCurrentCapturePointer.model_validate(value)
+            capture = self._verify_capture(pointer.capture_id, ancestry=frozenset())
+        except CareerSourceError:
+            raise
+        except (OSError, ValueError, json.JSONDecodeError, ValidationError) as exc:
+            raise CareerSourceError("career-source-current-capture-invalid") from exc
+        if (
+            pointer.source_id != source_id
+            or pointer.capture_id != capture.capture_id
+            or pointer.content_hash != capture.content_hash
+            or pointer.declaration_revision_id != capture.declaration_revision_id
+            or pointer.declaration_hash != capture.declaration_hash
+        ):
+            raise CareerSourceError("career-source-current-capture-invalid")
+        return capture
+
+    def _derived_output_path(self, output_hash: str) -> Path:
+        digest = output_hash.removeprefix("sha256:")
+        if not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise CareerSourceError("career-source-transformation-invalid")
+        return self._semantic_path(f"derived-outputs/{digest}/manifest.json")
+
+    def transform(
+        self, transformation: dict[str, Any], output_bytes: bytes | None = None
+    ) -> dict[str, Any]:
+        try:
+            if transformation.get("schema_version") == "career-source-transformation/v1":
+                raise CareerSourceError("career-source-transformation-migration-required")
+            payload = dict(transformation)
+            capture = self._verify_capture(payload["input_capture_id"], ancestry=frozenset())
+            if output_bytes is None:
+                output_bytes = self._raw_path(capture.content_hash).read_bytes()
+            if not isinstance(output_bytes, bytes):
                 raise ValueError
-        except (TypeError, ValueError) as exc:
+            expected = {
+                "source_id": capture.source_id,
+                "input_hash": capture.content_hash,
+                "declaration_revision_id": capture.declaration_revision_id,
+                "declaration_hash": capture.declaration_hash,
+                "output_hash": sha256_digest(output_bytes),
+                "output_byte_count": len(output_bytes),
+            }
+            supplied = {key: payload.pop(key) for key in expected if key in payload}
+            if any(supplied[key] != expected[key] for key in supplied):
+                raise ValueError
+            payload.update(expected)
+            stored = CareerSourceTransformation.model_validate(payload)
+            transformation_id = self._safe_id(stored.transformation_id)
+        except CareerSourceError:
+            raise
+        except (OSError, TypeError, ValueError, KeyError) as exc:
             raise CareerSourceError("career-source-transformation-invalid") from exc
         self._ensure_root()
-        transformations = self.root / "transformations"
+        transformations = self.workspace.child(".career-evidence", "sources", "transformations")
         transformations.mkdir(exist_ok=True)
         try:
+            raw_path = self._raw_path(stored.output_hash)
+            if raw_path.is_symlink():
+                raise OSError
+            if not raw_path.exists():
+                with raw_path.open("xb") as raw_file:
+                    raw_file.write(output_bytes)
+            elif sha256_digest(raw_path.read_bytes()) != stored.output_hash:
+                raise OSError
+            output_manifest = DerivedOutputManifest(
+                output_hash=stored.output_hash,
+                byte_count=stored.output_byte_count,
+            )
+            output_root = self._derived_output_path(stored.output_hash).parent.parent
+            output_root.mkdir(exist_ok=True)
+            create_only_canonical_bundle(
+                output_root,
+                stored.output_hash.removeprefix("sha256:"),
+                {"manifest.json": output_manifest.model_dump(mode="json")},
+            )
             create_only_canonical_bundle(
                 transformations,
                 transformation_id,
@@ -228,18 +345,35 @@ class CareerSourceStore:
 
     def verify_transformation(self, transformation: dict[str, Any]) -> None:
         try:
+            if transformation.get("schema_version") == "career-source-transformation/v1":
+                raise CareerSourceError("career-source-transformation-migration-required")
             expected = CareerSourceTransformation.model_validate(transformation)
-            manifest = self.root / "transformations" / expected.transformation_id / "manifest.json"
+            manifest = self._semantic_path(
+                f"transformations/{expected.transformation_id}/manifest.json"
+            )
             stored = CareerSourceTransformation.model_validate(
                 json.loads(manifest.read_text(encoding="utf-8"))
             )
             capture = self._verify_capture(stored.input_capture_id, ancestry=frozenset())
-        except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            output_manifest = DerivedOutputManifest.model_validate_json(
+                self._derived_output_path(stored.output_hash).read_bytes()
+            )
+            output_bytes = self._raw_path(stored.output_hash).read_bytes()
+        except CareerSourceError:
+            raise
+        except (OSError, TypeError, ValueError, json.JSONDecodeError, ValidationError) as exc:
             raise CareerSourceError("career-source-transformation-invalid") from exc
         if (
             manifest.is_symlink()
             or stored.transformation_id != expected.transformation_id
+            or stored.source_id != capture.source_id
             or capture.content_hash != stored.input_hash
+            or capture.declaration_revision_id != stored.declaration_revision_id
+            or capture.declaration_hash != stored.declaration_hash
+            or output_manifest.output_hash != stored.output_hash
+            or output_manifest.byte_count != stored.output_byte_count
+            or sha256_digest(output_bytes) != stored.output_hash
+            or len(output_bytes) != stored.output_byte_count
             or canonical_json_bytes(stored) != canonical_json_bytes(expected)
         ):
             raise CareerSourceError("career-source-transformation-lineage-invalid")
@@ -256,7 +390,7 @@ class CareerSourceStore:
     ) -> dict[str, Any]:
         self.declare(declaration)
         capture = {
-            "schema_version": "career-source-capture/v1",
+            "schema_version": "career-source-capture/v2",
             "capture_id": transformation["input_capture_id"],
             "source_id": declaration["sources"][0]["source_id"],
             "content_hash": transformation["input_hash"],
@@ -418,6 +552,8 @@ class CareerSourceStore:
             return True
         if parts[0] == "current-captures":
             return _SAFE_ID.fullmatch(Path(parts[1]).stem) is not None
+        if parts[0] == "derived-outputs":
+            return re.fullmatch(r"[0-9a-f]{64}", parts[1]) is not None
         return _SAFE_ID.fullmatch(parts[1]) is not None
 
     @staticmethod
@@ -442,7 +578,11 @@ class CareerSourceStore:
                 "migration-receipts",
                 "derived-outputs",
             }
-            and _SAFE_ID.fullmatch(parts[1]) is not None
+            and (
+                re.fullmatch(r"[0-9a-f]{64}", parts[1]) is not None
+                if parts[0] == "derived-outputs"
+                else _SAFE_ID.fullmatch(parts[1]) is not None
+            )
         )
 
     def _semantic_path(self, relative: str) -> Path:
@@ -498,10 +638,15 @@ class CareerSourceStore:
                     raise ValueError
                 source_id = pointer.stem
                 value = json.loads(self._semantic_path(relative).read_text(encoding="utf-8"))
-                if set(value) != {"capture_id"} or not isinstance(value["capture_id"], str):
-                    raise ValueError
-                capture = self._read_capture(value["capture_id"])
-                if capture.source_id != source_id:
+                pointer_value = DeclarationBoundCurrentCapturePointer.model_validate(value)
+                capture = self._verify_capture(pointer_value.capture_id, ancestry=frozenset())
+                if (
+                    pointer_value.source_id != source_id
+                    or pointer_value.capture_id != capture.capture_id
+                    or pointer_value.content_hash != capture.content_hash
+                    or pointer_value.declaration_revision_id != capture.declaration_revision_id
+                    or pointer_value.declaration_hash != capture.declaration_hash
+                ):
                     raise ValueError
                 actual_sources.add(source_id)
         except (OSError, ValueError, json.JSONDecodeError, CareerSourceError) as exc:

@@ -193,11 +193,15 @@ class CareerSourceTransformer(StrictModel):
     configuration: dict[str, object]
 
 
-class CareerSourceCapture(StrictModel):
-    schema_version: Literal["career-source-capture/v1"] = "career-source-capture/v1"
+class DeclarationBoundCareerSourceCapture(StrictModel):
+    """An immutable capture bound to the declaration active at acquisition."""
+
+    schema_version: Literal["career-source-capture/v2"] = "career-source-capture/v2"
     capture_id: Identifier
     source_id: Identifier
     content_hash: str = Field(pattern=SHA256_PATTERN)
+    declaration_revision_id: Identifier
+    declaration_hash: str = Field(pattern=SHA256_PATTERN)
     acquired_at: str = Field(min_length=1)
     method: Literal[
         "synthetic-text",
@@ -214,26 +218,59 @@ class CareerSourceCapture(StrictModel):
     authority: Literal["candidate-only"] = "candidate-only"
 
 
-class CareerSourceTransformation(StrictModel):
-    schema_version: Literal["career-source-transformation/v1"] = "career-source-transformation/v1"
+class DeclarationBoundCurrentCapturePointer(StrictModel):
+    """The only mutable selector for one source's current immutable capture."""
+
+    schema_version: Literal["career-source-current-capture/v2"] = "career-source-current-capture/v2"
+    source_id: Identifier
+    capture_id: Identifier
+    content_hash: str = Field(pattern=SHA256_PATTERN)
+    declaration_revision_id: Identifier
+    declaration_hash: str = Field(pattern=SHA256_PATTERN)
+
+
+class DeclarationBoundCareerSourceTransformation(StrictModel):
+    """A candidate-only derivation with complete immutable input lineage."""
+
+    schema_version: Literal["career-source-transformation/v2"] = "career-source-transformation/v2"
     transformation_id: Identifier
+    source_id: Identifier
     input_capture_id: Identifier
     input_hash: str = Field(pattern=SHA256_PATTERN)
+    declaration_revision_id: Identifier
+    declaration_hash: str = Field(pattern=SHA256_PATTERN)
     predecessor_capture_id: Identifier | None = None
     transformer: CareerSourceTransformer
     output_hash: str = Field(pattern=SHA256_PATTERN)
+    output_byte_count: int = Field(ge=0)
     locator: CareerSourceLocator
     authority: Literal["candidate-only"] = "candidate-only"
     candidate_only: Literal[True] = True
 
     @model_validator(mode="after")
-    def validate_input_lineage(self) -> CareerSourceTransformation:
+    def validate_input_lineage(self) -> DeclarationBoundCareerSourceTransformation:
         if (
             self.predecessor_capture_id is not None
             and self.predecessor_capture_id != self.input_capture_id
         ):
             raise ValueError("transformation predecessor must match its exact input capture")
         return self
+
+
+class DerivedOutputManifest(StrictModel):
+    """The tracked manifest for one ignored content-addressed derived byte object."""
+
+    schema_version: Literal["career-source-derived-output/v1"] = "career-source-derived-output/v1"
+    output_hash: str = Field(pattern=SHA256_PATTERN)
+    byte_count: int = Field(ge=0)
+    candidate_only: Literal[True] = True
+    authority: Literal["candidate-only"] = "candidate-only"
+
+
+# These names remain the store-facing contracts while their schema versions make
+# unbound v1 records an explicit migration boundary rather than a fallback path.
+CareerSourceCapture = DeclarationBoundCareerSourceCapture
+CareerSourceTransformation = DeclarationBoundCareerSourceTransformation
 
 
 def _unique_ids(values: tuple[str, ...], field_name: str) -> tuple[str, ...]:

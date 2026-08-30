@@ -345,6 +345,7 @@ def _parser() -> argparse.ArgumentParser:
     source_transform = source_commands.add_parser("transform")
     source_transform.add_argument("--workspace", required=True)
     source_transform.add_argument("--source-id", required=True)
+    source_transform.add_argument("--transformation-id", required=True)
     source_transform.add_argument("--transformer", required=True)
     source_transform.add_argument("--version", required=True)
     source_transform.add_argument("--configuration-json", required=True)
@@ -816,7 +817,7 @@ def main(argv: list[str] | None = None) -> int:
             store.validate_source_bytes(source, args.source_id)
             store.capture(
                 {
-                    "schema_version": "career-source-capture/v1",
+                    "schema_version": "career-source-capture/v2",
                     "capture_id": capture_id,
                     "source_id": args.source_id,
                     "content_hash": source_hash,
@@ -831,13 +832,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "career-source" and args.career_source_command == "transform":
             store = CareerSourceStore(Path(args.workspace))
             try:
-                captures = store.root / "captures"
-                capture_paths = tuple(sorted(captures.iterdir())) if captures.is_dir() else ()
-                if len(capture_paths) != 1 or capture_paths[0].is_symlink():
-                    raise CareerSourceError("career-source-capture-missing")
-                manifest = json.loads(
-                    (capture_paths[0] / "manifest.json").read_text(encoding="utf-8")
-                )
+                capture = store.current_capture(args.source_id)
                 configuration = json.loads(args.configuration_json)
             except CareerSourceError:
                 raise
@@ -845,17 +840,15 @@ def main(argv: list[str] | None = None) -> int:
                 raise CareerSourceError("career-source-corrupt-state") from exc
             store.transform(
                 {
-                    "schema_version": "career-source-transformation/v1",
-                    "transformation_id": "transform-current",
-                    "input_capture_id": manifest["capture_id"],
-                    "predecessor_capture_id": manifest["capture_id"],
-                    "input_hash": manifest["content_hash"],
+                    "schema_version": "career-source-transformation/v2",
+                    "transformation_id": args.transformation_id,
+                    "input_capture_id": capture.capture_id,
+                    "predecessor_capture_id": capture.capture_id,
                     "transformer": {
                         "identity": args.transformer,
                         "version": args.version,
                         "configuration": configuration,
                     },
-                    "output_hash": manifest["content_hash"],
                     "locator": {"kind": "whole-source", "declared_fallback": True},
                     "authority": "candidate-only",
                     "candidate_only": True,

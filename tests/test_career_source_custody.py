@@ -92,7 +92,7 @@ def unavailable_source() -> dict[str, str]:
 def synthetic_capture(*, capture_id: str = "capture-synthetic-a") -> dict[str, Any]:
     source = b"synthetic-raw-body-sentinel"
     return {
-        "schema_version": "career-source-capture/v1",
+        "schema_version": "career-source-capture/v2",
         "capture_id": capture_id,
         "source_id": "source-synthetic-a",
         "content_hash": sha256_digest(source),
@@ -121,7 +121,7 @@ def synthetic_locator() -> dict[str, Any]:
 def synthetic_transformation() -> dict[str, Any]:
     input_hash = sha256_digest(b"synthetic-raw-body-sentinel")
     return {
-        "schema_version": "career-source-transformation/v1",
+        "schema_version": "career-source-transformation/v2",
         "transformation_id": "transform-synthetic-a",
         "input_capture_id": "capture-synthetic-a",
         "input_hash": input_hash,
@@ -130,7 +130,7 @@ def synthetic_transformation() -> dict[str, Any]:
             "version": "v1",
             "configuration": {"mode": "synthetic"},
         },
-        "output_hash": sha256_digest(b"synthetic-derived-output-sentinel"),
+        "output_hash": input_hash,
         "locator": synthetic_locator(),
         "authority": "candidate-only",
     }
@@ -427,6 +427,8 @@ def test_tracer_declares_captures_transforms_and_inspects_without_authority(tmp_
         workspace,
         "--source-id",
         "source-probe",
+        "--transformation-id",
+        "transform-source-probe",
         "--transformer",
         "deterministic-whole-source",
         "--version",
@@ -476,7 +478,7 @@ def test_explicit_commit_verifies_committed_snapshot_and_ignored_raw_authenticat
     assert result == {
         "candidate_only": True,
         "raw_byte_count": len(b"synthetic-raw-body-sentinel"),
-        "semantic_entry_count": 5,
+        "semantic_entry_count": 6,
     }
     assert _git(tmp_path, "ls-files", ".career-evidence/raw") == ""
 
@@ -539,7 +541,7 @@ def test_snapshot_inventory_rejects_missing_extra_and_coordinated_semantic_chang
     extra_workspace.mkdir()
     store, commit = committed_synthetic_snapshot(extra_workspace)
     extra = extra_workspace / ".career-evidence/sources/derived-outputs/unexpected.json"
-    extra.parent.mkdir(parents=True)
+    extra.parent.mkdir(parents=True, exist_ok=True)
     extra.write_text("{}", encoding="utf-8")
     with pytest.raises(_require_career_sources().CareerSourceError):
         store.verify(expected_workspace_commit=commit)
@@ -717,15 +719,15 @@ def test_legacy_capture_requires_explicit_migration(tmp_path: Path) -> None:
     store = module.CareerSourceStore(tmp_path)
     store.declare(synthetic_source_universe())
     legacy = synthetic_capture()
+    legacy["schema_version"] = "career-source-capture/v1"
     bundle = tmp_path / ".career-evidence/sources/captures/capture-synthetic-a"
     bundle.mkdir(parents=True)
-    (tmp_path / ".career-evidence/raw").mkdir(parents=True)
-    (tmp_path / ".career-evidence/raw" / legacy["content_hash"].removeprefix("sha256:")).write_bytes(
-        b"synthetic-raw-body-sentinel"
-    )
+    (tmp_path / ".career-evidence/raw").mkdir(parents=True, exist_ok=True)
+    raw_path = tmp_path / ".career-evidence/raw" / legacy["content_hash"].removeprefix("sha256:")
+    raw_path.write_bytes(b"synthetic-raw-body-sentinel")
     (bundle / "manifest.json").write_text(json.dumps(legacy), encoding="utf-8")
 
     with pytest.raises(module.CareerSourceError) as error:
-        store.current_capture("source-synthetic-a")
+        store.verify_capture(legacy)
 
     assert error.value.code == "career-source-capture-migration-required"
