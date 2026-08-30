@@ -230,6 +230,8 @@ def test_complete_synthetic_cli_flow_has_no_later_phase_authority_side_effects(
             workspace,
             "--source-id",
             "source-synthetic-authority",
+            "--transformation-id",
+            "transform-synthetic-authority",
             "--transformer",
             "deterministic",
             "--version",
