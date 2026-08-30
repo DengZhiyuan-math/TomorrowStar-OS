@@ -122,8 +122,15 @@ class CareerSourceStore:
         except (OSError, CareerSourceError) as exc:
             raise CareerSourceError("career-source-path-unsafe") from exc
         predecessor = universe.predecessor_revision_id
-        if predecessor is not None and not (declarations / predecessor / "manifest.json").is_file():
-            raise CareerSourceError("career-source-declaration-predecessor-missing")
+        if predecessor is not None:
+            try:
+                predecessor_manifest = self._semantic_path(
+                    f"declarations/{self._safe_id(predecessor)}/manifest.json"
+                )
+                if not predecessor_manifest.is_file():
+                    raise ValueError
+            except (CareerSourceError, OSError, ValueError) as exc:
+                raise CareerSourceError("career-source-declaration-predecessor-missing") from exc
         try:
             create_only_canonical_bundle(
                 declarations,
@@ -1824,7 +1831,9 @@ class CareerSourceStore:
 
     def _read_declaration(self, revision_id: str) -> CareerSourceUniverse:
         try:
-            manifest = self.root / "declarations" / self._safe_id(revision_id) / "manifest.json"
+            manifest = self._semantic_path(
+                f"declarations/{self._safe_id(revision_id)}/manifest.json"
+            )
             return CareerSourceUniverse.model_validate_json(manifest.read_bytes())
-        except (OSError, ValueError, ValidationError) as exc:
+        except (CareerSourceError, OSError, ValueError, ValidationError) as exc:
             raise CareerSourceError("career-source-declaration-invalid") from exc

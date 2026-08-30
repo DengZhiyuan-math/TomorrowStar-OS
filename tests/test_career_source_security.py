@@ -340,6 +340,49 @@ def test_semantic_namespace_symlink_rejects_capture_without_outside_write(tmp_pa
     assert tuple(outside.iterdir()) == ()
 
 
+@pytest.mark.parametrize("target", ("revision", "manifest"))
+def test_declaration_symlinks_are_rejected_before_lineage_is_read(
+    tmp_path: Path, target: str
+) -> None:
+    """Declaration lineage must never dereference a mutable bundle or leaf symlink."""
+    module = _require_career_sources()
+    store = module.CareerSourceStore(tmp_path)
+    original = {
+        "schema_version": "career-source-universe/v1",
+        "revision_id": "revision-original",
+        "career_fact_cutoff": "2001-02-03",
+        "categories": ({"category_id": "category-projects", "kind": "projects"},),
+        "sources": (
+            {
+                "source_id": "source-original",
+                "category_id": "category-projects",
+                "source_type": "self-reported",
+                "availability": "available",
+            },
+        ),
+    }
+    store.declare(original)
+    declarations = tmp_path / ".career-evidence" / "sources" / "declarations"
+    outside = tmp_path / "synthetic-outside-declaration"
+    outside.mkdir()
+    original_bundle = declarations / "revision-original"
+    if target == "revision":
+        original_bundle.rename(outside / "revision-original")
+        original_bundle.symlink_to(outside / "revision-original", target_is_directory=True)
+    else:
+        manifest = original_bundle / "manifest.json"
+        manifest.rename(outside / "manifest.json")
+        manifest.symlink_to(outside / "manifest.json")
+
+    successor = dict(original)
+    successor["revision_id"] = "revision-successor"
+    successor["predecessor_revision_id"] = "revision-original"
+    with pytest.raises(module.CareerSourceError) as raised:
+        store.declare(successor)
+
+    assert raised.value.code == "career-source-declaration-predecessor-missing"
+
+
 def test_cli_file_capture_rejects_unsupported_format_without_echoing_private_values(
     tmp_path: Path,
 ) -> None:
