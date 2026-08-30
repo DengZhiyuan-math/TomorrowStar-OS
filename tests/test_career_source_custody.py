@@ -1105,6 +1105,28 @@ def test_migration_staging_retry_accepts_only_byte_identical_request_derived_fil
 
     assert interrupted.value.code == "career-source-migration-staging-interrupted"
     assert pointers_before == {path.name: path.read_bytes() for path in pointer_root.iterdir()}
+
+
+def test_adjudicate_complete_workspace_creates_only_the_dedicated_retention_ref(
+    tmp_path: Path,
+) -> None:
+    """A complete synthetic migration is reachable only after explicit ref CAS."""
+    store, baseline, records = _two_capture_migration_baseline(tmp_path)
+    request = _workspace_migration_request(baseline, records)
+    zero = "0" * len(baseline)
+
+    result = store.adjudicate_workspace_migration(
+        request,
+        expected_workspace_commit=baseline,
+        expected_retention_ref_oid=zero,
+    )
+
+    assert result["adjudicated"] is True
+    workspace_commit = result["workspace_commit"]
+    assert isinstance(workspace_commit, str)
+    assert len(workspace_commit) == len(baseline)
+    assert _git(tmp_path, "rev-parse", "refs/career-evidence/custody") == workspace_commit
+    assert "career-evidence/custody" in _git(tmp_path, "show-ref")
     assert store.stage_workspace_migration(request)["staged"] is True
 
     successor = tmp_path / ".career-evidence/sources/captures/capture-successor-a/manifest.json"
