@@ -553,3 +553,40 @@ def test_empty_workspace_requires_a_complete_commit_and_proves_every_namespace_e
     }
     with pytest.raises(module.CareerSourceError):
         module.CareerSourceStore(tmp_path).verify(expected_workspace_commit="HEAD")
+
+
+def test_expected_zero_transformation_namespace_still_requires_snapshot_anchor(
+    tmp_path: Path,
+) -> None:
+    module = _require_career_sources()
+    store = module.CareerSourceStore(tmp_path)
+    store.declare(synthetic_source_universe())
+    store.capture(synthetic_capture(), b"synthetic-raw-body-sentinel")
+    (tmp_path / ".gitignore").write_text(".career-evidence/raw/\n", encoding="utf-8")
+    _git(tmp_path, "init", "--quiet")
+    _git(tmp_path, "config", "user.email", "synthetic@example.invalid")
+    _git(tmp_path, "config", "user.name", "Synthetic Test")
+    _git(tmp_path, "add", ".gitignore", ".career-evidence/sources")
+    _git(tmp_path, "commit", "--quiet", "-m", "expected zero transformations")
+    commit = _git(tmp_path, "rev-parse", "HEAD")
+
+    assert store.verify(expected_workspace_commit=commit)["semantic_entry_count"] == 4
+    with pytest.raises(module.CareerSourceError):
+        store.verify(expected_workspace_commit=commit[:12])
+
+
+@pytest.mark.parametrize("pointer", ({"capture_id": "capture-missing"}, {"capture_id": "capture-synthetic-a"}))
+def test_current_capture_pointer_must_match_its_source_and_existing_capture(
+    tmp_path: Path, pointer: dict[str, str]
+) -> None:
+    store, commit = committed_synthetic_snapshot(tmp_path)
+    current = tmp_path / ".career-evidence/sources/current-captures/source-synthetic-a.json"
+    if pointer["capture_id"] == "capture-synthetic-a":
+        current.rename(
+            tmp_path / ".career-evidence/sources/current-captures/source-synthetic-unavailable.json"
+        )
+    else:
+        current.write_text(json.dumps(pointer), encoding="utf-8")
+
+    with pytest.raises(_require_career_sources().CareerSourceError):
+        store.verify(expected_workspace_commit=commit)
