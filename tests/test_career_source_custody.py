@@ -494,6 +494,17 @@ def test_snapshot_anchor_requires_an_explicit_complete_commit_oid(
     assert error.value.code == "career-source-snapshot-anchor-invalid"
 
 
+def test_snapshot_anchor_rejects_the_full_oid_of_an_annotated_tag(tmp_path: Path) -> None:
+    store, _ = committed_synthetic_snapshot(tmp_path)
+    _git(tmp_path, "tag", "-a", "synthetic-snapshot", "-m", "synthetic tag")
+    tag_oid = _git(tmp_path, "rev-parse", "refs/tags/synthetic-snapshot^{tag}")
+
+    with pytest.raises(_require_career_sources().CareerSourceError) as error:
+        store.verify(expected_workspace_commit=tag_oid)
+
+    assert error.value.code == "career-source-snapshot-anchor-invalid"
+
+
 def test_raw_authentication_rejects_changed_ignored_bytes_without_disclosing_workspace(
     tmp_path: Path,
 ) -> None:
@@ -592,3 +603,19 @@ def test_current_capture_pointer_must_match_its_source_and_existing_capture(
 
     with pytest.raises(_require_career_sources().CareerSourceError):
         store.verify(expected_workspace_commit=commit)
+
+
+def test_committed_malformed_path_and_pointer_fail_even_when_working_tree_matches(
+    tmp_path: Path,
+) -> None:
+    store, _ = committed_synthetic_snapshot(tmp_path)
+    current = tmp_path / ".career-evidence/sources/current-captures/source-synthetic-a.json"
+    current.write_text('{"capture_id":"capture-missing"}', encoding="utf-8")
+    malformed = tmp_path / ".career-evidence/sources/captures/capture--invalid/manifest.json"
+    malformed.parent.mkdir()
+    malformed.write_text("{}", encoding="utf-8")
+    _git(tmp_path, "add", ".career-evidence/sources")
+    _git(tmp_path, "commit", "--quiet", "-m", "malformed synthetic snapshot")
+
+    with pytest.raises(_require_career_sources().CareerSourceError):
+        store.verify(expected_workspace_commit=_git(tmp_path, "rev-parse", "HEAD"))

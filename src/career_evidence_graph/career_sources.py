@@ -411,7 +411,14 @@ class CareerSourceStore:
 
     @staticmethod
     def _is_semantic_path(relative: str) -> bool:
-        return any(pattern.fullmatch(relative) for _, pattern in _SEMANTIC_NAMESPACES)
+        if not any(pattern.fullmatch(relative) for _, pattern in _SEMANTIC_NAMESPACES):
+            return False
+        parts = tuple(relative.split("/"))
+        if parts == ("declarations", "current.json"):
+            return True
+        if parts[0] == "current-captures":
+            return _SAFE_ID.fullmatch(Path(parts[1]).stem) is not None
+        return _SAFE_ID.fullmatch(parts[1]) is not None
 
     @staticmethod
     def _is_semantic_directory(relative: str) -> bool:
