@@ -153,13 +153,31 @@ def tampered(value: dict[str, Any], field: str, replacement: Any) -> dict[str, A
     return target
 
 
+def _synthetic_baseline(workspace: Path) -> str:
+    """Create the explicit synthetic full-OID anchor required before a custody mutation."""
+    if (workspace / ".git").exists():
+        return _git(workspace, "rev-parse", "HEAD")
+    (workspace / ".gitignore").write_text(".career-evidence/raw/\n", encoding="utf-8")
+    _git(workspace, "init", "--quiet")
+    _git(workspace, "config", "user.email", "synthetic@example.invalid")
+    _git(workspace, "config", "user.name", "Synthetic Test")
+    _git(workspace, "add", ".gitignore")
+    if (workspace / ".career-evidence" / "sources").exists():
+        _git(workspace, "add", ".career-evidence/sources")
+    _git(workspace, "commit", "--quiet", "--allow-empty", "-m", "synthetic mutation baseline")
+    return _git(workspace, "rev-parse", "HEAD")
+
+
 def committed_synthetic_snapshot(tmp_path: Path) -> tuple[Any, str]:
     """Create a committed semantic snapshot with ignored synthetic raw bytes."""
     module = _require_career_sources()
     store = module.CareerSourceStore(tmp_path)
     store.declare(synthetic_source_universe())
-    store.capture(synthetic_capture(), b"synthetic-raw-body-sentinel")
-    store.transform(synthetic_transformation())
+    baseline = _synthetic_baseline(tmp_path)
+    store.capture(
+        synthetic_capture(), b"synthetic-raw-body-sentinel", expected_workspace_commit=baseline
+    )
+    store.transform(synthetic_transformation(), expected_workspace_commit=baseline)
     (tmp_path / ".gitignore").write_text(".career-evidence/raw/\n", encoding="utf-8")
     _git(tmp_path, "init", "--quiet")
     _git(tmp_path, "config", "user.email", "synthetic@example.invalid")
@@ -205,6 +223,7 @@ def test_tracer_synthetic_path_is_candidate_only_and_has_no_assessment_authority
         declaration=synthetic_source_universe(),
         source_bytes=b"synthetic-raw-body-sentinel",
         transformation=synthetic_transformation(),
+        expected_workspace_commit=_synthetic_baseline(tmp_path),
     )
     assert result["authority"] == "candidate-only"
     assert result["created_assessment_count"] == 0
@@ -279,8 +298,13 @@ def test_capture_recapture_creates_immutable_predecessor_link(tmp_path) -> None:
     module = _require_career_sources()
     store = module.CareerSourceStore(tmp_path)
     store.declare(synthetic_source_universe())
-    first = store.capture(synthetic_capture(), b"synthetic-raw-body-sentinel")
-    second = store.capture(synthetic_recapture(), b"synthetic-raw-body-sentinel-v2")
+    baseline = _synthetic_baseline(tmp_path)
+    first = store.capture(
+        synthetic_capture(), b"synthetic-raw-body-sentinel", expected_workspace_commit=baseline
+    )
+    second = store.capture(
+        synthetic_recapture(), b"synthetic-raw-body-sentinel-v2", expected_workspace_commit=baseline
+    )
     assert second["predecessor_capture_id"] == first["capture_id"]
 
 
@@ -291,7 +315,11 @@ def test_lineage_rejects_tampered_capture_bound_fields(tmp_path, field: str) -> 
     module = _require_career_sources()
     store = module.CareerSourceStore(tmp_path)
     store.declare(synthetic_source_universe())
-    capture = store.capture(synthetic_capture(), b"synthetic-raw-body-sentinel")
+    capture = store.capture(
+        synthetic_capture(),
+        b"synthetic-raw-body-sentinel",
+        expected_workspace_commit=_synthetic_baseline(tmp_path),
+    )
     with pytest.raises(module.CareerSourceError):
         store.verify_capture(tampered(capture, field, "tampered-sentinel"))
 
@@ -301,8 +329,11 @@ def test_transform_rejects_tampered_bound_lineage(tmp_path, field: str) -> None:
     module = _require_career_sources()
     store = module.CareerSourceStore(tmp_path)
     store.declare(synthetic_source_universe())
-    store.capture(synthetic_capture(), b"synthetic-raw-body-sentinel")
-    transform = store.transform(synthetic_transformation())
+    baseline = _synthetic_baseline(tmp_path)
+    store.capture(
+        synthetic_capture(), b"synthetic-raw-body-sentinel", expected_workspace_commit=baseline
+    )
+    transform = store.transform(synthetic_transformation(), expected_workspace_commit=baseline)
     with pytest.raises(module.CareerSourceError):
         store.verify_transformation(tampered(transform, field, "tampered-sentinel"))
 
@@ -314,7 +345,12 @@ def test_duplicate_content_retains_logical_source_provenance_without_authority_i
     store = module.CareerSourceStore(tmp_path)
     store.declare(synthetic_source_universe())
     first, second = duplicate_content_sources()
-    outcome = store.capture_duplicates(first, second, b"synthetic-duplicate-body")
+    outcome = store.capture_duplicates(
+        first,
+        second,
+        b"synthetic-duplicate-body",
+        expected_workspace_commit=_synthetic_baseline(tmp_path),
+    )
     assert outcome["logical_source_count"] == 2
     assert outcome["created_fact_count"] == 0
     assert outcome["created_confidence_count"] == 0
@@ -330,7 +366,11 @@ def test_capture_verification_fails_closed_for_manifest_mutations_and_undeclared
     module = _require_career_sources()
     store = module.CareerSourceStore(tmp_path)
     store.declare(synthetic_source_universe())
-    capture = store.capture(synthetic_capture(), b"synthetic-raw-body-sentinel")
+    capture = store.capture(
+        synthetic_capture(),
+        b"synthetic-raw-body-sentinel",
+        expected_workspace_commit=_synthetic_baseline(tmp_path),
+    )
     capture_path = tmp_path / ".career-evidence/sources/captures" / capture["capture_id"]
     control = deepcopy(capture)
     replacement = "capture-tampered" if field != "content_hash" else sha256_digest(b"tampered")
@@ -349,8 +389,13 @@ def test_capture_verification_rejects_substituted_raw_bytes_and_preserves_prior_
     module = _require_career_sources()
     store = module.CareerSourceStore(tmp_path)
     store.declare(synthetic_source_universe())
-    first = store.capture(synthetic_capture(), b"synthetic-raw-body-sentinel")
-    second = store.capture(synthetic_recapture(), b"synthetic-raw-body-sentinel-v2")
+    baseline = _synthetic_baseline(tmp_path)
+    first = store.capture(
+        synthetic_capture(), b"synthetic-raw-body-sentinel", expected_workspace_commit=baseline
+    )
+    second = store.capture(
+        synthetic_recapture(), b"synthetic-raw-body-sentinel-v2", expected_workspace_commit=baseline
+    )
     raw = tmp_path / ".career-evidence/raw" / first["content_hash"].removeprefix("sha256:")
     raw.write_bytes(b"substituted")
 
@@ -365,7 +410,10 @@ def test_capture_verification_rejects_undeclared_bundle_payload(tmp_path) -> Non
     module = _require_career_sources()
     store = module.CareerSourceStore(tmp_path)
     store.declare(synthetic_source_universe())
-    capture = store.capture(synthetic_capture(), b"synthetic-raw-body-sentinel")
+    baseline = _synthetic_baseline(tmp_path)
+    capture = store.capture(
+        synthetic_capture(), b"synthetic-raw-body-sentinel", expected_workspace_commit=baseline
+    )
     bundle = tmp_path / ".career-evidence/sources/captures" / capture["capture_id"]
     (bundle / "undeclared.json").write_text("{}", encoding="utf-8")
 
@@ -377,8 +425,11 @@ def test_transformation_binds_capture_hash_transformer_and_precise_locator(tmp_p
     module = _require_career_sources()
     store = module.CareerSourceStore(tmp_path)
     store.declare(synthetic_source_universe())
-    capture = store.capture(synthetic_capture(), b"synthetic-raw-body-sentinel")
-    transformation = store.transform(synthetic_transformation())
+    baseline = _synthetic_baseline(tmp_path)
+    capture = store.capture(
+        synthetic_capture(), b"synthetic-raw-body-sentinel", expected_workspace_commit=baseline
+    )
+    transformation = store.transform(synthetic_transformation(), expected_workspace_commit=baseline)
 
     for field, replacement in (
         ("input_capture_id", "capture-missing"),
@@ -403,7 +454,9 @@ def test_duplicate_bytes_share_one_raw_object_without_merging_logical_source_rel
     body = b"synthetic-duplicate-body"
     first["content_hash"] = sha256_digest(body)
     second["content_hash"] = sha256_digest(body)
-    outcome = store.capture_duplicates(first, second, body)
+    outcome = store.capture_duplicates(
+        first, second, body, expected_workspace_commit=_synthetic_baseline(tmp_path)
+    )
 
     raw_root = tmp_path / ".career-evidence/raw"
     assert [path.name for path in raw_root.iterdir()] == [
@@ -615,7 +668,11 @@ def test_expected_zero_transformation_namespace_still_requires_snapshot_anchor(
     module = _require_career_sources()
     store = module.CareerSourceStore(tmp_path)
     store.declare(synthetic_source_universe())
-    store.capture(synthetic_capture(), b"synthetic-raw-body-sentinel")
+    store.capture(
+        synthetic_capture(),
+        b"synthetic-raw-body-sentinel",
+        expected_workspace_commit=_synthetic_baseline(tmp_path),
+    )
     (tmp_path / ".gitignore").write_text(".career-evidence/raw/\n", encoding="utf-8")
     _git(tmp_path, "init", "--quiet")
     _git(tmp_path, "config", "user.email", "synthetic@example.invalid")
@@ -698,8 +755,9 @@ def test_exact_source_id_transform_uses_only_its_current_capture_pointer(tmp_pat
             "content_hash": sha256_digest(b"synthetic-beta"),
         }
     )
-    store.capture(alpha, b"synthetic-alpha")
-    store.capture(beta, b"synthetic-beta")
+    baseline = _synthetic_baseline(tmp_path)
+    store.capture(alpha, b"synthetic-alpha", expected_workspace_commit=baseline)
+    store.capture(beta, b"synthetic-beta", expected_workspace_commit=baseline)
     (tmp_path / ".gitignore").write_text(".career-evidence/raw/\n", encoding="utf-8")
     _git(tmp_path, "init", "--quiet")
     _git(tmp_path, "config", "user.email", "synthetic@example.invalid")
@@ -742,7 +800,11 @@ def test_new_capture_and_transform_keep_immutable_declaration_binding(tmp_path: 
     store = module.CareerSourceStore(tmp_path)
     initial = synthetic_source_universe(revision_id="revision-synthetic-a")
     store.declare(initial)
-    capture = store.capture(synthetic_capture(), b"synthetic-raw-body-sentinel")
+    capture = store.capture(
+        synthetic_capture(),
+        b"synthetic-raw-body-sentinel",
+        expected_workspace_commit=_synthetic_baseline(tmp_path),
+    )
     revised = synthetic_source_universe(revision_id="revision-synthetic-b")
     revised["predecessor_revision_id"] = "revision-synthetic-a"
     revised["sources"] = (
@@ -825,12 +887,15 @@ def test_transformation_output_bytes_are_authenticated_separately_from_capture_b
     module = _require_career_sources()
     store = module.CareerSourceStore(tmp_path)
     store.declare(synthetic_source_universe())
-    store.capture(synthetic_capture(), b"synthetic-raw-body-sentinel")
+    baseline = _synthetic_baseline(tmp_path)
+    store.capture(
+        synthetic_capture(), b"synthetic-raw-body-sentinel", expected_workspace_commit=baseline
+    )
     transformation = synthetic_transformation()
     transformation.pop("output_hash")
     transformation["transformation_id"] = "transform-distinct-output"
     output_bytes = b"synthetic-derived-output-sentinel"
-    stored = store.transform(transformation, output_bytes)
+    stored = store.transform(transformation, output_bytes, expected_workspace_commit=baseline)
     (tmp_path / ".gitignore").write_text(".career-evidence/raw/\n", encoding="utf-8")
     _git(tmp_path, "init", "--quiet")
     _git(tmp_path, "config", "user.email", "synthetic@example.invalid")
@@ -871,7 +936,7 @@ def test_complete_added_transformation_requires_its_own_fresh_commit_oid(tmp_pat
     store, original_commit = committed_synthetic_snapshot(tmp_path)
     additional = synthetic_transformation()
     additional["transformation_id"] = "transform-synthetic-b"
-    store.transform(additional)
+    store.transform(additional, expected_workspace_commit=original_commit)
     fresh_commit = _commit_synthetic_sources(tmp_path, "second synthetic transformation")
 
     with pytest.raises(_require_career_sources().CareerSourceError):
@@ -886,7 +951,10 @@ def _two_capture_migration_baseline(tmp_path: Path) -> tuple[Any, str, dict[str,
     store.declare(synthetic_source_universe(revision_id="revision-migration-a"))
     first = synthetic_capture(capture_id="capture-migration-a")
     first["content_hash"] = sha256_digest(b"synthetic-migration-input-a")
-    stored_first_capture = store.capture(first, b"synthetic-migration-input-a")
+    baseline = _synthetic_baseline(tmp_path)
+    stored_first_capture = store.capture(
+        first, b"synthetic-migration-input-a", expected_workspace_commit=baseline
+    )
     first_transform = synthetic_transformation()
     first_transform.update(
         {
@@ -897,7 +965,9 @@ def _two_capture_migration_baseline(tmp_path: Path) -> tuple[Any, str, dict[str,
     )
     first_transform.pop("output_hash")
     first_output = b"synthetic-migration-output-a"
-    stored_first_transform = store.transform(first_transform, first_output)
+    stored_first_transform = store.transform(
+        first_transform, first_output, expected_workspace_commit=baseline
+    )
 
     second_declaration = synthetic_source_universe(revision_id="revision-migration-b")
     second_declaration["predecessor_revision_id"] = "revision-migration-a"
@@ -910,7 +980,9 @@ def _two_capture_migration_baseline(tmp_path: Path) -> tuple[Any, str, dict[str,
             "content_hash": sha256_digest(b"synthetic-migration-input-b"),
         }
     )
-    stored_second_capture = store.capture(second, b"synthetic-migration-input-b")
+    stored_second_capture = store.capture(
+        second, b"synthetic-migration-input-b", expected_workspace_commit=baseline
+    )
     second_transform = synthetic_transformation()
     second_transform.update(
         {
@@ -921,7 +993,9 @@ def _two_capture_migration_baseline(tmp_path: Path) -> tuple[Any, str, dict[str,
     )
     second_transform.pop("output_hash")
     second_output = b"synthetic-migration-output-b"
-    stored_second_transform = store.transform(second_transform, second_output)
+    stored_second_transform = store.transform(
+        second_transform, second_output, expected_workspace_commit=baseline
+    )
 
     (tmp_path / ".gitignore").write_text(".career-evidence/raw/\n", encoding="utf-8")
     _git(tmp_path, "init", "--quiet")
@@ -1051,7 +1125,7 @@ def test_workspace_migration_request_rejects_incomplete_or_unauthenticated_input
 
 def _two_source_migration_request(tmp_path: Path) -> tuple[Any, dict[str, Any]]:
     """Extend the synthetic baseline with a second logical source and chain."""
-    store, _, records = _two_capture_migration_baseline(tmp_path)
+    store, baseline, records = _two_capture_migration_baseline(tmp_path)
     third = synthetic_capture(capture_id="capture-migration-c")
     third.update(
         {
@@ -1059,7 +1133,9 @@ def _two_source_migration_request(tmp_path: Path) -> tuple[Any, dict[str, Any]]:
             "content_hash": sha256_digest(b"synthetic-migration-input-c"),
         }
     )
-    stored_third = store.capture(third, b"synthetic-migration-input-c")
+    stored_third = store.capture(
+        third, b"synthetic-migration-input-c", expected_workspace_commit=baseline
+    )
     third_transform = synthetic_transformation()
     third_transform.update(
         {
@@ -1069,7 +1145,9 @@ def _two_source_migration_request(tmp_path: Path) -> tuple[Any, dict[str, Any]]:
         }
     )
     third_transform.pop("output_hash")
-    stored_third_transform = store.transform(third_transform, b"synthetic-migration-output-c")
+    stored_third_transform = store.transform(
+        third_transform, b"synthetic-migration-output-c", expected_workspace_commit=baseline
+    )
     records["third"] = stored_third
     records["third_transform"] = stored_third_transform
     records["third_output"] = b"synthetic-migration-output-c"
@@ -1330,7 +1408,9 @@ def test_post_migration_recapture_requires_a_same_source_descendant_chain(tmp_pa
             "predecessor_capture_id": "capture-successor-b",
         }
     )
-    store.capture(successor, b"synthetic-raw-body-sentinel-v2")
+    store.capture(
+        successor, b"synthetic-raw-body-sentinel-v2", expected_workspace_commit=baseline
+    )
     descendant = _commit_synthetic_sources(tmp_path, "synthetic post-migration recapture")
 
     assert store.verify(expected_workspace_commit=descendant)["candidate_only"] is True
@@ -1343,7 +1423,7 @@ def test_post_migration_recapture_requires_a_same_source_descendant_chain(tmp_pa
             "content_hash": sha256_digest(b"synthetic-other-source"),
         }
     )
-    store.capture(other, b"synthetic-other-source")
+    store.capture(other, b"synthetic-other-source", expected_workspace_commit=baseline)
     unrelated = _commit_synthetic_sources(tmp_path, "synthetic unrelated source recapture")
 
     with pytest.raises(module.CareerSourceError):
@@ -1369,7 +1449,7 @@ def test_migration_head_temporal_allows_grandchildren_but_rejects_a_skipped_succ
             "predecessor_capture_id": "capture-successor-b",
         }
     )
-    store.capture(child, b"synthetic-raw-body-sentinel-v2")
+    store.capture(child, b"synthetic-raw-body-sentinel-v2", expected_workspace_commit=baseline)
     _commit_synthetic_sources(tmp_path, "synthetic migration child")
     grandchild = synthetic_recapture()
     grandchild.update(
@@ -1378,7 +1458,9 @@ def test_migration_head_temporal_allows_grandchildren_but_rejects_a_skipped_succ
             "predecessor_capture_id": "capture-post-migration-child",
         }
     )
-    store.capture(grandchild, b"synthetic-raw-body-sentinel-v2")
+    store.capture(
+        grandchild, b"synthetic-raw-body-sentinel-v2", expected_workspace_commit=baseline
+    )
     descendant = _commit_synthetic_sources(tmp_path, "synthetic migration grandchild")
 
     assert store.verify(expected_workspace_commit=descendant)["candidate_only"] is True
@@ -1390,7 +1472,7 @@ def test_migration_head_temporal_allows_grandchildren_but_rejects_a_skipped_succ
             "predecessor_capture_id": "capture-successor-a",
         }
     )
-    store.capture(skipped, b"synthetic-raw-body-sentinel-v2")
+    store.capture(skipped, b"synthetic-raw-body-sentinel-v2", expected_workspace_commit=baseline)
     skipped_commit = _commit_synthetic_sources(tmp_path, "synthetic skipped migration head")
 
     with pytest.raises(module.CareerSourceError):
