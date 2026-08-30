@@ -1,78 +1,90 @@
 ---
 phase: 07-career-source-custody-and-private-workspace
-reviewed: 2026-08-30T00:00:00Z
+reviewed: 2026-08-30T22:53:24Z
 depth: standard
 files_reviewed: 6
 files_reviewed_list:
+  - src/career_evidence_graph/workspace.py
+  - src/career_evidence_graph/domain/models.py
   - src/career_evidence_graph/career_sources.py
   - src/career_evidence_graph/cli.py
-  - src/career_evidence_graph/domain/models.py
-  - src/career_evidence_graph/workspace.py
   - tests/test_career_source_custody.py
   - tests/test_career_source_security.py
 findings:
   critical: 5
-  warning: 1
+  warning: 0
   info: 0
-  total: 6
+  total: 5
 status: issues_found
 ---
 
 # Phase 07: Code Review Report
 
-**Reviewed:** 2026-08-30T00:00:00Z
+**Reviewed:** 2026-08-30T22:53:24Z
 **Depth:** standard
 **Files Reviewed:** 6
 **Status:** issues_found
 
 ## Summary
 
-The reviewed implementation has correct basic synthetic-path coverage, but it does not yet preserve the promised custody and privacy invariants under declaration evolution, transformation tampering, adversarial namespace links, or non-ASCII bidi controls. The CLI also fails to select the capture named by its required `--source-id` argument.
+The six scoped files were read in full against Phase 07's explicit-workspace, full-OID, symlink, raw-byte, and synthetic-only contracts. The synthetic suite passes (`111 passed`) and scoped Ruff passes, but five custody boundary violations remain. In particular, the library API can mutate without a commit anchor, multiple operations bypass the semantic resolver, transformed output bytes bypass the hostile-control gate, and path checks are vulnerable to an operation-time symlink swap.
 
 ## Narrative Findings (AI reviewer)
 
 ## Critical Issues
 
-### CR-01 [BLOCKER]: Transform ignores the requested source and only works when exactly one capture exists
+### CR-01: Store mutations can bypass the mandatory explicit Git snapshot
 
-**File:** `src/career_evidence_graph/cli.py:830`
-**Issue:** `career-source transform --source-id` never reads or validates `args.source_id`. Instead it enumerates every capture and accepts only a workspace containing exactly one. A valid declared universe with two captured logical sources therefore cannot be transformed at all; worse, a caller can name a different source ID and get a transformation bound to the sole unrelated capture. This breaks the stable logical-source/capture provenance contract.
-**Fix:** Resolve the explicit current-capture pointer for `args.source_id` (or require an explicit capture ID), validate its manifest through `CareerSourceStore._verify_capture`, and reject an absent/mismatched pointer. Do not derive selection from the total number of capture directories.
+**Classification:** BLOCKER
 
-### CR-02 [BLOCKER]: `verify` reports success without verifying any transformation
+**File:** `/Users/zhdeng/Documents/TomorrowStar OS/src/career_evidence_graph/career_sources.py:216`
 
-**File:** `src/career_evidence_graph/career_sources.py:341`
-**Issue:** Global verification checks declaration and capture bundles only. It never traverses `transformations`, calls `verify_transformation`, or rejects extra files/symlinks in a transformation bundle. Consequently a stored transformer identity, output hash, or locator can be altered after recording and `career-source verify` still emits `verified: true`. That falsely attests to the provenance of every derived candidate.
-**Fix:** Enumerate `transformations` as a non-symlink directory, require each bundle to have the exact manifest-only shape, and verify each stored transformation against its verified input capture. Reject malformed, undeclared, symlinked, or mismatched transformation records before returning success.
+**Issue:** `capture()` and `transform()` make `expected_workspace_commit` optional and only authenticate it when callers happen to supply one (lines 250-251 and 375-376). Any in-process caller, including `run_synthetic_tracer()` (lines 1225-1241), can therefore write raw bytes, manifests, and current pointers without a full-OID baseline. This directly contradicts Plan 07-08's requirement that store mutation routes, not merely the CLI parser, carry an explicit baseline and makes cleanup unable to prove committed/working absence for those calls. A synthetic reproduction accepted an unanchored `store.capture()`.
 
-### CR-03 [BLOCKER]: Captures are tied to mutable `current.json`, invalidating valid historical evidence after a declaration revision
+**Fix:** Make the keyword-only parameter required (`expected_workspace_commit: str`), call `_commit_blob_inventory()` unconditionally before any mutation, and update the test/build helpers to establish and pass a synthetic baseline. Remove or constrain `run_synthetic_tracer()` so it cannot offer an unanchored mutation path.
 
-**File:** `src/career_evidence_graph/career_sources.py:122`
-**Issue:** `_verify_capture` validates a capture's `source_id` only against `declarations/current.json`. A later valid revision can retire or rename a source while preserving the earlier declaration and capture; after that update, every old capture for the retired source fails verification. `CareerSourceCapture` has no declaration-revision hash/ID to bind it to the immutable registry that was current when it was recorded. This violates immutable historical capture lineage and prevents later consumers from relying on prior captures.
-**Fix:** Add the declaration revision ID (and preferably its canonical hash) to `CareerSourceCapture`, validate it at creation, and use that immutable declaration manifest during verification. Validate predecessor declaration lineage separately rather than substituting the mutable current pointer.
+### CR-02: Declaration manifests can be read through an unchecked symlink
 
-### CR-04 [BLOCKER]: Private semantic subpaths can follow symlinks outside the selected workspace
+**Classification:** BLOCKER
 
-**File:** `src/career_evidence_graph/career_sources.py:67`
-**Issue:** Only `.career-evidence`, `sources`, and `raw` are checked in `_ensure_root`. Subdirectories/files subsequently read or written (`declarations`, `captures`, `current-captures`, `transformations`, and `current.json`) are not consistently checked as non-symlinks resolving below `PrivateWorkspace.root`. For example, an attacker-controlled `current-captures` symlink is followed by `mkdir` and `atomic_write_canonical_json` at lines 178-182, allowing a capture operation to write outside the selected private workspace. Declaration/current manifest reads similarly follow linked paths.
-**Fix:** Centralize a helper that opens/validates every semantic directory and manifest: reject symlinks, require `resolve(strict=True).is_relative_to(self.workspace.root)`, and use it before every read, `iterdir`, `mkdir`, or atomic write. Apply it to both existing and newly created namespaces.
+**File:** `/Users/zhdeng/Documents/TomorrowStar OS/src/career_evidence_graph/career_sources.py:1825`
 
-### CR-05 [BLOCKER]: Bidi override/isolate characters bypass the hostile-text rejection gate
+**Issue:** `_read_declaration()` builds `self.root / "declarations" / revision_id / "manifest.json"` directly instead of using `_semantic_path()`. `declare()` similarly follows an unchecked predecessor bundle at line 125. A symlink at `declarations/<revision_id>` can redirect declaration verification outside the selected workspace; `_declaration_binding()` then trusts that external manifest during capture. A synthetic reproduction replaced the revision directory with a symlink and `capture()` succeeded.
 
-**File:** `src/career_evidence_graph/career_sources.py:23`
-**Issue:** The security boundary rejects NUL and five zero-width code points, but permits Unicode bidi override and isolate controls such as `U+202E` and `U+2066`. The phase requires hostile control/bidi/zero-width input to fail closed; these controls can make reviewed source text render differently from its logical ordering, defeating safe text/JSON review.
-**Fix:** Extend the rejected set to include bidi embeddings/overrides/isolate controls (`U+202A`–`U+202E`, `U+2066`–`U+2069`) and add parameterized regression tests for each class. Keep ordinary line breaks/tabs only if they are explicitly supported by the raw-text contract.
+**Fix:** Resolve both declaration reads and predecessor checks through a strict semantic manifest helper such as `_semantic_path(f"declarations/{revision_id}/manifest.json")`, and reject a symlinked bundle or leaf before every access. Add regression cases for declaration-bundle and declaration-manifest symlinks on `declare`, `capture`, and verification.
 
-## Warnings
+### CR-03: Transformed output bytes bypass the bidi/control gate before raw publication
 
-### WR-01 [WARNING]: A failed capture can leave an unreferenced private raw object behind
+**Classification:** BLOCKER
 
-**File:** `src/career_evidence_graph/career_sources.py:169`
-**Issue:** `capture` writes the raw bytes before publishing the create-only capture manifest. If `create_only_canonical_bundle` then fails because the capture ID already exists, the command returns an error but the new raw object remains in the vault without a capture manifest or lineage. This creates undeclared private retention and makes retry/cleanup behavior ambiguous.
-**Fix:** Stage the raw object and manifest together, or remove a newly-created raw object when manifest publication fails and no existing capture references its hash. Add a collision test asserting the raw-vault contents are unchanged after failure.
+**File:** `/Users/zhdeng/Documents/TomorrowStar OS/src/career_evidence_graph/career_sources.py:352`
+
+**Issue:** `transform()` hashes and writes caller-supplied `output_bytes` at lines 352-369 and 390-396 without calling `validate_source_bytes()` or the shared bidi-control check. The normal CLI currently transforms existing capture bytes, but the public store API accepts arbitrary output bytes. Consequently a transformation can publish U+202A–U+202E/U+2066–U+2069 bytes despite the Phase 07 requirement that these controls be rejected before hashing or raw publication. A synthetic direct transform accepted U+202E output.
+
+**Fix:** Validate every transformed output byte payload with the same raw-content control policy before calculating `output_hash` or touching the raw vault. Add a direct-store regression for all nine controls in `output_bytes`, asserting no raw object, output manifest, transformation manifest, pointer, or ref is created.
+
+### CR-04: Routine status follows semantic namespace symlinks and leaks external counts
+
+**Classification:** BLOCKER
+
+**File:** `/Users/zhdeng/Documents/TomorrowStar OS/src/career_evidence_graph/career_sources.py:1296`
+
+**Issue:** `safe_status()` checks only `sources` and then directly traverses `declarations`, `captures`, and `transformations` (lines 1309-1324). A symlinked `captures` directory is followed by `glob()` and its entries are returned as `capture_count`, contrary to the required rejection of every semantic namespace symlink and the content-safe routine-output boundary. A synthetic reproduction pointed `captures` at a sibling directory with two entries and received `capture_count: 2`.
+
+**Fix:** Route all status inspection through the same no-symlink semantic traversal used for snapshot inventory (or validate each namespace with `PrivateWorkspace` immediately before enumeration). Return a stable safe error on a symlink rather than reporting derived counts. Cover declarations, captures, current-captures, transformations, migration receipts, derived outputs, and raw.
+
+### CR-05: Check-then-use path handling permits operation-time symlink swaps
+
+**Classification:** BLOCKER
+
+**File:** `/Users/zhdeng/Documents/TomorrowStar OS/src/career_evidence_graph/career_sources.py:264`
+
+**Issue:** `PrivateWorkspace.child()` validates a path before returning it, but callers later perform separate `exists()`/`is_symlink()` checks and path-based opens. For example, capture checks `raw_path.is_symlink()` and then uses `raw_path.open("xb")` at lines 264-271; transformation repeats the pattern at lines 390-395. An attacker with access to the selected workspace can replace the leaf or parent with a symlink in that interval, making the later open/read/write follow the replacement. This violates the explicit Plan 07-08 operation-time-swapped-symlink requirement and can write raw material outside the selected workspace.
+
+**Fix:** Perform raw and semantic reads/writes relative to a verified directory descriptor, using `lstat` plus no-follow descriptor operations (`dir_fd`/`O_NOFOLLOW` where available) immediately at the operation. Revalidate parent identity before atomic replace/unlink, and treat any change as a redacted path-unsafe failure. Add deterministic swap tests around raw creation, manifest creation, pointer replacement, and cleanup.
 
 ---
 
-_Reviewed: 2026-08-30T00:00:00Z_
+_Reviewed: 2026-08-30T22:53:24Z_
 _Reviewer: the agent (gsd-code-reviewer)_
 _Depth: standard_
