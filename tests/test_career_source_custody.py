@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import shutil
 import subprocess
 import sys
 from copy import deepcopy
@@ -180,6 +181,21 @@ def test_raw_cleanup_removes_only_new_unreferenced_attempt_object(tmp_path: Path
         store.capture(duplicate, body, expected_workspace_commit=baseline)
 
     assert not raw.exists()
+
+
+def test_committed_raw_reference_survives_deleted_working_manifest(tmp_path: Path) -> None:
+    """Committed baseline evidence remains protective if a mutable manifest disappears."""
+    module = _require_career_sources()
+    store, baseline = committed_synthetic_snapshot(tmp_path)
+    content_hash = synthetic_capture()["content_hash"]
+    raw = tmp_path / ".career-evidence/raw" / content_hash.removeprefix("sha256:")
+    shutil.rmtree(tmp_path / ".career-evidence/sources/captures/capture-synthetic-a")
+
+    with pytest.raises(module.CareerSourceError) as raised:
+        store._cleanup_attempt_raw(content_hash, baseline)
+
+    assert raised.value.code == "career-source-cleanup-needed"
+    assert raw.read_bytes() == b"synthetic-raw-body-sentinel"
 
 
 def test_tracer_synthetic_path_is_candidate_only_and_has_no_assessment_authority(tmp_path) -> None:
