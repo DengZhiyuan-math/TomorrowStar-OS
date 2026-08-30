@@ -1197,6 +1197,30 @@ def test_retention_ref_cas_rejects_nonzero_absent_ref_and_pre_cas_interruptions(
     assert "career-evidence/custody" not in _git(tmp_path, "show-ref")
 
 
+def test_post_cas_interruption_retries_only_the_same_verified_ref_commit(tmp_path: Path) -> None:
+    """A result-emission interruption retains the commit but exposes no initial OID."""
+    module = _require_career_sources()
+    store, baseline, records = _two_capture_migration_baseline(tmp_path)
+    request = _workspace_migration_request(baseline, records)
+
+    with pytest.raises(module.CareerSourceError) as interrupted:
+        store.adjudicate_workspace_migration(
+            request,
+            expected_workspace_commit=baseline,
+            expected_retention_ref_oid="0" * len(baseline),
+            fail_after="after-ref",
+        )
+
+    assert interrupted.value.code == "career-source-migration-finalization-interrupted"
+    retained = _git(tmp_path, "rev-parse", "refs/career-evidence/custody")
+    retry = store.adjudicate_workspace_migration(
+        request,
+        expected_workspace_commit=baseline,
+        expected_retention_ref_oid="0" * len(baseline),
+    )
+    assert retry["workspace_commit"] == retained
+
+
 def test_retention_ref_cas_failure_restores_only_this_attempts_exact_pointers(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

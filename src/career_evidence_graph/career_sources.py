@@ -952,6 +952,102 @@ class CareerSourceStore:
                 environment=environment | identity,
             ).decode("ascii").strip()
 
+    def _completed_migration_retry_matches(
+        self,
+        *,
+        request: WorkspaceMigrationRequest,
+        retained_commit: str,
+    ) -> bool:
+        """Recognize only the exact deterministic commit after post-CAS interruption."""
+        expected_receipt = WorkspaceMigrationReceipt(
+            receipt_id=request.receipt_id,
+            baseline_commit=request.baseline_commit,
+            staged_at=request.staged_at,
+            chains=request.chains,
+            captures=request.captures,
+            transformations=request.transformations,
+        )
+        git_timestamp = request.staged_at.removesuffix("+00:00") + (
+            "Z" if request.staged_at.endswith("+00:00") else ""
+        )
+        allowed_paths = {
+            *(
+                f".career-evidence/sources/captures/{item.successor_capture_id}/manifest.json"
+                for item in request.captures
+            ),
+            *(
+                f".career-evidence/sources/transformations/{item.successor_transformation_id}/manifest.json"
+                for item in request.transformations
+            ),
+            *(
+                f".career-evidence/sources/derived-outputs/{item.output_hash.removeprefix('sha256:')}/manifest.json"
+                for item in request.transformations
+            ),
+            f".career-evidence/sources/migration-receipts/{request.receipt_id}/manifest.json",
+            *(
+                f".career-evidence/sources/current-captures/{chain.source_id}.json"
+                for chain in request.chains
+                if chain.is_current_head
+            ),
+        }
+        try:
+            parents = self._git("rev-list", "--parents", "-n", "1", retained_commit).split()
+            if parents != [
+                retained_commit.encode("ascii"),
+                request.baseline_commit.encode("ascii"),
+            ]:
+                return False
+            changed = set(
+                self._git(
+                    "diff-tree",
+                    "--no-commit-id",
+                    "--name-only",
+                    "-r",
+                    request.baseline_commit,
+                    retained_commit,
+                )
+                .decode("utf-8")
+                .splitlines()
+            )
+            if not changed or not changed <= allowed_paths:
+                return False
+            metadata = self._git(
+                "show",
+                "-s",
+                "--format=%an%x00%ae%x00%aI%x00%cn%x00%ce%x00%cI%x00%B",
+                retained_commit,
+            ).rstrip(b"\n").split(b"\0")
+            if metadata != [
+                b"career-evidence-custody",
+                b"career-evidence-custody@invalid",
+                git_timestamp.encode("ascii"),
+                b"career-evidence-custody",
+                b"career-evidence-custody@invalid",
+                git_timestamp.encode("ascii"),
+                b"career-source custody migration",
+            ]:
+                return False
+            receipt_path = self._semantic_path(
+                f"migration-receipts/{request.receipt_id}/manifest.json"
+            )
+            actual_receipt = canonical_json_bytes(
+                json.loads(receipt_path.read_text(encoding="utf-8"))
+            )
+            if actual_receipt != canonical_json_bytes(expected_receipt):
+                return False
+            for chain in request.chains:
+                if not chain.is_current_head:
+                    continue
+                if (
+                    self.current_capture(chain.source_id).capture_id
+                    != chain.successor_current_capture_id
+                ):
+                    return False
+            self.verify(expected_workspace_commit=retained_commit)
+            return True
+        except (CareerSourceError, OSError, UnicodeDecodeError, ValueError, json.JSONDecodeError):
+            return False
+
     def adjudicate_workspace_migration(
         self,
         request: dict[str, Any],
@@ -961,12 +1057,23 @@ class CareerSourceStore:
         fail_after: str | None = None,
     ) -> dict[str, object]:
         """Finalize one complete migration through the sole expected-old ref CAS."""
-        preflight = self._migration_preflight(request)
-        if expected_workspace_commit != preflight.request.baseline_commit:
+        try:
+            parsed_request = WorkspaceMigrationRequest.model_validate(request)
+        except (TypeError, ValueError, ValidationError) as exc:
+            raise CareerSourceError("career-source-migration-request-invalid") from exc
+        if expected_workspace_commit != parsed_request.baseline_commit:
             raise CareerSourceError("career-source-migration-request-invalid")
         _, oid_length = self._git_object_format()
         if not re.fullmatch(rf"[0-9a-f]{{{oid_length}}}", expected_retention_ref_oid):
             raise CareerSourceError("career-source-retention-ref-invalid")
+        actual_ref = self._retention_ref_value(oid_length)
+        if actual_ref is not None and self._completed_migration_retry_matches(
+            request=parsed_request, retained_commit=actual_ref
+        ):
+            return {"adjudicated": True, "candidate_only": True, "workspace_commit": actual_ref}
+        if actual_ref is not None and actual_ref != expected_retention_ref_oid:
+            raise CareerSourceError("career-source-retention-ref-stale")
+        preflight = self._migration_preflight(request)
         self.stage_workspace_migration(request)
         preflight = self._migration_preflight(request)
         successors, transformations, receipt = self._migration_stage_values(preflight)
@@ -1044,6 +1151,8 @@ class CareerSourceStore:
         except CareerSourceError:
             self._restore_attempt_pointers(pointer_changes)
             raise
+        if fail_after == "after-ref":
+            raise CareerSourceError("career-source-migration-finalization-interrupted")
         if self._retention_ref_value(oid_length) != candidate:
             raise CareerSourceError("career-source-retention-ref-stale")
         self.verify(expected_workspace_commit=candidate)
