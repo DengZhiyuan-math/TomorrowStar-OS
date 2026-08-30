@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,7 @@ from .workspace import PrivateWorkspace, PrivateWorkspaceError
 _SAFE_ID = re.compile(r"^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$")
 _UNSAFE_CODEPOINTS = frozenset({"\u200b", "\u200c", "\u200d", "\u2060", "\ufeff"})
 _MAX_SOURCE_BYTES = 262144
+_GIT_OID_LENGTHS = {"sha1": 40, "sha256": 64}
 
 
 class CareerSourceError(ValueError):
@@ -338,10 +340,90 @@ class CareerSourceStore:
             ),
         }
 
-    def verify(self) -> None:
-        """Verify existing source lineage without creating a private namespace."""
-        if not self.root.exists() or self.root.is_symlink():
-            raise CareerSourceError("career-source-verification-failed")
+    def _git(self, *args: str) -> bytes:
+        """Run a redacted Git query only in the selected private workspace."""
+        try:
+            completed = subprocess.run(
+                ["git", *args],
+                cwd=self.workspace.root,
+                check=False,
+                capture_output=True,
+            )
+        except OSError as exc:
+            raise CareerSourceError("career-source-snapshot-anchor-invalid") from exc
+        if completed.returncode != 0:
+            raise CareerSourceError("career-source-snapshot-anchor-invalid")
+        return completed.stdout
+
+    def _commit_blob_inventory(self, expected_workspace_commit: str) -> dict[str, bytes]:
+        """Load exact source blobs from one caller-selected commit object."""
+        try:
+            object_format = self._git("rev-parse", "--show-object-format").decode("ascii").strip()
+            oid_length = _GIT_OID_LENGTHS[object_format]
+        except (UnicodeDecodeError, KeyError, CareerSourceError) as exc:
+            raise CareerSourceError("career-source-snapshot-anchor-invalid") from exc
+        if not re.fullmatch(rf"[0-9a-f]{{{oid_length}}}", expected_workspace_commit):
+            raise CareerSourceError("career-source-snapshot-anchor-invalid")
+        try:
+            top_level = Path(
+                self._git("rev-parse", "--show-toplevel").decode("utf-8").strip()
+            ).resolve(strict=True)
+            object_type = self._git("cat-file", "-t", expected_workspace_commit).decode(
+                "ascii"
+            ).strip()
+        except (OSError, UnicodeDecodeError, CareerSourceError) as exc:
+            raise CareerSourceError("career-source-snapshot-anchor-invalid") from exc
+        if top_level != self.workspace.root or object_type != "commit":
+            raise CareerSourceError("career-source-snapshot-anchor-invalid")
+        raw_entries = self._git(
+            "ls-tree", "-rz", "--full-tree", expected_workspace_commit, "--", ".career-evidence"
+        )
+        blobs: dict[str, bytes] = {}
+        for entry in raw_entries.split(b"\0"):
+            if not entry:
+                continue
+            try:
+                header, raw_path = entry.split(b"\t", maxsplit=1)
+                mode, object_type, object_id = header.decode("ascii").split(" ")
+                path = raw_path.decode("utf-8")
+            except (UnicodeDecodeError, ValueError) as exc:
+                raise CareerSourceError("career-source-snapshot-invalid") from exc
+            if path.startswith(".career-evidence/raw/"):
+                raise CareerSourceError("career-source-snapshot-invalid")
+            if not path.startswith(".career-evidence/sources/"):
+                continue
+            if mode != "100644" or object_type != "blob":
+                raise CareerSourceError("career-source-snapshot-invalid")
+            relative = path.removeprefix(".career-evidence/sources/")
+            if not relative or relative in blobs:
+                raise CareerSourceError("career-source-snapshot-invalid")
+            blobs[relative] = self._git("cat-file", "blob", object_id)
+        return blobs
+
+    def _working_blob_inventory(self) -> dict[str, bytes]:
+        """Collect regular source files without following a mutable symlink."""
+        if not self.root.exists() or self.root.is_symlink() or not self.root.is_dir():
+            raise CareerSourceError("career-source-snapshot-invalid")
+        blobs: dict[str, bytes] = {}
+        try:
+            for path in self.root.rglob("*"):
+                if path.is_symlink():
+                    raise ValueError
+                if path.is_file():
+                    relative = path.relative_to(self.root).as_posix()
+                    blobs[relative] = path.read_bytes()
+                elif not path.is_dir():
+                    raise ValueError
+        except (OSError, ValueError) as exc:
+            raise CareerSourceError("career-source-snapshot-invalid") from exc
+        return blobs
+
+    def verify(self, *, expected_workspace_commit: str) -> dict[str, object]:
+        """Authenticate the current source snapshot against one exact Git commit."""
+        committed = self._commit_blob_inventory(expected_workspace_commit)
+        working = self._working_blob_inventory()
+        if committed != working:
+            raise CareerSourceError("career-source-snapshot-invalid")
         try:
             declarations = self.root / "declarations"
             current = json.loads((declarations / "current.json").read_text(encoding="utf-8"))
@@ -355,6 +437,16 @@ class CareerSourceStore:
                     raise ValueError
                 for path in captures.iterdir():
                     self._verify_capture(path.name, ancestry=frozenset())
+            transformations = self.root / "transformations"
+            if transformations.exists():
+                if transformations.is_symlink() or not transformations.is_dir():
+                    raise ValueError
+                for path in transformations.iterdir():
+                    if path.is_symlink() or not path.is_dir():
+                        raise ValueError
+                    self.verify_transformation(
+                        json.loads((path / "manifest.json").read_text(encoding="utf-8"))
+                    )
         except (
             CareerSourceError,
             OSError,
@@ -363,8 +455,20 @@ class CareerSourceStore:
             ValidationError,
         ) as exc:
             if isinstance(exc, CareerSourceError):
-                raise CareerSourceError("career-source-verification-failed") from exc
-            raise CareerSourceError("career-source-verification-failed") from exc
+                raise CareerSourceError("career-source-snapshot-invalid") from exc
+            raise CareerSourceError("career-source-snapshot-invalid") from exc
+        raw_byte_count = 0
+        raw_hashes: set[str] = set()
+        for path in captures.iterdir() if captures.exists() else ():
+            capture = self._read_capture(path.name)
+            if capture.content_hash not in raw_hashes:
+                raw_byte_count += len(self._raw_path(capture.content_hash).read_bytes())
+                raw_hashes.add(capture.content_hash)
+        return {
+            "candidate_only": True,
+            "raw_byte_count": raw_byte_count,
+            "semantic_entry_count": len(committed),
+        }
 
     def _read_declaration(self, revision_id: str) -> CareerSourceUniverse:
         try:

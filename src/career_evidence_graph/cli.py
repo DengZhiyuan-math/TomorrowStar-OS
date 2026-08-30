@@ -352,6 +352,7 @@ def _parser() -> argparse.ArgumentParser:
     source_inspect.add_argument("--workspace", required=True)
     source_verify = source_commands.add_parser("verify")
     source_verify.add_argument("--workspace", required=True)
+    source_verify.add_argument("--expected-workspace-commit", required=True)
     return parser
 
 
@@ -864,7 +865,9 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "career-source" and args.career_source_command == "inspect":
             _emit(CareerSourceStore(Path(args.workspace)).safe_status())
         elif args.command == "career-source" and args.career_source_command == "verify":
-            CareerSourceStore(Path(args.workspace)).verify()
+            CareerSourceStore(Path(args.workspace)).verify(
+                expected_workspace_commit=args.expected_workspace_commit
+            )
             _emit({"candidate_only": True, "verified": True})
         return 0
     except CareerSourceError as exc:

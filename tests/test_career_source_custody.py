@@ -447,6 +447,23 @@ def test_tracer_declares_captures_transforms_and_inspects_without_authority(tmp_
         "source_revision_count": 1,
         "transformation_count": 1,
     }
+    assert source.decode("utf-8") not in inspected.stdout
+
+    root = tmp_path / ".career-evidence" / "sources"
+    declaration = json.loads((root / "declarations" / "current.json").read_text())
+    assert declaration["schema_version"] == "career-source-universe/v1"
+    capture = next((root / "captures").iterdir())
+    manifest = json.loads((capture / "manifest.json").read_text())
+    assert manifest["source_id"] == "source-probe"
+    assert manifest["content_hash"] == sha256_digest(source)
+    assert (
+        tmp_path / ".career-evidence" / "raw" / manifest["content_hash"].removeprefix("sha256:")
+    ).read_bytes() == source
+    transformation = next((root / "transformations").iterdir())
+    transformed_manifest = json.loads((transformation / "manifest.json").read_text())
+    assert transformed_manifest["predecessor_capture_id"] == manifest["capture_id"]
+    assert transformed_manifest["candidate_only"] is True
+    assert not list(tmp_path.glob("**/*assessment*"))
 
 
 def test_explicit_commit_verifies_committed_snapshot_and_ignored_raw_authentication(
@@ -465,11 +482,13 @@ def test_explicit_commit_verifies_committed_snapshot_and_ignored_raw_authenticat
 
 
 @pytest.mark.parametrize("anchor", ("", "HEAD", "main", "deadbeef", "not-a-commit"))
-def test_snapshot_anchor_requires_an_explicit_complete_commit_oid(tmp_path: Path, anchor: str) -> None:
+def test_snapshot_anchor_requires_an_explicit_complete_commit_oid(
+    tmp_path: Path, anchor: str
+) -> None:
     store, commit = committed_synthetic_snapshot(tmp_path)
     assert len(commit) == 40
 
-    with pytest.raises(store.__class__.__module__ and _require_career_sources().CareerSourceError) as error:
+    with pytest.raises(_require_career_sources().CareerSourceError) as error:
         store.verify(expected_workspace_commit=anchor)
 
     assert error.value.code == "career-source-snapshot-anchor-invalid"
@@ -479,7 +498,11 @@ def test_raw_authentication_rejects_changed_ignored_bytes_without_disclosing_wor
     tmp_path: Path,
 ) -> None:
     store, commit = committed_synthetic_snapshot(tmp_path)
-    raw = tmp_path / ".career-evidence/raw" / synthetic_capture()["content_hash"].removeprefix("sha256:")
+    raw = (
+        tmp_path
+        / ".career-evidence/raw"
+        / synthetic_capture()["content_hash"].removeprefix("sha256:")
+    )
     raw.write_bytes(b"synthetic-tampered-raw")
 
     with pytest.raises(_require_career_sources().CareerSourceError) as error:
@@ -493,20 +516,27 @@ def test_snapshot_inventory_rejects_missing_extra_and_coordinated_semantic_chang
     tmp_path: Path,
 ) -> None:
     store, commit = committed_synthetic_snapshot(tmp_path)
-    transform = tmp_path / ".career-evidence/sources/transformations/transform-synthetic-a/manifest.json"
+    transform = (
+        tmp_path
+        / ".career-evidence/sources/transformations/transform-synthetic-a/manifest.json"
+    )
     transform.unlink()
     with pytest.raises(_require_career_sources().CareerSourceError):
         store.verify(expected_workspace_commit=commit)
 
-    store, commit = committed_synthetic_snapshot(tmp_path / "extra")
-    extra = tmp_path / "extra/.career-evidence/sources/derived-outputs/unexpected.json"
+    extra_workspace = tmp_path / "extra"
+    extra_workspace.mkdir()
+    store, commit = committed_synthetic_snapshot(extra_workspace)
+    extra = extra_workspace / ".career-evidence/sources/derived-outputs/unexpected.json"
     extra.parent.mkdir(parents=True)
     extra.write_text("{}", encoding="utf-8")
     with pytest.raises(_require_career_sources().CareerSourceError):
         store.verify(expected_workspace_commit=commit)
 
 
-def test_empty_workspace_requires_a_complete_commit_and_proves_every_namespace_empty(tmp_path: Path) -> None:
+def test_empty_workspace_requires_a_complete_commit_and_proves_every_namespace_empty(
+    tmp_path: Path,
+) -> None:
     module = _require_career_sources()
     (tmp_path / ".gitignore").write_text(".career-evidence/raw/\n", encoding="utf-8")
     _git(tmp_path, "init", "--quiet")
@@ -523,20 +553,3 @@ def test_empty_workspace_requires_a_complete_commit_and_proves_every_namespace_e
     }
     with pytest.raises(module.CareerSourceError):
         module.CareerSourceStore(tmp_path).verify(expected_workspace_commit="HEAD")
-    assert source.decode("utf-8") not in inspected.stdout
-
-    root = tmp_path / ".career-evidence" / "sources"
-    declaration = json.loads((root / "declarations" / "current.json").read_text())
-    assert declaration["schema_version"] == "career-source-universe/v1"
-    capture = next((root / "captures").iterdir())
-    manifest = json.loads((capture / "manifest.json").read_text())
-    assert manifest["source_id"] == "source-probe"
-    assert manifest["content_hash"] == sha256_digest(source)
-    assert (
-        tmp_path / ".career-evidence" / "raw" / manifest["content_hash"].removeprefix("sha256:")
-    ).read_bytes() == source
-    transformation = next((root / "transformations").iterdir())
-    transformed_manifest = json.loads((transformation / "manifest.json").read_text())
-    assert transformed_manifest["predecessor_capture_id"] == manifest["capture_id"]
-    assert transformed_manifest["candidate_only"] is True
-    assert not list(tmp_path.glob("**/*assessment*"))
