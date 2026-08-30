@@ -1,8 +1,8 @@
 ---
-status: awaiting_human_verify
+status: resolved
 trigger: "Phase 07 Wave 5 source-aware custody/security integration test fails because the existing complete CLI flow does not supply the newly required --transformation-id argument."
 created: 2026-08-31T00:00:00Z
-updated: 2026-08-31T09:31:00Z
+updated: 2026-08-31T09:45:00Z
 ---
 
 # Phase 07 Transform ID Regression
@@ -19,7 +19,7 @@ updated: 2026-08-31T09:31:00Z
 - hypothesis: The Phase 07 security flow fixture invokes the strict public transform CLI using the pre-contract argument set, so argparse rejects it before transformation.
 - test: Completed exact target and supplied focused suite after the minimal fixture repair.
 - expecting: Met: target passed and all 68 custody/security tests passed with production CLI unchanged.
-- next_action: Commit the test and debug record by explicit paths, then hand the checkpoint to the parent orchestrator for human verification.
+- next_action: Archived after independent parent-orchestrator verification of the corrected source-aware custody/security integration suite.
 - bug_class: bohrbug
 - reasoning_checkpoint:
     hypothesis: "The stale synthetic security invocation causes argparse exit 2 because it omits the now-required --transformation-id argument."
@@ -55,6 +55,10 @@ updated: 2026-08-31T09:31:00Z
   checked: Supplied focused custody/security command after the fixture repair.
   found: All 68 tests passed.
   implication: Adjacent custody behavior and the security boundary remain intact.
+- timestamp: 2026-08-31T09:45:00Z
+  checked: Independent parent-orchestrator rerun of the supplied source-aware custody/security integration suite at commit 7ae54de.
+  found: The corrected behavior was independently observed with the strict --transformation-id CLI requirement preserved.
+  implication: Human verification is complete; the debug session can be resolved and archived without changing the production CLI contract.
 
 ## Eliminated
 
@@ -72,5 +76,15 @@ verification:
   no_op_deletion: {result: pass, deletion_justified_by_rca: false, detail: "diff adds only the required synthetic fixture argument and deletes no behavior"}
   adjacent_tests: {result: pass, suites_run: ["tests/test_career_source_custody.py", "tests/test_career_source_security.py"], detail: "68 passed"}
   revert_and_reconfirm: {result: pass, bug_returned_on_revert: true, fixed_on_reapply: true, detail: "pre-fix exact focused command failed at the missing argument after 64 passes; reapplied two-line fixture addition yielded 68 passes"}
+  human_verification: {result: pass, detail: "parent orchestrator independently reran the supplied source-aware custody/security integration suite and observed corrected behavior at commit 7ae54de"}
   guardrail_verdict: accepted
 files_changed: [tests/test_career_source_security.py]
+
+## Prevention
+
+- code branch: The strict transform contract evolved, but one complete-flow fixture retained the old argument vector; comparable custody fixtures already demonstrated the required deterministic-ID pattern.
+- config/environment branch: Sandbox cache access affected how the locked suite was launched, but did not contribute to the deterministic argparse failure.
+- data branch: Synthetic source payload contents were never reached because argument parsing failed first.
+- and_gate: No; the single stale fixture invocation was sufficient.
+- why_not_caught: The public CLI parser correctly failed closed, but the complete synthetic security flow was not updated in the same change that made transformation identity mandatory.
+- recurrence_guard: `tests/test_career_source_security.py::test_complete_synthetic_cli_flow_has_no_later_phase_authority_side_effects` now supplies a deterministic synthetic transformation ID and passed both the exact target and the 68-test custody/security integration suite while the production parser remains strict.

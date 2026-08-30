@@ -23,3 +23,13 @@ Resolved debug sessions. Used by `gsd-debugger` to surface known-pattern hypothe
 - **Why not caught:** No pre-archive gate exercised sealed fixture loading against the post-archive milestone layout.
 - **Recurrence guard:** Regression test `tests/test_stoa_fixture.py::test_checkpoint_summary_resolves_active_or_archived_layout_and_rejects_ambiguity` covers active, archived, and ambiguous layouts; the authoritative 383-test offline suite passed.
 ---
+
+## phase07-transform-id-regression — Complete security flow omitted required transformation identity
+- **Date:** 2026-08-31
+- **Error patterns:** career-source transform, required --transformation-id, argparse exit 2, complete synthetic CLI flow
+- **Root cause(s):** The Phase 07 security integration fixture was not updated when transformation identity became a required public CLI argument.
+- **Fix:** Added deterministic public synthetic transformation ID `transform-synthetic-authority` to the one stale security CLI invocation without relaxing the production parser.
+- **Files changed:** `tests/test_career_source_security.py`
+- **Why not caught:** The public CLI parser correctly failed closed, but the complete synthetic security flow was not updated in the same change that made transformation identity mandatory.
+- **Recurrence guard:** Regression test `tests/test_career_source_security.py::test_complete_synthetic_cli_flow_has_no_later_phase_authority_side_effects` now supplies a deterministic synthetic transformation ID; the exact target and the 68-test custody/security integration suite pass while `--transformation-id` remains required.
+---
