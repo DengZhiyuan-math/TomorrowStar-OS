@@ -315,6 +315,11 @@ class CareerSourceStore:
         transformations = self.workspace.child(".career-evidence", "sources", "transformations")
         transformations.mkdir(exist_ok=True)
         try:
+            transformation_manifest = self._semantic_path(
+                f"transformations/{transformation_id}/manifest.json"
+            )
+            if transformation_manifest.exists():
+                raise FormalRunStorageError("transformation already exists")
             raw_path = self._raw_path(stored.output_hash)
             if raw_path.is_symlink():
                 raise OSError
@@ -327,19 +332,27 @@ class CareerSourceStore:
                 output_hash=stored.output_hash,
                 byte_count=stored.output_byte_count,
             )
-            output_root = self._derived_output_path(stored.output_hash).parent.parent
-            output_root.mkdir(exist_ok=True)
-            create_only_canonical_bundle(
-                output_root,
-                stored.output_hash.removeprefix("sha256:"),
-                {"manifest.json": output_manifest.model_dump(mode="json")},
-            )
+            output_path = self._derived_output_path(stored.output_hash)
+            if output_path.exists():
+                existing_output = DerivedOutputManifest.model_validate_json(
+                    output_path.read_bytes()
+                )
+                if canonical_json_bytes(existing_output) != canonical_json_bytes(output_manifest):
+                    raise FormalRunStorageError("derived output already exists")
+            else:
+                output_root = output_path.parent.parent
+                output_root.mkdir(exist_ok=True)
+                create_only_canonical_bundle(
+                    output_root,
+                    stored.output_hash.removeprefix("sha256:"),
+                    {"manifest.json": output_manifest.model_dump(mode="json")},
+                )
             create_only_canonical_bundle(
                 transformations,
                 transformation_id,
                 {"manifest.json": stored.model_dump(mode="json")},
             )
-        except FormalRunStorageError as exc:
+        except (FormalRunStorageError, OSError, ValidationError) as exc:
             raise CareerSourceError("career-source-transformation-already-exists") from exc
         return stored.model_dump(mode="json")
 
@@ -655,8 +668,11 @@ class CareerSourceStore:
             raise CareerSourceError("career-source-snapshot-invalid")
         return capture_values
 
-    def _verify_raw_objects(self, captures: tuple[CareerSourceCapture, ...]) -> int:
+    def _verify_raw_objects(
+        self, captures: tuple[CareerSourceCapture, ...], output_hashes: frozenset[str]
+    ) -> int:
         expected = {capture.content_hash.removeprefix("sha256:") for capture in captures}
+        expected.update(output_hash.removeprefix("sha256:") for output_hash in output_hashes)
         if not self.raw_root.exists():
             if expected:
                 raise CareerSourceError("career-source-snapshot-invalid")
@@ -680,6 +696,55 @@ class CareerSourceStore:
             raise CareerSourceError("career-source-snapshot-invalid")
         return total
 
+    def _verify_transformation_inventory(self) -> frozenset[str]:
+        """Require one valid manifest for every transformation and derived byte object."""
+        transformations = self.root / "transformations"
+        transformation_values: list[CareerSourceTransformation] = []
+        if transformations.exists():
+            if transformations.is_symlink() or not transformations.is_dir():
+                raise CareerSourceError("career-source-snapshot-invalid")
+            for path in transformations.iterdir():
+                if (
+                    path.is_symlink()
+                    or not path.is_dir()
+                    or not self._is_semantic_directory(path.relative_to(self.root).as_posix())
+                    or {child.name for child in path.iterdir()} != {"manifest.json"}
+                ):
+                    raise CareerSourceError("career-source-snapshot-invalid")
+                manifest = self._semantic_path(
+                    f"transformations/{path.name}/manifest.json"
+                )
+                transformation = CareerSourceTransformation.model_validate_json(
+                    manifest.read_bytes()
+                )
+                self.verify_transformation(transformation.model_dump(mode="json"))
+                transformation_values.append(transformation)
+
+        outputs = self.root / "derived-outputs"
+        output_values: dict[str, DerivedOutputManifest] = {}
+        if outputs.exists():
+            if outputs.is_symlink() or not outputs.is_dir():
+                raise CareerSourceError("career-source-snapshot-invalid")
+            for path in outputs.iterdir():
+                relative = path.relative_to(self.root).as_posix()
+                if (
+                    path.is_symlink()
+                    or not path.is_dir()
+                    or not self._is_semantic_directory(relative)
+                    or {child.name for child in path.iterdir()} != {"manifest.json"}
+                ):
+                    raise CareerSourceError("career-source-snapshot-invalid")
+                manifest = self._semantic_path(f"derived-outputs/{path.name}/manifest.json")
+                output = DerivedOutputManifest.model_validate_json(manifest.read_bytes())
+                if output.output_hash.removeprefix("sha256:") != path.name:
+                    raise CareerSourceError("career-source-snapshot-invalid")
+                output_values[output.output_hash] = output
+
+        referenced = frozenset(value.output_hash for value in transformation_values)
+        if set(output_values) != referenced:
+            raise CareerSourceError("career-source-snapshot-invalid")
+        return referenced
+
     def verify(self, *, expected_workspace_commit: str) -> dict[str, object]:
         """Authenticate the current source snapshot against one exact Git commit."""
         committed = self._commit_blob_inventory(expected_workspace_commit)
@@ -689,7 +754,7 @@ class CareerSourceStore:
         if not committed:
             return {
                 "candidate_only": True,
-                "raw_byte_count": self._verify_raw_objects(()),
+                "raw_byte_count": self._verify_raw_objects((), frozenset()),
                 "semantic_entry_count": 0,
             }
         try:
@@ -702,16 +767,7 @@ class CareerSourceStore:
             capture_values = self._verify_current_captures()
             for capture in capture_values:
                 self._verify_capture(capture.capture_id, ancestry=frozenset())
-            transformations = self.root / "transformations"
-            if transformations.exists():
-                if transformations.is_symlink() or not transformations.is_dir():
-                    raise ValueError
-                for path in transformations.iterdir():
-                    if path.is_symlink() or not path.is_dir():
-                        raise ValueError
-                    self.verify_transformation(
-                        json.loads((path / "manifest.json").read_text(encoding="utf-8"))
-                    )
+            output_hashes = self._verify_transformation_inventory()
         except (
             CareerSourceError,
             OSError,
@@ -724,7 +780,7 @@ class CareerSourceStore:
             raise CareerSourceError("career-source-snapshot-invalid") from exc
         return {
             "candidate_only": True,
-            "raw_byte_count": self._verify_raw_objects(capture_values),
+            "raw_byte_count": self._verify_raw_objects(capture_values, output_hashes),
             "semantic_entry_count": len(committed),
         }
 

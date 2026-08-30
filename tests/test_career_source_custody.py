@@ -796,3 +796,36 @@ def test_transformation_output_bytes_are_authenticated_separately_from_capture_b
     output_path.write_bytes(b"synthetic-tampered-derived-output")
     with pytest.raises(module.CareerSourceError):
         store.verify(expected_workspace_commit=commit)
+
+
+def test_transformation_manifest_replacement_fails_even_after_a_fresh_commit(
+    tmp_path: Path,
+) -> None:
+    store, original_commit = committed_synthetic_snapshot(tmp_path)
+    manifest = (
+        tmp_path
+        / ".career-evidence/sources/derived-outputs"
+        / synthetic_capture()["content_hash"].removeprefix("sha256:")
+        / "manifest.json"
+    )
+    replacement = json.loads(manifest.read_text(encoding="utf-8"))
+    replacement["byte_count"] = 0
+    manifest.write_text(json.dumps(replacement), encoding="utf-8")
+    fresh_commit = _commit_synthetic_sources(tmp_path, "replaced synthetic output manifest")
+
+    with pytest.raises(_require_career_sources().CareerSourceError):
+        store.verify(expected_workspace_commit=original_commit)
+    with pytest.raises(_require_career_sources().CareerSourceError):
+        store.verify(expected_workspace_commit=fresh_commit)
+
+
+def test_complete_added_transformation_requires_its_own_fresh_commit_oid(tmp_path: Path) -> None:
+    store, original_commit = committed_synthetic_snapshot(tmp_path)
+    additional = synthetic_transformation()
+    additional["transformation_id"] = "transform-synthetic-b"
+    store.transform(additional)
+    fresh_commit = _commit_synthetic_sources(tmp_path, "second synthetic transformation")
+
+    with pytest.raises(_require_career_sources().CareerSourceError):
+        store.verify(expected_workspace_commit=original_commit)
+    assert store.verify(expected_workspace_commit=fresh_commit)["candidate_only"] is True
