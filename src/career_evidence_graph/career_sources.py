@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,8 @@ from .domain.models import (
     CareerSourceUniverse,
     DeclarationBoundCurrentCapturePointer,
     DerivedOutputManifest,
+    WorkspaceMigrationReceipt,
+    WorkspaceMigrationRequest,
 )
 from .validation.hashing import canonical_json_bytes, sha256_digest
 from .validation.store import (
@@ -39,6 +42,16 @@ _SEMANTIC_NAMESPACES = (
     ("migration-receipts", re.compile(r"migration-receipts/[a-z][a-z0-9._-]*/manifest\.json")),
     ("derived-outputs", re.compile(r"derived-outputs/[0-9a-f]{64}/manifest\.json")),
 )
+
+
+@dataclass(frozen=True)
+class _MigrationPreflight:
+    """Verified request data kept private until an explicit later finalizer."""
+
+    request: WorkspaceMigrationRequest
+    captures: dict[str, CareerSourceCapture]
+    transformations: dict[str, CareerSourceTransformation]
+    output_bytes: dict[str, bytes]
 
 
 class CareerSourceError(ValueError):
@@ -391,6 +404,361 @@ class CareerSourceStore:
         ):
             raise CareerSourceError("career-source-transformation-lineage-invalid")
 
+    def _migration_baseline(
+        self, request: WorkspaceMigrationRequest
+    ) -> tuple[
+        dict[str, CareerSourceCapture],
+        dict[str, CareerSourceTransformation],
+        dict[str, DeclarationBoundCurrentCapturePointer],
+    ]:
+        """Load a complete legacy inventory only from the requested commit snapshot."""
+        try:
+            # This first proves that the currently selected workspace is exactly the
+            # caller-selected snapshot before any request-derived stage is written.
+            self.verify(expected_workspace_commit=request.baseline_commit)
+            blobs = self._commit_blob_inventory(request.baseline_commit)
+            declarations: dict[str, CareerSourceUniverse] = {}
+            captures: dict[str, CareerSourceCapture] = {}
+            transformations: dict[str, CareerSourceTransformation] = {}
+            pointers: dict[str, DeclarationBoundCurrentCapturePointer] = {}
+            outputs: dict[str, DerivedOutputManifest] = {}
+            for relative, payload in blobs.items():
+                parts = tuple(relative.split("/"))
+                if parts[:1] == ("declarations",) and parts[1:] != ("current.json",):
+                    if len(parts) != 3 or parts[2] != "manifest.json":
+                        raise ValueError
+                    declaration = CareerSourceUniverse.model_validate_json(payload)
+                    if declaration.revision_id != parts[1]:
+                        raise ValueError
+                    declarations[declaration.revision_id] = declaration
+                elif parts[:1] == ("captures",):
+                    if len(parts) != 3 or parts[2] != "manifest.json":
+                        raise ValueError
+                    capture = CareerSourceCapture.model_validate_json(payload)
+                    if capture.capture_id != parts[1]:
+                        raise ValueError
+                    captures[capture.capture_id] = capture
+                elif parts[:1] == ("transformations",):
+                    if len(parts) != 3 or parts[2] != "manifest.json":
+                        raise ValueError
+                    transformation = CareerSourceTransformation.model_validate_json(payload)
+                    if transformation.transformation_id != parts[1]:
+                        raise ValueError
+                    transformations[transformation.transformation_id] = transformation
+                elif parts[:1] == ("current-captures",):
+                    if len(parts) != 2:
+                        raise ValueError
+                    pointer = DeclarationBoundCurrentCapturePointer.model_validate_json(payload)
+                    if pointer.source_id != Path(parts[1]).stem:
+                        raise ValueError
+                    pointers[pointer.source_id] = pointer
+                elif parts[:1] == ("derived-outputs",):
+                    if len(parts) != 3 or parts[2] != "manifest.json":
+                        raise ValueError
+                    output = DerivedOutputManifest.model_validate_json(payload)
+                    if output.output_hash.removeprefix("sha256:") != parts[1]:
+                        raise ValueError
+                    outputs[output.output_hash] = output
+            if not captures or set(pointers) != {
+                capture.source_id for capture in captures.values()
+            }:
+                raise ValueError
+            for capture in captures.values():
+                declaration = declarations[capture.declaration_revision_id]
+                if (
+                    sha256_digest(declaration.canonical_bytes()) != capture.declaration_hash
+                    or capture.source_id not in {source.source_id for source in declaration.sources}
+                    or (
+                        capture.predecessor_capture_id is not None
+                        and capture.predecessor_capture_id not in captures
+                    )
+                ):
+                    raise ValueError
+            for pointer in pointers.values():
+                capture = captures[pointer.capture_id]
+                if (
+                    pointer.content_hash != capture.content_hash
+                    or pointer.declaration_revision_id != capture.declaration_revision_id
+                    or pointer.declaration_hash != capture.declaration_hash
+                ):
+                    raise ValueError
+            if set(outputs) != {value.output_hash for value in transformations.values()}:
+                raise ValueError
+            for transformation in transformations.values():
+                capture = captures[transformation.input_capture_id]
+                output = outputs[transformation.output_hash]
+                if (
+                    transformation.source_id != capture.source_id
+                    or transformation.input_hash != capture.content_hash
+                    or transformation.declaration_revision_id != capture.declaration_revision_id
+                    or transformation.declaration_hash != capture.declaration_hash
+                    or transformation.predecessor_capture_id not in (None, capture.capture_id)
+                    or output.byte_count != transformation.output_byte_count
+                ):
+                    raise ValueError
+        except (CareerSourceError, KeyError, ValueError, ValidationError) as exc:
+            raise CareerSourceError("career-source-migration-request-invalid") from exc
+        return captures, transformations, pointers
+
+    @staticmethod
+    def _migration_chains(
+        captures: dict[str, CareerSourceCapture],
+        pointers: dict[str, DeclarationBoundCurrentCapturePointer],
+    ) -> tuple[tuple[str, tuple[str, ...], bool], ...]:
+        """Partition all retained predecessor chains, including non-current history."""
+        try:
+            found: list[tuple[str, tuple[str, ...], bool]] = []
+            for source_id in sorted(pointers):
+                source_captures = {
+                    capture_id: capture
+                    for capture_id, capture in captures.items()
+                    if capture.source_id == source_id
+                }
+                children: dict[str, list[str]] = {capture_id: [] for capture_id in source_captures}
+                for capture in source_captures.values():
+                    if capture.predecessor_capture_id is not None:
+                        if capture.predecessor_capture_id not in source_captures:
+                            raise ValueError
+                        children[capture.predecessor_capture_id].append(capture.capture_id)
+                if any(len(values) > 1 for values in children.values()):
+                    raise ValueError
+                roots = sorted(
+                    capture_id
+                    for capture_id, capture in source_captures.items()
+                    if capture.predecessor_capture_id is None
+                )
+                visited: set[str] = set()
+                for root in roots:
+                    chain = [root]
+                    while children[chain[-1]]:
+                        chain.append(children[chain[-1]][0])
+                    if any(capture_id in visited for capture_id in chain):
+                        raise ValueError
+                    visited.update(chain)
+                    found.append(
+                        (source_id, tuple(chain), pointers[source_id].capture_id == chain[-1])
+                    )
+                if (
+                    visited != set(source_captures)
+                    or sum(item[2] for item in found if item[0] == source_id) != 1
+                ):
+                    raise ValueError
+            return tuple(found)
+        except (KeyError, ValueError) as exc:
+            raise CareerSourceError("career-source-migration-request-invalid") from exc
+
+    def _retained_output_bytes(self, *, locator: str, output_hash: str) -> bytes:
+        """Authenticate one supplied regular raw-vault object without echoing its path."""
+        try:
+            parts = tuple(locator.split("/"))
+            if (
+                len(parts) != 2
+                or parts[0] != "raw"
+                or parts[1] != output_hash.removeprefix("sha256:")
+            ):
+                raise ValueError
+            path = self.workspace.child(".career-evidence", *parts)
+            if (
+                path.is_symlink()
+                or not path.is_file()
+                or not path.resolve(strict=True).is_relative_to(self.raw_root.resolve(strict=True))
+            ):
+                raise ValueError
+            payload = path.read_bytes()
+            if sha256_digest(payload) != output_hash:
+                raise ValueError
+            return payload
+        except (OSError, PrivateWorkspaceError, ValueError) as exc:
+            raise CareerSourceError("career-source-migration-request-invalid") from exc
+
+    def _migration_preflight(self, request: dict[str, Any]) -> _MigrationPreflight:
+        """Validate all baseline records and retained outputs before any stage write."""
+        try:
+            parsed = WorkspaceMigrationRequest.model_validate(request)
+            captures, transformations, pointers = self._migration_baseline(parsed)
+            actual_chains = self._migration_chains(captures, pointers)
+            requested_chains = {
+                (chain.source_id, tuple(chain.legacy_capture_ids)): chain for chain in parsed.chains
+            }
+            if set(requested_chains) != {
+                (source_id, capture_ids) for source_id, capture_ids, _ in actual_chains
+            }:
+                raise ValueError
+            capture_requests = {item.legacy_capture_id: item for item in parsed.captures}
+            if set(capture_requests) != set(captures):
+                raise ValueError
+            successor_capture_ids: set[str] = set()
+            for source_id, legacy_ids, is_current_head in actual_chains:
+                chain = requested_chains[(source_id, legacy_ids)]
+                mapped_successors = tuple(
+                    capture_requests[item].successor_capture_id for item in legacy_ids
+                )
+                if (
+                    tuple(chain.successor_capture_ids) != mapped_successors
+                    or chain.is_current_head is not is_current_head
+                    or chain.legacy_current_capture_id != pointers[source_id].capture_id
+                    or chain.successor_current_capture_id != mapped_successors[-1]
+                ):
+                    raise ValueError
+                successor_capture_ids.update(mapped_successors)
+            if successor_capture_ids & set(captures):
+                raise ValueError
+            for capture_id, capture in captures.items():
+                item = capture_requests[capture_id]
+                if (
+                    item.declaration_revision_id != capture.declaration_revision_id
+                    or item.declaration_hash != capture.declaration_hash
+                ):
+                    raise ValueError
+            transformation_requests = {
+                item.legacy_transformation_id: item for item in parsed.transformations
+            }
+            if set(transformation_requests) != set(transformations):
+                raise ValueError
+            if {item.successor_transformation_id for item in parsed.transformations} & set(
+                transformations
+            ):
+                raise ValueError
+            output_bytes: dict[str, bytes] = {}
+            for transformation_id, transformation in transformations.items():
+                item = transformation_requests[transformation_id]
+                if (
+                    item.input_capture_id != transformation.input_capture_id
+                    or item.output_hash != transformation.output_hash
+                ):
+                    raise ValueError
+                output_bytes[transformation_id] = self._retained_output_bytes(
+                    locator=item.retained_output_locator, output_hash=transformation.output_hash
+                )
+        except (CareerSourceError, KeyError, TypeError, ValueError, ValidationError) as exc:
+            if (
+                isinstance(exc, CareerSourceError)
+                and exc.code == "career-source-migration-request-invalid"
+            ):
+                raise
+            raise CareerSourceError("career-source-migration-request-invalid") from exc
+        return _MigrationPreflight(parsed, captures, transformations, output_bytes)
+
+    def preflight_workspace_migration(self, request: dict[str, Any]) -> dict[str, object]:
+        """Authenticate a complete private migration input graph without writing it."""
+        preflight = self._migration_preflight(request)
+        return {
+            "candidate_only": True,
+            "capture_count": len(preflight.captures),
+            "transformation_count": len(preflight.transformations),
+            "output_byte_count": sum(len(value) for value in preflight.output_bytes.values()),
+        }
+
+    @staticmethod
+    def _stage_bundle(root: Path, bundle_id: str, value: object) -> None:
+        """Publish one deterministic bundle or accept its byte-identical retry state."""
+        destination = root / bundle_id / "manifest.json"
+        try:
+            if destination.exists():
+                if (
+                    destination.is_symlink()
+                    or {item.name for item in destination.parent.iterdir()} != {"manifest.json"}
+                    or canonical_json_bytes(json.loads(destination.read_text(encoding="utf-8")))
+                    != canonical_json_bytes(value)
+                ):
+                    raise ValueError
+                return
+            create_only_canonical_bundle(root, bundle_id, {"manifest.json": value})
+        except (FormalRunStorageError, OSError, ValueError, json.JSONDecodeError) as exc:
+            raise CareerSourceError("career-source-migration-staging-invalid") from exc
+
+    def stage_workspace_migration(
+        self, request: dict[str, Any], *, fail_after: str | None = None
+    ) -> dict[str, object]:
+        """Stage all successors without moving pointers or creating Git authority."""
+        preflight = self._migration_preflight(request)
+        capture_requests = {item.legacy_capture_id: item for item in preflight.request.captures}
+        transformation_requests = {
+            item.legacy_transformation_id: item for item in preflight.request.transformations
+        }
+        successors: dict[str, CareerSourceCapture] = {}
+        for legacy_id, legacy in preflight.captures.items():
+            predecessor = legacy.predecessor_capture_id
+            successors[legacy_id] = legacy.model_copy(
+                update={
+                    "capture_id": capture_requests[legacy_id].successor_capture_id,
+                    "predecessor_capture_id": (
+                        None
+                        if predecessor is None
+                        else capture_requests[predecessor].successor_capture_id
+                    ),
+                }
+            )
+        successor_transformations: dict[str, CareerSourceTransformation] = {}
+        for legacy_id, legacy in preflight.transformations.items():
+            item = transformation_requests[legacy_id]
+            successor_transformations[legacy_id] = legacy.model_copy(
+                update={
+                    "transformation_id": item.successor_transformation_id,
+                    "input_capture_id": capture_requests[
+                        legacy.input_capture_id
+                    ].successor_capture_id,
+                    "predecessor_capture_id": capture_requests[
+                        legacy.input_capture_id
+                    ].successor_capture_id,
+                }
+            )
+        receipt = WorkspaceMigrationReceipt(
+            receipt_id=preflight.request.receipt_id,
+            baseline_commit=preflight.request.baseline_commit,
+            staged_at=preflight.request.staged_at,
+            chains=preflight.request.chains,
+            captures=preflight.request.captures,
+            transformations=preflight.request.transformations,
+        )
+        try:
+            self._ensure_root()
+            capture_root = self.workspace.child(".career-evidence", "sources", "captures")
+            for successor in successors.values():
+                self._stage_bundle(
+                    capture_root, successor.capture_id, successor.model_dump(mode="json")
+                )
+            if fail_after == "captures":
+                raise CareerSourceError("career-source-migration-staging-interrupted")
+            output_root = self.workspace.child(".career-evidence", "sources", "derived-outputs")
+            for legacy_id, transformation in successor_transformations.items():
+                output = DerivedOutputManifest(
+                    output_hash=transformation.output_hash,
+                    byte_count=len(preflight.output_bytes[legacy_id]),
+                )
+                self._stage_bundle(
+                    output_root,
+                    transformation.output_hash.removeprefix("sha256:"),
+                    output.model_dump(mode="json"),
+                )
+            if fail_after == "outputs":
+                raise CareerSourceError("career-source-migration-staging-interrupted")
+            transformation_root = self.workspace.child(
+                ".career-evidence", "sources", "transformations"
+            )
+            for successor in successor_transformations.values():
+                self._stage_bundle(
+                    transformation_root,
+                    successor.transformation_id,
+                    successor.model_dump(mode="json"),
+                )
+            if fail_after == "transformations":
+                raise CareerSourceError("career-source-migration-staging-interrupted")
+            receipt_root = self.workspace.child(".career-evidence", "sources", "migration-receipts")
+            self._stage_bundle(receipt_root, receipt.receipt_id, receipt.model_dump(mode="json"))
+            if fail_after == "receipt":
+                raise CareerSourceError("career-source-migration-staging-interrupted")
+        except CareerSourceError:
+            raise
+        except (OSError, PrivateWorkspaceError) as exc:
+            raise CareerSourceError("career-source-migration-staging-invalid") from exc
+        return {
+            "candidate_only": True,
+            "staged": True,
+            "capture_count": len(successors),
+            "transformation_count": len(successor_transformations),
+        }
+
     def capture_duplicates(
         self, first: dict[str, Any], second: dict[str, Any], source_bytes: bytes
     ) -> dict[str, Any]:
@@ -524,9 +892,9 @@ class CareerSourceStore:
             top_level = Path(
                 self._git("rev-parse", "--show-toplevel").decode("utf-8").strip()
             ).resolve(strict=True)
-            object_type = self._git("cat-file", "-t", expected_workspace_commit).decode(
-                "ascii"
-            ).strip()
+            object_type = (
+                self._git("cat-file", "-t", expected_workspace_commit).decode("ascii").strip()
+            )
         except (OSError, UnicodeDecodeError, CareerSourceError) as exc:
             raise CareerSourceError("career-source-snapshot-anchor-invalid") from exc
         if top_level != self.workspace.root or object_type != "commit":
@@ -630,9 +998,11 @@ class CareerSourceStore:
 
     def _verify_current_captures(self) -> tuple[CareerSourceCapture, ...]:
         captures = self.root / "captures"
-        capture_values = tuple(
-            self._read_capture(path.name) for path in captures.iterdir()
-        ) if captures.exists() else ()
+        capture_values = (
+            tuple(self._read_capture(path.name) for path in captures.iterdir())
+            if captures.exists()
+            else ()
+        )
         expected_sources = {capture.source_id for capture in capture_values}
         pointers = self.root / "current-captures"
         if not pointers.exists():
@@ -711,9 +1081,7 @@ class CareerSourceStore:
                     or {child.name for child in path.iterdir()} != {"manifest.json"}
                 ):
                     raise CareerSourceError("career-source-snapshot-invalid")
-                manifest = self._semantic_path(
-                    f"transformations/{path.name}/manifest.json"
-                )
+                manifest = self._semantic_path(f"transformations/{path.name}/manifest.json")
                 transformation = CareerSourceTransformation.model_validate_json(
                     manifest.read_bytes()
                 )

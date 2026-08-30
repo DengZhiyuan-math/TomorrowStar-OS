@@ -530,8 +530,7 @@ def test_snapshot_inventory_rejects_missing_extra_and_coordinated_semantic_chang
 ) -> None:
     store, commit = committed_synthetic_snapshot(tmp_path)
     transform = (
-        tmp_path
-        / ".career-evidence/sources/transformations/transform-synthetic-a/manifest.json"
+        tmp_path / ".career-evidence/sources/transformations/transform-synthetic-a/manifest.json"
     )
     transform.unlink()
     with pytest.raises(_require_career_sources().CareerSourceError):
@@ -680,8 +679,7 @@ def test_exact_source_id_transform_uses_only_its_current_capture_pointer(tmp_pat
     assert transformed.returncode == 0, transformed.stderr
     manifest = json.loads(
         (
-            tmp_path
-            / ".career-evidence/sources/transformations/transform-alpha/manifest.json"
+            tmp_path / ".career-evidence/sources/transformations/transform-alpha/manifest.json"
         ).read_text(encoding="utf-8")
     )
     assert manifest["source_id"] == "source-alpha"
@@ -838,7 +836,7 @@ def _two_capture_migration_baseline(tmp_path: Path) -> tuple[Any, str, dict[str,
     store.declare(synthetic_source_universe(revision_id="revision-migration-a"))
     first = synthetic_capture(capture_id="capture-migration-a")
     first["content_hash"] = sha256_digest(b"synthetic-migration-input-a")
-    store.capture(first, b"synthetic-migration-input-a")
+    stored_first_capture = store.capture(first, b"synthetic-migration-input-a")
     first_transform = synthetic_transformation()
     first_transform.update(
         {
@@ -862,7 +860,7 @@ def _two_capture_migration_baseline(tmp_path: Path) -> tuple[Any, str, dict[str,
             "content_hash": sha256_digest(b"synthetic-migration-input-b"),
         }
     )
-    store.capture(second, b"synthetic-migration-input-b")
+    stored_second_capture = store.capture(second, b"synthetic-migration-input-b")
     second_transform = synthetic_transformation()
     second_transform.update(
         {
@@ -882,14 +880,18 @@ def _two_capture_migration_baseline(tmp_path: Path) -> tuple[Any, str, dict[str,
     _git(tmp_path, "add", ".gitignore", ".career-evidence/sources")
     _git(tmp_path, "commit", "--quiet", "-m", "synthetic migration baseline")
     commit = _git(tmp_path, "rev-parse", "HEAD")
-    return store, commit, {
-        "first": first,
-        "second": second,
-        "first_transform": stored_first_transform,
-        "second_transform": stored_second_transform,
-        "first_output": first_output,
-        "second_output": second_output,
-    }
+    return (
+        store,
+        commit,
+        {
+            "first": stored_first_capture,
+            "second": stored_second_capture,
+            "first_transform": stored_first_transform,
+            "second_transform": stored_second_transform,
+            "first_output": first_output,
+            "second_output": second_output,
+        },
+    )
 
 
 def _workspace_migration_request(commit: str, records: dict[str, Any]) -> dict[str, Any]:
@@ -949,15 +951,21 @@ def test_workspace_migration_request_authenticates_two_capture_non_identity_outp
     store, baseline, records = _two_capture_migration_baseline(tmp_path)
     request = _workspace_migration_request(baseline, records)
     root = tmp_path / ".career-evidence/sources"
-    before = {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+    before = {
+        path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()
+    }
 
     result = store.preflight_workspace_migration(request)
 
     assert result["candidate_only"] is True
     assert result["capture_count"] == 2
     assert result["transformation_count"] == 2
-    assert result["output_byte_count"] == len(records["first_output"]) + len(records["second_output"])
-    assert before == {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+    assert result["output_byte_count"] == len(records["first_output"]) + len(
+        records["second_output"]
+    )
+    assert before == {
+        path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()
+    }
 
 
 @pytest.mark.parametrize("mutation", ("missing-output", "mismatched-output", "duplicate-capture"))
@@ -968,13 +976,17 @@ def test_workspace_migration_request_rejects_incomplete_or_unauthenticated_input
     store, baseline, records = _two_capture_migration_baseline(tmp_path)
     request = _workspace_migration_request(baseline, records)
     root = tmp_path / ".career-evidence/sources"
-    before = {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+    before = {
+        path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()
+    }
     if mutation == "missing-output":
-        (tmp_path / ".career-evidence" / request["transformations"][0]["retained_output_locator"]).unlink()
+        (
+            tmp_path / ".career-evidence" / request["transformations"][0]["retained_output_locator"]
+        ).unlink()
     elif mutation == "mismatched-output":
-        (tmp_path / ".career-evidence" / request["transformations"][0]["retained_output_locator"]).write_bytes(
-            b"synthetic-mismatched-output"
-        )
+        (
+            tmp_path / ".career-evidence" / request["transformations"][0]["retained_output_locator"]
+        ).write_bytes(b"synthetic-mismatched-output")
     else:
         request["captures"] = request["captures"] + (request["captures"][0],)
 
@@ -982,4 +994,6 @@ def test_workspace_migration_request_rejects_incomplete_or_unauthenticated_input
         store.preflight_workspace_migration(request)
 
     assert error.value.code == "career-source-migration-request-invalid"
-    assert before == {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+    assert before == {
+        path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()
+    }

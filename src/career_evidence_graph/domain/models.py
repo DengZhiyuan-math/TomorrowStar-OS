@@ -267,6 +267,135 @@ class DerivedOutputManifest(StrictModel):
     authority: Literal["candidate-only"] = "candidate-only"
 
 
+class WorkspaceMigrationCapture(StrictModel):
+    """One requested immutable legacy-to-successor capture mapping."""
+
+    legacy_capture_id: Identifier
+    declaration_revision_id: Identifier
+    declaration_hash: str = Field(pattern=SHA256_PATTERN)
+    successor_capture_id: Identifier
+
+
+class WorkspaceMigrationTransformation(StrictModel):
+    """One authenticated legacy transformation and its successor identity."""
+
+    legacy_transformation_id: Identifier
+    successor_transformation_id: Identifier
+    input_capture_id: Identifier
+    output_hash: str = Field(pattern=SHA256_PATTERN)
+    retained_output_locator: str = Field(pattern=r"^raw/[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def validate_retained_output_locator(self) -> WorkspaceMigrationTransformation:
+        if self.retained_output_locator != f"raw/{self.output_hash.removeprefix('sha256:')}":
+            raise ValueError("retained output locator must address its output hash")
+        return self
+
+
+class WorkspaceMigrationChain(StrictModel):
+    """One ordered predecessor chain, including any retained non-current chain."""
+
+    source_id: Identifier
+    legacy_capture_ids: tuple[Identifier, ...] = Field(min_length=1)
+    successor_capture_ids: tuple[Identifier, ...] = Field(min_length=1)
+    legacy_current_capture_id: Identifier
+    successor_current_capture_id: Identifier
+    is_current_head: bool
+
+    @model_validator(mode="after")
+    def validate_chain_maps(self) -> WorkspaceMigrationChain:
+        if len(self.legacy_capture_ids) != len(self.successor_capture_ids):
+            raise ValueError("migration chain maps must have equal length")
+        _unique_ids(self.legacy_capture_ids, "migration legacy capture IDs")
+        _unique_ids(self.successor_capture_ids, "migration successor capture IDs")
+        if self.legacy_current_capture_id not in self.legacy_capture_ids:
+            raise ValueError("migration chain current legacy capture must be in its chain")
+        if self.successor_current_capture_id not in self.successor_capture_ids:
+            raise ValueError("migration chain current successor capture must be in its chain")
+        return self
+
+
+class WorkspaceMigrationRequest(StrictModel):
+    """A complete candidate-only migration request for one explicit baseline commit."""
+
+    schema_version: Literal["career-source-workspace-migration-request/v1"] = (
+        "career-source-workspace-migration-request/v1"
+    )
+    baseline_commit: str = Field(min_length=1, max_length=64)
+    receipt_id: Identifier
+    staged_at: str = Field(min_length=1)
+    chains: tuple[WorkspaceMigrationChain, ...] = Field(min_length=1)
+    captures: tuple[WorkspaceMigrationCapture, ...] = Field(min_length=1)
+    transformations: tuple[WorkspaceMigrationTransformation, ...]
+    authority: Literal["candidate-only"] = "candidate-only"
+
+    @model_validator(mode="after")
+    def validate_complete_unique_maps(self) -> WorkspaceMigrationRequest:
+        legacy_chain_ids = tuple(
+            capture_id for chain in self.chains for capture_id in chain.legacy_capture_ids
+        )
+        successor_chain_ids = tuple(
+            capture_id for chain in self.chains for capture_id in chain.successor_capture_ids
+        )
+        _unique_ids(legacy_chain_ids, "migration chain legacy capture IDs")
+        _unique_ids(successor_chain_ids, "migration chain successor capture IDs")
+        _unique_ids(
+            tuple(item.legacy_capture_id for item in self.captures),
+            "migration capture legacy IDs",
+        )
+        _unique_ids(
+            tuple(item.successor_capture_id for item in self.captures),
+            "migration capture successor IDs",
+        )
+        _unique_ids(
+            tuple(item.legacy_transformation_id for item in self.transformations),
+            "migration transformation legacy IDs",
+        )
+        _unique_ids(
+            tuple(item.successor_transformation_id for item in self.transformations),
+            "migration transformation successor IDs",
+        )
+        if set(legacy_chain_ids) != {item.legacy_capture_id for item in self.captures}:
+            raise ValueError("migration capture request must equal chain capture inventory")
+        if set(successor_chain_ids) != {item.successor_capture_id for item in self.captures}:
+            raise ValueError("migration successor request must equal chain successor inventory")
+        current_chains = [chain for chain in self.chains if chain.is_current_head]
+        if {chain.source_id for chain in current_chains} != {
+            chain.source_id for chain in self.chains
+        }:
+            raise ValueError("each source requires exactly one current migration chain")
+        if len(current_chains) != len({chain.source_id for chain in self.chains}):
+            raise ValueError("migration source current chains must be unique")
+        return self
+
+
+class WorkspaceMigrationReceipt(StrictModel):
+    """The non-authoritative exhaustive deterministic stage for a full workspace."""
+
+    schema_version: Literal["career-source-workspace-migration-receipt/v1"] = (
+        "career-source-workspace-migration-receipt/v1"
+    )
+    receipt_id: Identifier
+    baseline_commit: str = Field(min_length=1, max_length=64)
+    staged_at: str = Field(min_length=1)
+    chains: tuple[WorkspaceMigrationChain, ...] = Field(min_length=1)
+    captures: tuple[WorkspaceMigrationCapture, ...] = Field(min_length=1)
+    transformations: tuple[WorkspaceMigrationTransformation, ...]
+    authority: Literal["candidate-only"] = "candidate-only"
+
+    @model_validator(mode="after")
+    def validate_receipt_maps(self) -> WorkspaceMigrationReceipt:
+        WorkspaceMigrationRequest(
+            baseline_commit=self.baseline_commit,
+            receipt_id=self.receipt_id,
+            staged_at=self.staged_at,
+            chains=self.chains,
+            captures=self.captures,
+            transformations=self.transformations,
+        )
+        return self
+
+
 # These names remain the store-facing contracts while their schema versions make
 # unbound v1 records an explicit migration boundary rather than a fallback path.
 CareerSourceCapture = DeclarationBoundCareerSourceCapture
