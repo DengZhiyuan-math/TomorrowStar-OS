@@ -6,8 +6,8 @@ must never be replaced with a readable private value or a value derived from one
 
 from __future__ import annotations
 
-import importlib.util
 import hashlib
+import importlib.util
 import json
 import subprocess
 import sys
@@ -100,6 +100,42 @@ def test_output_never_echoes_synthetic_private_sentinels_on_rejection(
     emitted = str(raised.value)
     for sentinel in (*public_tree_sentinels(), source.decode("utf-8", errors="ignore")):
         assert sentinel not in emitted
+
+
+@pytest.mark.parametrize("control", tuple(chr(value) for value in range(0x202A, 0x202F)) + tuple(chr(value) for value in range(0x2066, 0x206A)))
+@pytest.mark.parametrize("position", ("prefix", "middle", "suffix"))
+def test_bidi_controls_are_rejected_before_raw_or_structured_custody(
+    tmp_path: Path, control: str, position: str
+) -> None:
+    module = _require_career_sources()
+    text = {
+        "prefix": f"{control}synthetic",
+        "middle": f"synthetic{control}text",
+        "suffix": f"synthetic{control}",
+    }[position]
+
+    with pytest.raises(module.CareerSourceError) as raw_error:
+        module.CareerSourceStore(tmp_path).validate_source_bytes(text.encode("utf-8"), RAW_LABEL)
+    assert raw_error.value.code == "career-source-unsafe-control"
+
+    with pytest.raises(ValueError):
+        module.CareerSourceUniverse.model_validate(
+            {
+                "schema_version": "career-source-universe/v1",
+                "revision_id": "revision-unicode",
+                "career_fact_cutoff": "2001-02-03",
+                "categories": ({"category_id": "category-projects", "kind": "projects"},),
+                "sources": (
+                    {
+                        "source_id": "source-unicode",
+                        "category_id": "category-projects",
+                        "source_type": "self-reported",
+                        "availability": "user-declined",
+                        "explanation": text,
+                    },
+                ),
+            }
+        )
 
 
 def test_output_instruction_like_source_is_inert_data(tmp_path: Path) -> None:
