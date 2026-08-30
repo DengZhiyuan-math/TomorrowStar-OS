@@ -731,3 +731,68 @@ def test_legacy_capture_requires_explicit_migration(tmp_path: Path) -> None:
         store.verify_capture(legacy)
 
     assert error.value.code == "career-source-capture-migration-required"
+
+
+def _commit_synthetic_sources(workspace: Path, message: str) -> str:
+    _git(workspace, "add", ".career-evidence/sources")
+    _git(workspace, "commit", "--quiet", "-m", message)
+    return _git(workspace, "rev-parse", "HEAD")
+
+
+def test_transformation_inventory_rejects_unreferenced_output_in_a_fresh_snapshot(
+    tmp_path: Path,
+) -> None:
+    store, original_commit = committed_synthetic_snapshot(tmp_path)
+    output_hash = "sha256:" + "0" * 64
+    manifest = (
+        tmp_path
+        / ".career-evidence/sources/derived-outputs"
+        / output_hash.removeprefix("sha256:")
+        / "manifest.json"
+    )
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": "career-source-derived-output/v1",
+                "output_hash": output_hash,
+                "byte_count": 0,
+                "candidate_only": True,
+                "authority": "candidate-only",
+            }
+        ),
+        encoding="utf-8",
+    )
+    fresh_commit = _commit_synthetic_sources(tmp_path, "unreferenced synthetic output")
+
+    with pytest.raises(_require_career_sources().CareerSourceError):
+        store.verify(expected_workspace_commit=original_commit)
+    with pytest.raises(_require_career_sources().CareerSourceError):
+        store.verify(expected_workspace_commit=fresh_commit)
+
+
+def test_transformation_output_bytes_are_authenticated_separately_from_capture_bytes(
+    tmp_path: Path,
+) -> None:
+    module = _require_career_sources()
+    store = module.CareerSourceStore(tmp_path)
+    store.declare(synthetic_source_universe())
+    store.capture(synthetic_capture(), b"synthetic-raw-body-sentinel")
+    transformation = synthetic_transformation()
+    transformation.pop("output_hash")
+    transformation["transformation_id"] = "transform-distinct-output"
+    output_bytes = b"synthetic-derived-output-sentinel"
+    stored = store.transform(transformation, output_bytes)
+    (tmp_path / ".gitignore").write_text(".career-evidence/raw/\n", encoding="utf-8")
+    _git(tmp_path, "init", "--quiet")
+    _git(tmp_path, "config", "user.email", "synthetic@example.invalid")
+    _git(tmp_path, "config", "user.name", "Synthetic Test")
+    _git(tmp_path, "add", ".gitignore", ".career-evidence/sources")
+    _git(tmp_path, "commit", "--quiet", "-m", "distinct synthetic output")
+    commit = _git(tmp_path, "rev-parse", "HEAD")
+
+    assert store.verify(expected_workspace_commit=commit)["candidate_only"] is True
+    output_path = tmp_path / ".career-evidence/raw" / stored["output_hash"].removeprefix("sha256:")
+    output_path.write_bytes(b"synthetic-tampered-derived-output")
+    with pytest.raises(module.CareerSourceError):
+        store.verify(expected_workspace_commit=commit)
