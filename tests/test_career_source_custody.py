@@ -37,6 +37,18 @@ def _run(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _git(workspace: Path, *args: str) -> str:
+    """Run Git only inside a synthetic temporary workspace."""
+    completed = subprocess.run(
+        ["git", *args],
+        cwd=workspace,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return completed.stdout.strip()
+
+
 def _require_career_sources() -> Any:
     """Keep Wave 0 collectable until the Phase 7 custody seam exists."""
     if importlib.util.find_spec(_CAREER_SOURCE_MODULE) is None:
@@ -138,6 +150,22 @@ def tampered(value: dict[str, Any], field: str, replacement: Any) -> dict[str, A
     target = deepcopy(value)
     target[field] = replacement
     return target
+
+
+def committed_synthetic_snapshot(tmp_path: Path) -> tuple[Any, str]:
+    """Create a committed semantic snapshot with ignored synthetic raw bytes."""
+    module = _require_career_sources()
+    store = module.CareerSourceStore(tmp_path)
+    store.declare(synthetic_source_universe())
+    store.capture(synthetic_capture(), b"synthetic-raw-body-sentinel")
+    store.transform(synthetic_transformation())
+    (tmp_path / ".gitignore").write_text(".career-evidence/raw/\n", encoding="utf-8")
+    _git(tmp_path, "init", "--quiet")
+    _git(tmp_path, "config", "user.email", "synthetic@example.invalid")
+    _git(tmp_path, "config", "user.name", "Synthetic Test")
+    _git(tmp_path, "add", ".gitignore", ".career-evidence/sources")
+    _git(tmp_path, "commit", "--quiet", "-m", "synthetic custody snapshot")
+    return store, _git(tmp_path, "rev-parse", "HEAD")
 
 
 def test_tracer_synthetic_path_is_candidate_only_and_has_no_assessment_authority(tmp_path) -> None:
@@ -419,6 +447,82 @@ def test_tracer_declares_captures_transforms_and_inspects_without_authority(tmp_
         "source_revision_count": 1,
         "transformation_count": 1,
     }
+
+
+def test_explicit_commit_verifies_committed_snapshot_and_ignored_raw_authentication(
+    tmp_path: Path,
+) -> None:
+    store, commit = committed_synthetic_snapshot(tmp_path)
+
+    result = store.verify(expected_workspace_commit=commit)
+
+    assert result == {
+        "candidate_only": True,
+        "raw_byte_count": len(b"synthetic-raw-body-sentinel"),
+        "semantic_entry_count": 5,
+    }
+    assert _git(tmp_path, "ls-files", ".career-evidence/raw") == ""
+
+
+@pytest.mark.parametrize("anchor", ("", "HEAD", "main", "deadbeef", "not-a-commit"))
+def test_snapshot_anchor_requires_an_explicit_complete_commit_oid(tmp_path: Path, anchor: str) -> None:
+    store, commit = committed_synthetic_snapshot(tmp_path)
+    assert len(commit) == 40
+
+    with pytest.raises(store.__class__.__module__ and _require_career_sources().CareerSourceError) as error:
+        store.verify(expected_workspace_commit=anchor)
+
+    assert error.value.code == "career-source-snapshot-anchor-invalid"
+
+
+def test_raw_authentication_rejects_changed_ignored_bytes_without_disclosing_workspace(
+    tmp_path: Path,
+) -> None:
+    store, commit = committed_synthetic_snapshot(tmp_path)
+    raw = tmp_path / ".career-evidence/raw" / synthetic_capture()["content_hash"].removeprefix("sha256:")
+    raw.write_bytes(b"synthetic-tampered-raw")
+
+    with pytest.raises(_require_career_sources().CareerSourceError) as error:
+        store.verify(expected_workspace_commit=commit)
+
+    assert error.value.code == "career-source-snapshot-invalid"
+    assert str(tmp_path) not in str(error.value)
+
+
+def test_snapshot_inventory_rejects_missing_extra_and_coordinated_semantic_changes(
+    tmp_path: Path,
+) -> None:
+    store, commit = committed_synthetic_snapshot(tmp_path)
+    transform = tmp_path / ".career-evidence/sources/transformations/transform-synthetic-a/manifest.json"
+    transform.unlink()
+    with pytest.raises(_require_career_sources().CareerSourceError):
+        store.verify(expected_workspace_commit=commit)
+
+    store, commit = committed_synthetic_snapshot(tmp_path / "extra")
+    extra = tmp_path / "extra/.career-evidence/sources/derived-outputs/unexpected.json"
+    extra.parent.mkdir(parents=True)
+    extra.write_text("{}", encoding="utf-8")
+    with pytest.raises(_require_career_sources().CareerSourceError):
+        store.verify(expected_workspace_commit=commit)
+
+
+def test_empty_workspace_requires_a_complete_commit_and_proves_every_namespace_empty(tmp_path: Path) -> None:
+    module = _require_career_sources()
+    (tmp_path / ".gitignore").write_text(".career-evidence/raw/\n", encoding="utf-8")
+    _git(tmp_path, "init", "--quiet")
+    _git(tmp_path, "config", "user.email", "synthetic@example.invalid")
+    _git(tmp_path, "config", "user.name", "Synthetic Test")
+    _git(tmp_path, "add", ".gitignore")
+    _git(tmp_path, "commit", "--quiet", "-m", "empty synthetic snapshot")
+    commit = _git(tmp_path, "rev-parse", "HEAD")
+
+    assert module.CareerSourceStore(tmp_path).verify(expected_workspace_commit=commit) == {
+        "candidate_only": True,
+        "raw_byte_count": 0,
+        "semantic_entry_count": 0,
+    }
+    with pytest.raises(module.CareerSourceError):
+        module.CareerSourceStore(tmp_path).verify(expected_workspace_commit="HEAD")
     assert source.decode("utf-8") not in inspected.stdout
 
     root = tmp_path / ".career-evidence" / "sources"
