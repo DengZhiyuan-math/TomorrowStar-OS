@@ -54,7 +54,7 @@ Milestone v1.1 proceeds through eight requirement-driven delivery boundaries. It
   2. An evaluator can trace every accepted inventory fact and Evidence item to its source identity, content hash, capture metadata, and versioned transformations.
   3. The operator can process raw career sources in the ignored private workspace while routine output, logs, errors, and committed artifacts expose only safe identifiers, counts, hashes, and redacted diagnostics.
 
-**Plans:** 4/9 plans executed
+**Plans:** 5/9 plans executed
 
 Plans:
 **Wave 0**
@@ -75,7 +75,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 07-04-PLAN.md — Make one explicit full Git commit OID authenticate the complete custody snapshot.
+- [x] 07-04-PLAN.md — Make one explicit full Git commit OID authenticate the complete custody snapshot.
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
@@ -201,7 +201,7 @@ Phases execute in numeric order: 7 → 8 → 9 → 10 → 11 → 12 → 13 → 1
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 7. Career Source Custody and Private Workspace | v1.1 | 4/9 | In Progress|  |
+| 7. Career Source Custody and Private Workspace | v1.1 | 5/9 | In Progress|  |
 | 8. Full-Career Inventory Review and Seal | v1.1 | 0/TBD | Not started | - |
 | 9. Generic Contribution Audit and Attribution | v1.1 | 0/TBD | Not started | - |
 | 10. Skill Resolution and Reviewed Mastery | v1.1 | 0/TBD | Not started | - |
