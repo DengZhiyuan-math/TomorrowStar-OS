@@ -5,16 +5,16 @@ milestone_name: Full Career Graph and Real JD Validation
 current_phase: 07
 current_phase_name: Career Source Custody and Private Workspace
 status: verifying
-stopped_at: Completed 07-06-PLAN.md
-last_updated: "2026-08-30T22:21:23.285Z"
+stopped_at: Completed 07-07-PLAN.md
+last_updated: "2026-08-30T22:34:40.450Z"
 last_activity: 2026-08-29
 last_activity_desc: Phase 07 execution started
-state_head: 49bc638c04a587e8655630997b5418ce3f83d465
+state_head: f736e7489b4ec18daf8e76fea3505d2a50e5be90
 progress:
   total_phases: 8
   completed_phases: 0
   total_plans: 9
-  completed_plans: 7
+  completed_plans: 8
   percent: 0
 ---
 
@@ -89,6 +89,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 07 P04 | 43min | 2 tasks | 5 files |
 | Phase 07-career-source-custody-and-private-workspace P05 | 10min | 2 tasks | 4 files |
 | Phase 07 P06 | 5min | 2 tasks | 3 files |
+| Phase 07-career-source-custody-and-private-workspace P07 | 10m | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -155,6 +156,8 @@ Recent decisions affecting current work:
 - [Phase 07]: A global verification snapshot requires bidirectional closure between transformations, output manifests, and recomputed retained bytes.
 - [Phase 07]: Migration requests must equal the complete explicit-baseline legacy inventory before staging.
 - [Phase 07]: Retry staging accepts only byte-identical request-derived files and cannot move pointers or create Git authority.
+- [Phase 07]: Phase 07-07: refs/career-evidence/custody is the sole migration retention ref; retries require deterministic explicit-commit verification.
+- [Phase 07]: Phase 07-07: later current heads must prove the immutable receipt successor through a fully authenticated same-source predecessor chain.
 
 ### Pending Todos
 
@@ -185,8 +188,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-30T22:21:23.271Z
-Stopped at: Completed 07-06-PLAN.md
+Last session: 2026-08-30T22:34:40.434Z
+Stopped at: Completed 07-07-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
