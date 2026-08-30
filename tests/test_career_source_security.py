@@ -7,6 +7,7 @@ must never be replaced with a readable private value or a value derived from one
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 import subprocess
 import sys
@@ -269,6 +270,50 @@ def test_format_rejects_symlinked_raw_vault_and_create_only_collision(tmp_path: 
     (tmp_path / ".career-evidence").symlink_to(external, target_is_directory=True)
     with pytest.raises(module.CareerSourceError):
         module.CareerSourceStore(tmp_path).prepare_raw_vault()
+
+
+def test_semantic_namespace_symlink_rejects_capture_without_outside_write(tmp_path: Path) -> None:
+    """A mutable semantic namespace cannot redirect a capture pointer outside its workspace."""
+    module = _require_career_sources()
+    store = module.CareerSourceStore(tmp_path)
+    source_id = "source-symlink"
+    body = b"synthetic-symlink-capture"
+    store.declare(
+        {
+            "schema_version": "career-source-universe/v1",
+            "revision_id": "revision-symlink",
+            "career_fact_cutoff": "2001-02-03",
+            "categories": ({"category_id": "category-projects", "kind": "projects"},),
+            "sources": (
+                {
+                    "source_id": source_id,
+                    "category_id": "category-projects",
+                    "source_type": "self-reported",
+                    "availability": "available",
+                },
+            ),
+        }
+    )
+    outside = tmp_path / "synthetic-outside"
+    outside.mkdir()
+    current_captures = tmp_path / ".career-evidence" / "sources" / "current-captures"
+    current_captures.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(module.CareerSourceError) as raised:
+        store.capture(
+            {
+                "schema_version": "career-source-capture/v2",
+                "capture_id": "capture-symlink",
+                "source_id": source_id,
+                "content_hash": f"sha256:{hashlib.sha256(body).hexdigest()}",
+                "acquired_at": "2001-02-03T00:00:00+00:00",
+                "method": "synthetic-text",
+            },
+            body,
+        )
+
+    assert raised.value.code == "career-source-path-unsafe"
+    assert tuple(outside.iterdir()) == ()
 
 
 def test_cli_file_capture_rejects_unsupported_format_without_echoing_private_values(
