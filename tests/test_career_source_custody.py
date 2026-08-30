@@ -619,3 +619,113 @@ def test_committed_malformed_path_and_pointer_fail_even_when_working_tree_matche
 
     with pytest.raises(_require_career_sources().CareerSourceError):
         store.verify(expected_workspace_commit=_git(tmp_path, "rev-parse", "HEAD"))
+
+
+def test_exact_source_id_transform_uses_only_its_current_capture_pointer(tmp_path: Path) -> None:
+    """The CLI must never choose a capture by directory ordering."""
+    module = _require_career_sources()
+    store = module.CareerSourceStore(tmp_path)
+    declaration = synthetic_source_universe()
+    declaration["sources"] = (
+        {
+            "source_id": "source-alpha",
+            "category_id": "category-projects",
+            "source_type": "self-reported",
+            "availability": "available",
+        },
+        {
+            "source_id": "source-beta",
+            "category_id": "category-projects",
+            "source_type": "self-reported",
+            "availability": "available",
+        },
+    )
+    store.declare(declaration)
+    alpha = synthetic_capture(capture_id="capture-alpha")
+    alpha.update(
+        {
+            "source_id": "source-alpha",
+            "content_hash": sha256_digest(b"synthetic-alpha"),
+        }
+    )
+    beta = synthetic_capture(capture_id="capture-beta")
+    beta.update(
+        {
+            "source_id": "source-beta",
+            "content_hash": sha256_digest(b"synthetic-beta"),
+        }
+    )
+    store.capture(alpha, b"synthetic-alpha")
+    store.capture(beta, b"synthetic-beta")
+
+    transformed = _run(
+        "career-source",
+        "transform",
+        "--workspace",
+        str(tmp_path),
+        "--source-id",
+        "source-alpha",
+        "--transformation-id",
+        "transform-alpha",
+        "--transformer",
+        "synthetic-transformer",
+        "--version",
+        "v1",
+        "--configuration-json",
+        '{"z": 1, "a": 2}',
+    )
+
+    assert transformed.returncode == 0, transformed.stderr
+    manifest = json.loads(
+        (
+            tmp_path
+            / ".career-evidence/sources/transformations/transform-alpha/manifest.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert manifest["source_id"] == "source-alpha"
+    assert manifest["input_capture_id"] == "capture-alpha"
+    assert manifest["input_hash"] == sha256_digest(b"synthetic-alpha")
+
+
+def test_new_capture_and_transform_keep_immutable_declaration_binding(tmp_path: Path) -> None:
+    module = _require_career_sources()
+    store = module.CareerSourceStore(tmp_path)
+    initial = synthetic_source_universe(revision_id="revision-synthetic-a")
+    store.declare(initial)
+    capture = store.capture(synthetic_capture(), b"synthetic-raw-body-sentinel")
+    revised = synthetic_source_universe(revision_id="revision-synthetic-b")
+    revised["predecessor_revision_id"] = "revision-synthetic-a"
+    revised["sources"] = (
+        {
+            "source_id": "source-synthetic-unavailable",
+            "category_id": "category-education",
+            "source_type": "document",
+            "availability": "location-unknown",
+            "explanation": "synthetic-unavailable-sentinel",
+        },
+    )
+    store.declare(revised)
+    stored = store.current_capture("source-synthetic-a")
+
+    assert capture["declaration_revision_id"] == "revision-synthetic-a"
+    assert stored.declaration_revision_id == "revision-synthetic-a"
+    store.verify_capture(capture)
+
+
+def test_legacy_capture_requires_explicit_migration(tmp_path: Path) -> None:
+    module = _require_career_sources()
+    store = module.CareerSourceStore(tmp_path)
+    store.declare(synthetic_source_universe())
+    legacy = synthetic_capture()
+    bundle = tmp_path / ".career-evidence/sources/captures/capture-synthetic-a"
+    bundle.mkdir(parents=True)
+    (tmp_path / ".career-evidence/raw").mkdir(parents=True)
+    (tmp_path / ".career-evidence/raw" / legacy["content_hash"].removeprefix("sha256:")).write_bytes(
+        b"synthetic-raw-body-sentinel"
+    )
+    (bundle / "manifest.json").write_text(json.dumps(legacy), encoding="utf-8")
+
+    with pytest.raises(module.CareerSourceError) as error:
+        store.current_capture("source-synthetic-a")
+
+    assert error.value.code == "career-source-capture-migration-required"
