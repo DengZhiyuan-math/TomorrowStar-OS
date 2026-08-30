@@ -23,6 +23,33 @@ SHA256_PATTERN = r"^sha256:[0-9a-f]{64}$"
 COMMIT_PATTERN = r"^[0-9a-f]{40}$"
 MONTH_PATTERN = r"^\d{4}-(0[1-9]|1[0-2])$"
 Identifier = Annotated[str, Field(pattern=ID_PATTERN)]
+_BIDI_CONTROLS = frozenset(
+    chr(value) for value in (*range(0x202A, 0x202F), *range(0x2066, 0x206A))
+)
+
+
+def reject_bidi_controls(value: object) -> object:
+    """Reject ambiguous directional controls from every source-custody input value."""
+    if isinstance(value, str):
+        if any(character in _BIDI_CONTROLS for character in value):
+            raise ValueError("unsafe bidi control")
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            reject_bidi_controls(key)
+            reject_bidi_controls(item)
+    elif isinstance(value, (list, tuple, set, frozenset)):
+        for item in value:
+            reject_bidi_controls(item)
+    return value
+
+
+class CareerSourceModel(StrictModel):
+    """Source-custody contracts share one recursive hostile-text boundary."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_ambiguous_bidi_controls(cls, value: object) -> object:
+        return reject_bidi_controls(value)
 
 ExperienceType = Literal[
     "employment",
@@ -81,7 +108,7 @@ class SourceAvailability(StrEnum):
     USER_DECLINED = "user-declined"
 
 
-class CareerSourceCategory(StrictModel):
+class CareerSourceCategory(CareerSourceModel):
     schema_version: Literal["career-source-category/v1"] = "career-source-category/v1"
     category_id: Identifier
     kind: Literal[
@@ -98,7 +125,7 @@ class CareerSourceCategory(StrictModel):
     ]
 
 
-class LogicalCareerSource(StrictModel):
+class LogicalCareerSource(CareerSourceModel):
     schema_version: Literal["logical-career-source/v1"] = "logical-career-source/v1"
     source_id: Identifier
     category_id: Identifier
@@ -122,7 +149,7 @@ class LogicalCareerSource(StrictModel):
         return self
 
 
-class CareerSourceUniverse(StrictModel):
+class CareerSourceUniverse(CareerSourceModel):
     schema_version: Literal["career-source-universe/v1"] = "career-source-universe/v1"
     revision_id: Identifier
     career_fact_cutoff: date
@@ -150,7 +177,7 @@ class CareerSourceUniverse(StrictModel):
         return canonical_json_bytes(payload) + b"\n"
 
 
-class CareerSourceLocator(StrictModel):
+class CareerSourceLocator(CareerSourceModel):
     schema_version: Literal["career-source-locator/v1"] = "career-source-locator/v1"
     kind: Literal["page", "heading", "line", "byte-span", "git-blob", "whole-source"]
     page: int | None = Field(default=None, ge=1)
@@ -186,14 +213,14 @@ class CareerSourceLocator(StrictModel):
         return self
 
 
-class CareerSourceTransformer(StrictModel):
+class CareerSourceTransformer(CareerSourceModel):
     schema_version: Literal["career-source-transformer/v1"] = "career-source-transformer/v1"
     identity: str = Field(min_length=1)
     version: str = Field(min_length=1)
     configuration: dict[str, object]
 
 
-class DeclarationBoundCareerSourceCapture(StrictModel):
+class DeclarationBoundCareerSourceCapture(CareerSourceModel):
     """An immutable capture bound to the declaration active at acquisition."""
 
     schema_version: Literal["career-source-capture/v2"] = "career-source-capture/v2"
@@ -218,7 +245,7 @@ class DeclarationBoundCareerSourceCapture(StrictModel):
     authority: Literal["candidate-only"] = "candidate-only"
 
 
-class DeclarationBoundCurrentCapturePointer(StrictModel):
+class DeclarationBoundCurrentCapturePointer(CareerSourceModel):
     """The only mutable selector for one source's current immutable capture."""
 
     schema_version: Literal["career-source-current-capture/v2"] = "career-source-current-capture/v2"
@@ -229,7 +256,7 @@ class DeclarationBoundCurrentCapturePointer(StrictModel):
     declaration_hash: str = Field(pattern=SHA256_PATTERN)
 
 
-class DeclarationBoundCareerSourceTransformation(StrictModel):
+class DeclarationBoundCareerSourceTransformation(CareerSourceModel):
     """A candidate-only derivation with complete immutable input lineage."""
 
     schema_version: Literal["career-source-transformation/v2"] = "career-source-transformation/v2"
@@ -257,7 +284,7 @@ class DeclarationBoundCareerSourceTransformation(StrictModel):
         return self
 
 
-class DerivedOutputManifest(StrictModel):
+class DerivedOutputManifest(CareerSourceModel):
     """The tracked manifest for one ignored content-addressed derived byte object."""
 
     schema_version: Literal["career-source-derived-output/v1"] = "career-source-derived-output/v1"
@@ -267,7 +294,7 @@ class DerivedOutputManifest(StrictModel):
     authority: Literal["candidate-only"] = "candidate-only"
 
 
-class WorkspaceMigrationCapture(StrictModel):
+class WorkspaceMigrationCapture(CareerSourceModel):
     """One requested immutable legacy-to-successor capture mapping."""
 
     legacy_capture_id: Identifier
@@ -276,7 +303,7 @@ class WorkspaceMigrationCapture(StrictModel):
     successor_capture_id: Identifier
 
 
-class WorkspaceMigrationTransformation(StrictModel):
+class WorkspaceMigrationTransformation(CareerSourceModel):
     """One authenticated legacy transformation and its successor identity."""
 
     legacy_transformation_id: Identifier
@@ -292,7 +319,7 @@ class WorkspaceMigrationTransformation(StrictModel):
         return self
 
 
-class WorkspaceMigrationChain(StrictModel):
+class WorkspaceMigrationChain(CareerSourceModel):
     """One ordered predecessor chain, including any retained non-current chain."""
 
     source_id: Identifier
@@ -315,7 +342,7 @@ class WorkspaceMigrationChain(StrictModel):
         return self
 
 
-class WorkspaceMigrationRequest(StrictModel):
+class WorkspaceMigrationRequest(CareerSourceModel):
     """A complete candidate-only migration request for one explicit baseline commit."""
 
     schema_version: Literal["career-source-workspace-migration-request/v1"] = (
@@ -369,7 +396,7 @@ class WorkspaceMigrationRequest(StrictModel):
         return self
 
 
-class WorkspaceMigrationReceipt(StrictModel):
+class WorkspaceMigrationReceipt(CareerSourceModel):
     """The non-authoritative exhaustive deterministic stage for a full workspace."""
 
     schema_version: Literal["career-source-workspace-migration-receipt/v1"] = (

@@ -23,6 +23,9 @@ RAW_BODY = "synthetic-raw-body-sentinel"
 RAW_LABEL = "synthetic-label-sentinel"
 RAW_PATH = "synthetic-path-sentinel"
 RAW_DIGEST = "d" * 64
+BIDI_CONTROLS = tuple(chr(value) for value in range(0x202A, 0x202F)) + tuple(
+    chr(value) for value in range(0x2066, 0x206A)
+)
 
 
 def _require_career_sources() -> Any:
@@ -102,7 +105,7 @@ def test_output_never_echoes_synthetic_private_sentinels_on_rejection(
         assert sentinel not in emitted
 
 
-@pytest.mark.parametrize("control", tuple(chr(value) for value in range(0x202A, 0x202F)) + tuple(chr(value) for value in range(0x2066, 0x206A)))
+@pytest.mark.parametrize("control", BIDI_CONTROLS)
 @pytest.mark.parametrize("position", ("prefix", "middle", "suffix"))
 def test_bidi_controls_are_rejected_before_raw_or_structured_custody(
     tmp_path: Path, control: str, position: str

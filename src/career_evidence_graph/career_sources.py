@@ -22,6 +22,7 @@ from .domain.models import (
     DerivedOutputManifest,
     WorkspaceMigrationReceipt,
     WorkspaceMigrationRequest,
+    reject_bidi_controls,
 )
 from .validation.hashing import canonical_json_bytes, sha256_digest
 from .validation.store import (
@@ -1227,6 +1228,10 @@ class CareerSourceStore:
             text = source.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise CareerSourceError("career-source-invalid-utf8") from exc
+        try:
+            reject_bidi_controls(text)
+        except ValueError as exc:
+            raise CareerSourceError("career-source-unsafe-control") from exc
         if "\x00" in text or any(character in text for character in _UNSAFE_CODEPOINTS):
             raise CareerSourceError("career-source-unsafe-control")
         return {"provider_invocations": 0, "command_invocations": 0}
