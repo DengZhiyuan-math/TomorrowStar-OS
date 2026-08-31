@@ -54,7 +54,7 @@ Milestone v1.1 proceeds through eight requirement-driven delivery boundaries. It
   2. An evaluator can trace every accepted inventory fact and Evidence item to its source identity, content hash, capture metadata, and versioned transformations.
   3. The operator can process raw career sources in the ignored private workspace while routine output, logs, errors, and committed artifacts expose only safe identifiers, counts, hashes, and redacted diagnostics.
 
-**Plans:** 9/10 plans executed
+**Plans:** 9/10 active plans executed; 07-09 superseded after its committed Task 1 because its original security-before-evidence order was circular.
 
 Plans:
 **Wave 0**
@@ -95,7 +95,9 @@ Plans:
 
 **Wave 9** *(blocked on Wave 8 completion)*
 
-- [ ] 07-09-PLAN.md — Repair source-aware closure gates and record explicit current-HEAD execution evidence.
+- [~] 07-09-PLAN.md — Superseded after recording the committed Task 1 repair and validation audit; it never ran its security checkpoint or current-HEAD evidence task.
+
+- [ ] 07-10-PLAN.md — Close the superseded 07-09 record, then commit current-HEAD gate evidence before fresh security and verification authorities.
 
 ### Phase 8: Full-Career Inventory Review and Seal
 
