@@ -23,9 +23,7 @@ SHA256_PATTERN = r"^sha256:[0-9a-f]{64}$"
 COMMIT_PATTERN = r"^[0-9a-f]{40}$"
 MONTH_PATTERN = r"^\d{4}-(0[1-9]|1[0-2])$"
 Identifier = Annotated[str, Field(pattern=ID_PATTERN)]
-_BIDI_CONTROLS = frozenset(
-    chr(value) for value in (*range(0x202A, 0x202F), *range(0x2066, 0x206A))
-)
+_BIDI_CONTROLS = frozenset(chr(value) for value in (*range(0x202A, 0x202F), *range(0x2066, 0x206A)))
 
 
 def reject_bidi_controls(value: object) -> object:
@@ -50,6 +48,7 @@ class CareerSourceModel(StrictModel):
     @classmethod
     def reject_ambiguous_bidi_controls(cls, value: object) -> object:
         return reject_bidi_controls(value)
+
 
 ExperienceType = Literal[
     "employment",

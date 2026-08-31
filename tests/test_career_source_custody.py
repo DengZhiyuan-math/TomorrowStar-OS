@@ -1408,9 +1408,7 @@ def test_post_migration_recapture_requires_a_same_source_descendant_chain(tmp_pa
             "predecessor_capture_id": "capture-successor-b",
         }
     )
-    store.capture(
-        successor, b"synthetic-raw-body-sentinel-v2", expected_workspace_commit=baseline
-    )
+    store.capture(successor, b"synthetic-raw-body-sentinel-v2", expected_workspace_commit=baseline)
     descendant = _commit_synthetic_sources(tmp_path, "synthetic post-migration recapture")
 
     assert store.verify(expected_workspace_commit=descendant)["candidate_only"] is True
@@ -1458,9 +1456,7 @@ def test_migration_head_temporal_allows_grandchildren_but_rejects_a_skipped_succ
             "predecessor_capture_id": "capture-post-migration-child",
         }
     )
-    store.capture(
-        grandchild, b"synthetic-raw-body-sentinel-v2", expected_workspace_commit=baseline
-    )
+    store.capture(grandchild, b"synthetic-raw-body-sentinel-v2", expected_workspace_commit=baseline)
     descendant = _commit_synthetic_sources(tmp_path, "synthetic migration grandchild")
 
     assert store.verify(expected_workspace_commit=descendant)["candidate_only"] is True

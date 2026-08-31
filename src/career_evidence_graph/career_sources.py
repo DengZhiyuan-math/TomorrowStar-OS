@@ -955,15 +955,18 @@ class CareerSourceStore:
 
     @staticmethod
     def _pointer_bytes(capture: CareerSourceCapture) -> bytes:
-        return canonical_json_bytes(
-            DeclarationBoundCurrentCapturePointer(
-                source_id=capture.source_id,
-                capture_id=capture.capture_id,
-                content_hash=capture.content_hash,
-                declaration_revision_id=capture.declaration_revision_id,
-                declaration_hash=capture.declaration_hash,
-            ).model_dump(mode="json")
-        ) + b"\n"
+        return (
+            canonical_json_bytes(
+                DeclarationBoundCurrentCapturePointer(
+                    source_id=capture.source_id,
+                    capture_id=capture.capture_id,
+                    content_hash=capture.content_hash,
+                    declaration_revision_id=capture.declaration_revision_id,
+                    declaration_hash=capture.declaration_hash,
+                ).model_dump(mode="json")
+            )
+            + b"\n"
+        )
 
     def _replace_pointer_if_exact(self, path: Path, expected: bytes, replacement: bytes) -> bool:
         """Make an operator-owned pointer change only from its exact known bytes."""
@@ -1021,9 +1024,13 @@ class CareerSourceStore:
             self._git("read-tree", preflight.request.baseline_commit, environment=environment)
             self._git("add", "--", *staged_paths, environment=environment)
             for source_id, value in sorted(pointer_values.items()):
-                blob = self._git(
-                    "hash-object", "-w", "--stdin", input_bytes=value, environment=environment
-                ).decode("ascii").strip()
+                blob = (
+                    self._git(
+                        "hash-object", "-w", "--stdin", input_bytes=value, environment=environment
+                    )
+                    .decode("ascii")
+                    .strip()
+                )
                 self._git(
                     "update-index",
                     "--add",
@@ -1040,15 +1047,19 @@ class CareerSourceStore:
                 "GIT_COMMITTER_EMAIL": "career-evidence-custody@invalid",
                 "GIT_COMMITTER_DATE": timestamp,
             }
-            return self._git(
-                "commit-tree",
-                tree,
-                "-p",
-                preflight.request.baseline_commit,
-                "-m",
-                "career-source custody migration",
-                environment=environment | identity,
-            ).decode("ascii").strip()
+            return (
+                self._git(
+                    "commit-tree",
+                    tree,
+                    "-p",
+                    preflight.request.baseline_commit,
+                    "-m",
+                    "career-source custody migration",
+                    environment=environment | identity,
+                )
+                .decode("ascii")
+                .strip()
+            )
 
     def _completed_migration_retry_matches(
         self,
@@ -1109,12 +1120,16 @@ class CareerSourceStore:
             )
             if not changed or not changed <= allowed_paths:
                 return False
-            metadata = self._git(
-                "show",
-                "-s",
-                "--format=%an%x00%ae%x00%aI%x00%cn%x00%ce%x00%cI%x00%B",
-                retained_commit,
-            ).rstrip(b"\n").split(b"\0")
+            metadata = (
+                self._git(
+                    "show",
+                    "-s",
+                    "--format=%an%x00%ae%x00%aI%x00%cn%x00%ce%x00%cI%x00%B",
+                    retained_commit,
+                )
+                .rstrip(b"\n")
+                .split(b"\0")
+            )
             if metadata != [
                 b"career-evidence-custody",
                 b"career-evidence-custody@invalid",
@@ -1729,9 +1744,9 @@ class CareerSourceStore:
                     ):
                         raise ValueError
                     transformations[transformation.transformation_id] = transformation
-            if not captures or set(
-                item.legacy_capture_id for item in receipt.captures
-            ) != set(captures):
+            if not captures or set(item.legacy_capture_id for item in receipt.captures) != set(
+                captures
+            ):
                 raise ValueError
             if set(item.legacy_transformation_id for item in receipt.transformations) != set(
                 transformations
@@ -1755,9 +1770,7 @@ class CareerSourceStore:
             seen.add(current.capture_id)
             if current.predecessor_capture_id is None:
                 return False
-            current = self._verify_capture(
-                current.predecessor_capture_id, ancestry=frozenset(seen)
-            )
+            current = self._verify_capture(current.predecessor_capture_id, ancestry=frozenset(seen))
 
     def _verify_migration_receipts(
         self,
@@ -1772,8 +1785,7 @@ class CareerSourceStore:
         if receipt_root.is_symlink() or not receipt_root.is_dir():
             raise CareerSourceError("career-source-snapshot-invalid")
         current_by_source = {
-            capture.source_id: self.current_capture(capture.source_id)
-            for capture in capture_values
+            capture.source_id: self.current_capture(capture.source_id) for capture in capture_values
         }
         capture_by_id = {capture.capture_id: capture for capture in capture_values}
         transformation_root = self.root / "transformations"
