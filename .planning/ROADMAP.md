@@ -54,7 +54,7 @@ Milestone v1.1 proceeds through eight requirement-driven delivery boundaries. It
   2. An evaluator can trace every accepted inventory fact and Evidence item to its source identity, content hash, capture metadata, and versioned transformations.
   3. The operator can process raw career sources in the ignored private workspace while routine output, logs, errors, and committed artifacts expose only safe identifiers, counts, hashes, and redacted diagnostics.
 
-**Plans:** 9/10 active plans executed; 07-09 superseded after its committed Task 1 because its original security-before-evidence order was circular.
+**Plans:** Historical execution is preserved: 07-00 through 07-08 and 07-10 have Summaries; 07-09 is superseded after its committed Task 1; 07-11 is superseded before execution. One MVP-simplification plan is active. Phase 7, its requirements, and the milestone remain incomplete pending execution and independent verification.
 
 Plans:
 **Wave 0**
@@ -97,7 +97,15 @@ Plans:
 
 - [~] 07-09-PLAN.md — Superseded after recording the committed Task 1 repair and validation audit; it never ran its security checkpoint or current-HEAD evidence task.
 
-- [ ] 07-10-PLAN.md — Close the superseded 07-09 record, then commit current-HEAD gate evidence before fresh security and verification authorities.
+- [x] 07-10-PLAN.md — Record current-HEAD synthetic gate evidence without promoting Phase 7 or its requirements.
+
+**Historical supersession**
+
+- [~] 07-11-PLAN.md — Superseded before execution; its cleanup-race, commit-anchor, and temporal-custody direction is replaced by the single-user MVP addendum.
+
+**Wave 10 — MVP simplification** *(blocked on the completed 07-10 history)*
+
+- [ ] 07-12-PLAN.md — Replace Phase 7 custody overbuild with an explicit-workspace, append-only raw vault and minimal source index; retain only local safety and synthetic boundary tests.
 
 ### Phase 8: Full-Career Inventory Review and Seal
 
