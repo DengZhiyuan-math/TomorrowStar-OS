@@ -35,6 +35,10 @@ capability claims remain out of scope.
 - [Derive Reviewable Repository-to-Experience Clustering Signals](issues/03-derive-repository-clustering-signals.md):
   Resolve exact repository identity separately from human-reviewed, first-party-grounded
   Experience clustering.
+- [Choose the Experience Candidate and Inventory Revision Contract](issues/04-choose-experience-candidate-contract.md):
+  Use one immutable source-bound proposal graph: candidate replacement edges represent edits,
+  merges, and splits; complete dispositions and a hash-bound seal determine Phase 9 admission
+  without placeholder Contributions or a second source authority.
 
 ## Not yet specified
 
