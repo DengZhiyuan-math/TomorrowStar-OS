@@ -181,6 +181,12 @@ The revision validator rejects duplicate IDs, dangling Source/candidate links, i
 dispositions, cyclic or malformed replacement edges, a cutoff inconsistent with the bound Source
 Universe Revision, and a parent reference without an explicit change reason.
 
+Pending review is deliberately outside this contract. A hash-bound, non-authoritative review
+draft may contain empty decision slots while the user works, but `pending` is not a Disposition
+and cannot appear in an `InventoryRevision`. Only a complete draft materializes the immutable
+revision. The exact review and coverage interaction is defined in
+[Human Review and Coverage Checkpoint Design](05-review-coverage-checkpoint.md).
+
 ### `InventoryCoverage` — derived view
 
 Coverage is recomputed from the exact Inventory Revision plus its bound Source snapshot. It shows,

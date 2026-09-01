@@ -39,6 +39,10 @@ capability claims remain out of scope.
   Use one immutable source-bound proposal graph: candidate replacement edges represent edits,
   merges, and splits; complete dispositions and a hash-bound seal determine Phase 9 admission
   without placeholder Contributions or a second source authority.
+- [Design the Human Review and Coverage Checkpoint](issues/05-design-the-review-and-coverage-checkpoint.md):
+  Review one immutable proposal through separate candidate and Source queues, materialize an
+  Inventory Revision only after all pending slots become final outcomes, derive exact ID-set
+  coverage, and bind one explicit checkpoint response to the revision and coverage hashes.
 
 ## Not yet specified
 
