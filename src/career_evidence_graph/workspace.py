@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+from copy import deepcopy
 from datetime import date, datetime
 from pathlib import Path
 
-from .validation.hashing import sha256_digest
+from .validation.hashing import canonical_json_bytes, sha256_digest
 from .validation.store import atomic_write_canonical_json
 
 _ID = re.compile(r"^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$")
@@ -147,6 +148,46 @@ def workspace_status(workspace: Path) -> dict[str, object]:
             for source in sources
             if isinstance(source, dict)
         ),
+    }
+
+
+def load_source_universe_snapshot(
+    workspace: Path, *, public_root: Path | None = None
+) -> dict[str, object]:
+    """Return one detached registry snapshot with every referenced capture verified."""
+    root = open_private_workspace(workspace, public_root=public_root)
+    registry = _load_registry(root)
+    evidence = root / ".career-evidence"
+    raw_root = evidence / "raw"
+    if any(path.is_symlink() for path in (evidence, raw_root)):
+        raise WorkspaceError("private-path-invalid")
+    captures: dict[str, bytes] = {}
+    sources = registry["sources"]
+    assert isinstance(sources, list)
+    for source in sources:
+        assert isinstance(source, dict)
+        capture = source.get("capture")
+        if not isinstance(capture, dict):
+            continue
+        source_id = source["source_id"]
+        digest = capture["content_hash"]
+        assert isinstance(source_id, str) and isinstance(digest, str)
+        raw_path = raw_root / digest.removeprefix("sha256:")
+        if raw_path.is_symlink() or not raw_path.is_file():
+            raise WorkspaceError("capture-integrity-invalid")
+        try:
+            payload = raw_path.read_bytes()
+        except OSError as exc:
+            raise WorkspaceError("capture-integrity-invalid") from exc
+        if sha256_digest(payload) != digest:
+            raise WorkspaceError("capture-integrity-invalid")
+        captures[source_id] = payload
+    detached = deepcopy(registry)
+    return {
+        "authority": "candidate-only",
+        "registry_hash": sha256_digest(canonical_json_bytes(detached)),
+        "registry": detached,
+        "captures": captures,
     }
 
 

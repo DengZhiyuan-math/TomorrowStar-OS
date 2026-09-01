@@ -13,6 +13,7 @@ from career_evidence_graph.workspace import (
     WorkspaceError,
     capture_source,
     declare_sources,
+    load_source_universe_snapshot,
     open_private_workspace,
     record_derived_mapping,
     workspace_status,
@@ -184,3 +185,28 @@ def test_status_never_returns_private_source_labels_or_content(tmp_path: Path) -
         "source_count": 2,
         "unavailable_source_count": 1,
     }
+
+
+def test_source_snapshot_reuses_registry_validation_and_verifies_capture_bytes(
+    tmp_path: Path,
+) -> None:
+    workspace = _private_workspace(tmp_path)
+    declare_sources(workspace, _declaration())
+    body = b"synthetic-snapshot-body"
+    capture_source(
+        workspace,
+        "source-synthetic-a",
+        body,
+        captured_at="2001-02-03T04:05:06+00:00",
+    )
+
+    snapshot = load_source_universe_snapshot(workspace)
+
+    assert snapshot["authority"] == "candidate-only"
+    assert snapshot["registry"]["cutoff"] == "2001-02-03"
+    assert snapshot["captures"] == {"source-synthetic-a": body}
+    assert snapshot["registry_hash"].startswith("sha256:")
+
+    snapshot["registry"]["cutoff"] = "1999-01-01"
+    persisted = json.loads((workspace / ".career-evidence/registry.json").read_text())
+    assert persisted["cutoff"] == "2001-02-03"

@@ -43,6 +43,10 @@ capability claims remain out of scope.
   Review one immutable proposal through separate candidate and Source queues, materialize an
   Inventory Revision only after all pending slots become final outcomes, derive exact ID-set
   coverage, and bind one explicit checkpoint response to the revision and coverage hashes.
+- [Generate the Complete Private Experience Inventory](issues/06-generate-the-private-experience-inventory.md):
+  Generate one integrity-verified but deliberately unsealed private review packet from the strict
+  Source snapshot and accepted seed interfaces; retain exact lineage, leave every decision empty,
+  and keep downstream admission blocked until human reconciliation and acceptance.
 
 ## Not yet specified
 

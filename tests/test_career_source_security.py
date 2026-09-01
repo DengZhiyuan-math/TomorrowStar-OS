@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from career_evidence_graph.workspace import (
     WorkspaceError,
     capture_source,
     declare_sources,
+    load_source_universe_snapshot,
     open_private_workspace,
 )
 
@@ -159,3 +161,28 @@ def test_errors_are_content_free_for_invalid_raw_input(tmp_path: Path) -> None:
 
     assert str(rejected.value) == "capture-invalid"
     assert sentinel.decode() not in str(rejected.value)
+
+
+def test_source_snapshot_fails_closed_when_referenced_capture_bytes_drift(
+    tmp_path: Path,
+) -> None:
+    public = _git_workspace(tmp_path / "public-harness")
+    private = _git_workspace(tmp_path / "private-records")
+    (private / ".gitignore").write_text(".career-evidence/raw/\n", encoding="utf-8")
+    workspace = open_private_workspace(private, public_root=public)
+    declare_sources(workspace, _declaration())
+    capture_source(
+        workspace,
+        "source-synthetic-a",
+        b"synthetic-original",
+        captured_at="2001-02-03T04:05:06+00:00",
+    )
+    registry = workspace / ".career-evidence" / "registry.json"
+    digest = json.loads(registry.read_text())["sources"][0]["capture"]["content_hash"]
+    raw = workspace / ".career-evidence" / "raw" / digest.removeprefix("sha256:")
+    raw.write_bytes(b"synthetic-tampered")
+
+    with pytest.raises(WorkspaceError) as rejected:
+        load_source_universe_snapshot(workspace, public_root=public)
+
+    assert rejected.value.code == "capture-integrity-invalid"
