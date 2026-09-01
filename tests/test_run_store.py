@@ -10,6 +10,7 @@ from career_evidence_graph.validation.models import CorrectionRecord
 from career_evidence_graph.validation.store import (
     FormalRunStorageError,
     FormalRunStore,
+    create_only_file_bundle,
     load_charter,
 )
 
@@ -48,6 +49,23 @@ def test_duplicate_destination_preserves_original_bytes(tmp_path, charter_path):
         _create(store, charter_path)
 
     assert {path.name: path.read_bytes() for path in run_path.iterdir()} == original
+
+
+def test_file_bundle_rejects_symlink_root_and_duplicate_destination(tmp_path):
+    root = tmp_path / "bundles"
+    assert create_only_file_bundle(root, "bundle-1", {"payload.txt": b"one"}) == root / "bundle-1"
+    original = (root / "bundle-1" / "payload.txt").read_bytes()
+    with pytest.raises(FormalRunStorageError, match="already exists"):
+        create_only_file_bundle(root, "bundle-1", {"payload.txt": b"two"})
+    assert (root / "bundle-1" / "payload.txt").read_bytes() == original
+
+    external = tmp_path / "external"
+    external.mkdir()
+    linked_root = tmp_path / "linked-root"
+    linked_root.symlink_to(external, target_is_directory=True)
+    with pytest.raises(FormalRunStorageError, match="symlink"):
+        create_only_file_bundle(linked_root, "bundle-2", {"payload.txt": b"nope"})
+    assert not (external / "bundle-2").exists()
 
 
 def test_linked_rerun_preserves_parent_and_requires_change_reason(tmp_path, charter_path):

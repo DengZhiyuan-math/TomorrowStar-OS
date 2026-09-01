@@ -89,6 +89,41 @@ def create_only_canonical_bundle(root: Path, bundle_name: str, payloads: dict[st
     return destination
 
 
+def create_only_file_bundle(root: Path, bundle_name: str, files: dict[str, bytes]) -> Path:
+    """Publish a declared file bundle atomically without overwriting prior evidence."""
+    if not RUN_ID_PATTERN.fullmatch(bundle_name):
+        raise FormalRunStorageError("bundle name contains unsafe path characters")
+    if root.exists() and root.is_symlink():
+        raise FormalRunStorageError("bundle root cannot be a symlink")
+    root.mkdir(parents=True, exist_ok=True)
+    resolved_root = root.resolve()
+    destination = root / bundle_name
+    if destination.parent.resolve() != resolved_root:
+        raise FormalRunStorageError("bundle destination escapes its root")
+    if destination.exists() or destination.is_symlink():
+        raise FormalRunStorageError(f"bundle already exists: {bundle_name}")
+    temporary = Path(tempfile.mkdtemp(dir=root, prefix=f".{bundle_name}."))
+    try:
+        for filename, data in files.items():
+            if Path(filename).name != filename:
+                raise FormalRunStorageError("bundle file name contains unsafe path characters")
+            target = temporary / filename
+            with target.open("wb") as handle:
+                handle.write(data)
+                handle.flush()
+                os.fsync(handle.fileno())
+        try:
+            os.rename(temporary, destination)
+        except FileExistsError as exc:
+            raise FormalRunStorageError(f"bundle already exists: {bundle_name}") from exc
+    finally:
+        if temporary.exists():
+            for child in temporary.iterdir():
+                child.unlink()
+            temporary.rmdir()
+    return destination
+
+
 def _load_json(path: Path) -> Any:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
