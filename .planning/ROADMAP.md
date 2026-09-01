@@ -54,7 +54,7 @@ Milestone v1.1 proceeds through eight requirement-driven delivery boundaries. It
   2. An evaluator can trace every accepted inventory fact and Evidence item to its source identity, content hash, capture metadata, and versioned transformations.
   3. The operator can process raw career sources in the ignored private workspace while routine output, logs, errors, and committed artifacts expose only safe identifiers, counts, hashes, and redacted diagnostics.
 
-**Plans:** Historical execution is preserved: 07-00 through 07-08 and 07-10 have Summaries; 07-09 is superseded after its committed Task 1; 07-11 is superseded before execution. One MVP-simplification plan is active. Phase 7, its requirements, and the milestone remain incomplete pending execution and independent verification.
+**Plans:** Historical execution is preserved: 07-00 through 07-08 and 07-10 have Summaries; 07-09 is superseded after its committed Task 1; 07-11 is superseded before execution; 07-12 executes the MVP simplification. Phase 7, its requirements, and the milestone remain incomplete pending independent verification.
 
 Plans:
 **Wave 0**
@@ -105,7 +105,7 @@ Plans:
 
 **Wave 10 — MVP simplification** *(blocked on the completed 07-10 history)*
 
-- [ ] 07-12-PLAN.md — Replace Phase 7 custody overbuild with an explicit-workspace, append-only raw vault and minimal source index; retain only local safety and synthetic boundary tests.
+- [x] 07-12-PLAN.md — Replace Phase 7 custody overbuild with an explicit-workspace, append-only raw vault and minimal source index; retain only local safety and synthetic boundary tests.
 
 ### Phase 8: Full-Career Inventory Review and Seal
 
@@ -215,7 +215,7 @@ Phases execute in numeric order: 7 → 8 → 9 → 10 → 11 → 12 → 13 → 1
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 7. Career Source Custody and Private Workspace | v1.1 | 9/10 | In Progress |  |
+| 7. Career Source Custody and Private Workspace | v1.1 | 11/11 | In Progress |  |
 | 8. Full-Career Inventory Review and Seal | v1.1 | 0/TBD | Not started | - |
 | 9. Generic Contribution Audit and Attribution | v1.1 | 0/TBD | Not started | - |
 | 10. Skill Resolution and Reviewed Mastery | v1.1 | 0/TBD | Not started | - |
