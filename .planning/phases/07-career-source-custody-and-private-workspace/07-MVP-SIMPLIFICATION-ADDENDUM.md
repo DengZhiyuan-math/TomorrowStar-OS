@@ -22,12 +22,14 @@ rewriting the evidence of completed plans or asserting that their mechanisms wer
   commit, ref, remote, log, or history authority.
 - **D-09:** Exact raw bodies remain beneath the private ignored raw-vault boundary and stay out
   of both Git histories. Backup and encryption remain the user's responsibility and are deferred.
-- **D-10:** Every personal-data operation receives an explicit `--workspace` value that passes
-  the existing-private-worktree and public/ancestor/child rejection checks. There is no implicit
-  current workspace or alternate workspace authority. Routine output and errors do not reveal
-  either repository path or Git details.
-- **D-11:** Routine status and errors remain content-free; readable private views, if retained,
-  exist only inside the explicit private workspace.
+- **D-10:** Every personal-data operation receives an explicit workspace argument to the one
+  workspace-module entry point. It passes the existing-private-worktree and public/ancestor/child
+  rejection checks. There is no implicit current workspace, persisted path, command-line route,
+  or alternate workspace authority. Routine results and errors do not reveal either repository
+  path or Git details.
+- **D-11:** Routine module results and errors remain content-free; readable private data, if
+  needed later, remains inside the explicit private workspace rather than a Phase 7 presentation
+  interface.
 - **D-12 through D-16:** The source boundary still records category/source coverage, cutoff,
   self-reported-source status, and unavailable sources. Each source has a required availability
   value drawn exactly from `available`, `temporarily-unavailable`, `permanently-lost`,
@@ -56,16 +58,22 @@ rewriting the evidence of completed plans or asserting that their mechanisms wer
 
 ## Active minimal contract
 
-The private workspace keeps one small source registry with one global cutoff, declared supported
-categories, and source entries containing source ID, category, self-reported-or-other source
-type, availability, and optional reason. A capture adds capture-source ID, content hash, and
-captured-at time. When derived text exists, the registry additionally records input/output hash,
-transformer identity/version, and an optional locator. Before raw writing, the selected private
-workspace must designate `.career-evidence/raw/` as ignored in its own `.gitignore`; this is a
-local raw-containment safeguard, not Git commit, snapshot, ref, or repository authority. Raw
-writes are create-only and append-only; failed work may leave an orphan. There is no automatic
-deletion, garbage collector, cleanup race protocol, commit OID, dedicated ref, snapshot
-comparison, migration receipt, or retention authority.
+The private workspace module owns one small source registry with one global cutoff, declared
+supported categories, and source entries containing source ID, category, self-reported-or-other
+source type, availability, and optional reason. A capture adds capture-source ID, content hash,
+and captured-at time. When derived text actually exists, the registry additionally records
+input/output hash, transformer identity/version, and an optional locator. Before raw writing, the
+selected private workspace must designate `.career-evidence/raw/` as ignored in its own
+`.gitignore`; this is a local raw-containment safeguard, not Git commit, snapshot, ref, or
+repository authority. Raw writes are create-only and append-only; failed work may leave an orphan.
+There is no automatic deletion, garbage collector, cleanup race protocol, commit OID, dedicated
+ref, snapshot comparison, migration receipt, or retention authority.
+
+The implementation has one function-based workspace module and no separate source store, source
+Pydantic/domain-model layer, or `career-source` command interface. Registry/raw read-write logic
+lives in that module. Tests call its direct module API. A thin `python -m` adapter is not retained
+unless a concrete existing non-test consumer requires it; Phase 7 currently does not create such a
+consumer.
 
 The implementation retains only ordinary local safeguards: an explicit existing private
 Git-worktree root that resolves outside the public checkout's ancestor/child authority, safe
@@ -75,6 +83,7 @@ adversarial multi-process, TOCTOU, or Git-history-authority guarantees.
 
 ## Scope fence
 
-This addendum does not create Skill, assessment, mastery, inventory acceptance, document
-parsing, LLM, OCR, database, UI, deployment, backup, or encryption functionality. Those remain
-outside Phase 7 or deferred as stated in the roadmap and historical context.
+This addendum does not create a separate store, a source model hierarchy, a user-facing CLI,
+Skill, assessment, mastery, inventory acceptance, document parsing, LLM, OCR, database, UI,
+deployment, backup, or encryption functionality. Those remain outside Phase 7 or deferred as
+stated in the roadmap and historical context.
