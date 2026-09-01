@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import ctypes
+import errno
 import json
 import os
 import re
+import sys
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -44,6 +47,24 @@ class FormalRunStorageError(RuntimeError):
     """Raised when a formal bundle cannot be safely created or verified."""
 
 
+def _rename_noreplace(source: Path, destination: Path) -> None:
+    """Atomically rename a path only when the destination does not exist."""
+    source_bytes = os.fsencode(source)
+    destination_bytes = os.fsencode(destination)
+    libc = ctypes.CDLL(None, use_errno=True)
+    if sys.platform == "darwin" and hasattr(libc, "renamex_np"):
+        result = libc.renamex_np(source_bytes, destination_bytes, 0x00000004)
+    elif sys.platform.startswith("linux") and hasattr(libc, "renameat2"):
+        result = libc.renameat2(-100, source_bytes, -100, destination_bytes, 0x1)
+    else:
+        raise FormalRunStorageError("atomic no-replace publication is unavailable")
+    if result != 0:
+        error = ctypes.get_errno()
+        if error == errno.EEXIST:
+            raise FileExistsError(error, os.strerror(error), destination)
+        raise OSError(error, os.strerror(error), destination)
+
+
 def atomic_write_canonical_json(path: Path, value: Any) -> None:
     """Write one canonical JSON payload without exposing a partially-written file."""
     data = canonical_json_bytes(value) + b"\n"
@@ -78,7 +99,7 @@ def create_only_canonical_bundle(root: Path, bundle_name: str, payloads: dict[st
             if Path(filename).name != filename:
                 raise FormalRunStorageError("bundle payload name contains unsafe path characters")
             atomic_write_canonical_json(temporary / filename, value)
-        os.rename(temporary, destination)
+        _rename_noreplace(temporary, destination)
     except FileExistsError as exc:
         raise FormalRunStorageError(f"bundle already exists: {bundle_name}") from exc
     finally:
@@ -93,7 +114,7 @@ def create_only_file_bundle(root: Path, bundle_name: str, files: dict[str, bytes
     """Publish a declared file bundle atomically without overwriting prior evidence."""
     if not RUN_ID_PATTERN.fullmatch(bundle_name):
         raise FormalRunStorageError("bundle name contains unsafe path characters")
-    if root.exists() and root.is_symlink():
+    if root.is_symlink():
         raise FormalRunStorageError("bundle root cannot be a symlink")
     root.mkdir(parents=True, exist_ok=True)
     resolved_root = root.resolve()
@@ -113,7 +134,7 @@ def create_only_file_bundle(root: Path, bundle_name: str, files: dict[str, bytes
                 handle.flush()
                 os.fsync(handle.fileno())
         try:
-            os.rename(temporary, destination)
+            _rename_noreplace(temporary, destination)
         except FileExistsError as exc:
             raise FormalRunStorageError(f"bundle already exists: {bundle_name}") from exc
     finally:
@@ -277,7 +298,7 @@ class FormalRunStore:
             )
             self._write_json(temporary / "manifest.json", manifest)
             try:
-                os.rename(temporary, destination)
+                _rename_noreplace(temporary, destination)
             except FileExistsError as exc:
                 raise FormalRunStorageError(f"formal run already exists: {run_id}") from exc
             return manifest
