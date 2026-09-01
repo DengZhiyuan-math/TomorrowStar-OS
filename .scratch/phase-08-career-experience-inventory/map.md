@@ -26,7 +26,15 @@ capability claims remain out of scope.
 
 ## Decisions so far
 
-<!-- Resolved ticket links are appended here. -->
+- [Locate the Resume and Personal-Website Seed Interfaces](issues/01-locate-career-seed-interfaces.md):
+  Seed the backbone from readable resume variants and website content modules, preserving every
+  occurrence as candidate lineage rather than authority.
+- [Characterize the Private Source Registry for Inventory Consumption](issues/02-characterize-source-registry-shape.md):
+  Consume one integrity-checked registry snapshot through the existing workspace authority and
+  use it only for coverage, discovery, and lineage.
+- [Derive Reviewable Repository-to-Experience Clustering Signals](issues/03-derive-repository-clustering-signals.md):
+  Resolve exact repository identity separately from human-reviewed, first-party-grounded
+  Experience clustering.
 
 ## Not yet specified
 

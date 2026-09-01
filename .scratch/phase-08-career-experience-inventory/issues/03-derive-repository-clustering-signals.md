@@ -1,7 +1,7 @@
 # Derive Reviewable Repository-to-Experience Clustering Signals
 
 Type: research
-Status: open
+Status: resolved
 Blocked by: none
 
 ## Question
@@ -12,3 +12,12 @@ tutorials, experiments, and abandoned work, and leave ambiguous merges unresolve
 exposing private findings in the public repository?
 
 ## Comments
+
+## Answer
+
+Adopt a two-layer resolver: exact hosted-repository identity may automatically link Sources, but
+distinct-repository Experience clustering always remains a proposal and requires an explicit
+first-party relationship signal. Shared history and similarity only order review; fork, tutorial,
+experiment, archive, and copy classifications remain dispositions without responsibility or
+capability authority. See
+[Derive Reviewable Repository-to-Experience Clustering Signals](../research/03-repository-clustering-signals.md).
