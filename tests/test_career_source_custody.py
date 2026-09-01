@@ -78,17 +78,23 @@ def test_capture_is_create_only_and_records_hash_and_time_on_source(tmp_path: Pa
 
     digest = sha256_digest(body)
     assert captured == {"authority": "candidate-only", "captured": True}
-    assert (workspace / ".career-evidence/raw" / digest.removeprefix("sha256:")).read_bytes() == body
+    raw = workspace / ".career-evidence/raw" / digest.removeprefix("sha256:")
+    assert raw.read_bytes() == body
     registry = json.loads((workspace / ".career-evidence/registry.json").read_text())
     source = registry["sources"][0]
     assert source["capture"] == {"content_hash": digest, "captured_at": "2001-02-03T04:05:06+00:00"}
 
     with pytest.raises(WorkspaceError) as duplicate:
-        capture_source(workspace, "source-synthetic-a", body, captured_at="2001-02-03T04:05:07+00:00")
+        capture_source(
+            workspace,
+            "source-synthetic-a",
+            body,
+            captured_at="2001-02-03T04:05:07+00:00",
+        )
     assert duplicate.value.code == "capture-already-recorded"
 
 
-def test_derived_mapping_is_optional_and_only_records_caller_supplied_lineage(tmp_path: Path) -> None:
+def test_derived_mapping_records_only_caller_supplied_lineage(tmp_path: Path) -> None:
     workspace = _private_workspace(tmp_path)
     declare_sources(workspace, _declaration())
     body = b"synthetic-raw-body-sentinel"
@@ -158,9 +164,15 @@ def test_raw_capture_may_remain_if_registry_publication_fails(
 
     monkeypatch.setattr("career_evidence_graph.workspace._write_registry", fail_publication)
     with pytest.raises(WorkspaceError, match="registry-write-failed"):
-        capture_source(workspace, "source-synthetic-a", body, captured_at="2001-02-03T04:05:06+00:00")
+        capture_source(
+            workspace,
+            "source-synthetic-a",
+            body,
+            captured_at="2001-02-03T04:05:06+00:00",
+        )
 
-    assert (workspace / ".career-evidence/raw" / sha256_digest(body).removeprefix("sha256:")).exists()
+    raw = workspace / ".career-evidence/raw" / sha256_digest(body).removeprefix("sha256:")
+    assert raw.exists()
 
 
 def test_status_never_returns_private_source_labels_or_content(tmp_path: Path) -> None:

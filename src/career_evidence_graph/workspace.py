@@ -7,7 +7,6 @@ import re
 import subprocess
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any
 
 from .validation.hashing import sha256_digest
 from .validation.store import atomic_write_canonical_json
@@ -144,7 +143,9 @@ def workspace_status(workspace: Path) -> dict[str, object]:
         "authority": "candidate-only",
         "source_count": len(sources),
         "unavailable_source_count": sum(
-            source.get("availability") != "available" for source in sources if isinstance(source, dict)
+            source.get("availability") != "available"
+            for source in sources
+            if isinstance(source, dict)
         ),
     }
 
@@ -228,8 +229,13 @@ def _validate_declaration(value: dict[str, object]) -> None:
         if not isinstance(cutoff, str):
             raise ValueError
         date.fromisoformat(cutoff)
-        if not isinstance(categories, list) or not categories or any(
-            not isinstance(category, str) or not _ID.fullmatch(category) for category in categories
+        if (
+            not isinstance(categories, list)
+            or not categories
+            or any(
+                not isinstance(category, str) or not _ID.fullmatch(category)
+                for category in categories
+            )
         ):
             raise ValueError
         if len(categories) != len(set(categories)) or not isinstance(sources, list) or not sources:
@@ -286,9 +292,17 @@ def _validate_capture(value: object) -> None:
 def _validate_derived(value: object) -> None:
     if value is None:
         return
-    if not isinstance(value, dict) or set(value) - {"input_hash", "output_hash", "transformer", "locator"}:
+    if not isinstance(value, dict) or set(value) - {
+        "input_hash",
+        "output_hash",
+        "transformer",
+        "locator",
+    }:
         raise ValueError
-    if not all(isinstance(value.get(key), str) and _HASH.fullmatch(value[key]) for key in ("input_hash", "output_hash")):
+    if not all(
+        isinstance(value.get(key), str) and _HASH.fullmatch(value[key])
+        for key in ("input_hash", "output_hash")
+    ):
         raise ValueError
     transformer = value.get("transformer")
     if not isinstance(transformer, dict) or set(transformer) != {"identity", "version"}:
