@@ -16,6 +16,7 @@ from career_evidence_graph.workspace import (
     load_source_universe_snapshot,
     open_private_workspace,
     record_derived_mapping,
+    record_self_report_source_successor,
     workspace_status,
 )
 
@@ -210,3 +211,45 @@ def test_source_snapshot_reuses_registry_validation_and_verifies_capture_bytes(
     snapshot["registry"]["cutoff"] = "1999-01-01"
     persisted = json.loads((workspace / ".career-evidence/registry.json").read_text())
     assert persisted["cutoff"] == "2001-02-03"
+
+
+def test_self_report_successor_preserves_parent_and_binds_its_own_capture(
+    tmp_path: Path,
+) -> None:
+    workspace = _private_workspace(tmp_path)
+    declare_sources(workspace, _declaration())
+    parent = load_source_universe_snapshot(workspace)
+    statement = b"Synthetic first-person statement; scope intentionally deferred."
+
+    successor = record_self_report_source_successor(
+        workspace,
+        parent_registry_hash=parent["registry_hash"],
+        source_id="self-report-synthetic",
+        statement=statement,
+        captured_at="2001-02-03T04:05:06+00:00",
+    )
+
+    assert successor == {
+        "authority": "candidate-only",
+        "parent_registry_hash": parent["registry_hash"],
+        "registry_hash": successor["registry_hash"],
+        "source_id": "self-report-synthetic",
+    }
+    assert successor["registry_hash"] != parent["registry_hash"]
+    assert load_source_universe_snapshot(workspace)["registry_hash"] == parent["registry_hash"]
+    loaded = load_source_universe_snapshot(workspace, registry_hash=successor["registry_hash"])
+    source = loaded["registry"]["sources"][-1]
+    assert source == {
+        "source_id": "self-report-synthetic",
+        "category": "self-reports",
+        "source_type": "self-reported",
+        "availability": "available",
+        "capture": {
+            "content_hash": sha256_digest(statement),
+            "captured_at": "2001-02-03T04:05:06+00:00",
+        },
+    }
+    assert loaded["captures"]["self-report-synthetic"] == statement
+
+    original = json.loads((workspace / ".career-evidence/registry.json").read_text())
+    assert original == _declaration()

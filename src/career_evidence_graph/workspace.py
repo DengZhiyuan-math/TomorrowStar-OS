@@ -69,6 +69,71 @@ def declare_sources(workspace: Path, declaration: dict[str, object]) -> dict[str
     return {"authority": "candidate-only", "source_count": len(declaration["sources"])}
 
 
+def record_self_report_source_successor(
+    workspace: Path,
+    *,
+    parent_registry_hash: str,
+    source_id: str,
+    statement: bytes,
+    captured_at: str,
+) -> dict[str, object]:
+    """Append one captured self-report through an immutable Source-universe successor."""
+    root = open_private_workspace(workspace)
+    parent = _load_registry_by_hash(root, parent_registry_hash)
+    if not isinstance(source_id, str) or not _ID.fullmatch(source_id):
+        raise WorkspaceError("source-not-declared")
+    if not isinstance(statement, bytes) or not statement:
+        raise WorkspaceError("capture-invalid")
+    _parse_datetime(captured_at)
+    if any(source.get("source_id") == source_id for source in parent["sources"]):
+        raise WorkspaceError("source-already-declared")
+
+    digest = sha256_digest(statement)
+    raw_path = _raw_vault(root) / digest.removeprefix("sha256:")
+    if raw_path.exists() or raw_path.is_symlink():
+        raise WorkspaceError("raw-already-exists")
+    try:
+        with raw_path.open("xb") as handle:
+            handle.write(statement)
+    except OSError as exc:
+        raise WorkspaceError("raw-write-failed") from exc
+
+    successor = deepcopy(parent)
+    categories = successor["categories"]
+    assert isinstance(categories, list)
+    if "self-reports" not in categories:
+        categories.append("self-reports")
+    sources = successor["sources"]
+    assert isinstance(sources, list)
+    sources.append(
+        {
+            "source_id": source_id,
+            "category": "self-reports",
+            "source_type": "self-reported",
+            "availability": "available",
+            "capture": {"content_hash": digest, "captured_at": captured_at},
+        }
+    )
+    _validate_declaration(successor)
+    successor_hash = _registry_hash(successor)
+    _write_source_universe_successor(
+        root,
+        successor_hash,
+        {
+            "schema_version": "source-universe-successor/v1",
+            "authority": "candidate-only",
+            "parent_registry_hash": parent_registry_hash,
+            "registry": successor,
+        },
+    )
+    return {
+        "authority": "candidate-only",
+        "parent_registry_hash": parent_registry_hash,
+        "registry_hash": successor_hash,
+        "source_id": source_id,
+    }
+
+
 def capture_source(
     workspace: Path, source_id: str, payload: bytes, *, captured_at: str
 ) -> dict[str, object]:
@@ -152,11 +217,14 @@ def workspace_status(workspace: Path) -> dict[str, object]:
 
 
 def load_source_universe_snapshot(
-    workspace: Path, *, public_root: Path | None = None
+    workspace: Path,
+    *,
+    public_root: Path | None = None,
+    registry_hash: str | None = None,
 ) -> dict[str, object]:
     """Return one detached registry snapshot with every referenced capture verified."""
     root = open_private_workspace(workspace, public_root=public_root)
-    registry = _load_registry(root)
+    registry = _load_registry_by_hash(root, registry_hash)
     evidence = root / ".career-evidence"
     raw_root = evidence / "raw"
     if any(path.is_symlink() for path in (evidence, raw_root)):
@@ -185,7 +253,7 @@ def load_source_universe_snapshot(
     detached = deepcopy(registry)
     return {
         "authority": "candidate-only",
-        "registry_hash": sha256_digest(canonical_json_bytes(detached)),
+        "registry_hash": _registry_hash(detached),
         "registry": detached,
         "captures": captures,
     }
@@ -212,6 +280,70 @@ def _registry_path(root: Path) -> Path:
     if evidence.exists() and evidence.is_symlink():
         raise WorkspaceError("private-path-invalid")
     return evidence / "registry.json"
+
+
+def _source_universe_revision_path(root: Path, registry_hash: str) -> Path:
+    if not isinstance(registry_hash, str) or not _HASH.fullmatch(registry_hash):
+        raise WorkspaceError("source-universe-revision-invalid")
+    evidence = root / ".career-evidence"
+    revisions = evidence / "source-universe-revisions"
+    if any(path.is_symlink() for path in (evidence, revisions)):
+        raise WorkspaceError("private-path-invalid")
+    return revisions / f"{registry_hash.removeprefix('sha256:')}.json"
+
+
+def _registry_hash(registry: dict[str, object]) -> str:
+    return sha256_digest(canonical_json_bytes(registry))
+
+
+def _load_registry_by_hash(root: Path, registry_hash: str | None) -> dict[str, object]:
+    current = _load_registry(root)
+    current_hash = _registry_hash(current)
+    if registry_hash is None or registry_hash == current_hash:
+        return current
+    if not isinstance(registry_hash, str) or not _HASH.fullmatch(registry_hash):
+        raise WorkspaceError("source-universe-revision-invalid")
+    revision_path = _source_universe_revision_path(root, registry_hash)
+    if revision_path.is_symlink():
+        raise WorkspaceError("private-path-invalid")
+    try:
+        revision = json.loads(revision_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise WorkspaceError("source-universe-revision-invalid") from exc
+    if (
+        not isinstance(revision, dict)
+        or set(revision) != {"schema_version", "authority", "parent_registry_hash", "registry"}
+        or revision.get("schema_version") != "source-universe-successor/v1"
+        or revision.get("authority") != "candidate-only"
+        or not isinstance(revision.get("parent_registry_hash"), str)
+        or not _HASH.fullmatch(revision["parent_registry_hash"])
+        or not isinstance(revision.get("registry"), dict)
+    ):
+        raise WorkspaceError("source-universe-revision-invalid")
+    successor = revision["registry"]
+    _validate_declaration(successor)
+    if _registry_hash(successor) != registry_hash:
+        raise WorkspaceError("source-universe-revision-invalid")
+    _load_registry_by_hash(root, revision["parent_registry_hash"])
+    return successor
+
+
+def _write_source_universe_successor(
+    root: Path, registry_hash: str, successor: dict[str, object]
+) -> None:
+    path = _source_universe_revision_path(root, registry_hash)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.is_symlink():
+            raise WorkspaceError("private-path-invalid")
+        with path.open("xb") as handle:
+            handle.write(canonical_json_bytes(successor) + b"\n")
+    except WorkspaceError:
+        raise
+    except FileExistsError as exc:
+        raise WorkspaceError("source-universe-revision-already-exists") from exc
+    except OSError as exc:
+        raise WorkspaceError("source-universe-revision-write-failed") from exc
 
 
 def _raw_vault(root: Path) -> Path:

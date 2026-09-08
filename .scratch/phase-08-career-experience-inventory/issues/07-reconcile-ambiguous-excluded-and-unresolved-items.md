@@ -1,8 +1,17 @@
 # Reconcile Ambiguous, Excluded, and Unresolved Career Items
 
 Type: grilling
-Status: open
+Status: claimed
 Blocked by: 06
+
+## Current record
+
+- A user-approved, first-person self-report has been captured in a new immutable
+  private Source-universe successor. It supplies Source authority only for the
+  Verifiers experiment identity; it does not establish a Contribution, result,
+  responsibility, Skill, or mastery.
+- The successor must be used to create a fresh, hash-bound inventory proposal
+  before that identity can be confirmed in a later accepted inventory revision.
 
 ## Question
 
