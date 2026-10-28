@@ -86,4 +86,4 @@ MC-17 清单（`docs/codebase-responsibilities.md`）已同步；MC-18 基线无
 `loaded_code.py` 注释“covered, not executed”应为“无论是否执行”；`application_preparation_fixtures` 豁免理由漏写 `--synthetic-mail`；
 跨进程测试未覆盖带岗位启动。另审查发现既有问题：worker 解析但从不校验 `--expected-worker-revision`，`require_packaged_worker_identity` 无生产调用方——与 MC-11 安装身份相关。
 
-安装版 App 经 MC-11 更新后生效；未运行真实模型、native、安装 App 或真实 ATS；未提交 git。最终 Submit 手动。
+安装版 App 经 MC-11 更新后生效；未运行真实模型、native、安装 App 或真实 ATS；未提交 git（其后已提交为 `d87f6cd`）。最终 Submit 手动。

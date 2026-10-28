@@ -39,6 +39,23 @@ ALLOWED_ENVIRONMENT_KEYS = {
     "USER",
 }
 SECRET_ENVIRONMENT_KEYS = {"CODEX_API_KEY", "OPENAI_API_KEY"}
+# The App's dedicated Codex HOME (MC-21); when set it replaces HOME and CODEX_HOME.
+CODEX_HOME_ENVIRONMENT = "TOMORROWSTAR_CODEX_HOME"
+# Context a user's own Codex home would add to every call (instructions, configuration with
+# MCP servers or developer instructions, hooks, prompts, skills, memories, rules). Codex itself
+# installs only its bundled system skills (skills/.system) into a fresh home. Sign-in
+# (auth.json) is stored here, so the user signs in once inside this home.
+_USER_CONTEXT = (
+    "AGENTS.md",
+    "AGENTS.override.md",
+    "config.toml",
+    "hooks.json",
+    "prompts",
+    "skills",
+    "memories",
+    "rules",
+    ".agents",
+)
 
 
 class CodexCLIError(RuntimeError):
@@ -58,6 +75,31 @@ def validate_codex_executable(value: str | Path) -> str:
         return str(path.resolve())
     except (OSError, RuntimeError) as error:
         raise CodexCLIError("configured Codex CLI executable is unavailable") from error
+
+
+def validate_codex_home(value: str | Path) -> str:
+    """Return a dedicated Codex HOME that cannot add the user's own context (entry names only)."""
+    try:
+        home = Path(value)
+        user = Path.home().resolve()
+        if not home.is_absolute() or home.is_symlink() or not home.is_dir():
+            raise CodexCLIError("dedicated Codex home is unavailable")
+        if home.resolve() == user:
+            raise CodexCLIError("dedicated Codex home is unavailable")
+        if (home / ".codex").is_symlink():
+            raise CodexCLIError("dedicated Codex home contains personal context")
+        for folder in (home, home / ".codex"):
+            for name in _USER_CONTEXT:
+                entry = folder / name
+                if name == "skills" and entry.is_dir() and not entry.is_symlink():
+                    children = list(entry.iterdir())
+                    if any(c.name != ".system" or c.is_symlink() for c in children):
+                        raise CodexCLIError("dedicated Codex home contains personal context")
+                elif entry.exists() or entry.is_symlink():
+                    raise CodexCLIError("dedicated Codex home contains personal context")
+        return str(home.resolve())
+    except OSError as error:
+        raise CodexCLIError("dedicated Codex home is unavailable") from error
 
 
 def _resolved_workspace_path(path: Path, *, label: str) -> Path:
@@ -97,6 +139,11 @@ def build_codex_exec_argv(
     return [
         config.executable,
         "exec",
+        # No user configuration, rules, hooks, plugins or account apps, and no memories that
+        # would carry one application's context into later calls.
+        "--ignore-user-config",
+        "--ignore-rules",
+        *(argument for feature in _EXEC_DISABLED for argument in ("--disable", feature)),
         "--model",
         model,
         "--config",
@@ -113,8 +160,15 @@ def build_codex_exec_argv(
     ]
 
 
+_EXEC_DISABLED = ("memories", "apps", "plugins", "hooks")
+
+
 def _allowlisted_environment(source: Mapping[str, str]) -> dict[str, str]:
-    return {key: source[key] for key in ALLOWED_ENVIRONMENT_KEYS if key in source}
+    environment = {key: source[key] for key in ALLOWED_ENVIRONMENT_KEYS if key in source}
+    if CODEX_HOME_ENVIRONMENT in source:
+        environment["HOME"] = validate_codex_home(source[CODEX_HOME_ENVIRONMENT])
+        environment.pop("CODEX_HOME", None)
+    return environment
 
 
 def _redact(text: str | bytes | None, environment: Mapping[str, str]) -> str:
@@ -204,6 +258,37 @@ def output_validation_marker(result, prompt, schema_path, error_code):
     }
 
 
+def require_codex_sign_in(executable: str, home: str | Path, *, runner=subprocess.run) -> None:
+    """Check once that the dedicated home is signed in (the takeover's startup check)."""
+    environment = {
+        "HOME": validate_codex_home(home),
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "en_US.UTF-8",
+    }
+    _require_signed_in(runner, executable, environment["HOME"], environment)
+
+
+def _require_signed_in(runner, executable, workspace, environment) -> None:
+    """Stop before the model call when the dedicated home has no sign-in; never fall back."""
+    status = runner(
+        [executable, "login", "status"],
+        shell=False,
+        cwd=workspace,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    if status.returncode != 0:
+        home = environment["HOME"]
+        raise CodexCLIError(
+            "dedicated Codex home is not signed in; sign in once with: "
+            f"env -u CODEX_HOME HOME='{home}' '{executable}' login",
+            redacted_stderr=_redact(status.stderr or status.stdout, environment),
+        )
+
+
 def _check_schema_unchanged(path: Path, original: bytes) -> None:
     try:
         unchanged = not path.is_symlink() and path.read_bytes() == original
@@ -255,6 +340,8 @@ def run_codex_exec(
             cli_version = (version_process.stdout or version_process.stderr).strip()
             if not cli_version:
                 raise CodexCLIError("Codex CLI version output is empty")
+            if CODEX_HOME_ENVIRONMENT in source_environment:
+                _require_signed_in(runner, argv[0], workspace, child_environment)
 
             _check_schema_unchanged(output_schema, schema_bytes)
             process = runner(

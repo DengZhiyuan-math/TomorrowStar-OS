@@ -548,6 +548,8 @@ def _undispatched_argv_page(page):
     )
     argv = build_codex_exec_argv(config, prompt, allow_non_repository=True)
     argv[0] = failed_exec[1]
+    # Older launches lack the MC-21 isolation flags before --model; omit them from the bound.
+    argv = argv[:2] + argv[argv.index("--model") :]
     # The actual immutable schema copy had a longer path; omit environment and
     # pointer overhead so this bound cannot overstate the failed launch size.
     minimum_argv_bytes = sum(len(os.fsencode(argument)) + 1 for argument in argv)

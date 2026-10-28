@@ -1,6 +1,7 @@
 """Metadata-only Codex configuration crosses the existing worker launcher."""
 
 import json
+import os
 import runpy
 import sys
 from contextlib import contextmanager
@@ -87,6 +88,8 @@ def test_backend_reuses_selected_cli_for_metadata_only_configuration(tmp_path, m
     # The backend retains its selected CLI in the environment; restore it at teardown.
     monkeypatch.setenv("TOMORROWSTAR_CODEX_EXECUTABLE", str(root / "codex-fixture"))
     monkeypatch.setenv("HOME", str(tmp_path))
+    # The backend publishes its dedicated Codex home in the environment; restore it at teardown.
+    monkeypatch.setenv("TOMORROWSTAR_CODEX_HOME", "replaced-by-backend")
     backend = runpy.run_path(str(Path(__file__).parents[1] / "macos/server.py"))
     namespace = backend["main"].__globals__
     observed = {}
@@ -102,6 +105,8 @@ def test_backend_reuses_selected_cli_for_metadata_only_configuration(tmp_path, m
         namespace, "find_codex_executable", lambda configured: str(root / "codex-fixture")
     )
     monkeypatch.setitem(namespace, "serve_with_parent_pipe", lambda *args, **kwargs: None)
+    signed_in = []
+    monkeypatch.setitem(namespace, "require_codex_sign_in", lambda *args: signed_in.append(args))
     monkeypatch.setattr(
         sys,
         "argv",
@@ -118,7 +123,11 @@ def test_backend_reuses_selected_cli_for_metadata_only_configuration(tmp_path, m
     assert backend["main"]() == 0
     supplied = observed["worker_codex_assist_config"]
     assert supplied["executable"] == str(root / "codex-fixture")
-    assert supplied["home"] == str(tmp_path)
+    # MC-21: a dedicated Codex home shared with model calls, never the user's own HOME.
+    dedicated = tmp_path / "Library/Application Support/TomorrowStar/codex-home"
+    assert supplied["home"] == str(dedicated) and dedicated.is_dir()
+    assert os.environ["TOMORROWSTAR_CODEX_HOME"] == str(dedicated)
+    assert signed_in == [(str(root / "codex-fixture"), dedicated)]
     assert supplied["runtime"] == str(observed["worker_root"] / "codex-assist")
 
 
@@ -184,3 +193,129 @@ def test_worker_constructs_and_closes_dormant_adapter_without_starting_it(tmp_pa
     assert result == 2
     assert events == ["constructed"]
     assert dormant.closed is True
+
+
+def test_assistance_rejects_a_home_with_personal_context(tmp_path):
+    # MC-21: the takeover uses the same dedicated, context-free Codex home as model calls.
+    from career_evidence_graph.application_codex_assist import CodexAssistConfig
+
+    supplied = config(tmp_path)
+    Path(supplied["runtime"]).mkdir(parents=True)
+    assert CodexAssistConfig.from_dict(supplied).home == Path(supplied["home"]).resolve()
+    with pytest.raises(ValueError):
+        CodexAssistConfig.from_dict(supplied | {"home": str(Path.home())})
+    (Path(supplied["home"]) / ".codex").mkdir()
+    (Path(supplied["home"]) / ".codex/AGENTS.md").write_text("personal")
+    with pytest.raises(ValueError):
+        CodexAssistConfig.from_dict(supplied)
+
+
+def test_assistance_disables_cross_run_memories():
+    from career_evidence_graph.application_codex_assist import _DISABLED_FEATURES
+
+    assert "memories" in _DISABLED_FEATURES
+
+
+def test_backend_keeps_running_without_takeover_when_the_codex_home_is_rejected(
+    tmp_path, monkeypatch
+):
+    from test_macos_portal import synthetic_native_root
+
+    root = synthetic_native_root(tmp_path)
+    monkeypatch.setenv("TOMORROWSTAR_CODEX_EXECUTABLE", str(root / "codex-fixture"))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("TOMORROWSTAR_CODEX_HOME", "replaced-by-backend")
+    dedicated = tmp_path / "Library/Application Support/TomorrowStar/codex-home"
+    dedicated.mkdir(parents=True)
+    (dedicated / "AGENTS.md").write_text("personal")
+    backend = runpy.run_path(str(Path(__file__).parents[1] / "macos/server.py"))
+    namespace = backend["main"].__globals__
+    observed = {}
+
+    def inspect_server(*args, **kwargs):
+        observed.update(kwargs)
+        return SimpleNamespace(
+            server_port=12345, application_flow_service=object(), worker_service=object()
+        )
+
+    monkeypatch.setitem(namespace, "create_server", inspect_server)
+    monkeypatch.setitem(
+        namespace, "find_codex_executable", lambda configured: str(root / "codex-fixture")
+    )
+    monkeypatch.setitem(namespace, "serve_with_parent_pipe", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "server.py",
+            "--applications",
+            str(root / "applications"),
+            "--career-workspace",
+            str(root / "career"),
+            "--single-job-flow",
+            "--codex-assist",
+        ],
+    )
+    # The takeover is unavailable, model calls stop on the same check; no fallback home.
+    assert backend["main"]() == 0
+    assert "worker_codex_assist_config" not in observed and "worker_root" in observed
+    assert os.environ["TOMORROWSTAR_CODEX_HOME"] == str(dedicated)
+
+
+def test_backend_does_not_configure_takeover_for_a_signed_out_codex_home(tmp_path, monkeypatch):
+    from test_macos_portal import synthetic_native_root
+
+    from career_evidence_graph.codex_cli import CodexCLIError
+
+    root = synthetic_native_root(tmp_path)
+    monkeypatch.setenv("TOMORROWSTAR_CODEX_EXECUTABLE", str(root / "codex-fixture"))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    backend = runpy.run_path(str(Path(__file__).parents[1] / "macos/server.py"))
+    namespace = backend["main"].__globals__
+    observed = {}
+
+    def inspect_server(*args, **kwargs):
+        observed.update(kwargs)
+        return SimpleNamespace(
+            server_port=12345, application_flow_service=object(), worker_service=object()
+        )
+
+    def signed_out(*args):
+        raise CodexCLIError("dedicated Codex home is not signed in")
+
+    monkeypatch.setitem(namespace, "create_server", inspect_server)
+    monkeypatch.setitem(
+        namespace, "find_codex_executable", lambda configured: str(root / "codex-fixture")
+    )
+    monkeypatch.setitem(namespace, "serve_with_parent_pipe", lambda *args, **kwargs: None)
+    monkeypatch.setitem(namespace, "require_codex_sign_in", signed_out)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "server.py",
+            "--applications",
+            str(root / "applications"),
+            "--career-workspace",
+            str(root / "career"),
+            "--single-job-flow",
+            "--codex-assist",
+        ],
+    )
+    assert backend["main"]() == 0
+    assert "worker_codex_assist_config" not in observed and "worker_root" in observed
+
+
+def test_sign_in_check_names_the_actual_executable(tmp_path):
+    from career_evidence_graph.codex_cli import CodexCLIError, require_codex_sign_in
+
+    home = tmp_path / "codex-home"
+    home.mkdir()
+    executable = tmp_path / "bundled" / "codex"
+    executable.parent.mkdir()
+    executable.write_text("#!/bin/sh\necho 'Not logged in' >&2\nexit 1\n")
+    executable.chmod(0o700)
+    with pytest.raises(CodexCLIError, match="not signed in") as raised:
+        require_codex_sign_in(str(executable), home)
+    assert f"HOME='{home.resolve()}' '{executable}' login" in str(raised.value)
+    assert "Not logged in" in raised.value.redacted_stderr

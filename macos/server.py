@@ -30,8 +30,11 @@ from career_evidence_graph.application_pdf import NativePDFInspector  # noqa: E4
 from career_evidence_graph.career_portal import create_server  # noqa: E402
 from career_evidence_graph.career_portal_data import PortalDataError  # noqa: E402
 from career_evidence_graph.codex_cli import (  # noqa: E402
+    CODEX_HOME_ENVIRONMENT,
     CodexCLIError,
+    require_codex_sign_in,
     validate_codex_executable,
+    validate_codex_home,
 )
 
 
@@ -804,6 +807,19 @@ def main() -> int:
                 executable = None
         if executable is not None:
             os.environ["TOMORROWSTAR_CODEX_EXECUTABLE"] = executable
+        # MC-21: Codex model calls and takeover use a dedicated HOME, never the user's ~/.codex.
+        # Synthetic modes already run with a replaced HOME and a fixture CLI (no takeover).
+        # Set even if it cannot be created: model calls then stop on validation instead.
+        codex_home = support / "codex-home"
+        codex_home_usable = False
+        if synthetic_root is None:
+            os.environ[CODEX_HOME_ENVIRONMENT] = str(codex_home)
+            try:
+                codex_home.mkdir(mode=0o700, parents=True, exist_ok=True)
+                validate_codex_home(codex_home)
+                codex_home_usable = True
+            except (OSError, CodexCLIError):
+                pass
         intake_factory = (
             no_synthetic_gmail if args.synthetic_flow or args.synthetic_browser else None
         )
@@ -838,13 +854,19 @@ def main() -> int:
             or support
             / ("application-automation-lab" if args.automation_lab else "single-job-worker")
         )
+        if args.codex_assist and executable is not None and codex_home_usable:
+            # Without sign-in the takeover is not configured; model calls check on each use.
+            try:
+                require_codex_sign_in(executable, codex_home)
+            except CodexCLIError:
+                codex_home_usable = False
         assist_config = (
             {
                 "executable": executable,
                 "runtime": str(worker_root / "codex-assist"),
-                "home": str(Path.home()),
+                "home": str(codex_home),
             }
-            if args.codex_assist and executable is not None
+            if args.codex_assist and executable is not None and codex_home_usable
             else None
         )
         synthetic_latex_base = None

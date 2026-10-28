@@ -661,3 +661,144 @@ def test_opt_in_live_luna_medium_smoke():
     assert result.structured_result == {"status": "ok"}
     assert result.requested_configuration["model"] == "gpt-5.6-luna"
     assert result.requested_configuration["reasoning_effort"] == "medium"
+
+
+def _dedicated_home(tmp_path: Path) -> Path:
+    home = tmp_path / "codex-home"
+    # Codex installs its bundled system skills here at startup; they are not user context.
+    (home / ".codex/skills/.system").mkdir(parents=True)
+    return home
+
+
+def test_dedicated_codex_home_replaces_the_user_home(tmp_path):
+    # MC-21: the App's model calls must not read the user's own ~/.codex context.
+    home = _dedicated_home(tmp_path)
+    runner = FakeRunner(_success_process())
+    run_codex_exec(
+        _config(tmp_path),
+        "prompt",
+        runner=runner,
+        environment={
+            "PATH": "/usr/bin",
+            "HOME": "/Users/synthetic-user",
+            "CODEX_HOME": "/Users/synthetic-user/.codex",
+            "TOMORROWSTAR_CODEX_HOME": str(home),
+        },
+    )
+    for _, kwargs in runner.calls:
+        assert kwargs["env"]["HOME"] == str(home.resolve())
+        assert "CODEX_HOME" not in kwargs["env"]
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "AGENTS.md",
+        "AGENTS.override.md",
+        ".agents",
+        ".codex/AGENTS.md",
+        ".codex/AGENTS.override.md",
+        ".codex/config.toml",
+        ".codex/hooks.json",
+        ".codex/prompts",
+        ".codex/skills/personal-skill",
+        ".codex/memories",
+        ".codex/rules",
+    ],
+)
+def test_dedicated_codex_home_with_personal_context_fails_closed(tmp_path, entry):
+    home = _dedicated_home(tmp_path)
+    target = home / entry
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("context") if target.suffix in {".md", ".toml", ".json"} else target.mkdir()
+    runner = FakeRunner(_success_process())
+    with pytest.raises(CodexCLIError, match="dedicated Codex home"):
+        run_codex_exec(
+            _config(tmp_path),
+            "prompt",
+            runner=runner,
+            environment={"PATH": "/usr/bin", "TOMORROWSTAR_CODEX_HOME": str(home)},
+        )
+    assert runner.calls == []
+
+
+@pytest.mark.parametrize("home", ["missing", "user-home", "relative"])
+def test_unusable_dedicated_codex_home_never_falls_back(tmp_path, home):
+    value = {
+        "missing": str(tmp_path / "missing"),
+        "user-home": str(Path.home()),
+        "relative": "codex-home",
+    }[home]
+    runner = FakeRunner(_success_process())
+    with pytest.raises(CodexCLIError, match="dedicated Codex home"):
+        run_codex_exec(
+            _config(tmp_path),
+            "prompt",
+            runner=runner,
+            environment={"PATH": "/usr/bin", "TOMORROWSTAR_CODEX_HOME": value},
+        )
+    assert runner.calls == []
+
+
+@pytest.mark.parametrize("link", [".codex", ".codex/skills/.system"])
+def test_dedicated_codex_home_rejects_symlinked_context(tmp_path, link):
+    home = _dedicated_home(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    target = home / link
+    shutil.rmtree(target)
+    target.symlink_to(elsewhere, target_is_directory=True)
+    runner = FakeRunner(_success_process())
+    with pytest.raises(CodexCLIError, match="dedicated Codex home"):
+        run_codex_exec(
+            _config(tmp_path),
+            "prompt",
+            runner=runner,
+            environment={"PATH": "/usr/bin", "TOMORROWSTAR_CODEX_HOME": str(home)},
+        )
+    assert runner.calls == []
+
+
+def test_exec_ignores_user_configuration_and_cross_run_state(tmp_path):
+    argv = build_codex_exec_argv(_config(tmp_path), "prompt")
+    assert {"--ignore-user-config", "--ignore-rules"} <= set(argv)
+    disabled = {argv[index + 1] for index, value in enumerate(argv) if value == "--disable"}
+    assert disabled == {"memories", "apps", "plugins", "hooks"}
+
+
+def test_signed_out_dedicated_codex_home_stops_before_the_model_call(tmp_path):
+    home = _dedicated_home(tmp_path)
+
+    class SignedOut(FakeRunner):
+        def __call__(self, argv, **kwargs):
+            if argv[1:] == ["login", "status"]:
+                self.calls.append((argv, kwargs))
+                return subprocess.CompletedProcess(argv, 1, "", "Not logged in\n")
+            return super().__call__(argv, **kwargs)
+
+    runner = SignedOut(_success_process())
+    with pytest.raises(CodexCLIError, match="not signed in") as raised:
+        run_codex_exec(
+            _config(tmp_path),
+            "prompt",
+            runner=runner,
+            environment={"PATH": "/usr/bin", "TOMORROWSTAR_CODEX_HOME": str(home)},
+        )
+    assert str(home.resolve()) in str(raised.value)
+    assert "Not logged in" in raised.value.redacted_stderr
+    assert all(argv[1] != "exec" for argv, _ in runner.calls)
+
+
+def test_account_revision_follows_the_dedicated_codex_home(tmp_path, monkeypatch):
+    from career_evidence_graph.application_preparation import preparation_inputs
+
+    home = _dedicated_home(tmp_path)
+    user = tmp_path / "user-codex"
+    user.mkdir()
+    monkeypatch.setenv("CODEX_HOME", str(user))
+    monkeypatch.setenv("TOMORROWSTAR_CODEX_HOME", str(home))
+    original = preparation_inputs(tmp_path)["account_context_revision"]
+    (user / "auth.json").write_text("{}")
+    assert preparation_inputs(tmp_path)["account_context_revision"] == original
+    (home / ".codex/auth.json").write_text("{}")
+    assert preparation_inputs(tmp_path)["account_context_revision"] != original

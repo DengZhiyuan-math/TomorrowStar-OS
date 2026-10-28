@@ -126,3 +126,51 @@ MC-08、MC-09 的 JUnit 由审查方重新计数一致；MC-08/09 的冻结哈�
    正式 App 专用 Codex 目录、产品打开 `native_assistance_policy` 的时机与方式。测试迁移剩余项是否开票按地图约定在 MC-16 前决定。
 4. **同步过期记录：** `ACTIVE-HANDOFF.md` 头部与 Next owner、MC-06 验收 README、地图 MC-08 行、`current-index.md`、设计文档旧签名。
 5. **核实旧会话认领**，已结束的释放回 `open`/`none` 并在 Comments 记录原因（10-27 已提出，仍待决定）。
+
+## 2026-10-28 晚：进展与第二次独立审计
+
+**进展（以 `scripts/query_tickets.py` 为准）：** 168 张，0 errors，20 条既有 `unknown_metadata` warnings；机械前沿只剩 MC-22。
+分支 `module-completion-2026-10-28`（未推送）：`f64c496` 提交 10-27/28 之前全部未提交工作（代码、文档、`.planning` 与 `.scratch` 中的地图/README/票据；其余证据仍未跟踪），
+`d87f6cd` 提交 MC-20。上文问题 10“无 git 提交”与“未执行：提交 git”、“前沿由 0 变为 3”已被取代。
+
+| 票 | 状态 |
+|---|---|
+| [MC-20 worker 运行身份覆盖](../module-completion-2026-10-26/issues/20-worker-role-coverage.md) | closed，已提交 `d87f6cd`；冻结 `d32a552d…` 离线 8388/3/0、浏览器 380/8 skip；审查 r1 NOT-READY → r2 READY |
+| [MC-21 App 专用 Codex 目录](../module-completion-2026-10-26/issues/21-app-codex-home.md) | claimed，未提交；离线 r4 8413/3/0；浏览器 r6 380/8 skip/0（r4 时序错误、r5 偶发挂起见[记录](../remaining-tickets-2026-10-26/mc21-codex-home/acceptance/browser-r5-hang/README.md)）；审查 r1/r2 NOT-READY → r3 READY；待用户在专用目录登录 |
+| MC-22 产品自动接管开关 | open，唯一前沿，需用户决定 |
+| MC-10 | claimed（另一会话），真实运行由用户暂缓；其 `mc10-codex-home` 与 MC-21 的 `codex-home` 是不同目录 |
+
+**第二次独立审计（三路只读子代理）：**
+
+- MC-20（已提交）：SOUND-WITH-CAVEATS。冻结与 `d87f6cd` 逐字节一致，门禁数字吻合，无正确性问题。残留：`application_worker_browser.py:5607-5615`
+  显式导入块已被 `load_worker_modules()` 取代（重复）；测试文档字符串对豁免模块仍略言过其实；RED 记录未保存日志。
+- MC-21（进行中）：NEEDS-WORK（非代码缺陷：浏览器门禁未过、用户未登录）。冻结 `76286ceb…` 与工作区一致；无回退路径。另记研究 CLI 亦受新参数影响、
+  检出版启动器不设专用目录、MC-10 守卫为较弱的重复校验（详见票据）。
+- 记录与提交：MINOR-ISSUES。地图/ACTIVE-HANDOFF/MC-20 票据中的过期计数与“未提交”说法已更正。
+  **`f64c496` 含用户真实个人信息**：`assets/templates/cover-letter/main.tex`（真实姓名、学校邮箱、个人网站、GitHub、博士与研究方向；10-25 按用户要求填入），
+  另 `docs/prism-resume-review.md:409` 含真实姓名。`docs/data-boundaries.md` 要求个人事实留在私有资料库，`origin` 为 GitHub 公开仓库；**分支未推送**，需用户决定。
+
+**无人负责的后续（审计发现，未处理）：** worker 不校验 `--expected-worker-revision`、`require_packaged_worker_identity` 无生产调用方（仅在地图 fog，
+未进 MC-11）；MC-06/07 审查 P3、MC-08 `inspect_request` 收回、旧会话认领释放、`docs/current-index.md` 未含 `application_flow_view`，只在本记录正文中。
+
+## 2026-10-28 晚：个人信息移出与本地提交改写（用户决定）
+
+用户选择“移出”。已填入真实姓名、学校邮箱、个人网站、GitHub 与博士研究介绍的信件模板原样复制到私有工作区
+`tomorrowstar-career-data/templates/cover-letter/main.tex`（权限 600，未提交到该私有仓库）；本仓库 `assets/templates/cover-letter/main.tex`
+改为占位符版本，README 说明私有副本位置。两份模板都通过 `application_cover_letter.read_template` 校验；代码本就只读取显式配置的私有模板，
+从不读取仓库内这份文件（`portal.json` 目前也未配置 `cover_letter_template`）。
+
+未推送的两个提交在临时独立 worktree 中重放：原 `49008e5` → **`f64c496`**（仅这两个模板文件不同，保留原作者、时间与说明），原 `f529194` → **`d87f6cd`**（内容不变）。
+分支 `module-completion-2026-10-28` 已指向新提交；任何分支或标签可达的提交中都不再含该模板的个人信息（旧对象只在本地 reflog 中，推送不会带出）。
+本记录与票据中的提交号已同步更新。保留的姓名只在 `prism-local` 的 MIT 许可署名（`docs/prism-resume-review.md:409`、`references/prism-local-LICENSE.md:3`）。
+
+冻结说明：MC-20（`d32a552d…`）与 MC-21（`76286ceb…`）的冻结清单包含 `assets/`，此后唯一变化是这份无人读取的模板（已核对 src/tests/macos/scripts
+无引用，信件相关 322 项测试通过）；不据此重跑门禁。`master` 上 `d6f4ab4` 之后尚未推送的更早提交不在本次审查范围内。
+
+## 2026-10-28 晚：真实申请数据脱敏与第二次提交改写（用户决定“Sanitize history”）
+
+隐私扫描（明细见未跟踪的 `privacy-scan.md`）发现的真实求职数据全部只在一个未推送提交中。按用户批准的方案：资格规则改为不绑定任何公司的通用规则
+（经两轮独立审查，r1 发现的误判已加失败测试并修复），测试/文档/记录中的真实公司、职位、回答、教育与语言等级换成合成值或“留私有记录”表述；
+冻结 `5aedeec3…` 离线 8428/3/0、浏览器 380/8 skip/0。随后重放提交：原 `38e7f81` → **`f64c496`**（仅 33 个脱敏文件不同），原 `6ba4fd8` → **`d87f6cd`**；
+所有分支与标签可达提交中不再含这些内容。记录中的提交号已同步。较早提交中的低风险项（用户名与本机路径、私有仓库名、来源数量、STOA 样本）按用户决定保留。
+[验收记录](../remaining-tickets-2026-10-26/sanitize-2026-10-28/acceptance/README.md)（未跟踪）。

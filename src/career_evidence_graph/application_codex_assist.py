@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ._vendor.job_apply_store import StoreError
-from .codex_cli import CodexCLIError, validate_codex_executable
+from .codex_cli import CodexCLIError, validate_codex_executable, validate_codex_home
 from .cua_driver import (
     NATIVE_HANDOFF_PROTOCOL,
     NATIVE_HANDOFF_TOOLS,
@@ -48,6 +48,7 @@ _DISABLED_FEATURES = (
     "hooks",
     "multi_agent",
     "image_generation",
+    "memories",
 )
 _MAX_FRAME_BYTES = 1_048_576
 _MAX_REPORT_CHARS = 65_536
@@ -134,6 +135,7 @@ class CodexAssistConfig:
             if not path.is_absolute() or not path.is_dir() or path.is_symlink():
                 raise ValueError("Codex assistance requires explicit existing directories")
             object.__setattr__(self, name, path.resolve())
+        object.__setattr__(self, "home", Path(validate_codex_home(self.home)))
         if self.expected_version != PROTOCOL_VERSION:
             raise ValueError("Codex assistance protocol version is unsupported")
         for value in (self.request_timeout, self.stop_timeout):

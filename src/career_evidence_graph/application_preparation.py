@@ -15,7 +15,13 @@ def preparation_inputs(career_root):
     Completed content retains its producer context; credential metadata is not
     a change to its factual inputs.
     """
-    home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))).expanduser()
+    # MC-21: the App's model calls sign in inside its dedicated Codex home.
+    dedicated = os.environ.get("TOMORROWSTAR_CODEX_HOME")
+    home = (
+        Path(dedicated) / ".codex"
+        if dedicated
+        else Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))).expanduser()
+    )
     metadata = {}
     for name in ("auth.json", "config.toml"):
         try:
