@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Hosted ATS integration source and synthetic-test fingerprints",
+  "sha256": {
+    "src/career_evidence_graph/application_worker.py": "a2d492fa74434a434f26bb59050d1fcfc931a680e916d63b1b26fb3a4d0aef11",
+    "src/career_evidence_graph/application_worker_browser.py": "5aa29fab66be8b0c36bc3fa1564cb6982510cc89c83bd97afcb711c51adf57f6",
+    "src/career_evidence_graph/hosted_ats.py": "39d62a2f4168c50bccacfee4f4ffe52450f5b85b4f9347d155d9ca9fd48d447a",
+    "src/career_evidence_graph/ats_forms.py": "25b5f990e1f511425c45d0b2c124c5d7bd4bafb78099100dd21faf726c365723",
+    "src/career_evidence_graph/career_portal.py": "d00c13257e00815eb93f88903f5dd409e8c093f3a8cceeece98c7f4e43729478",
+    "src/career_evidence_graph/portal_static/worker.js": "5609dd4b3bef74175cf05d933096caecee08fc47b9fe7873fc9d545e7c7f32f8",
+    "tests/test_hosted_ats.py": "84b339dfa150fa014718ac1176a1c909d9f63dcff40b9e90737ce2cff33e4575",
+    "tests/test_application_worker.py": "18337c9173ddf4f71229db539b9c4a016aac807093f42823faf678352efb3d52",
+    "tests/test_lever_worker_browser.py": "320ed0c43714a400f8fa65f2eab4ef4e2d970a8f2fdff63daf3319c3f3020bd8",
+    "tests/test_greenhouse_worker_browser.py": "dd995f5e75c44792aa3d195b50b4339d694e1886103b031c80a27324966494f9"
+  }
+}

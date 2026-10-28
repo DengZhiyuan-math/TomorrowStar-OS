@@ -1,0 +1,284 @@
+[
+  {
+    "case_id": "experience_id",
+    "payload": {
+      "schema_version": "experience-writing/v1",
+      "assignment_revision": "assignment-demo-1",
+      "experience_id": "experience-foreign",
+      "candidate_id": "candidate-demo-1",
+      "status": "complete",
+      "items": [
+        {
+          "id": "item-demo-1",
+          "text": "Participated in planning a validation workflow.",
+          "fact_refs": [
+            "fact-demo-1"
+          ],
+          "inference_refs": []
+        },
+        {
+          "id": "item-demo-2",
+          "text": "Helped the team plan validation_case #1 with a 95% target; execution and measurement remain planned.",
+          "fact_refs": [
+            "fact-demo-2"
+          ],
+          "inference_refs": []
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "candidate_id",
+    "payload": {
+      "schema_version": "experience-writing/v1",
+      "assignment_revision": "assignment-demo-1",
+      "experience_id": "experience-demo-1",
+      "candidate_id": "candidate-foreign",
+      "status": "complete",
+      "items": [
+        {
+          "id": "item-demo-1",
+          "text": "Participated in planning a validation workflow.",
+          "fact_refs": [
+            "fact-demo-1"
+          ],
+          "inference_refs": []
+        },
+        {
+          "id": "item-demo-2",
+          "text": "Helped the team plan validation_case #1 with a 95% target; execution and measurement remain planned.",
+          "fact_refs": [
+            "fact-demo-2"
+          ],
+          "inference_refs": []
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "assignment_revision",
+    "payload": {
+      "schema_version": "experience-writing/v1",
+      "assignment_revision": "old-assignment",
+      "experience_id": "experience-demo-1",
+      "candidate_id": "candidate-demo-1",
+      "status": "complete",
+      "items": [
+        {
+          "id": "item-demo-1",
+          "text": "Participated in planning a validation workflow.",
+          "fact_refs": [
+            "fact-demo-1"
+          ],
+          "inference_refs": []
+        },
+        {
+          "id": "item-demo-2",
+          "text": "Helped the team plan validation_case #1 with a 95% target; execution and measurement remain planned.",
+          "fact_refs": [
+            "fact-demo-2"
+          ],
+          "inference_refs": []
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "raw_tex",
+    "payload": {
+      "schema_version": "experience-writing/v1",
+      "assignment_revision": "assignment-demo-1",
+      "experience_id": "experience-demo-1",
+      "candidate_id": "candidate-demo-1",
+      "status": "complete",
+      "items": [
+        {
+          "id": "item-demo-1",
+          "text": "Participated in planning a validation workflow.",
+          "fact_refs": [
+            "fact-demo-1"
+          ],
+          "inference_refs": []
+        },
+        {
+          "id": "item-demo-2",
+          "text": "Helped the team plan validation_case #1 with a 95% target; execution and measurement remain planned.",
+          "fact_refs": [
+            "fact-demo-2"
+          ],
+          "inference_refs": []
+        }
+      ],
+      "raw_tex": "\\input{secret}"
+    }
+  },
+  {
+    "case_id": "latex_fragment",
+    "payload": {
+      "schema_version": "experience-writing/v1",
+      "assignment_revision": "assignment-demo-1",
+      "experience_id": "experience-demo-1",
+      "candidate_id": "candidate-demo-1",
+      "status": "complete",
+      "items": [
+        {
+          "id": "item-demo-1",
+          "text": "Participated in planning a validation workflow.",
+          "fact_refs": [
+            "fact-demo-1"
+          ],
+          "inference_refs": []
+        },
+        {
+          "id": "item-demo-2",
+          "text": "Helped the team plan validation_case #1 with a 95% target; execution and measurement remain planned.",
+          "fact_refs": [
+            "fact-demo-2"
+          ],
+          "inference_refs": []
+        }
+      ],
+      "latex_fragment": "\\subsection{Bad}"
+    }
+  },
+  {
+    "case_id": "foreign-fact",
+    "payload": {
+      "schema_version": "experience-writing/v1",
+      "assignment_revision": "assignment-demo-1",
+      "experience_id": "experience-demo-1",
+      "candidate_id": "candidate-demo-1",
+      "status": "complete",
+      "items": [
+        {
+          "id": "item-demo-1",
+          "text": "Participated in planning a validation workflow.",
+          "fact_refs": [
+            "fact-foreign"
+          ],
+          "inference_refs": []
+        },
+        {
+          "id": "item-demo-2",
+          "text": "Helped the team plan validation_case #1 with a 95% target; execution and measurement remain planned.",
+          "fact_refs": [
+            "fact-demo-2"
+          ],
+          "inference_refs": []
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "foreign-inference",
+    "payload": {
+      "schema_version": "experience-writing/v1",
+      "assignment_revision": "assignment-demo-1",
+      "experience_id": "experience-demo-1",
+      "candidate_id": "candidate-demo-1",
+      "status": "complete",
+      "items": [
+        {
+          "id": "item-demo-1",
+          "text": "Participated in planning a validation workflow.",
+          "fact_refs": [
+            "fact-demo-1"
+          ],
+          "inference_refs": [
+            "inference-foreign"
+          ]
+        },
+        {
+          "id": "item-demo-2",
+          "text": "Helped the team plan validation_case #1 with a 95% target; execution and measurement remain planned.",
+          "fact_refs": [
+            "fact-demo-2"
+          ],
+          "inference_refs": []
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "duplicate-item",
+    "payload": {
+      "schema_version": "experience-writing/v1",
+      "assignment_revision": "assignment-demo-1",
+      "experience_id": "experience-demo-1",
+      "candidate_id": "candidate-demo-1",
+      "status": "complete",
+      "items": [
+        {
+          "id": "item-demo-1",
+          "text": "Participated in planning a validation workflow.",
+          "fact_refs": [
+            "fact-demo-1"
+          ],
+          "inference_refs": []
+        },
+        {
+          "id": "item-demo-2",
+          "text": "Helped the team plan validation_case #1 with a 95% target; execution and measurement remain planned.",
+          "fact_refs": [
+            "fact-demo-2"
+          ],
+          "inference_refs": []
+        },
+        {
+          "id": "item-demo-1",
+          "text": "Participated in planning a validation workflow.",
+          "fact_refs": [
+            "fact-demo-1"
+          ],
+          "inference_refs": []
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "empty-complete",
+    "payload": {
+      "schema_version": "experience-writing/v1",
+      "assignment_revision": "assignment-demo-1",
+      "experience_id": "experience-demo-1",
+      "candidate_id": "candidate-demo-1",
+      "status": "complete",
+      "items": []
+    }
+  },
+  {
+    "case_id": "complete-and-missing",
+    "payload": {
+      "schema_version": "experience-writing/v1",
+      "assignment_revision": "assignment-demo-1",
+      "experience_id": "experience-demo-1",
+      "candidate_id": "candidate-demo-1",
+      "status": "complete",
+      "items": [
+        {
+          "id": "item-demo-1",
+          "text": "Participated in planning a validation workflow.",
+          "fact_refs": [
+            "fact-demo-1"
+          ],
+          "inference_refs": []
+        },
+        {
+          "id": "item-demo-2",
+          "text": "Helped the team plan validation_case #1 with a 95% target; execution and measurement remain planned.",
+          "fact_refs": [
+            "fact-demo-2"
+          ],
+          "inference_refs": []
+        }
+      ],
+      "requests": [
+        {
+          "id": "missing-1",
+          "field": "facts",
+          "detail": "Unresolved status."
+        }
+      ]
+    }
+  }
+]

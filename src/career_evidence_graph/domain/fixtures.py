@@ -632,7 +632,9 @@ def _reviewed_fixture(
                 id=item.id,
                 experience_id=candidates.experience_id,
                 summary=item.summary,
-                claim_ids=item.claim_ids,
+                claim_ids=tuple(
+                    claim_id for claim_id in item.claim_ids if claim_id in accepted_claim_ids
+                ),
             )
             for item in accepted_contributions
         ),

@@ -1,4 +1,25 @@
-# Career Evidence Graph — Core Hypothesis Validation
+# TomorrowStar OS — Product and Research Scope
+
+## Current product: local automatic applications — 2026-10-20
+
+The user has aligned the [application specification](../docs/single-job-flow.md),
+requirements APP-01–18. This is the current operational design. The system
+ingests email recommendations, reuses career facts and application information,
+and handles jobs sequentially through manual final Submit. Important missing
+facts, conflicts and unknown results stop the current job; manual edits need one
+Continue. Explicit user career corrections are saved with source and history.
+
+The [system audit](../docs/system-audit-2026-10-20.md) records current gaps. The
+[development plan](../docs/development-plan.md) defines the current work order.
+Fixed batch limits, whole-run deadlines, repeated material acceptance and routine
+write/transport approvals are superseded for this product. This revision changes
+documents and planning; it does not implement or start real applications.
+
+The research scope below remains independent. Its exact inventory, mastery and
+three-JD acceptance rules govern research conclusions, not routine application
+progress or direct fact updates. Product work does not close research gates.
+
+## Research: Career Evidence Graph — Core Hypothesis Validation
 
 ## What This Is
 
@@ -10,7 +31,7 @@ v1.0 is a user-approved partial closeout, not a successful empirical validation 
 
 Accurately determine what the user can genuinely do within specific contributions and convert that understanding into skill scores and graph relationships that are useful for JD-relevant career decisions.
 
-## Current Milestone: v1.1 Full Career Graph and Real JD Validation
+## Research Milestone: v1.1 Full Career Graph and Real JD Validation
 
 **Goal:** Build a user-confirmed full-career Skill graph, evaluate it against exactly three real JDs, and make an evidence-backed core-hypothesis decision.
 
@@ -39,14 +60,21 @@ Accurately determine what the user can genuinely do within specific contribution
 - [ ] Accept exactly three user-supplied real JDs through source-bound extraction, item-level correction, and immutable review, then compare them without mutating the user graph.
 - [ ] Run the frozen deterministic, adversarial, stability, human-review, blind-baseline, holdout, and replication evaluation and make the evidence-backed core-hypothesis decision.
 
-### Out of Scope
+### Out of Scope for the research experiment
 
-- Full production résumé compiler — tailored résumé generation is a core product output, but implementation is deferred until the skill graph proves useful for JD-relevant selection.
+- Dynamic résumé compilation as an experimental graph-effectiveness claim — outside the research evaluation; operational tailored materials proceed under APP-07.
 - One-week Gap Sprint generation and post-project reassessment — part of the broader product loop, deferred until the assessment model is validated.
 - Finalizing every scoring dimension, weighting, aggregation formula, threshold, or calibration rule during project initialization — these must be developed and tested against concrete cases.
 - Automated job application, recruitment-site automation, recruiter tooling, or job-search automation — unrelated to the first hypothesis.
 - Multi-user SaaS or a complex web interface — unnecessary for validating the audit and scoring model.
 - Large-scale external skill-ontology ingestion or a graph database — premature before the internal model and validation cases are stable.
+
+**Operational scope updated 2026-10-20:** The separately authorized application
+product now follows [APP-01–18](../docs/single-job-flow.md). Recommendation mail
+is labelled and archived after durable ingestion; ordinary materials, filling
+and upload proceed autonomously under the enabled flow. Final Submit remains
+manual. Research exclusions above do not postpone this operational work until
+completion of the three-JD experiment.
 
 ## Context
 
@@ -116,9 +144,9 @@ The project starts from a pinned open-source reference baseline rather than desi
 
 These repositories are pinned under `references/upstream/`; `references/README.md` records the reuse matrix and license boundaries. They are reference inputs rather than runtime dependencies. Any copied or adapted code must retain required attribution and be justified against this project’s distinct Experience → Contribution → Skill assessment model.
 
-## Constraints
+## Research Constraints
 
-- **Validation scope**: Prove the Grill-Me → Contribution–Skill assessment → user Skill graph → JD usefulness hypothesis with a user-confirmed full-career inventory and exactly three user-supplied real JDs before implementing the full product pipeline.
+- **Validation scope**: Prove the Grill-Me → Contribution–Skill assessment → user Skill graph → JD usefulness hypothesis with a user-confirmed full-career inventory and exactly three user-supplied real JDs for the research hypothesis. The separately authorized application product proceeds under APP-01–18.
 - **Assessment semantics**: Every user-level score evaluates one specific Skill; unrelated capabilities must not be hidden as generic subdimensions of that score.
 - **Audit granularity**: Contribution is the minimum auditable fact unit; Experience alone cannot produce a Skill score.
 - **Score separation**: Mastery, evidence confidence, verified duration, context, and JD match must retain different meanings.
@@ -127,11 +155,76 @@ These repositories are pinned under `references/upstream/`; `references/README.m
 - **Decision timing**: Formula details, confidence gates, calibration rules, and implementation boundaries are phase-level decisions to validate with fixtures rather than assumptions to freeze during initialization.
 - **Open-source provenance**: Reused or adapted code and patterns must identify their upstream repository, pinned revision, license, and local divergence.
 
+## Interview and Assessment Protocol
+
+Use the [question-generation and scoring pipeline](../docs/question-scoring-pipeline.md)
+for project interviews. Retrieve source context and prior answers before generating
+questions. Keep the accepted Experience, selected Contributions, inspected facts,
+and responsibility boundaries explicit.
+
+| Order | Question layer | Observable target |
+| --- | --- | --- |
+| 1 | Project overview | Concisely explain the goal, content, main technical approach, personal contribution, result and limits |
+| 2 | Project depth | Explain and defend relevant mechanisms, decisions, implementation or research reasoning, and verification within bounded Contributions |
+| 3 | Transfer | Adapt an inspected mechanism to a similar problem with one explicit changed condition; explain assumptions, limits and verification |
+
+Question layer and difficulty are different concepts. Depth and transfer each
+retain their own demanding-to-simple ladder. Ask one focused question at a time.
+Declare observable evaluation criteria before receiving its answer. Accept sound
+alternative explanations; do not require a preferred wording or a memorized answer.
+
+Preserve the three layers' conclusions separately. Score only a reviewed
+Contribution–Skill relationship against the existing capability anchors. Do not
+average the layers into a project score. Overview fluency alone does not establish
+technical mastery. Transfer reasoning does not establish a new completed
+Contribution, deployment, or repeated responsibility across real contexts.
+
+### Grill-Me Recall Policy
+
+Grill-Me assesses the user's capability and reviews their real work; it is not a memory test.
+Before asking, retrieve and preserve relevant document labels, source locators, prior answers, and
+artifact context. Explain unfamiliar labels in the question and use them to ground a concrete,
+one-at-a-time capability prompt. A user not recalling a label, exact wording, or a project detail
+is not negative capability evidence and must not cause an otherwise relevant Contribution to be
+excluded. Record the resulting uncertainty explicitly, then assess only what the user can
+actually explain, implement, reproduce, defend, or operate.
+
+Route requests for missing context separately from capability answers. Such a
+request does not consume a question or lower difficulty. Supplied reminders are
+context, not evidence of the user's independent explanation.
+
+### Resume Content Policy
+
+Education reuses fixed confirmed institutions, degrees, dates, status and details.
+Do not rewrite or omit it for JD relevance or repeat confirmation of unchanged
+recorded facts. Resolve actual source conflicts separately; an in-progress degree
+is not an awarded credential.
+
+Select and order evidenced skills and work experience for the current JD, and
+adapt their wording without inventing skills, proficiency, results or responsibility.
+Preserve real team/collaborator scope and planned versus completed work.
+
+AI assistance, coding-agent attribution and editor/tool-use provenance remain in
+internal evidence records, not in the employer-facing resume. Supported technical
+skills and project technologies remain valid content. Only important unresolved source
+conflicts or substantive choices require user judgment. Material acceptance
+is required only where the research or optional review operation explicitly seeks an accepted artifact. Ordinary application materials are generated, checked and used under APP-07; no routine source/PDF acceptance is required. Final Submit remains manual.
+
+### Research Acceptance Boundary
+
+The typed plan and read-only inspection entrypoint establish structure and binding
+to supplied context only. Full-career inventory admission and complete interview
+sequencing require the generic private adapter in Phase 9. Question-quality trials
+and reviewed answer/anchor calibration remain required before personal scoring.
+Phase 9 and Phase 10 success criteria retain these gates. Synthetic tests do not
+establish semantic grading accuracy or personal capability.
+
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Scope this project to the first core hypothesis rather than the complete final pipeline | Validate assessment usefulness before investing in résumé compilation and gap-planning implementation | ⚠ v1.0 established the foundation only; the empirical test moved to the next milestone |
+| Scope the research experiment to the first core hypothesis | Test assessment usefulness without claiming the application product is validated by research | ⚠ v1.0 established the foundation only; the empirical test moved to the next milestone |
+| Deliver the local automatic application product independently of research completion | User-aligned APP-01–18 govern the continuous sequential flow, direct fact reuse and manual final Submit | ✓ Design aligned 2026-10-20; implementation and real acceptance remain planned |
 | Keep dynamic JD-tailored résumé generation as a core product output | The product must generate role-specific résumés from the skill graph, not merely present an evidence graph | — Pending |
 | Use `Experience → Contribution → Skill`, with Evidence supporting Contribution | Supports heterogeneous career history while grounding every Skill judgment in distinguishable work | — Pending |
 | Make Contribution the smallest Grill-Me audit unit | Whole experiences are too coarse, while Skill-first interviews lose the concrete work context | — Pending |
@@ -144,11 +237,11 @@ These repositories are pinned under `references/upstream/`; `references/README.m
 | Integrate pinned upstream references before implementation | Existing open-source projects contain relevant interview, ontology, workspace, parsing, and résumé-output patterns that should be evaluated before building substitutes | — Pending |
 | Keep upstreams as licensed submodules with a local reuse matrix | Preserves exact source and attribution while preventing wholesale architecture copying | ✓ Applied in v1.0 foundation |
 | Build one canonical full-career graph with explicit coverage states | Completeness requires every known item to remain visible while mastery authority remains limited to reviewed assessments | — Pending |
-| Use exactly three user-supplied real JDs and finish with the frozen decision protocol | Preserves user source authority and closes the empirical validation loop before product expansion | — Pending |
+| Use exactly three user-supplied real JDs and finish with the frozen decision protocol | Preserves user source authority and closes the empirical research validation loop without gating the separately authorized application product | — Pending |
 
 ## Evolution
 
 v1.0 closed on 2026-08-28 by explicit user authorization as a partial closeout. The archived roadmap and requirements preserve all Phase 5/6 gaps. Milestone v1.1 starts from that content-free foundation and must not infer a positive product hypothesis until the full-career graph, real-JD evaluation, and frozen decision protocol are complete.
 
 ---
-*Last updated: 2026-08-28 after starting milestone v1.1*
+*Last updated: 2026-10-07 after integrating the three-layer interview protocol; milestone acceptance remains pending*

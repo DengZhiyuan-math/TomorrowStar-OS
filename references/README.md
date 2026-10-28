@@ -21,6 +21,16 @@ git submodule update --init --recommend-shallow
 
 Each submodule preserves its upstream repository and license. Code copied or adapted into this project must retain the attribution and notices required by its license.
 
+The separately requested [application autofill pilot](../docs/application-automation.md)
+reuses [Job Apply](https://github.com/neonwatty/job-apply-plugin) externally through
+Codex, at `370204c58b1137d08c5a7e7449538ae6447be0b9` (version `1.1.0`, MIT).
+That Codex pilot does not copy upstream source. The separately implemented
+[independent Lever / Greenhouse preview](../docs/lever-worker-preview.md) vendors only the
+unchanged answer-store helper from the same pinned revision. Its
+[source and license record](../src/career_evidence_graph/_vendor/README.md) identifies
+the original file, SHA-256, MIT notice and caller-side scope checks.
+Neither operational integration changes assessment acceptance.
+
 ## Reuse matrix
 
 ### Tabiya Compass
@@ -133,3 +143,42 @@ introduced in Phase 1; none claims verbatim copied code or data.
 Codex CLI itself is an invoked runtime interface, not copied upstream source.
 Its exact CLI version and model configuration are recorded per live run rather
 than represented as a pinned source-code adaptation.
+
+## Bundled local CuaDriver repair
+
+The macOS App can bundle the reviewed local `trycua/cua` driver, based on
+`c6cb386cf371fed3580ea1c5a238940ce4911641` under the [MIT license](cua-driver-LICENSE.md).
+The local divergence covers hidden windowless ownership, scope retention,
+target-only snapshot discovery, precise exit identity and bounded profile cleanup.
+The bundle records its exact binary hash and source revision and includes the license.
+See the [source patch and installed synthetic verification](../.scratch/cua-installed-integration-2026-10-16/README.md).
+This local helper does not replace the vendor-signed CuaDriver.app or establish
+GUI-host permission, production ATS, or distribution acceptance.
+
+The [synthetic keychain patch](cua-driver-synthetic-keychain.patch) adds
+`--use-mock-keychain` only on macOS for a new isolated profile with an exact
+trusted test opt-in. The Python caller strips inherited opt-in values and only
+enables it for validated synthetic workers and the source-owned offline diagnostic.
+Real application profiles retain the previous keychain policy. The helper is
+recompiled from the preserved baseline and signed with the existing private identity;
+the bundle continues to reject any helper whose exact signed SHA differs.
+
+## Prism-local P06 source adaptation
+
+The [source patch](prism-local-p06.patch) adapts
+[prism-local](https://github.com/DengZhiyuan-math/prism-local), pinned at
+`e33657e0abd1073ed7f933a371c42c656e59dd7e`, under its
+[MIT license](prism-local-LICENSE.md). The
+[provenance manifest](prism-local-p06-provenance.json) records the exact source
+preimages, reviewed candidate hashes and local divergence.
+
+The adaptation adds persistent native build-result receipts, a read-only result
+endpoint and source-hash conditional saves to the existing builder/editor. It
+does not replace the compiler, run an agent or perform Git writes/synchronization.
+Existing project discovery can still perform its own read-only Git status query.
+Only compiler-recorded local inputs and PDF bytes establish correspondence.
+Unsupported recorder layouts and untraceable auxiliary-tool inputs remain unknown.
+
+The reviewed patch is applied to the source checkout. Running services and the
+installed TomorrowStar App are not updated or restarted by this source delivery.
+See [P06 verification and acceptance limits](../.scratch/resume-agent-delivery-2026-10-22/p06-source-verification.md).

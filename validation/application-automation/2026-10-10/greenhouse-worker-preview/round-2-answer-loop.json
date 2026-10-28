@@ -1,0 +1,44 @@
+{
+  "mode": "synthetic_independent_worker",
+  "round": "round-2-answer-loop",
+  "checks": [
+    "unknown_only_pauses_one_job",
+    "equivalent_phrasings_group",
+    "country_scope",
+    "saved_while_paused_no_browser_action",
+    "automatic_waiting_resume",
+    "answer_revision_invalidates_handoff"
+  ],
+  "result": "passed",
+  "worker_pid": 98440,
+  "jobs": [
+    {
+      "company": "Synthetic 2",
+      "platform": "lever",
+      "status": "needs_recheck",
+      "reason": "answer_changed",
+      "file_sha256": "9e289a1b0519188daa23a7c5b32717d2593fa89427ab24a3e19cc23df6279463",
+      "sync_error": ""
+    },
+    {
+      "company": "Synthetic 1",
+      "platform": "lever",
+      "status": "needs_recheck",
+      "reason": "answer_changed",
+      "file_sha256": "e4b145ad17c501b487f5c7ebe6707a8ebfcdebcaf2184352f00f7d470744e0e6",
+      "sync_error": ""
+    },
+    {
+      "company": "Synthetic 0",
+      "platform": "lever",
+      "status": "ready_for_review",
+      "reason": "",
+      "file_sha256": "c37f9ae31caf81959d53a63c67cbb4669eb7927e45a857f36e09ce8213e48322",
+      "sync_error": ""
+    }
+  ],
+  "uploaded_files": 3,
+  "automatic_final_submissions": 0,
+  "model_calls": 0,
+  "real_ats_calls": 0
+}

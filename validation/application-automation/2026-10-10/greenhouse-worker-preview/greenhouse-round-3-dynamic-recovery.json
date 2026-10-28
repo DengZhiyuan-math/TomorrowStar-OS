@@ -1,0 +1,27 @@
+{
+  "mode": "synthetic_independent_worker",
+  "round": "greenhouse-round-3-dynamic-recovery",
+  "checks": [
+    "new_required_field_returns_to_input_loop",
+    "one_use_not_in_library",
+    "resume_not_uploaded_twice",
+    "restart_requires_explicit_recheck",
+    "zero_final_actions"
+  ],
+  "result": "passed",
+  "worker_pid": 233,
+  "jobs": [
+    {
+      "company": "Synthetic 0",
+      "platform": "greenhouse",
+      "status": "needs_recheck",
+      "reason": "worker_restarted",
+      "file_sha256": "ad52aed34bab52162963407453488c659ccdb1b880a9033115ccaeb19d335c2c",
+      "sync_error": ""
+    }
+  ],
+  "uploaded_files": 1,
+  "automatic_final_submissions": 0,
+  "model_calls": 0,
+  "real_ats_calls": 0
+}

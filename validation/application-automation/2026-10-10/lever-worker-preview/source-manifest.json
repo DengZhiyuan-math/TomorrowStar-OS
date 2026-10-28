@@ -1,0 +1,25 @@
+{
+  "date": "2026-10-10",
+  "mode": "synthetic_independent_worker",
+  "playwright": "1.63.0",
+  "chromium_build": "1243",
+  "source_sha256": {
+    "src/career_evidence_graph/application_worker.py": "983d1b6f0db43c5266ea70b9b407ed649eed3fce64b26f7e32c28be6b8781e8f",
+    "src/career_evidence_graph/lever_worker.py": "671e0de52462b9b66d42352f966067f780d2fad4deb9ace0aea3aaf55f9c061e",
+    "src/career_evidence_graph/application_worker_fixtures.py": "8a9a44215c4f6d7944789a7795246d06705bda514cd68ef8777ad72d551a4bb3",
+    "src/career_evidence_graph/career_portal.py": "583a233cdb901d3d8281ddc6d068befb967b1b9a5cf68494dadc13280d1d6194",
+    "src/career_evidence_graph/career_portal_data.py": "952f23331083fd9892840bd4b83a6e2e54faf2b050d7b511947237b280d31248",
+    "src/career_evidence_graph/portal_static/worker.js": "ddad6385e2ec4de063384eee2849d7e8e429154834bf5062557d8f7a63f018b4",
+    "src/career_evidence_graph/portal_static/worker.css": "bcca42c1715a43f3f468b020a88070d3eaf1ab279c61093f5e3edddbf275a079",
+    "src/career_evidence_graph/portal_static/app.js": "24d938f55cd58844ca338dada1e8f3cc59ba4cbaebb877e90611083dbff81ba4",
+    "src/career_evidence_graph/portal_static/index.html": "d74c7ea8127251dd6628ebd787b35f5ba332bb4134cd6ecdc8305385215ce885",
+    "src/career_evidence_graph/_vendor/job_apply_store.py": "aeff412145497a87929c04b712a2f87bf4521256c67c98f6b4bc0271c5655d03",
+    "scripts/run_application_worker.py": "2d44854c3602d1faabdf7e89543c5501d769dca29b958e268ea48cef0f32fbad",
+    "scripts/run_lever_preview.py": "955a5f12f5a4a66e4420ee306a417766d40480fdcc89b4adea9a3df3ac315863",
+    "tests/test_application_worker.py": "ee19a6140bcf52f3060e4bbb7d89170ffed9d86e9c5a177cc249d1bd3fb7be9f",
+    "tests/test_lever_worker_browser.py": "3d8b2524a761a5fe75162904bd5b5c002cf7fddd58148aa4b62bc622689373e2",
+    "pyproject.toml": "62546f2a1e7dbbf1f5f4a0fb7c351d2066fbd74c7c893c194e9e16fa34e329be",
+    "uv.lock": "8cc53c5f479e664641bb533d242271c9564bab0efde7104795eeae7b5bcb2dbe",
+    "_career_evidence_build.py": "7460d65eddff33d0535bffbacd52e2c4ec7da5e435951141c9159b525a5a3d82"
+  }
+}

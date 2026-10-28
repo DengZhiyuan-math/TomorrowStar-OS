@@ -11,6 +11,7 @@ import pytest
 
 from career_evidence_graph.jd import (
     JDIntakeError,
+    JDIntakeStore,
     PriorityCompanyInput,
     PriorityCompanyStore,
     apply_priority_company_overlay,
@@ -84,7 +85,23 @@ def _proposal(source: bytes, *, source_id: str = "source-probe") -> bytes:
             }
         ],
     }
+    proposal = json.loads(payload["recorded_proposal"]["proposal_json"])
+    proposal["requirements"] = payload["requirements"]
+    recorded = json.dumps(proposal, sort_keys=True)
+    payload["recorded_proposal"]["proposal_json"] = recorded
+    payload["recorded_proposal"]["proposal_hash"] = sha256_digest(recorded.encode("utf-8"))
     return json.dumps(payload, sort_keys=True).encode("utf-8")
+
+
+def _corrected_proposal(source: bytes, minimum_mastery: int) -> bytes:
+    payload = json.loads(_proposal(source))
+    payload["requirements"][0]["minimum_mastery"] = minimum_mastery
+    proposal = json.loads(payload["recorded_proposal"]["proposal_json"])
+    proposal["requirements"] = payload["requirements"]
+    recorded = json.dumps(proposal, sort_keys=True)
+    payload["recorded_proposal"]["proposal_json"] = recorded
+    payload["recorded_proposal"]["proposal_hash"] = sha256_digest(recorded.encode("utf-8"))
+    return json.dumps(payload).encode("utf-8")
 
 
 def test_prepare_retains_exact_utf8_bytes_and_reconstructs_recorded_packet() -> None:
@@ -96,6 +113,124 @@ def test_prepare_retains_exact_utf8_bytes_and_reconstructs_recorded_packet() -> 
     assert prepared.source_bytes == len(source)
     assert prepared.packet.raw_source.utf8_text.encode("utf-8") == source
     assert prepared.accepted is False
+
+
+def test_acceptance_cannot_use_the_original_hash_for_changed_requirements(tmp_path: Path) -> None:
+    source = b"content-free confirmation probe"
+    intake = prepare_jd_intake(source, "source-probe", _proposal(source))
+    store = JDIntakeStore(tmp_path)
+    prepared = store.prepare(intake)
+    packet_path = next((store.root / "prepared").glob("*/packet.json"))
+    packet = json.loads(packet_path.read_bytes())
+    packet["requirements"][0]["minimum_mastery"] = 99
+    packet_path.write_text(json.dumps(packet))
+    changed = packet_path.read_bytes()
+
+    with pytest.raises(JDIntakeError, match="jd-prepared-invalid"):
+        store.accept(prepared["source_hash"], prepared["proposal_hash"])
+
+    assert packet_path.read_bytes() == changed
+    assert not (store.root / "accepted").exists()
+
+
+def test_corrected_requirements_need_a_new_confirmation_hash(tmp_path: Path) -> None:
+    source = b"content-free corrected proposal"
+    original = prepare_jd_intake(source, "source-probe", _proposal(source))
+    corrected = prepare_jd_intake(source, "source-probe", _corrected_proposal(source, 99))
+    store = JDIntakeStore(tmp_path)
+    prepared = store.prepare(corrected)
+
+    original_hash = original.packet.recorded_proposal.proposal_hash
+    assert prepared["proposal_hash"] != original_hash
+    with pytest.raises(JDIntakeError, match="jd-acceptance-hash-mismatch"):
+        store.accept(prepared["source_hash"], original_hash)
+
+    accepted = store.accept(prepared["source_hash"], prepared["proposal_hash"])
+    assert accepted["accepted"] is True
+    accepted_packet = json.loads(next((store.root / "accepted").glob("*/packet.json")).read_bytes())
+    assert accepted_packet["requirements"][0]["minimum_mastery"] == 99
+
+
+@pytest.mark.parametrize("accept_before_correction", (False, True))
+def test_same_source_correction_keeps_each_exact_prepared_and_accepted_version(
+    tmp_path: Path, accept_before_correction: bool
+) -> None:
+    source = b"content-free revised proposal"
+    original = prepare_jd_intake(source, "source-probe", _proposal(source))
+    corrected = prepare_jd_intake(source, "source-probe", _corrected_proposal(source, 99))
+    store = JDIntakeStore(tmp_path)
+    first = store.prepare(original)
+    if accept_before_correction:
+        store.accept(first["source_hash"], first["proposal_hash"])
+    before = {path: path.read_bytes() for path in store.root.rglob("*.json")}
+
+    second = store.prepare(corrected)
+
+    assert second["source_hash"] == first["source_hash"]
+    assert second["proposal_hash"] != first["proposal_hash"]
+    assert all(path.read_bytes() == data for path, data in before.items())
+    if not accept_before_correction:
+        store.accept(first["source_hash"], first["proposal_hash"])
+    accepted = store.accept(second["source_hash"], second["proposal_hash"])
+    assert accepted["proposal_hash"] == second["proposal_hash"]
+    packets = [
+        json.loads(path.read_bytes()) for path in (store.root / "accepted").glob("*/packet.json")
+    ]
+    assert sorted(packet["requirements"][0].get("minimum_mastery", 1) for packet in packets) == [
+        1,
+        99,
+    ]
+    assert store.safe_status()["prepared_count"] == store.safe_status()["accepted_count"] == 1
+    assert store.expectation_met("prepared-exact-three") is False
+    assert store.expectation_met("accepted-corpus-and-graph") is False
+    with pytest.raises(JDIntakeError, match="jd-prepared-already-exists"):
+        store.prepare(corrected)
+    with pytest.raises(JDIntakeError, match="jd-accepted-already-exists"):
+        store.accept(second["source_hash"], second["proposal_hash"])
+
+
+def test_source_only_legacy_bundles_remain_readable_without_rewriting_them(tmp_path: Path) -> None:
+    source = b"content-free legacy intake"
+    original = prepare_jd_intake(source, "source-probe", _proposal(source))
+    store = JDIntakeStore(tmp_path)
+    prepared = store.prepare(original)
+    store.accept(prepared["source_hash"], prepared["proposal_hash"])
+    legacy_name = original.source_hash.removeprefix("sha256:")
+    for kind in ("prepared", "accepted"):
+        next((store.root / kind).iterdir()).rename(store.root / kind / legacy_name)
+    before = {path: path.read_bytes() for path in store.root.rglob("*.json")}
+
+    store.verify_accepted(original.packet)
+    assert (
+        store.inspect_prepared(original.source_hash)["proposal_hash"] == prepared["proposal_hash"]
+    )
+    corrected = prepare_jd_intake(source, "source-probe", _corrected_proposal(source, 99))
+    revised = store.prepare(corrected)
+    with pytest.raises(JDIntakeError, match="jd-prepared-version-required"):
+        store.inspect_prepared(original.source_hash)
+    assert store.inspect_prepared(original.source_hash, revised["proposal_hash"]) == revised
+    store.accept(revised["source_hash"], revised["proposal_hash"])
+    store.verify_accepted(original.packet)
+    store.verify_accepted(corrected.packet)
+
+    assert all(path.read_bytes() == data for path, data in before.items())
+    assert store.safe_status()["accepted_count"] == store.safe_status()["prepared_count"] == 1
+
+
+def test_three_interpretations_do_not_count_as_three_distinct_jd_sources(tmp_path: Path) -> None:
+    source = b"content-free one-source corpus"
+    store = JDIntakeStore(tmp_path)
+    for minimum_mastery in (1, 50, 99):
+        prepared = store.prepare(
+            prepare_jd_intake(source, "source-probe", _corrected_proposal(source, minimum_mastery))
+        )
+        store.accept(prepared["source_hash"], prepared["proposal_hash"])
+
+    assert len(tuple((store.root / "prepared").iterdir())) == 3
+    assert len(tuple((store.root / "accepted").iterdir())) == 3
+    assert store.safe_status()["accepted_count"] == store.safe_status()["prepared_count"] == 1
+    assert store.expectation_met("prepared-exact-three") is False
+    assert store.expectation_met("accepted-corpus-and-graph") is False
 
 
 @pytest.mark.parametrize(

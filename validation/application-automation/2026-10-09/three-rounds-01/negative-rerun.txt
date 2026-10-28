@@ -1,0 +1,14 @@
+test_wrong_route_token_and_server_token_fail_closed (test_qa_replay_cli.ReplayCoordinatorTests.test_wrong_route_token_and_server_token_fail_closed) ... ok
+test_corrupt_and_future_documents_fail_closed (test_job_apply_store.StoreTests.test_corrupt_and_future_documents_fail_closed) ... ok
+test_replay_review_requires_started_and_rejects_terminal_or_mismatched_ats (test_job_apply_store.StoreTests.test_replay_review_requires_started_and_rejects_terminal_or_mismatched_ats) ... ok
+test_session_round_trip_rejects_values_and_path_traversal (test_job_apply_store.StoreTests.test_session_round_trip_rejects_values_and_path_traversal) ... ok
+test_wrong_resume_filename_match_fails_without_exposing_filename (test_qa_server_oracle.SemanticOracleTests.test_wrong_resume_filename_match_fails_without_exposing_filename) ... ok
+test_missing_review_event_fails (test_qa_server_oracle.SemanticOracleTests.test_missing_review_event_fails) ... ok
+test_completed_history_fails_even_with_valid_lifecycle (test_qa_server_oracle.SemanticOracleTests.test_completed_history_fails_even_with_valid_lifecycle) ... ok
+test_missing_legacy_future_and_corrupt_state_fail_to_review_only (test_job_apply_policy.PolicyTests.test_missing_legacy_future_and_corrupt_state_fail_to_review_only) ... ok
+test_exact_scope_sensitive_and_revision_mismatch_fail_closed (test_job_apply_policy.PolicyTests.test_exact_scope_sensitive_and_revision_mismatch_fail_closed) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 2.205s
+
+OK

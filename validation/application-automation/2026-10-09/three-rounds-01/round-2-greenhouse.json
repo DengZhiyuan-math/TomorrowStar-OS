@@ -1,0 +1,35 @@
+{
+  "reviewed": {
+    "changed": true,
+    "runId": "qa-run-20261009-6f1faefa",
+    "transition": "reviewed"
+  },
+  "evaluate": {
+    "assertions": {
+      "final-action-untouched": "passed",
+      "history-not-completed": "passed",
+      "history-started-reviewed": "passed",
+      "required-fields-filled": "passed",
+      "resume-filename-matched": "passed",
+      "resume-uploaded": "passed",
+      "review-reached": "passed",
+      "session-present": "passed",
+      "session-value-free": "passed"
+    },
+    "failureCategories": [],
+    "fixtureId": "greenhouse-single-page-2026-08-v1",
+    "missingControlIds": [],
+    "scenarioId": "greenhouse-complete-profile",
+    "status": "passed"
+  },
+  "cleanup": {
+    "reportRetained": true,
+    "runId": "qa-run-20261009-6f1faefa",
+    "state": "completed"
+  },
+  "browserTimings": {
+    "fileChooserMs": 502,
+    "setFilesMs": 17632,
+    "timingScope": "CUA call wall time; not ATS performance"
+  }
+}

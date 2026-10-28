@@ -1,0 +1,658 @@
+--- a/prism_local/build.py
++++ b/prism_local/build.py
+@@ -689,7 +689,7 @@
+ 
+     # ------------------------------------------------------------ built-in
+     def _engine_argv(self) -> list[str]:
+-        argv = [self._which(self.engine) or self.engine, "-synctex=1",
++        argv = [self._which(self.engine) or self.engine, "-synctex=1", "-recorder",
+                 "-interaction=nonstopmode", "-file-line-error", f"-output-directory={self.outdir}"]
+         if self.shell_escape:
+             argv.append("-shell-escape")
+@@ -838,10 +838,10 @@
+             argv = shell_argv(self.command) if isinstance(self.command, str) else list(self.command)
+         elif self.builder == "tectonic":
+             argv = ["tectonic", "-o", self.outdir, "--keep-logs", "--keep-intermediates",
+-                    "--synctex"]
++                    "--synctex", "--makefile-rules", str(self.out / f"{self.stem}.prism-deps.mk")]
+             argv += ([] if self.strict else ["-Z", "continue-on-errors"]) + [self.main]
+         else:                                           # latexmk
+-            argv = ["latexmk", LATEXMK_FLAG[self.engine], "-synctex=1",
++            argv = ["latexmk", LATEXMK_FLAG[self.engine], "-synctex=1", "-recorder",
+                     "-interaction=nonstopmode", "-file-line-error", f"-outdir={self.outdir}",
+                     "-halt-on-error" if self.strict else "-f"]
+             argv += (["-shell-escape"] if self.shell_escape else []) + [self.main]
+--- a/prism_local/project.py
++++ b/prism_local/project.py
+@@ -17,6 +17,7 @@
+ from __future__ import annotations
+ 
+ import fnmatch
++import hashlib
+ import os
+ import re
+ import shutil
+@@ -27,6 +28,7 @@
+ from typing import Callable
+ 
+ import build
++import build_results
+ import desktop
+ from errors import Conflict, NotFound, Refused
+ from fsutil import (EDITABLE_SUFFIXES, SKIP_DIRS, WINDOWS_RESERVED, bad_name, is_metadata,
+@@ -391,6 +393,7 @@
+             t0 = time.time()
+             before = mtime(cfg.pdf) if cfg.pdf.exists() else None
+             self._running_pdf = (cfg.pdf, before)
++            proof = build_results.begin(cfg)
+             cmd = cfg.custom.get(mode)
+             b = self.builder(self.root, cfg.main, cfg.outdir, mode, builder=cfg.builder, engine=cfg.engine,
+                              command=cfg.expand(cmd) if cmd else None, clean=clean,
+@@ -398,6 +401,9 @@
+             self._running = b
+             try:
+                 r = b.run()
++            except Exception:
++                build_results.finish(cfg, proof, {"exit": None, "pdf_updated": False})
++                raise
+             finally:
+                 self._running_pdf = None
+                 self.show(cfg.main)
+@@ -405,8 +411,10 @@
+             if cfg.error:
+                 r["output"] = f"prism-local: {cfg.error}\n" + r["output"]
+             pdf = mtime(cfg.pdf) if cfg.pdf.exists() else None
+-            return {**r, "busy": False, "mode": mode, "seconds": round(time.time() - t0, 1),
+-                    "main": cfg.main, "pdf_mtime": pdf, "pdf_updated": pdf is not None and pdf != before}
++            result = {**r, "busy": False, "mode": mode, "seconds": round(time.time() - t0, 1),
++                      "main": cfg.main, "pdf_mtime": pdf, "pdf_updated": pdf is not None and pdf != before}
++            build_results.finish(cfg, proof, result)
++            return result
+         finally:
+             self._running = self._running_pdf = None
+             self._build_lock.release()
+@@ -447,6 +455,29 @@
+             self.files_lock.release()
+         self.on_change()
+         return {"ok": True, "mtime": mtime(p)}, 200
++
++    def save_conditional(self, rel: str, content: str, expected_sha256: str) -> tuple[dict, int]:
++        """A separate endpoint so older services cannot silently ignore the hash guard."""
++        if (not isinstance(content, str) or not 1 <= len(content.encode("utf-8")) <= 4_000_000
++                or not isinstance(expected_sha256, str)
++                or not re.fullmatch(r"[a-f0-9]{64}", expected_sha256)):
++            raise Refused("invalid conditional source edit")
++        p = self.resolve(rel)
++        if not self.files_lock.acquire(timeout=SAVE_WAIT):
++            return {"busy": True, "error": "the source files are busy"}, 503
++        try:
++            if self.turn.editing():
++                return {"busy": True, "error": "the agent is editing the files"}, 503
++            before = p.read_bytes()
++            if hashlib.sha256(before).hexdigest() != expected_sha256:
++                return {"conflict": True}, 409
++            raw = content.encode("utf-8")
++            write_bytes(p, raw)
++            self.turn.server_wrote([self.rel(p)])
++        finally:
++            self.files_lock.release()
++        self.on_change()
++        return {"ok": True, "sha256": hashlib.sha256(raw).hexdigest(), "mtime": mtime(p)}, 200
+ 
+     def upload(self, name: str, data: bytes, folder: str = UPLOAD_DIR) -> str:
+         """Save an upload in the project (attachments under prism-uploads/). Reuse identical
+--- a/prism_local/server.py
++++ b/prism_local/server.py
+@@ -42,6 +42,7 @@
+ import registry  # noqa: E402
+ import selfupdate  # noqa: E402
+ import sources  # noqa: E402
++import build_results  # noqa: E402
+ 
+ # The project's files are written under it: saves, uploads, an Undo, and GITSYNC's commits
+ # and merges; also by the other editors of a shared repository (repository.FilesLock).
+@@ -241,6 +242,11 @@
+         if path == "/api/pdfstat":
+             cfg = PROJECT.config
+             return self._json({"main": cfg.main, "mtime": PROJECT.pdf_state(cfg)})
++        if path == "/api/build/result":
++            cfg = PROJECT.config
++            if q.get("main") and q["main"] != cfg.main:
++                return self._err(409, "the compiled document changed")
++            return self._json(build_results.read(cfg, building=PROJECT.building))
+         if path == "/pdf":
+             cfg = PROJECT.config
+             if q.get("main") and q["main"] != cfg.main:
+@@ -407,6 +413,9 @@
+             # A save calls GITSYNC.touched: an autosave commit follows once you stop editing.
+             return self._json(*PROJECT.save(body["path"], str(body["content"]), body.get("base_mtime"),
+                                             bool(body.get("force"))))
++        if path == "/api/file/conditional":
++            return self._json(*PROJECT.save_conditional(body["path"], body["content"],
++                                                        body["expected_sha256"]))
+         if path == "/api/git/sync":
+             action = str(body.get("action") or "")
+             if action == "bind":
+--- /dev/null
++++ b/prism_local/build_results.py
+@@ -0,0 +1,245 @@
++"""Read-only provenance for existing builds; never compiles or changes source files.
++
++An unavailable recorder is an unsupported result, never a reason to rebuild. Only
++local inputs used by the compiler belong to the result's dependency set.
++"""
++from __future__ import annotations
++
++import hashlib
++import json
++import os
++import re
++import stat
++from pathlib import Path
++from uuid import uuid4
++
++SCHEMA = "prism-build-result/v1"
++MAX_FILE = 4_000_000
++MAX_BYTES = 32_000_000
++MAX_FILES = 512
++MAX_CANDIDATES = 16_384
++# Only engine-written feedback is exempt from local input capture. Bibliography,
++# index, glossary and nomenclature outputs require tool inputs absent from TeX FLS.
++TEX_FEEDBACK = {".aux", ".toc", ".lof", ".lot", ".loa", ".lol", ".out", ".nav", ".snm", ".vrb"}
++
++
++def _sha(raw):
++    return hashlib.sha256(raw).hexdigest()
++
++
++def _plain(root, name, limit=MAX_FILE):
++    path = root / name
++    if (not name or Path(name).is_absolute() or Path(name).as_posix() != name
++            or "\\" in name or ".." in Path(name).parts
++            or any(p.is_symlink() for p in (path, *path.parents))
++            or path.resolve(strict=True).is_relative_to(root) is False):
++        raise ValueError("unsafe local input")
++    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
++    with os.fdopen(fd, "rb") as stream:
++        before = os.fstat(stream.fileno())
++        if not stat.S_ISREG(before.st_mode) or not 0 <= before.st_size <= limit:
++            raise ValueError("unsupported local input")
++        raw = stream.read(limit + 1)
++        after = os.fstat(stream.fileno())
++    fields = lambda s: (s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns)
++    if len(raw) > limit or fields(before) != fields(after) or fields(path.stat()) != fields(after):
++        raise ValueError("input changed while reading")
++    return _sha(raw), fields(after)
++
++
++def _paths(root, outdir):
++    """Bounded pre-build candidates; only actual recorder inputs are compared later."""
++    found, total = {}, 0
++    for directory, children, names in os.walk(root, followlinks=False):
++        children[:] = sorted(n for n in children if n not in {".git", ".prism-local"}
++                             and (Path(directory) / n).relative_to(root).as_posix() != outdir)
++        for name in sorted(names, key=lambda n: (Path(n).suffix not in {".tex", ".sty", ".cls"}, n)):
++            path = Path(directory) / name
++            rel = path.relative_to(root).as_posix()
++            if rel == "prism.json":
++                continue
++            # Unrelated unsupported files must not revoke a valid compiler input set.
++            # A skipped file can never be accepted later: every recorded input still
++            # needs a complete, unchanged pre-build capture in finish().
++            if len(found) >= MAX_CANDIDATES:
++                return found
++            try:
++                if path.stat().st_size + total > MAX_BYTES:
++                    continue
++                sha, identity = _plain(root, rel)
++            except (OSError, ValueError, TypeError):
++                continue
++            total += identity[2]
++            found[rel] = (sha, identity)
++    return found
++
++
++def _recorder(cfg, kind):
++    suffix = ".prism-deps.mk" if kind == "tectonic" else ".fls"
++    return cfg.root / cfg.outdir / (Path(cfg.main).stem + suffix)
++
++
++def begin(cfg):
++    attempt = {"id": uuid4().hex, "before": None, "error": None}
++    try:
++        if cfg.shell_escape or cfg.error or cfg.outdir != "build":
++            raise ValueError("this project layout has no supported dependency proof")
++        if any(p.is_symlink() for p in (cfg.root, *cfg.root.parents)):
++            raise ValueError("linked project")
++        for kind in ("tectonic", "builtin"):
++            recorder = _recorder(cfg, kind)
++            if recorder.is_symlink() or any(p.is_symlink() for p in recorder.parents):
++                raise ValueError("linked build output")
++            recorder.unlink(missing_ok=True)
++        attempt["before"] = _paths(cfg.root, cfg.outdir)
++    except (OSError, ValueError, TypeError) as exc:
++        attempt["error"] = str(exc)
++    return attempt
++
++
++def _make_words(text):
++    """Tectonic's Makefile rules use backslash quoting and line continuations."""
++    text = text.replace("\\\r\n", "").replace("\\\n", "")
++    # Ambiguous make variables or multiple rules are not guessed.
++    if "$" in text or "#" in text or text.count(": ") != 1:
++        raise ValueError("unsupported dependency rules")
++    inputs = text.split(": ", 1)[1]
++    tokens, token, escape = [], "", False
++    for char in inputs:
++        if escape:
++            token += char
++            escape = False
++        elif char == "\\":
++            escape = True
++        elif char.isspace():
++            if token:
++                tokens.append(token)
++                token = ""
++        else:
++            token += char
++    if escape:
++        raise ValueError("incomplete dependency escape")
++    if token:
++        tokens.append(token)
++    return tokens
++
++
++def _system_input(path):
++    # Only known distribution installation trees are historical environment. Unknown
++    # external local files are unsupported instead of being silently omitted.
++    value = path.as_posix().lower()
++    return (value.startswith(("/usr/local/texlive/", "/usr/share/texlive/", "/usr/share/texmf/",
++                              "/opt/texlive/", "/library/tex/", "/opt/homebrew/share/texmf"))
++            or "/miktex/" in value and ("/program files/" in value or "/appdata/" in value))
++
++
++def _inputs(cfg, kind):
++    recorder = _recorder(cfg, kind)
++    relative = recorder.relative_to(cfg.root).as_posix()
++    _plain(cfg.root, relative)
++    text = recorder.read_text(encoding="utf-8")
++    names = (_make_words(text) if kind == "tectonic" else
++             [line[6:] for line in text.splitlines() if line.startswith("INPUT ")])
++    found = set()
++    for name in names:
++        path = Path(name)
++        path = path if path.is_absolute() else cfg.root / path
++        # Do not resolve links before the local-input safety check.
++        path = Path(os.path.abspath(path))
++        if not path.is_relative_to(cfg.root):
++            if kind != "tectonic" and _system_input(path):
++                continue
++            raise ValueError("external local dependency is unsupported")
++        rel = path.relative_to(cfg.root).as_posix()
++        if rel.startswith(cfg.outdir + "/"):
++            if path.suffix in TEX_FEEDBACK:
++                continue                     # compiler-generated feedback, not source
++            raise ValueError("non-feedback output dependency has no reliable local source mapping")
++        if rel == "prism.json" or ".git" in Path(rel).parts or ".prism-local" in Path(rel).parts:
++            raise ValueError("unsupported local dependency")
++        found.add(rel)
++    if cfg.main not in found or not 1 <= len(found) <= MAX_FILES:
++        raise ValueError("missing or excessive recorded inputs")
++    return sorted(found)
++
++
++def _directory(root):
++    directory = root / ".prism-local" / "build-results"
++    if any(p.is_symlink() for p in (directory, *directory.parents)):
++        raise ValueError("redirected build result")
++    return directory
++
++
++def _latest(root, main):
++    return _directory(root) / (_sha(main.encode()) + ".json")
++
++
++def finish(cfg, attempt, result):
++    receipt = {"schema_version": SCHEMA, "status": "unknown", "id": attempt["id"],
++               "main": cfg.main, "files": {}, "pdf_sha256": None,
++               **{k: result.get(k) for k in ("exit", "cancelled", "timed_out", "pdf_updated",
++                                             "engine", "builder", "diagnostics")}}
++    try:
++        diagnostics = result.get("diagnostics")
++        if not isinstance(diagnostics, list) or any(not isinstance(d, dict) for d in diagnostics):
++            raise ValueError("build diagnostics are unknown")
++        if (type(result.get("exit")) is int and result["exit"] != 0
++                or result.get("cancelled") is True or result.get("timed_out") is True
++                or any(d.get("severity") == "error" for d in diagnostics)):
++            receipt["status"] = "failed"
++        else:
++            if (type(result.get("exit")) is not int or result["exit"] != 0
++                    or result.get("cancelled") is not False or result.get("timed_out") is not False
++                    or attempt["error"] or not result.get("pdf_updated") or result.get("builder") not in {
++                    "builtin", "latexmk", "tectonic"}):
++                raise ValueError(attempt["error"] or "no complete supported build")
++            names = _inputs(cfg, result["builder"])
++            files = {}
++            for name in names:
++                value = _plain(cfg.root, name)
++                if attempt["before"].get(name) != value:
++                    raise ValueError("a compiler input changed during this build")
++                files[name] = value[0]
++            pdf, _ = _plain(cfg.root, cfg.pdf.relative_to(cfg.root).as_posix(), 700_000)
++            receipt.update(status="complete", files=files, pdf_sha256=pdf)
++    except (OSError, ValueError, TypeError, KeyError) as exc:
++        receipt["reason"] = str(exc)
++    try:
++        directory = _directory(cfg.root)
++        directory.mkdir(parents=True, exist_ok=True)
++        raw = json.dumps(receipt, ensure_ascii=False, sort_keys=True).encode()
++        historical = directory / (attempt["id"] + ".json")
++        historical.write_bytes(raw)
++        temporary = directory / (attempt["id"] + ".tmp")
++        temporary.write_bytes(raw)
++        os.replace(temporary, _latest(cfg.root, cfg.main))
++    except (OSError, ValueError):
++        pass                         # failure to prove must never change the build itself
++
++
++def read(cfg, *, building=False):
++    status = {"schema_version": SCHEMA, "status": "building" if building else "missing",
++              "main": cfg.main}
++    if building:
++        return status
++    try:
++        path = _latest(cfg.root, cfg.main)
++        _plain(cfg.root, path.relative_to(cfg.root).as_posix(), 128_000)
++        receipt = json.loads(path.read_bytes())
++        if (receipt.get("schema_version") != SCHEMA or receipt.get("main") != cfg.main
++                or not isinstance(receipt.get("id"), str)
++                or not re.fullmatch(r"[a-f0-9]{32}", receipt["id"])):
++            raise ValueError("invalid build result")
++        if receipt.get("status") == "complete":
++            if (not isinstance(receipt.get("files"), dict) or cfg.main not in receipt["files"]
++                    or not 1 <= len(receipt["files"]) <= MAX_FILES):
++                raise ValueError("invalid dependency set")
++            if any(_plain(cfg.root, name)[0] != sha for name, sha in receipt["files"].items()):
++                return status | {"status": "source_changed"}
++            if _plain(cfg.root, cfg.pdf.relative_to(cfg.root).as_posix(), 700_000)[0] != receipt["pdf_sha256"]:
++                return status | {"status": "unknown"}
++        return receipt
++    except FileNotFoundError:
++        return status
++    except (OSError, ValueError, TypeError, KeyError):
++        return status | {"status": "unknown"}
+--- /dev/null
++++ b/tests/test_build_results.py
+@@ -0,0 +1,272 @@
++"""Provenance is compiler-recorded, read-only and local to the successful result."""
++import sys
++import unittest
++from pathlib import Path
++from unittest import mock
++
++sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "prism_local"))
++import build_results
++from project import Project
++sys.path.insert(0, str(Path(__file__).resolve().parent))
++from tmpdirs import tmpdir
++
++
++DOC = r"\documentclass{article}\begin{document}\input{section}\end{document}"
++
++
++class Results(unittest.TestCase):
++    def setUp(self):
++        self.root = tmpdir()
++        (self.root / "main.tex").write_text(DOC)
++        (self.root / "section.tex").write_text("Some words.")
++        (self.root / "unrelated.txt").write_text("Unrelated.")
++        self.project = Project(self.root)
++
++    def compile(self, during=lambda: None, *, exit=0, recorder=True, kind="builtin", extra="",
++                diagnostics=None):
++        root = self.root
++
++        class Fake:
++            def __init__(self, *args, **kwargs):
++                pass
++
++            def run(self):
++                during()
++                (root / "build").mkdir(exist_ok=True)
++                (root / "build/main.pdf").write_bytes(b"%PDF synthetic")
++                if recorder:
++                    if kind == "tectonic":
++                        text = "build/main.pdf : main.tex section.tex" + extra + "\n"
++                        (root / "build/main.prism-deps.mk").write_text(text)
++                    else:
++                        text = "INPUT main.tex\nINPUT section.tex\nINPUT build/main.aux\n" + extra
++                        (root / "build/main.fls").write_text(text)
++                return {"exit": exit, "cancelled": False, "timed_out": False,
++                        "builder": kind, "engine": "synthetic", "diagnostics": diagnostics or [],
++                        "output": ""}
++
++        self.project.builder = Fake
++        return self.project.build("draft")
++
++    def test_receipt_only_includes_actual_compiler_inputs_and_survives_reopen(self):
++        self.compile()
++        receipt = build_results.read(self.project.config)
++        self.assertEqual(receipt["status"], "complete")
++        self.assertEqual(set(receipt["files"]), {"main.tex", "section.tex"})
++        (self.root / "unrelated.txt").write_text("Different")
++        (self.root / "prism.json").write_text('{"engine":"xelatex"}')
++        self.assertEqual(build_results.read(Project(self.root).config), receipt)
++        before = {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
++        self.assertEqual(build_results.read(self.project.config), receipt)
++        self.assertEqual(before, {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()})
++
++    def test_input_edit_and_undo_during_build_has_no_success_proof(self):
++        for undo in (False, True):
++            original = (self.root / "section.tex").read_bytes()
++
++            def during():
++                (self.root / "section.tex").write_text("Changed during build")
++                if undo:
++                    (self.root / "section.tex").write_bytes(original)
++
++            self.compile(during)
++            self.assertEqual(build_results.read(self.project.config)["status"], "unknown")
++
++    def test_unrelated_change_during_build_does_not_revoke_proof(self):
++        self.compile(lambda: (self.root / "unrelated.txt").write_text("Changed"))
++        self.assertEqual(build_results.read(self.project.config)["status"], "complete")
++
++    def test_oversized_unrelated_file_does_not_revoke_proof(self):
++        (self.root / "unused-video.bin").write_bytes(b"x" * 4_000_001)
++        self.compile()
++        self.assertEqual(build_results.read(self.project.config)["status"], "complete")
++
++    def test_unrelated_symlink_does_not_revoke_proof(self):
++        (self.root / "unused-link").symlink_to(self.root / "missing")
++        self.compile()
++        self.assertEqual(build_results.read(self.project.config)["status"], "complete")
++
++    def test_excess_unrelated_notes_do_not_revoke_small_actual_input_set(self):
++        for index in range(build_results.MAX_FILES + 1):
++            (self.root / f"note-{index}.md").write_text("Unused note")
++        self.compile()
++        self.assertEqual(build_results.read(self.project.config)["status"], "complete")
++
++    def test_actual_oversized_input_stays_unsupported(self):
++        (self.root / "section.tex").write_bytes(b"x" * 4_000_001)
++        self.compile()
++        self.assertEqual(build_results.read(self.project.config)["status"], "unknown")
++
++    def test_external_tool_feedback_has_no_complete_input_proof(self):
++        (self.root / "refs.bib").write_text("Bibliography input")
++        for suffix in ("bbl", "ind", "gls", "acr", "nls", "alg"):
++            with self.subTest(suffix=suffix):
++                self.compile(extra=f"INPUT build/main.{suffix}\n")
++                self.assertEqual(build_results.read(self.project.config)["status"], "unknown")
++
++    def test_error_diagnostic_prevents_success_even_when_engine_exit_is_zero(self):
++        self.compile(diagnostics=[{"severity": "error", "message": "bibtex tool failed"}])
++        self.assertEqual(build_results.read(self.project.config)["status"], "failed")
++
++    def test_unrelated_check_command_does_not_reject_native_draft_result(self):
++        (self.root / "prism.json").write_text('{"build":{"check":"unused-check"}}')
++        self.compile()
++        self.assertEqual(build_results.read(self.project.config)["status"], "complete")
++
++    def test_actual_custom_builder_still_has_no_dependency_proof(self):
++        self.compile(kind="custom")
++        self.assertEqual(build_results.read(self.project.config)["status"], "unknown")
++
++    def test_skipped_actual_dependency_is_unknown_instead_of_silently_omitted(self):
++        with mock.patch.object(build_results, "MAX_CANDIDATES", 1):
++            self.compile()
++        self.assertEqual(build_results.read(self.project.config)["status"], "unknown")
++
++    def test_stale_recorder_is_removed_and_never_reused(self):
++        self.compile()
++        self.compile(recorder=False)
++        self.assertEqual(build_results.read(self.project.config)["status"], "unknown")
++        self.assertFalse((self.root / "build/main.fls").exists())
++
++    def test_failed_build_preserves_previous_receipt_and_pdf_history(self):
++        self.compile()
++        old = build_results.read(self.project.config)
++        old_path = self.root / ".prism-local/build-results" / (old["id"] + ".json")
++        saved = old_path.read_bytes()
++        self.compile(exit=1)
++        self.assertEqual(build_results.read(self.project.config)["status"], "failed")
++        self.assertEqual(old_path.read_bytes(), saved)
++
++    def test_source_change_after_success_does_not_mislabel_pdf(self):
++        self.compile()
++        (self.root / "main.tex").write_text("Later source")
++        self.assertEqual(build_results.read(self.project.config)["status"], "source_changed")
++        self.assertTrue((self.root / "build/main.pdf").exists())
++
++    def test_replaced_pdf_is_unknown(self):
++        self.compile()
++        (self.root / "build/main.pdf").write_bytes(b"%PDF replaced")
++        self.assertEqual(build_results.read(self.project.config)["status"], "unknown")
++
++    def test_building_result_never_exposes_previous_success(self):
++        self.compile()
++        self.assertEqual(build_results.read(self.project.config, building=True)["status"], "building")
++
++    def test_unknown_external_local_input_is_unsupported(self):
++        self.compile(extra="INPUT /private/tmp/another-user-file.tex\n")
++        self.assertEqual(build_results.read(self.project.config)["status"], "unknown")
++
++    def test_system_distribution_inputs_are_historical_environment(self):
++        self.compile(extra="INPUT /usr/local/texlive/2026/texmf-dist/tex/latex/base/article.cls\n")
++        self.assertEqual(build_results.read(self.project.config)["status"], "complete")
++
++    def test_tectonic_uses_native_rules_and_does_not_assume_fls(self):
++        self.compile(kind="tectonic")
++        self.assertEqual(build_results.read(self.project.config)["status"], "complete")
++        self.assertFalse((self.root / "build/main.fls").exists())
++        self.compile(kind="tectonic", recorder=False)
++        self.assertEqual(build_results.read(self.project.config)["status"], "unknown")
++
++    def test_tectonic_rules_with_ambiguous_output_source_are_unsupported(self):
++        self.compile(kind="tectonic", extra=" build/section.tex")
++        self.assertEqual(build_results.read(self.project.config)["status"], "unknown")
++
++    def test_untracked_source_in_output_is_not_ignored_as_generated_feedback(self):
++        self.compile(extra="INPUT build/previous.tex\n")
++        self.assertEqual(build_results.read(self.project.config)["status"], "unknown")
++
++    def test_interrupted_builder_marks_result_unknown_without_retry(self):
++        self.compile()
++        builder = mock.Mock()
++        builder.return_value.run.side_effect = OSError("interrupted build")
++        self.project.builder = builder
++        with self.assertRaises(OSError):
++            self.project.build("draft")
++        self.assertEqual(builder.return_value.run.call_count, 1)
++        self.assertEqual(build_results.read(self.project.config)["status"], "unknown")
++
++    def test_symlink_inputs_never_become_dependencies(self):
++        other = tmpdir() / "other.tex"
++        other.write_text("External")
++        (self.root / "section.tex").unlink()
++        (self.root / "section.tex").symlink_to(other)
++        self.compile()
++        self.assertEqual(build_results.read(self.project.config)["status"], "unknown")
++
++    def test_native_flags_record_inputs_without_changing_build_mode(self):
++        import build
++        job = build.Build(self.root, "main.tex", "build", "strict", engine="pdflatex")
++        job.engine = "pdflatex"
++        self.assertIn("-recorder", job._engine_argv())
++        for builder in ("tectonic", "latexmk"):
++            job.builder = builder
++            job._step = mock.Mock(return_value=(0, ""))
++            job._which = lambda name: name
++            job._command()
++            argv = job._step.call_args.args[1]
++            self.assertIn("--makefile-rules" if builder == "tectonic" else "-recorder", argv)
++
++
++class Rules(unittest.TestCase):
++    def test_spaces_and_line_continuations_are_not_split_into_fake_inputs(self):
++        self.assertEqual(build_results._make_words("build/a.pdf : a\\ b.tex \\\n c.tex\n"), ["a b.tex", "c.tex"])
++
++    def test_make_variables_and_extra_rules_are_unsupported(self):
++        for text in ("out : $(PRIVATE)", "out : a\nmore : b", "out : a#comment"):
++            with self.assertRaises(ValueError):
++                build_results._make_words(text)
++
++
++class HTTPResult(unittest.TestCase):
++    def test_get_is_read_only_and_exposes_no_current_build(self):
++        import server
++        from test_lifecycle import request
++        from http.server import ThreadingHTTPServer
++        from threading import Thread
++        root = tmpdir()
++        (root / "main.tex").write_text(DOC)
++        server.set_root(root)
++        http = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
++        thread = Thread(target=http.serve_forever, daemon=True)
++        thread.start()
++        url = f"http://127.0.0.1:{http.server_port}"
++        try:
++            status, result = request(url, "/api/build/result?main=main.tex")
++            self.assertEqual((status, result["status"]), (200, "missing"))
++            self.assertFalse((root / ".prism-local").exists())
++            self.assertEqual(request(url, "/api/build/result?main=other.tex")[0], 409)
++        finally:
++            http.shutdown()
++            thread.join(5)
++            http.server_close()
++
++    def test_conditional_write_has_a_separate_endpoint_and_preserves_conflicting_manual_text(self):
++        import hashlib
++        import json
++        import server
++        from test_lifecycle import request
++        from http.server import ThreadingHTTPServer
++        from threading import Thread
++        root = tmpdir()
++        (root / "main.tex").write_text("Original source")
++        server.set_root(root)
++        http = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
++        thread = Thread(target=http.serve_forever, daemon=True)
++        thread.start()
++        url = f"http://127.0.0.1:{http.server_port}"
++        headers = {"Content-Type": "application/json", "X-Prism-Local": "1"}
++        payload = {"path": "main.tex", "content": "Corrected source",
++                   "expected_sha256": hashlib.sha256(b"Original source").hexdigest()}
++        try:
++            (root / "main.tex").write_text("Manual source")
++            status, result = request(url, "/api/file/conditional", json.dumps(payload).encode(), headers)
++            self.assertEqual((status, result["conflict"]), (409, True))
++            self.assertEqual((root / "main.tex").read_text(), "Manual source")
++            payload["expected_sha256"] = hashlib.sha256(b"Manual source").hexdigest()
++            status, result = request(url, "/api/file/conditional", json.dumps(payload).encode(), headers)
++            self.assertEqual((status, result["ok"]), (200, True))
++            self.assertEqual((root / "main.tex").read_text(), "Corrected source")
++        finally:
++            http.shutdown()
++            thread.join(5)
++            http.server_close()

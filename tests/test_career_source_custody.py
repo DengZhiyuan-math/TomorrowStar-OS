@@ -15,6 +15,7 @@ from career_evidence_graph.workspace import (
     declare_sources,
     load_source_universe_snapshot,
     open_private_workspace,
+    record_captured_source_successor,
     record_derived_mapping,
     record_self_report_source_successor,
     workspace_status,
@@ -127,6 +128,12 @@ def test_derived_mapping_records_only_caller_supplied_lineage(tmp_path: Path) ->
     [
         ("available", None, True),
         ("available", "synthetic-reason", False),
+        ("temporarily-unavailable", None, True),
+        ("permanently-lost", None, True),
+        ("access-restricted", None, True),
+        ("never-created", None, True),
+        ("location-unknown", None, True),
+        ("user-declined", None, True),
         ("temporarily-unavailable", "synthetic-reason", True),
         ("permanently-lost", "synthetic-reason", True),
         ("access-restricted", "synthetic-reason", True),
@@ -152,6 +159,23 @@ def test_availability_is_a_closed_vocabulary_with_coherent_reason(
         with pytest.raises(WorkspaceError) as invalid:
             declare_sources(workspace, declaration)
         assert invalid.value.code == "registry-invalid"
+
+
+@pytest.mark.parametrize("availability", ["available", "location-unknown"])
+@pytest.mark.parametrize("reason", [None, "", 1])
+def test_explicit_invalid_unavailability_reason_fails_before_publication(
+    tmp_path: Path, availability: str, reason: object
+) -> None:
+    workspace = _private_workspace(tmp_path)
+    declaration = _declaration()
+    source = declaration["sources"][0]
+    assert isinstance(source, dict)
+    source.update(availability=availability, unavailability_reason=reason)
+
+    with pytest.raises(WorkspaceError, match="registry-invalid"):
+        declare_sources(workspace, declaration)
+
+    assert not (workspace / ".career-evidence/registry.json").exists()
 
 
 def test_raw_capture_may_remain_if_registry_publication_fails(
@@ -253,3 +277,160 @@ def test_self_report_successor_preserves_parent_and_binds_its_own_capture(
 
     original = json.loads((workspace / ".career-evidence/registry.json").read_text())
     assert original == _declaration()
+
+
+def test_document_successors_preserve_parent_bytes_and_source_type(tmp_path: Path) -> None:
+    workspace = _private_workspace(tmp_path)
+    declare_sources(workspace, _declaration())
+    original = (workspace / ".career-evidence/registry.json").read_bytes()
+    parent = load_source_universe_snapshot(workspace)
+    first = record_captured_source_successor(
+        workspace,
+        parent_registry_hash=parent["registry_hash"],
+        source_id="document-synthetic-one",
+        category="documents",
+        source_type="document",
+        payload=b"synthetic-first-document",
+        captured_at="2001-02-03T04:05:06+00:00",
+    )
+    first_path = (
+        workspace
+        / ".career-evidence/source-universe-revisions"
+        / (first["registry_hash"].removeprefix("sha256:") + ".json")
+    )
+    first_bytes = first_path.read_bytes()
+    second = record_captured_source_successor(
+        workspace,
+        parent_registry_hash=first["registry_hash"],
+        source_id="document-synthetic-two",
+        category="documents",
+        source_type="audit-record",
+        payload=b"synthetic-second-document",
+        captured_at="2001-02-03T04:05:07+00:00",
+    )
+    loaded = load_source_universe_snapshot(workspace, registry_hash=second["registry_hash"])
+    assert loaded["registry"]["sources"][-1]["source_type"] == "audit-record"
+    assert loaded["captures"]["document-synthetic-two"] == b"synthetic-second-document"
+    assert (
+        loaded["registry"]["sources"][:-1]
+        == load_source_universe_snapshot(workspace, registry_hash=first["registry_hash"])[
+            "registry"
+        ]["sources"]
+    )
+    assert (workspace / ".career-evidence/registry.json").read_bytes() == original
+    assert first_path.read_bytes() == first_bytes
+
+
+@pytest.mark.parametrize(
+    ("category", "source_type"),
+    [("../outside", "document"), ("documents", "invented-type")],
+)
+def test_invalid_successor_metadata_fails_before_writing_raw(
+    tmp_path: Path, category: str, source_type: str
+) -> None:
+    workspace = _private_workspace(tmp_path)
+    declare_sources(workspace, _declaration())
+    parent = load_source_universe_snapshot(workspace)
+    before = sorted(path.relative_to(workspace) for path in workspace.rglob("*"))
+    with pytest.raises(WorkspaceError, match="registry-invalid"):
+        record_captured_source_successor(
+            workspace,
+            parent_registry_hash=parent["registry_hash"],
+            source_id="document-synthetic",
+            category=category,
+            source_type=source_type,
+            payload=b"synthetic-invalid-metadata",
+            captured_at="2001-02-03T04:05:06+00:00",
+        )
+    assert sorted(path.relative_to(workspace) for path in workspace.rglob("*")) == before
+
+
+def test_successor_rejects_corrupt_parent_capture_before_writing(tmp_path: Path) -> None:
+    workspace = _private_workspace(tmp_path)
+    declare_sources(workspace, _declaration())
+    payload = b"synthetic-original-parent"
+    capture_source(
+        workspace, "source-synthetic-a", payload, captured_at="2001-02-03T04:05:06+00:00"
+    )
+    parent = load_source_universe_snapshot(workspace)
+    raw = workspace / ".career-evidence/raw" / sha256_digest(payload).removeprefix("sha256:")
+    raw.write_bytes(b"synthetic-corrupted-parent")
+    before = sorted(path.relative_to(workspace) for path in workspace.rglob("*"))
+    with pytest.raises(WorkspaceError, match="capture-integrity-invalid"):
+        record_captured_source_successor(
+            workspace,
+            parent_registry_hash=parent["registry_hash"],
+            source_id="document-synthetic",
+            category="documents",
+            source_type="document",
+            payload=b"synthetic-new-document",
+            captured_at="2001-02-03T04:05:07+00:00",
+        )
+    assert sorted(path.relative_to(workspace) for path in workspace.rglob("*")) == before
+
+
+@pytest.mark.parametrize("operation", ("capture", "derived-mapping"))
+def test_published_successor_freezes_root_registry_before_any_side_effect(
+    tmp_path: Path, operation: str
+) -> None:
+    workspace = _private_workspace(tmp_path)
+    declaration = _declaration()
+    declaration["sources"].append(
+        {
+            "source_id": "source-synthetic-b",
+            "category": "projects",
+            "source_type": "self-reported",
+            "availability": "available",
+        }
+    )
+    declare_sources(workspace, declaration)
+    body = b"synthetic-original-capture"
+    capture_source(workspace, "source-synthetic-a", body, captured_at="2001-02-03T04:05:06+00:00")
+    parent = load_source_universe_snapshot(workspace)
+    successor = record_self_report_source_successor(
+        workspace,
+        parent_registry_hash=parent["registry_hash"],
+        source_id="synthetic-new-report",
+        statement=b"synthetic-successor-statement",
+        captured_at="2001-02-03T04:05:07+00:00",
+    )
+    successor_before = load_source_universe_snapshot(
+        workspace, registry_hash=successor["registry_hash"]
+    )
+    evidence = workspace / ".career-evidence"
+    before = {
+        path.relative_to(evidence): path.read_bytes()
+        for path in evidence.rglob("*")
+        if path.is_file()
+    }
+
+    with pytest.raises(WorkspaceError) as rejected:
+        if operation == "capture":
+            capture_source(
+                workspace,
+                "source-synthetic-b",
+                b"synthetic-later-capture",
+                captured_at="2001-02-03T04:05:08+00:00",
+            )
+        else:
+            record_derived_mapping(
+                workspace,
+                "source-synthetic-a",
+                input_hash=sha256_digest(body),
+                output_hash=sha256_digest(b"synthetic-derived"),
+                transformer_identity="synthetic-transformer",
+                transformer_version="v1",
+            )
+
+    assert rejected.value.code == "registry-frozen"
+    assert load_source_universe_snapshot(workspace) == parent
+    assert (
+        load_source_universe_snapshot(workspace, registry_hash=successor["registry_hash"])
+        == successor_before
+    )
+    after = {
+        path.relative_to(evidence): path.read_bytes()
+        for path in evidence.rglob("*")
+        if path.is_file()
+    }
+    assert after == before

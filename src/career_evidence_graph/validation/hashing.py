@@ -25,3 +25,9 @@ def canonical_json_bytes(value: Any) -> bytes:
 def sha256_digest(value: bytes) -> str:
     """Return a prefixed SHA-256 digest."""
     return f"sha256:{hashlib.sha256(value).hexdigest()}"
+
+
+def record_digest(value: object) -> str:
+    """Keep the historical application-record JSON identity, including spacing."""
+    raw = json.dumps(value, sort_keys=True, ensure_ascii=False, allow_nan=False).encode()
+    return hashlib.sha256(raw).hexdigest()

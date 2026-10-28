@@ -1,0 +1,36 @@
+{
+  "mode": "synthetic_independent_worker",
+  "round": "round-1-complete",
+  "checks": [
+    "independent_process",
+    "field_readback",
+    "per_job_file_digest",
+    "zero_final_actions",
+    "manual_handoff",
+    "pause_retains_page"
+  ],
+  "result": "passed",
+  "worker_pid": 98216,
+  "jobs": [
+    {
+      "company": "Synthetic 1",
+      "platform": "lever",
+      "status": "ready_for_review",
+      "reason": "",
+      "file_sha256": "94b2da21a56c75eae2611bef95440c001d05cd0f52d16ccbe2c50489b4b5cf0e",
+      "sync_error": ""
+    },
+    {
+      "company": "Synthetic 0",
+      "platform": "lever",
+      "status": "ready_for_review",
+      "reason": "",
+      "file_sha256": "65134777c25796c08393f98a4453559fe4d321ad7d07e317fdae15126c733f00",
+      "sync_error": ""
+    }
+  ],
+  "uploaded_files": 2,
+  "automatic_final_submissions": 0,
+  "model_calls": 0,
+  "real_ats_calls": 0
+}

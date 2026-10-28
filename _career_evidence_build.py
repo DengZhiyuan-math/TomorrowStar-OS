@@ -41,6 +41,7 @@ def _metadata() -> bytes:
         "Summary: Career Evidence Graph core hypothesis validation\n"
         "Requires-Python: >=3.13,<3.14\n"
         "Requires-Dist: pydantic (==2.13.4)\n"
+        "Requires-Dist: playwright (==1.63.0)\n"
         "\n"
     ).encode()
 
@@ -65,6 +66,8 @@ def _package_files() -> dict[str, bytes]:
     for path in sorted(_PACKAGE_ROOT.rglob("*.py")):
         relative = path.relative_to(_ROOT / "src").as_posix()
         files[relative] = path.read_bytes()
+    license_path = _PACKAGE_ROOT / "_vendor" / "JOB_APPLY_LICENSE"
+    files[license_path.relative_to(_ROOT / "src").as_posix()] = license_path.read_bytes()
     return files
 
 
@@ -163,8 +166,8 @@ def build_sdist(sdist_directory: str, config_settings: Mapping[str, object] | No
     archive_name = f"{_DISTRIBUTION}-{_VERSION}.tar.gz"
     archive_path = Path(sdist_directory) / archive_name
     archive_path.parent.mkdir(parents=True, exist_ok=True)
-    members = [Path("pyproject.toml"), Path(__file__).name]
-    members.extend(path.relative_to(_ROOT) for path in sorted(_PACKAGE_ROOT.rglob("*.py")))
+    members = [Path("pyproject.toml"), Path(__file__).relative_to(_ROOT)]
+    members.extend(Path("src") / name for name in _package_files())
     with (
         archive_path.open("wb") as raw_file,
         gzip.GzipFile(fileobj=raw_file, mode="wb", mtime=315532800) as compressed,

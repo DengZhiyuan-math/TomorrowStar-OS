@@ -11,7 +11,7 @@ from career_evidence_graph.assessment import AssessmentStorageError, AssessmentS
 from career_evidence_graph.domain.models import ContributionSkillAssessment
 
 ROOT = Path(__file__).parents[1]
-CORPUS = ROOT / "validation/calibration/phase-04/corpus.json"
+CORPUS = ROOT / "validation/calibration/phase-04/corpus-review-safe-v1.json"
 POLICIES = ROOT / "validation/calibration/phase-04/policies.json"
 
 

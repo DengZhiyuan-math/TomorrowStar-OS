@@ -1,0 +1,38 @@
+{
+  "mode": "synthetic_independent_worker",
+  "round": "greenhouse-round-1-complete",
+  "checks": [
+    "shared_independent_process",
+    "separate_confirmed_first_last_names",
+    "numeric_option_values_label_readback",
+    "authorization_not_sponsorship",
+    "per_job_file_digest",
+    "manual_handoff",
+    "pause_retains_page",
+    "zero_final_actions"
+  ],
+  "result": "passed",
+  "worker_pid": 99530,
+  "jobs": [
+    {
+      "company": "Synthetic 1",
+      "platform": "greenhouse",
+      "status": "ready_for_review",
+      "reason": "",
+      "file_sha256": "d09a3bf5322f375bdda9c16fefe74c83bb5a7157712dff26ca32621a02afe0d7",
+      "sync_error": ""
+    },
+    {
+      "company": "Synthetic 0",
+      "platform": "greenhouse",
+      "status": "ready_for_review",
+      "reason": "",
+      "file_sha256": "9d323c809f29171fa834a47e6b0e0816a1204f1b89842e29d0b2b0f254f0ece5",
+      "sync_error": ""
+    }
+  ],
+  "uploaded_files": 2,
+  "automatic_final_submissions": 0,
+  "model_calls": 0,
+  "real_ats_calls": 0
+}

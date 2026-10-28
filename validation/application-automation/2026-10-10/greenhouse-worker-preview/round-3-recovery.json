@@ -1,0 +1,38 @@
+{
+  "mode": "synthetic_independent_worker",
+  "round": "round-3-recovery",
+  "checks": [
+    "single_execution_lock",
+    "note_revision_conflict",
+    "sync_only_retry",
+    "explicit_recheck",
+    "restart_pauses_without_reupload",
+    "control_lease_loss",
+    "cancellation",
+    "zero_final_actions"
+  ],
+  "result": "passed",
+  "worker_pid": 98970,
+  "jobs": [
+    {
+      "company": "Synthetic 1",
+      "platform": "lever",
+      "status": "filling",
+      "reason": "",
+      "file_sha256": "355ad0ea6893fc86de17ccf6c3626f56ae39085f1ee18d6227e32206e94034e9",
+      "sync_error": ""
+    },
+    {
+      "company": "Synthetic 0",
+      "platform": "lever",
+      "status": "needs_recheck",
+      "reason": "worker_restarted",
+      "file_sha256": "328ec61ead81df3d8278329ef5cce00fb0b881a1e5b77ba6c2389fc510a7e247",
+      "sync_error": ""
+    }
+  ],
+  "uploaded_files": 2,
+  "automatic_final_submissions": 0,
+  "model_calls": 0,
+  "real_ats_calls": 0
+}

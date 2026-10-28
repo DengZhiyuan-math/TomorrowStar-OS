@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "sha256": {
+    "src/career_evidence_graph/application_automation.py": "0e72e10ea2059b456108643290aebd38ed2ae6611e2e13d86789c98b19d2d7db",
+    "src/career_evidence_graph/application_worker.py": "534c9ad07e2687fcb87698318ce20f124e7dd5fd2acd3baba92e2ad1738fbf5a",
+    "src/career_evidence_graph/career_portal.py": "b836553f40900f6f841a199b9fb0f1decaeabe0da1386bcb3fb6d99df27f5a49",
+    "src/career_evidence_graph/job_screening.py": "4dd1b2bc78cd08d6bc849ab2b827b3e93c0b592eab6e04a0321d843ab8e39a15",
+    "src/career_evidence_graph/portal_static/app.js": "e38960c7f2b5e5d126dae9300d64b7b95984ce7b47ade1e2174cb22004bde1db",
+    "src/career_evidence_graph/portal_static/worker.js": "18b364e01afd28f6a20a0a6227acc4d4fa6707c472bc26a5fce33de60882b7e8",
+    "src/career_evidence_graph/portal_static/index.html": "fee0a1ee934be04966c9e0907aff978a4b4234ce94b5055d24febe0971b84d18",
+    "src/career_evidence_graph/portal_static/style.css": "98b2e7e5fa3b442db5d30d33e98baec155ac89eb7125ec7135521cf649224370",
+    "tests/test_job_screening.py": "88f66dd93bb9b9768d9234c52ea1b11bb2f48dfca69b5ce91366cb4c39a8b2b6",
+    "tests/test_application_automation.py": "45f6d2bba0816dc7457e9f06379c8f798a0c969acccf57d300206be3657b6166",
+    "tests/test_application_worker.py": "871e22005c2d00e391f625ef557b7f01ef65b8a8cb00fbd7fe828ffa94cfd0d9",
+    "tests/test_career_portal_http.py": "2f3f1700e7e067c20200b9039f4c01b95b0ea6529a3485ac3af3ebe1ba8b3986"
+  }
+}

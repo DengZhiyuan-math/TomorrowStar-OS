@@ -2,32 +2,242 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Full Career Graph and Real JD Validation
-current_phase: 07
-current_phase_name: Career Source Custody and Private Workspace
+current_phase: 09
+current_phase_name: Generic Contribution Audit and Attribution
 status: executing
-stopped_at: Completed 07-12-PLAN.md; Phase 7 remains pending independent verification
-last_updated: "2026-09-01T08:35:59.589Z"
-last_activity: 2026-09-01
-last_activity_desc: Phase 07 Plan 12 executed; independent verification pending
-state_head: 339bbcd1f37197888b5c80d9729ee7250d2e1e73
+stopped_at: Adapter and successor delivery; synthetic trials and human calibration review
+last_updated: "2026-10-08T09:08:13.175500+00:00"
+last_activity: 2026-10-08
+last_activity_desc: Deliver generic private interview adapter, linked inventory successors and frozen synthetic calibration
+state_head: e4a26d0c24311d014d478f7f92e58a88e6709b4b
 progress:
   total_phases: 8
-  completed_phases: 0
+  completed_phases: 2
   total_plans: 11
   completed_plans: 11
-  percent: 0
+  percent: 25
 ---
 
 # Project State
+
+## Current application product — 2026-10-26
+
+The [current handoff](../.scratch/module-completion-2026-10-26/current-handoff.md)
+and [remaining map](../.scratch/module-completion-2026-10-26/map.md) now use the
+completed [R6 acceptance](../docs/module-interfaces-and-migration-design.md#2026-10-26-修复与整批验收):
+7,458 offline passes/two skips and 594 isolated synthetic-browser passes/21 skips,
+all 615 browser nodes covered, zero failures/errors and one unchanged 652-file
+snapshot. Ruff, format and diff checks passed; all skips were disabled opt-ins.
+
+T01–T05 retain their implemented scope. Next is T06, including actual synthetic
+page-action stop races; T06–T11, full M3–M6 and final AC01–AC27 remain incomplete.
+The mapped-import → Prism successor gap remains M3 Resume work. Default page
+writing and automatic takeover remain closed. No real model/application/ATS,
+native Cua or signed-GUI acceptance or installed-App update occurred in R6.
+This documentation sync starts no implementation or external run. Final Submit
+remains manual; the research YAML and phase counters above are unchanged.
+
+The [product specification](../docs/single-job-flow.md) now records APP-01–18 from
+user design alignment. The [system audit](../docs/system-audit-2026-10-20.md)
+separates implemented parts, failures and overdesign. The
+[development plan](../docs/development-plan.md) is the current implementation order.
+This documentation revision changes no running code, installed App or real job.
+
+The YAML milestone and phase fields above track the research programme only.
+The dated records below retain their own evidence and historical approval scope;
+they must not restore superseded product limits or repeated confirmations.
+Product completion is unproven until the plan's end-to-end acceptance passes.
+
+## Work audit — 2026-10-20
+
+The [current work audit](../.scratch/work-audit-2026-10-20/README.md) records
+127 tickets, 24 unclosed, current source and installed differences, focused
+verification and the existing batch-append failure. It updates navigation and
+plan summaries without changing ticket ownership, research acceptance or the
+paused real-application state. The research phase counters remain unchanged.
+
+## Historical work audit — 2026-10-19
+
+The [historical work audit](../.scratch/work-audit-2026-10-19/README.md) reconciles
+engineering delivery and open tickets. Material preparation and browser delivery
+retain separate acceptance gates from the research milestone below. Phase 9 stays
+in progress; the first accepted inventory remains valid, and later successors
+still require exact acceptance when promoted as research inputs; direct career fact updates follow APP-04. No personal scoring or hypothesis decision follows
+from engineering verification.
+
+## Current delivery — 2026-10-08
+
+Phases 7 and 8 are complete for the independently verified local MVP and the first
+user-accepted inventory cutoff. This is 2 of 8 phase boundaries (25%), not a
+hypothesis-validity or product-readiness score. The 11/11 plan counts above retain
+Phase 7 execution history; later delivery did not create artificial plan counts.
+The current private inventory seal was reverified without changing its bytes.
+Later additions remain pending exact successor acceptance for research use; this does not delay saving explicit user fact corrections.
+
+The generic adapter now binds accepted inventory, Experience, bounded Contribution,
+source identity/hash and original prior questions/answers. It runs overview, depth
+and transfer through the existing audit engine and keeps each conclusion separate.
+Every mutation rechecks current acceptance; a successor makes the old session
+readable history but blocks continuation. The queue retains every inventory item.
+Linked inventory successors verify retained parent seals and review ancestry.
+
+Implementation, frozen synthetic model trials and human personal calibration are
+separate evidence. Phase 9 remains in progress. Real personal questioning and
+scoring remain suspended until reviewed readiness. See the
+[delivery and validation record](../docs/interview-delivery-2026-10-08.md).
+Earlier sections below are dated history, not current pending implementation.
+
+## Web interview preparation entry — 2026-10-08
+
+The user requested the three-layer protocol in the Web entrypoint. The portal now
+links project interview preparation from navigation, the overview card and
+evidence details. It provides source search, layer rules, the current full
+protocol, local plan inspection and separate layer/difficulty previews. Changing
+inspection inputs invalidates previous results. Synthetic inputs were cleared
+after browser verification.
+
+The Web and CLI entrypoints share `inspect_project_interview_plan` and the
+existing context-binding validator. The new POST retains same-origin, CSRF,
+bounded-body and safe-response guards. It writes no records, calls no model and
+produces no personal score. Formal questioning, inventory admission, semantic
+question quality and reviewed calibration retain their existing pending gates.
+
+The focused portal/CLI/pipeline selection passed 86 tests; the complete offline
+suite passed 616 tests, with one opt-in test deselected. Browser checks verified
+valid preparation, wrong-identity rejection, layer/difficulty previews, immediate
+invalidation, source navigation and protocol retrieval. Desktop and narrow
+layouts had no horizontal page overflow. Implementation does not close Phase 9
+or Phase 10 acceptance.
+
+## Question and scoring pipeline preparation — 2026-10-07
+
+The user requested a reasonable question-generation and scoring pipeline before
+specific-project questions and scores. Personal capability questioning is
+suspended while this preparation runs; earlier answers remain retained.
+
+The [pipeline contract](../docs/question-scoring-pipeline.md) separates context
+retrieval, predeclared question criteria, answer-bound evidence review, conclusion
+review and existing anchor-based assessment. The first implementation reuses the
+audit state machine and assessment models. Its context-request action does not
+consume a question, lower difficulty or establish capability.
+
+The offline checkout suite passed (586 tests, one opt-in test deselected),
+including eight new pipeline regressions. Ruff checks and formatting passed.
+This verifies synthetic workflow behavior, not model grading accuracy.
+
+The user's next clarification defines three ordered question layers: concise
+project introduction, project technical depth and transfer to similar problems.
+Layers are independent of difficulty. The updated preparation model and prompt
+preserve distinct depth/transfer plans, explicit changed conditions and project
+overview context. The single-Contribution audit engine retains layer metadata;
+the generic private adapter remains responsible for complete interview sequencing.
+
+The three-layer update passed 64 focused regressions and the full offline suite
+(592 passed, one opt-in test deselected). Ruff and formatting checks passed.
+No live question-generation quality, personal score or adapter acceptance is claimed.
+
+The protocol is now integrated into PROJECT, AGENTS, CONTEXT, existing GRF-01,
+GRF-02 and GRF-06, and Phase 9/10 success criteria. README and workflow navigation
+link the same detailed pipeline. Requirement IDs and phase mappings are unchanged.
+
+The generation port and read-only `audit inspect-plan` now share one context-binding
+validator. Inspection emits preparation status, versions, layer order and counts;
+it does not write records, call a model, admit inventory or score capability.
+Missing overview criteria, including whitespace-only criteria, are rejected.
+Source custody and semantic question quality remain separate checks.
+
+The final integration passed 51 focused regressions, including 23 pipeline cases,
+and the complete offline suite (601 passed, one opt-in test deselected) after the
+final overview-criterion check. Ruff, formatting and diff whitespace checks passed.
+The schema, requirement mappings and linked document paths were also checked.
+
+Offline regression can establish plumbing correctness only. The generic private
+adapter, question-quality trial and reviewed scoring calibration remain required
+before personal capability questioning resumes. No new personal score or phase
+acceptance is claimed.
+
+## Current Contribution review — 2026-10-07
+
+The user authorized the next review stage. A private working queue now binds
+accepted inventory identities to review preparation. Prior Contribution candidates
+and answers were retrieved without promoting them to accepted Contributions.
+The first new responsibility answer was recorded with the original question.
+The next probe concerns the user's experimental hypothesis and its falsification
+conditions. No Skill assessment or mastery score was created.
+
+This is the start of personal review, not Phase 9 implementation acceptance.
+The generic private audit adapter remains pending. Review preparation retains
+every accepted identity and does not rewrite the inventory seal or prior answers.
+
+A later user-supplied employment addition is saved in a source-bound review
+successor. The preceding accepted inventory remains intact. The successor needs
+exact acceptance and a linked seal before its new identity can enter Contribution
+admission. Existing review context remains bound to the preceding accepted version.
+
+## Current inventory handoff — 2026-10-07
+
+The user explicitly accepted the exact private inventory. The first immutable
+seal now binds the full revision, source dispositions, coverage, user acceptance
+and independent verification. The saved bundle matches the independently
+reviewed output. The original review packets remain unchanged.
+
+The private operator reuses the existing source-custody, coverage and create-only
+publication functions. It supports the first seal only. Later corrections must
+retain this version and use a linked successor. This result accepts inventory
+facts; it does not establish personal capability, Skill mastery or JD usefulness.
+
+The next action is to bind existing Contribution candidates to accepted
+identities, retrieve their artifacts and prior answers, and review bounded
+responsibility and capability. The generic private Contribution audit adapter
+remains next-phase work. No capability assessment was created by sealing.
+
+## Verification prerequisite — 2026-10-07
+
+[Independent Phase 7 verification](phases/07-career-source-custody-and-private-workspace/07-VERIFICATION-2026-10-07.md)
+passed against the active single-user MVP contract and exact reviewed public
+inputs. The unavailable-Source reason rule was repaired and independently
+rechecked. The historical August verification and September handoff below do
+not describe the current verification gate.
+
+The Phase 7 independent-verification prerequisite is satisfied. The inventory
+acceptance and seal recorded above are separate from this verification result.
+
+
+## Historical handoff supplement — 2026-09-18
+
+The following text retains the September acceptance position. The October
+handoff above supersedes its pending verification and inventory acceptance status.
+
+- Current checkout includes optional Candidate Skill Links and the audit CLI
+  input, documented in quick tasks `260908-dbj` and `260908-kmh`. Their local
+  implementation is later than the older planning-only candidate map.
+- Source-universe self-report successors and the Phase 8 private inventory
+  handoff exist. Reconciliation and exact inventory acceptance remain separate.
+- The [repository guide](../README.md), [workflow](../docs/workflows.md) and
+  [harness review](../docs/harness-review-2026-09-18.md) locate current code,
+  operational boundaries and the latest scoped repairs.
+- Phase 7's MVP simplification addendum and Plan 12 supersede the historical
+  commit-OID, dedicated-ref, migration, cleanup and snapshot-authority decisions
+  listed later in this file. The active implementation is the direct workspace
+  API, ordinary local containment and append-only raw retention.
+- Phase 3 retains the trusted-local atomic-snapshot scope (D-17 through D-21).
+  Do not reintroduce concurrency/journal machinery from older plans.
+- An explicitly requested [local career workspace](../docs/career-portal.md)
+  joins existing application notes and read-only career documents. It is a local
+  operator UI; application links and statuses do not grant assessment or phase
+  acceptance. The CLI/harness remains available through its existing launchers.
+
+This supplement is an implementation handoff, not a new phase-verification record
+or a claim that private inventory, real mastery or JD usefulness was accepted.
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-08-28)
 
 **Core value:** Accurately determine what the user can genuinely do within specific contributions and convert that understanding into skill scores and graph relationships useful for JD-relevant career decisions.
-**Current focus:** Phase 07 — Career Source Custody and Private Workspace
+**Current focus:** Phase 09 — Bounded Contribution responsibility and capability review
 
-## Current Position
+## Historical Position — 2026-09-01
 
 Phase: 07 (Career Source Custody and Private Workspace) — EXECUTING
 Plan: 11 of 11
@@ -179,6 +389,7 @@ None yet.
 | 260731-ee8 | Fix Phase 2 coverage kind regression metadata by using an allowed classifier kind, then verify classification and the ontology invariant test | 2026-07-31 | d049529 |  | [260731-ee8-fix-phase-2-coverage-kind-regression-met](./quick/260731-ee8-fix-phase-2-coverage-kind-regression-met/) |
 | 260901-ffz | Create and locally clone the private tomorrowstar-career-data repository with a minimal safe career-source workspace scaffold | 2026-09-01 | 52d9cf8 |  | [260901-ffz-create-and-locally-clone-the-private-tom](./quick/260901-ffz-create-and-locally-clone-the-private-tom/) |
 | 260901-k1m | Declare and capture the confirmed GitHub and Codex local source universe in the private career-data workspace | 2026-09-01 | 5ca86fa | Verified | [260901-k1m-declare-and-capture-the-confirmed-github](./quick/260901-k1m-declare-and-capture-the-confirmed-github/) |
+| 4 | 整理全量候选经历：建立去重/合并边界、保留来源证据与待 Grill-Me 审计队列；暂不进行技能评分 | 2026-09-02 | 16d43a0 | — | — |
 
 ## Deferred Items
 
@@ -192,12 +403,13 @@ None yet.
 | v1.0 closeout | Phase 5 real evaluation, Phase 6 replication, and core-hypothesis decision | Not run; no empirical outcome claimed | 2026-08-28 |
 | Verification override | Phase 2 full-suite regression in `test_domain_fixture_rejects_missing_assessment_contribution` | Resolved by `987cc7c`; focused historical/current revalidation green on 2026-08-28 | 2026-08-28 |
 
-## Session Continuity
+## Historical Session Continuity — 2026-09-01
 
 Last session: 2026-09-01T08:35:59.568Z
 Stopped at: Completed 07-12-PLAN.md; Phase 7 remains pending independent verification
 Resume file: None
 
-## Operator Next Steps
+## Historical Operator Next Steps — 2026-09-01
 
-- Run independent Phase 7 verification before treating INV-01, INV-06, INV-07, or Phase 7 as complete.
+- Review the exact private inventory and obtain explicit user acceptance before sealing.
+- Preserve the dated independent-verification input hashes; reverify if custody implementation changes.

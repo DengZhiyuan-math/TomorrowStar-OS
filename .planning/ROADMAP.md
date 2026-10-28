@@ -1,9 +1,42 @@
-# Roadmap: Career Evidence Graph
+# Roadmap: Application Product and Career Evidence Research
 
 ## Milestones
 
 - ⚪ **v1.0 Core Foundation and Deferred Validation** — user-approved partial closeout on 2026-08-28. The implementation foundation is archived; empirical validation was not run.
 - 🚧 **v1.1 Full Career Graph and Real JD Validation** — Phases 7–14 build a user-confirmed full-career graph, test it against exactly three real JDs, and make the frozen core-hypothesis decision.
+
+## Current product development — 2026-10-26
+
+The current [Module migration design](../docs/module-interfaces-and-migration-design.md)
+and [remaining task map](../.scratch/module-completion-2026-10-26/map.md) record
+T01–T05 implementation and the completed R6 checkout verification milestone:
+7,458 offline passes/two skips and 594 isolated synthetic-browser passes/21 skips,
+covering all 615 browser nodes on the same unchanged 652-file snapshot. Both
+selections had zero failures/errors; Ruff, format and diff checks passed. Skips
+were explicit opt-ins not enabled or executed. See the
+[R6 evidence](../.scratch/module-completion-2026-10-26/serial-r6-verification-summary.md).
+
+T06 is the next implementation item, followed by T07–T11 under their dependencies.
+Full M3–M6 and final AC01–AC27 acceptance remain open; T04/T05 must repeat stop
+races with T06 page actions. The mapped-import → Prism successor defect remains
+M3 Resume work. Default page writing and automatic takeover stay closed. R6 did
+not operate a real application/model, update the installed App or establish
+native Cua, signed-GUI or real-ATS acceptance. Final Submit remains manual.
+This documentation sync starts no new implementation or external run.
+
+The [development plan](../docs/development-plan.md) is the current operational
+execution order. It maps [APP-01–18](../docs/single-job-flow.md) to reused and new
+tracker tickets, current dependencies and concrete acceptance checks. Build the
+continuous linear application loop before researching concurrent job execution.
+
+Product delivery does not wait for all historical Chrome investigations, a
+complete installed-version proof matrix, repeated material approval or the full
+research milestone. Actual capabilities, known current failures and unknown
+external outcomes still determine what can execute. Preserve historical failures
+and accepted research snapshots without treating them as routine approvals.
+
+The phases below remain the independent research roadmap. Their percentages and
+checkmarks do not measure application product completion or hiring effectiveness.
 
 ## Archived Milestone
 
@@ -11,7 +44,7 @@
 <summary>v1.0 — Core Foundation and Deferred Validation</summary>
 
 - [x] Phase 1: Validation Charter, Provenance, and Technical Decision Gate — 2/2 plans executed
-- [x] Phase 2: Domain Contracts, STOA Fixture, and Deterministic Invariants — 6/6 plans executed; verification is stale and its full-suite regression is acknowledged, not fixed
+- [x] Phase 2: Domain Contracts, STOA Fixture, and Deterministic Invariants — 6/6 plans executed; archived verification remains historical; the later regression repair and revalidation are recorded in STATE.md (commit `987cc7c`)
 - [x] Phase 3: Artifact-Aware Grill-Me and Attribution Workflow — 18/18 plans executed
 - [x] Phase 4: Contribution–Skill Assessment and Aggregation Calibration — 11/11 plans executed
 - [ ] Phase 5: JD Usefulness and Adversarial Evaluation — 2/6 foundation plans executed; no real graph or JD evaluation
@@ -32,8 +65,8 @@ Milestone v1.1 proceeds through eight requirement-driven delivery boundaries. It
 - Integer phases (7, 8, 9): Planned milestone work continuing from v1.0
 - Decimal phases (7.1, 7.2): Urgent insertions, marked as INSERTED
 
-- [ ] **Phase 7: Career Source Custody and Private Workspace** - The user can declare the career-source boundary while evaluators can trace accepted facts without private-data leakage.
-- [ ] **Phase 8: Full-Career Inventory Review and Seal** - The user can reconcile every known career item and seal one complete inventory revision.
+- [x] **Phase 7: Career Source Custody and Private Workspace** - The user can declare the career-source boundary while evaluators can trace accepted facts without private-data leakage.
+- [x] **Phase 8: Full-Career Inventory Review and Seal** - The user can reconcile every known career item and seal one complete inventory revision.
 - [ ] **Phase 9: Generic Contribution Audit and Attribution** - The user can audit any accepted Contribution through the existing one-question workflow and retain truthful attribution.
 - [ ] **Phase 10: Skill Resolution and Reviewed Mastery** - The user can resolve candidate Skills and admit only reviewed user truth into no-inflation mastery.
 - [ ] **Phase 11: Canonical Career Graph and User Confirmation** - The user can inspect and confirm one complete, deterministic, status-aware career graph.
@@ -54,7 +87,7 @@ Milestone v1.1 proceeds through eight requirement-driven delivery boundaries. It
   2. An evaluator can trace every accepted inventory fact and Evidence item to its source identity, content hash, capture metadata, and versioned transformations.
   3. The operator can process raw career sources in the ignored private workspace while routine output, logs, errors, and committed artifacts expose only safe identifiers, counts, hashes, and redacted diagnostics.
 
-**Plans:** Historical execution is preserved: 07-00 through 07-08 and 07-10 have Summaries; 07-09 is superseded after its committed Task 1; 07-11 is superseded before execution; 07-12 executes the MVP simplification. Phase 7, its requirements, and the milestone remain incomplete pending independent verification.
+**Plans:** Historical execution is preserved: 07-00 through 07-08 and 07-10 have Summaries; 07-09 is superseded after its committed Task 1; 07-11 is superseded before execution; 07-12 executes the MVP simplification. The independent MVP verification passed on 2026-10-07. Phase 7 is complete for that local contract; see [verification](phases/07-career-source-custody-and-private-workspace/07-VERIFICATION-2026-10-07.md). Historical failed verification is retained. New inventory publication must refresh changed exact-input bindings.
 
 Plans:
 **Wave 0**
@@ -119,8 +152,8 @@ Plans:
   3. The user can inspect category, declared-source, candidate, unresolved-item, and unavailable-source coverage before the inventory is called complete.
   4. The user can seal an exact inventory revision only after every candidate has a recorded disposition; later corrections create linked immutable revisions rather than rewriting accepted history.
 
-**Plans**: TBD
-**Blocking checkpoint**: The user must accept the inventory revision before Phase 9 begins.
+**Delivery**: The first exact private inventory was user-accepted and sealed on 2026-10-07. Its full semantic, coverage, review and source lineage was reverified on 2026-10-08. Linked successor publication now preserves the accepted parent and requires new exact approval. Later additions remain unaccepted until that checkpoint.
+**Blocking checkpoint**: The accepted baseline permits review of its confirmed identities. New successor identities remain blocked until exact acceptance. See the [implementation record](../docs/interview-delivery-2026-10-08.md).
 
 ### Phase 9: Generic Contribution Audit and Attribution
 
@@ -132,8 +165,10 @@ Plans:
   1. The user can run the artifact-aware, one-question-at-a-time audit for any accepted Contribution ID without STOA-specific production identifiers or paths.
   2. Each audit keeps capability coverage, user/team/other-person/coding-agent/third-party attribution, evidence sufficiency, assistance, skips, contradictions, and unresolved responsibility as distinct reviewable facts.
   3. The user can pause and resume a full-career audit queue, see why every Contribution is pending, and prioritize JD-relevant unresolved items without hiding or deleting other inventory items.
+  4. A project interview starts with overview, proceeds to Contribution depth, then tests transfer under explicit changed conditions. Depth and transfer each retain their own difficulty ladder and predeclared criteria; the adapter binds all layers to the accepted inventory and inspected context.
+  5. Context requests retain the active question without lowering difficulty or supplying negative capability evidence. Prior answers, responsibility boundaries and each layer's conclusions remain reviewable. Question-quality trials pass the [pipeline gates](../docs/question-scoring-pipeline.md#恢复真实项目问答前的验收) before personal questioning resumes.
 
-**Plans**: TBD
+**Delivery status**: The shared inventory-bound adapter, complete three-layer execution and private verified-seal bridge are implemented. Synthetic trials and actual personal review have separate acceptance. Phase 9 remains open until the reviewed quality and real audit gates pass.
 
 ### Phase 10: Skill Resolution and Reviewed Mastery
 
@@ -146,6 +181,7 @@ Plans:
   2. Only current admitted `reviewed-user-truth` Contribution–Skill assessments can establish or increase mastery; inventory presence, unresolved content, wording, ontology relations, titles, credentials, and repository presence have no mastery effect.
   3. The user can inspect mastery, centrality, confidence, context, duration, recency, responsibility, assistance, assessment basis, and admission status as separate meanings for every score-bearing relationship.
   4. Duplicate sources, Evidence, Contributions, aliases, and incidental uses cannot increase mastery, confidence, duration, or cross-context promotion without observable evidence satisfying the higher capability anchor.
+  5. Reviewed answer and anchor calibration checks the three layers against the [pipeline protocol](../docs/question-scoring-pipeline.md). Layer averages do not produce mastery; overview fluency alone does not establish technical mastery, and transfer reasoning does not become completed work or repeated real-world responsibility.
 
 **Plans**: TBD
 
@@ -215,11 +251,13 @@ Phases execute in numeric order: 7 → 8 → 9 → 10 → 11 → 12 → 13 → 1
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 7. Career Source Custody and Private Workspace | v1.1 | 11/11 | In Progress |  |
-| 8. Full-Career Inventory Review and Seal | v1.1 | 0/TBD | Not started | - |
-| 9. Generic Contribution Audit and Attribution | v1.1 | 0/TBD | Not started | - |
+| 7. Career Source Custody and Private Workspace | v1.1 | 11/11 | Complete, MVP contract | 2026-10-07 |
+| 8. Full-Career Inventory Review and Seal | v1.1 | Private delivery | Complete, first accepted cutoff | 2026-10-07 |
+| 9. Generic Contribution Audit and Attribution | v1.1 | Adapter delivered | In progress, quality and real review | - |
 | 10. Skill Resolution and Reviewed Mastery | v1.1 | 0/TBD | Not started | - |
 | 11. Canonical Career Graph and User Confirmation | v1.1 | 0/TBD | Not started | - |
 | 12. Three Real JDs and Immutable Corpus | v1.1 | 0/TBD | Not started | - |
 | 13. Reproducible Comparison and Automated Evaluation | v1.1 | 0/TBD | Not started | - |
 | 14. Independent Review and Core-Hypothesis Decision | v1.1 | 0/TBD | Not started | - |
+
+Progress counts phase acceptance at its declared cutoff. It is not a percentage of hypothesis validation or employment effectiveness. Later inventory corrections do not rewrite the first accepted baseline.

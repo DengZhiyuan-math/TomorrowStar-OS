@@ -15,6 +15,7 @@ from career_evidence_graph.assessment import (
     AssessmentStore,
     AssessmentWorkflowError,
     aggregate_skill,
+    aggregate_user_skills,
     build_assessment_run,
     decide_admission,
     propose_assessment,
@@ -41,10 +42,11 @@ from career_evidence_graph.domain.models import (
     AssessmentAdmissionStatus,
     ContributionSkillAssessment,
 )
+from career_evidence_graph.jd import JDComparisonError, load_reviewed_user_graph
 from career_evidence_graph.validation.hashing import canonical_json_bytes, sha256_digest
 
 ROOT = Path(__file__).parents[1]
-CORPUS = ROOT / "validation/calibration/phase-04/corpus.json"
+CORPUS = ROOT / "validation/calibration/phase-04/corpus-review-safe-v1.json"
 POLICIES = ROOT / "validation/calibration/phase-04/policies.json"
 LAUNCHER = ROOT / "scripts/run_career_evidence.py"
 
@@ -247,6 +249,96 @@ def _review(
     }
     arguments.update(changes)
     return review_assessment(record, policy=_policy("policy-04-baseline-60", 60), **arguments)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("attribution_status", "assistance_status"),
+    (
+        ("unresolved", "resolved"),
+        ("disputed", "resolved"),
+        ("resolved", "unresolved"),
+        ("unresolved", "unresolved"),
+    ),
+)
+def test_review_acknowledgments_cannot_resolve_unknown_attribution(
+    tmp_path: Path, attribution_status: str, assistance_status: str
+) -> None:
+    proposal = _proposal(
+        tmp_path,
+        attribution_status=attribution_status,
+        assistance_status=assistance_status,
+    )
+    record = build_assessment_run(proposal, decide_admission(proposal, _policy("review", 60)))
+
+    reviewed = _review(record)
+    AssessmentStore(tmp_path).create("assessment-unknown-attribution", reviewed)
+    reopened = AssessmentStore(tmp_path).read("assessment-unknown-attribution")
+
+    assert reopened.proposal.substantive_review_complete
+    assert reopened.proposal.attribution_status == attribution_status
+    assert reopened.proposal.assistance_status == assistance_status
+    assert reopened.admission.admission_status == "pending-confirmation"
+    assert reopened.result is None
+    assert aggregate_user_skills((reopened,)) == ()
+
+    resolved_payload = reopened.proposal.model_dump(mode="json")
+    resolved_payload.update(attribution_status="resolved", assistance_status="resolved")
+    corrected = _review(
+        reopened,
+        proposal=ContributionSkillAssessment.model_validate(resolved_payload),
+        outcome="edit",
+    )
+    AssessmentStore(tmp_path).replace("assessment-unknown-attribution", corrected)
+    corrected = AssessmentStore(tmp_path).read("assessment-unknown-attribution")
+
+    assert corrected.admission.admission_status == "admitted"
+    assert aggregate_user_skills((corrected,))[0].mastery == 60
+
+
+@pytest.mark.parametrize(
+    ("attribution_status", "assistance_status"),
+    (("unresolved", "resolved"), ("disputed", "resolved"), ("resolved", "unresolved")),
+)
+def test_reloaded_legacy_admission_cannot_score_unresolved_attribution(
+    tmp_path: Path, attribution_status: str, assistance_status: str
+) -> None:
+    proposal = _proposal(
+        tmp_path,
+        attribution_status=attribution_status,
+        assistance_status=assistance_status,
+        origin_status="audit-verified",
+    )
+    source = proposal.source_envelope.model_copy(update={"authority_label": "reviewed-user-truth"})
+    proposal = proposal.model_copy(update={"source_envelope": source})
+    normal = AssessmentStore(tmp_path).read("assessment-audit-e2e-04-baseline-60")
+    pending = build_assessment_run(proposal, decide_admission(proposal, _policy("review", 60)))
+    reviewed = _review(pending)
+    # Reconstruct the hash-valid legacy outcome produced before this admission fix.
+    payload = reviewed.model_dump(mode="json")
+    payload["admission"]["admission_status"] = "admitted"
+    payload["result"] = normal.result.model_copy(
+        update={"source_envelope": source, "authority_label": "reviewed-user-truth"}
+    ).model_dump(mode="json")
+    payload["versions"][-1]["admission"] = payload["admission"]
+    latest = payload["versions"][-1]
+    latest["version_hash"] = sha256_digest(
+        canonical_json_bytes({key: value for key, value in latest.items() if key != "version_hash"})
+    )
+    payload["version_hash"] = latest["version_hash"]
+    legacy = AssessmentRun.model_validate(payload)
+    legacy_workspace = tmp_path / "legacy"
+    store = AssessmentStore(legacy_workspace)
+    store.create("assessment-legacy-attribution", legacy)
+    reopened = store.read("assessment-legacy-attribution")
+
+    assert reopened.proposal.substantive_review_complete
+    assert reopened.admission.admission_status == "admitted"
+    with pytest.raises(AssessmentWorkflowError, match="attribution"):
+        aggregate_user_skills((reopened,))
+    with pytest.raises(AssessmentWorkflowError, match="attribution"):
+        aggregate_skill(reopened.proposal, reopened.admission)
+    with pytest.raises(JDComparisonError, match="lineage"):
+        load_reviewed_user_graph(legacy_workspace)
 
 
 @pytest.mark.parametrize(

@@ -1,0 +1,9 @@
+{"type":"thread.started","thread_id":"01a11ac0-5ca4-79b3-aa5b-965f0e0ff14f"}
+{"type":"turn.started"}
+{"type":"error","message":"Reconnecting... 2/5 (stream disconnected before completion: Incomplete response returned, reason: max_output_tokens)"}
+{"type":"error","message":"Reconnecting... 3/5 (stream disconnected before completion: Incomplete response returned, reason: max_output_tokens)"}
+{"type":"error","message":"Reconnecting... 4/5 (stream disconnected before completion: Incomplete response returned, reason: max_output_tokens)"}
+{"type":"error","message":"Reconnecting... 5/5 (stream disconnected before completion: Incomplete response returned, reason: max_output_tokens)"}
+{"type":"item.completed","item":{"id":"item_0","type":"error","message":"Falling back from WebSockets to HTTPS transport. stream disconnected before completion: Incomplete response returned, reason: max_output_tokens"}}
+{"type":"error","message":"{\n  \"error\": {\n    \"message\": \"Invalid schema for response_format 'codex_output_schema': In context=('properties', 'evaluation_criteria'), 'propertyNames' is not permitted.\",\n    \"type\": \"invalid_request_error\",\n    \"param\": \"text.format.schema\",\n    \"code\": \"invalid_json_schema\"\n  }\n}"}
+{"type":"turn.failed","error":{"message":"{\n  \"error\": {\n    \"message\": \"Invalid schema for response_format 'codex_output_schema': In context=('properties', 'evaluation_criteria'), 'propertyNames' is not permitted.\",\n    \"type\": \"invalid_request_error\",\n    \"param\": \"text.format.schema\",\n    \"code\": \"invalid_json_schema\"\n  }\n}"}}

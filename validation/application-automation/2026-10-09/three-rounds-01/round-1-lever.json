@@ -1,0 +1,35 @@
+{
+  "reviewed": {
+    "changed": true,
+    "runId": "qa-run-20261009-839eb497",
+    "transition": "reviewed"
+  },
+  "reviewed-repeat": {
+    "changed": false,
+    "runId": "qa-run-20261009-839eb497",
+    "transition": "reviewed"
+  },
+  "evaluate": {
+    "assertions": {
+      "final-action-untouched": "passed",
+      "history-not-completed": "passed",
+      "history-started-reviewed": "passed",
+      "required-fields-filled": "passed",
+      "resume-filename-matched": "passed",
+      "resume-uploaded": "passed",
+      "review-reached": "passed",
+      "session-present": "passed",
+      "session-value-free": "passed"
+    },
+    "failureCategories": [],
+    "fixtureId": "lever-application-2026-08-v1",
+    "missingControlIds": [],
+    "scenarioId": "lever-complete-profile",
+    "status": "passed"
+  },
+  "cleanup": {
+    "reportRetained": true,
+    "runId": "qa-run-20261009-839eb497",
+    "state": "completed"
+  }
+}

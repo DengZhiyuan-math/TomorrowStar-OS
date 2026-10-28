@@ -4,6 +4,54 @@
 **Status:** Active implementation boundary for Phase 07
 **Applies to:** Future Phase 07 execution beginning with `07-12-PLAN.md`
 
+## Current navigation clarification — 2026-10-20
+
+The current local application design is [single-job flow](../../../docs/single-job-flow.md).
+The [development plan](../../../docs/development-plan.md) owns simplification and
+implementation order. This addendum describes the source-custody module and its
+research provenance boundaries; it does not introduce application approval gates.
+Its historical implementation and verification results remain unchanged.
+
+The user can correct an ordinary career fact directly. Save its source and prior
+value, then update only affected derived material; do not require a registry
+successor, sealed inventory or renewed capability assessment merely to use the
+correction in an application. Exact source-universe snapshots still identify
+the inputs of a research run; changing one must not rewrite that run's history.
+The existing `registry-frozen` API rule below is an implementation constraint for
+that research registry, not a requirement to route every current fact through it.
+
+The information library holds reusable scoped application answers. The career
+library holds career and education facts with their context. An actual conflict
+or important missing fact waits on the current job; a missing research seal is
+not itself a conflict. An activated workflow needs no repeated privacy approval
+for its normal saved-data or model use. Public repository containment remains a
+storage boundary, not an additional user-facing review process.
+
+## Local containment clarification — 2026-09-18
+
+The single-user MVP boundary remains active. The harness additionally rejects a
+separate worktree that shares the public repository's Git common directory. Before
+raw writing, it checks the target's effective ignore status and requires an empty
+raw-vault Git index. These are local containment checks, not commit/history or
+remote-visibility authority.
+
+The later immutable self-report successor API depends on the original registry
+hash remaining resolvable. Once successor records exist, ordinary capture and
+derived-mapping mutations of that registry fail with `registry-frozen` before
+side effects. Finish base capture/mapping before creating successors; a generic
+later-capture successor interface remains unimplemented. This repair introduces
+no migration, cleanup, locking or new storage schema.
+
+## Captured source successor clarification — 2026-10-07
+
+The direct module API now supports `record_captured_source_successor`. It adds
+one captured logical source to an exact parent source-universe snapshot. It
+verifies retained parent captures, preserves source type and cutoff, and leaves
+the base registry and parent snapshots unchanged. This supersedes the earlier
+statement that a generic later-capture successor interface is unimplemented.
+The API rejects an existing source ID; it does not recapture an existing source.
+The single-user boundary and candidate-only authority remain active.
+
 ## Why this addendum exists
 
 Phase 07 is a personal, single-user, local MVP. The previously executed plans established

@@ -1,5 +1,14 @@
 # Milestones
 
+## Current operational product — 2026-10-20
+
+The automatic application product follows [APP-01–18](../docs/single-job-flow.md)
+and [the development plan](../docs/development-plan.md). This is an active delivery
+track, not an empirical research closeout. Target behavior and documentation
+changes do not establish implementation or real application acceptance.
+The research milestone records below retain their original evidence.
+
+
 ## v1.0 Core Foundation and Deferred Validation (Closed: 2026-08-28)
 
 **Closeout type:** User-approved partial closeout.
@@ -17,7 +26,7 @@
 ### Known Gaps and Overrides
 
 - JD-01, EVAL-01 through EVAL-06, DEC-01, and DEC-02 remain unfulfilled.
-- The original Phase 2 full-suite regression was acknowledged at closeout; it was not fixed and must not be described as green.
+- The original Phase 2 full-suite regression was acknowledged at closeout. It was subsequently repaired by `987cc7c` and revalidated as recorded in STATE.md; that later result does not rewrite the archived verification or establish empirical acceptance.
 - The checked JD-02 through JD-04 requirements reflect implemented content-free contracts only, not empirical JD usefulness.
 
 **Next milestone:** Build the reviewed personal Skill graph, accept user-provided real JDs, and run the planned empirical evaluation before making any product-expansion claim.

@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from .assessment import (
     AssessmentStorageError,
@@ -28,8 +28,18 @@ from .assessment import (
     run_assessment,
     run_calibration_policy,
 )
-from .audit.decision import RecordedDecisionPort
-from .audit.models import AuditAction, BoundaryDecision, ProbePlan
+from .audit.decision import (
+    RecordedDecisionPort,
+    inspect_project_interview_plan,
+)
+from .audit.models import (
+    ArtifactFact,
+    AuditAction,
+    BoundaryDecision,
+    CandidateSkillLink,
+    ProbePlan,
+    ProjectInterviewPlan,
+)
 from .audit.store import AuditStorageError, AuditStore
 from .audit.workflow import AuditWorkflowError, inspect_contribution, start_audit, transition_audit
 from .domain import (
@@ -187,10 +197,13 @@ def _parser() -> argparse.ArgumentParser:
     start.add_argument("--fixture", required=True)
     start.add_argument("--manifest", default=None)
     start.add_argument("--contribution-id", required=True)
+    start.add_argument("--experience-candidate-id")
+    start.add_argument("--candidate-skill-links")
     start.add_argument("--audit-id")
     start.add_argument("--recorded-probe-plan")
     for name in (
         "answer",
+        "request-context",
         "skip",
         "skip-contribution",
         "pause",
@@ -201,7 +214,7 @@ def _parser() -> argparse.ArgumentParser:
         command = audit_commands.add_parser(name)
         command.add_argument("--workspace", required=True)
         command.add_argument("--audit-id", required=True)
-        if name in {"answer", "skip", "skip-contribution"}:
+        if name in {"answer", "request-context", "skip", "skip-contribution"}:
             command.add_argument("--answer", required=True)
             command.add_argument("--question-id")
         if name == "answer":
@@ -222,12 +235,18 @@ def _parser() -> argparse.ArgumentParser:
     inspect.add_argument("--fixture")
     inspect.add_argument("--manifest")
     inspect.add_argument("--contribution-id")
+    inspect_plan = audit_commands.add_parser("inspect-plan")
+    inspect_plan.add_argument("--plan", required=True)
+    inspect_plan.add_argument("--facts-json", required=True)
+    inspect_plan.add_argument("--experience-id", required=True)
 
     assessment = commands.add_parser("assessment")
     assessment_commands = assessment.add_subparsers(dest="assessment_command", required=True)
     assessment_run = assessment_commands.add_parser("run")
     assessment_run.add_argument("--workspace", required=True)
-    assessment_run.add_argument("--corpus", default="validation/calibration/phase-04/corpus.json")
+    assessment_run.add_argument(
+        "--corpus", default="validation/calibration/phase-04/corpus-review-safe-v1.json"
+    )
     assessment_run.add_argument(
         "--policies", default="validation/calibration/phase-04/policies.json"
     )
@@ -269,7 +288,7 @@ def _parser() -> argparse.ArgumentParser:
     assessment_compare = assessment_commands.add_parser("compare")
     assessment_compare.add_argument("--workspace", required=True)
     assessment_compare.add_argument(
-        "--corpus", default="validation/calibration/phase-04/corpus.json"
+        "--corpus", default="validation/calibration/phase-04/corpus-review-safe-v1.json"
     )
     assessment_compare.add_argument(
         "--policies", default="validation/calibration/phase-04/policies.json"
@@ -487,11 +506,20 @@ def main(argv: list[str] | None = None) -> int:
                 decision_port = _recorded_decision_port(
                     ProbePlan.model_validate(_json_file(args.recorded_probe_plan))
                 )
+            raw_links = _json_file(args.candidate_skill_links) if args.candidate_skill_links else []
+            if not isinstance(raw_links, list):
+                raise ValidationError.from_exception_data(
+                    "CandidateSkillLink", [{"type": "list_type", "loc": (), "input": raw_links}]
+                )
             created = start_audit(
                 workspace=Path(args.workspace),
                 fixture_path=Path(args.fixture),
                 manifest_path=manifest,
                 contribution_id=args.contribution_id,
+                experience_candidate_id=args.experience_candidate_id,
+                candidate_skill_links=tuple(
+                    CandidateSkillLink.model_validate(link) for link in raw_links
+                ),
                 audit_id=args.audit_id,
                 decision_port=decision_port,
             )
@@ -515,6 +543,18 @@ def main(argv: list[str] | None = None) -> int:
                 raise AuditWorkflowError(
                     "inspect needs either workspace and audit ID, or fixture, manifest, and Contribution ID"
                 )
+        elif args.command == "audit" and args.audit_command == "inspect-plan":
+            plan = ProjectInterviewPlan.model_validate(_json_file(args.plan))
+            facts = TypeAdapter(dict[str, tuple[ArtifactFact, ...]]).validate_python(
+                _json_file(args.facts_json)
+            )
+            try:
+                result = inspect_project_interview_plan(
+                    plan, experience_id=args.experience_id, facts_by_contribution=facts
+                )
+            except ValueError as exc:
+                raise AuditWorkflowError("interview plan does not match supplied context") from exc
+            _emit(result)
         elif args.command == "audit":
             store = AuditStore(Path(args.workspace))
             payload = {"action": args.audit_command}
@@ -715,6 +755,7 @@ def main(argv: list[str] | None = None) -> int:
             _emit(load_policy_history(Path(args.workspace)))
         elif args.command == "jd" and args.jd_command == "analyze":
             packet = AcceptedJDPacket.model_validate(_json_file(args.packet))
+            JDIntakeStore(Path(args.workspace)).verify_accepted(packet)
             policy = JDMatchPolicy.model_validate(_json_file(args.policy))
             _emit(compare_accepted_jd(packet, Path(args.workspace), policy))
         elif args.command == "jd" and args.jd_command == "prepare":
@@ -763,6 +804,20 @@ def main(argv: list[str] | None = None) -> int:
     except JDIntakeError as exc:
         _emit_error({"valid": False, "error": exc.code, "message": str(exc)})
         return 2
+    except ValidationError as exc:
+        # Pydantic's formatted exception includes rejected input values and keys.
+        # Report only schema error types; even locations may contain private keys.
+        _emit_error(
+            {
+                "valid": False,
+                "error": "input_validation_error",
+                "types": sorted({issue["type"] for issue in exc.errors()}),
+            }
+        )
+        return 2
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        _emit_error({"valid": False, "error": "input_read_error"})
+        return 2
     except FixtureValidationError as exc:
         _emit_error(
             {
@@ -779,9 +834,6 @@ def main(argv: list[str] | None = None) -> int:
         LiveExecutionError,
         ProvenanceValidationError,
         SourceScopeError,
-        ValidationError,
-        OSError,
-        json.JSONDecodeError,
     ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

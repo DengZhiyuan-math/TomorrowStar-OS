@@ -73,6 +73,9 @@ def resolve_skill_candidate(
     normalized_candidate = _normalized_text(candidate_text)
     records = normalize_skill_metadata(skills, aliases, ontology_relations)
     matching = [record for record in records if record.normalized_text == normalized_candidate]
+    for record in matching:
+        if record.review_status != "descriptive-only":
+            return record
     if matching:
         return matching[0]
     return SkillNormalizationRecord(
@@ -87,7 +90,17 @@ def _entry_evidence_ids(snapshot: AuditSnapshot, entry_id: str) -> tuple[str, ..
     if snapshot.conclusion is None:
         return ()
     entry = next((item for item in snapshot.conclusion.entries if item.id == entry_id), None)
-    if entry is None or entry.verification != "audit-verified" or entry.review != "confirmed":
+    if (
+        entry is None
+        or entry.verification != "audit-verified"
+        or entry.review != "confirmed"
+        or entry.correction is not None
+        or any(
+            review.target == "entry" and review.entry_id == entry_id and review.outcome == "edit"
+            for review in snapshot.conclusion_reviews
+        )
+    ):
+        # A prose correction cannot silently amend the audited structured capability.
         return ()
     referenced = set(entry.artifact_references)
     evidence_ids = {
@@ -96,6 +109,18 @@ def _entry_evidence_ids(snapshot: AuditSnapshot, entry_id: str) -> tuple[str, ..
         if not referenced or fact.evidence_id in referenced or fact.source_locator in referenced
     }
     return tuple(sorted(evidence_ids))
+
+
+def _require_uncorrected_capability(snapshot: AuditSnapshot) -> None:
+    """Free-text edits, including legacy erased edits, need a new structured audit."""
+    if (
+        snapshot.conclusion is not None
+        and any(entry.correction is not None for entry in snapshot.conclusion.entries)
+    ) or any(
+        review.target == "entry" and review.outcome == "edit"
+        for review in snapshot.conclusion_reviews
+    ):
+        raise AssessmentWorkflowError("prose-corrected audit requires a new structured audit")
 
 
 def propose_assessments(
@@ -122,6 +147,7 @@ def propose_assessments(
         return ()
 
     proposals: list[SpecificSkillProposal] = []
+    candidate_links_by_id = {link.id: link for link in snapshot.candidate_skill_links}
     for entry_id in sorted(candidates_by_entry):
         entry = next((item for item in snapshot.conclusion.entries if item.id == entry_id), None)
         evidence_ids = _entry_evidence_ids(snapshot, entry_id)
@@ -147,7 +173,15 @@ def propose_assessments(
         )
         if not attribution or not answer_ids:
             continue
+        records_by_skill: dict[str, dict[str, SkillNormalizationRecord]] = {}
+        links_by_skill: dict[str, set[str]] = {}
         for candidate_text in sorted(set(candidates_by_entry[entry_id]), key=_normalized_text):
+            candidate_skill_link_ids = tuple(
+                link_id
+                for link_id in entry.candidate_skill_link_ids
+                if _normalized_text(candidate_links_by_id[link_id].candidate_text)
+                == _normalized_text(candidate_text)
+            )
             record = resolve_skill_candidate(
                 candidate_text,
                 skills=skills,
@@ -157,6 +191,10 @@ def propose_assessments(
             if record.review_status != "matched" or len(record.candidate_skill_ids) != 1:
                 continue
             skill_id = record.candidate_skill_ids[0]
+            records_by_skill.setdefault(skill_id, {})[record.normalized_text] = record
+            links_by_skill.setdefault(skill_id, set()).update(candidate_skill_link_ids)
+        for skill_id, records in sorted(records_by_skill.items()):
+            ordered_records = tuple(records[text] for text in sorted(records))
             proposal_id = f"proposal-{snapshot.audit_id}-{entry_id}-{skill_id}"
             proposals.append(
                 SpecificSkillProposal(
@@ -171,7 +209,14 @@ def propose_assessments(
                     evidence_ids=evidence_ids,
                     answer_question_ids=answer_ids,
                     attribution_area_ids=attribution,
-                    normalization_record_hash=sha256_digest(canonical_json_bytes(record)),
+                    candidate_skill_link_ids=tuple(sorted(links_by_skill[skill_id])),
+                    normalization_record_hash=sha256_digest(
+                        canonical_json_bytes(
+                            ordered_records[0]
+                            if len(ordered_records) == 1
+                            else [record.model_dump(mode="json") for record in ordered_records]
+                        )
+                    ),
                 )
             )
     return tuple(sorted(proposals, key=lambda item: (item.skill_id, item.contribution_id)))
@@ -539,6 +584,7 @@ def _materialize_audit(
         raise AssessmentWorkflowError("audit is not completed with a conclusion")
     if snapshot.conclusion.whole_review != "confirmed":
         raise AssessmentWorkflowError("audit conclusion is not confirmed")
+    _require_uncorrected_capability(snapshot)
     expected_bytes = canonical_json_bytes(snapshot) + b"\n"
     if sha256_digest(expected_bytes) != corpus.get("audit_snapshot_hash"):
         raise AssessmentWorkflowError("audit snapshot hash does not match corpus")
@@ -572,6 +618,7 @@ def _build_assessment_source_envelope(
     """Derive all assessment custody from one materialized completed audit."""
     if snapshot.conclusion is None or snapshot.conclusion_lineage_hash is None:
         raise AssessmentWorkflowError("assessment audit conclusion is unavailable")
+    _require_uncorrected_capability(snapshot)
     fixture = root / str(corpus["fixture_path"])
     manifest = root / str(corpus["source_manifest_path"])
     snapshot_hash = sha256_digest(canonical_json_bytes(snapshot) + b"\n")
@@ -653,6 +700,13 @@ def propose_assessment(
         raise AssessmentWorkflowError("assessment proposal is invalid") from exc
 
 
+def _has_unresolved_attribution(proposal: ContributionSkillAssessment) -> bool:
+    return (
+        proposal.attribution_status in {"unresolved", "disputed"}
+        or proposal.assistance_status == "unresolved"
+    )
+
+
 def decide_admission(
     proposal: ContributionSkillAssessment,
     policy: AggregationPolicy,
@@ -664,13 +718,12 @@ def decide_admission(
         status = AssessmentAdmissionStatus.UNVERIFIED_CANDIDATE
         reason = "reviewer retained the proposal but found its basis insufficient"
         reason_code = "insufficient-basis"
-    elif (
+    elif _has_unresolved_attribution(proposal) or (
         proposal.origin_status == "self-assessed-unverified"
-        or proposal.attribution_status in {"unresolved", "disputed"}
-        or proposal.assistance_status == "unresolved"
-    ) and not proposal.substantive_review_complete:
+        and not proposal.substantive_review_complete
+    ):
         status = AssessmentAdmissionStatus.PENDING_CONFIRMATION
-        reason = "provenance requires a substantive review before formal admission"
+        reason = "provenance requires resolved attribution and substantive review before admission"
         reason_code = "provenance-review-required"
     elif (
         not proposal.substantive_review_complete
@@ -702,6 +755,8 @@ def aggregate_skill(
         or proposal.source_envelope is None
     ):
         raise AssessmentWorkflowError("only admitted assessments can enter an aggregate")
+    if _has_unresolved_attribution(proposal):
+        raise AssessmentWorkflowError("only resolved attribution can enter an aggregate")
     return CalibratedUserSkillResult(
         result_id=f"result-{proposal.id}",
         skill_id=proposal.skill_id,
@@ -951,6 +1006,8 @@ def aggregate_user_skills(
             raise AssessmentWorkflowError("admission does not bind the effective assessment")
         if record.admission.admission_status != AssessmentAdmissionStatus.ADMITTED:
             continue
+        if _has_unresolved_attribution(proposal):
+            raise AssessmentWorkflowError("only resolved attribution can enter an aggregate")
         if proposal.source_envelope is None or proposal.mastery_anchor_fit is None:
             raise AssessmentWorkflowError("admitted assessment lacks effective lineage")
         if proposal.id in records_by_assessment_id:

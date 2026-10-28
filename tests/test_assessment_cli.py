@@ -23,7 +23,7 @@ from career_evidence_graph.audit.store import AuditStore
 from career_evidence_graph.domain.models import ContributionSkillAssessment
 
 ROOT = Path(__file__).parents[1]
-CORPUS = ROOT / "validation/calibration/phase-04/corpus.json"
+CORPUS = ROOT / "validation/calibration/phase-04/corpus-review-safe-v1.json"
 POLICIES = ROOT / "validation/calibration/phase-04/policies.json"
 LAUNCHER = ROOT / "scripts/run_career_evidence.py"
 

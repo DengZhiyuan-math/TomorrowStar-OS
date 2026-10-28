@@ -1,0 +1,2400 @@
+{
+  "schema_version": 1,
+  "research_date": "2026-10-17",
+  "timezone": "Europe/Zurich",
+  "assembled_at_utc": "2026-10-17T14:26:22.045039+00:00",
+  "objective": "深入分析43项开源候选，对照当前TomorrowStar确定可复用代码与可借鉴功能",
+  "catalog_file": "open-source-job-application-browser-tools-2026-10-17.json",
+  "project_count": 43,
+  "decision_counts": {
+    "reuse": 3,
+    "inspired-by": 22,
+    "adapt": 10,
+    "reject": 8
+  },
+  "classification_scope": "Project primary disposition; individual modules can be rejected within an adapt/inspired-by project. No proposed integration has been implemented.",
+  "projects": [
+    {
+      "repository": "neonwatty/job-apply-plugin",
+      "sha": "370204c58b1137d08c5a7e7449538ae6447be0b9",
+      "decision": "reuse",
+      "local_state": "已有",
+      "upstream_refs": [
+        {
+          "path": "scripts/job-apply-store.py",
+          "line": 83,
+          "end_line": 113,
+          "url": "https://github.com/neonwatty/job-apply-plugin/blob/370204c58b1137d08c5a7e7449538ae6447be0b9/scripts/job-apply-store.py#L83-L113"
+        },
+        {
+          "path": "qa/contracts.py",
+          "line": 29,
+          "end_line": 95,
+          "url": "https://github.com/neonwatty/job-apply-plugin/blob/370204c58b1137d08c5a7e7449538ae6447be0b9/qa/contracts.py#L29-L95"
+        },
+        {
+          "path": "qa/oracle.py",
+          "line": 555,
+          "end_line": 565,
+          "url": "https://github.com/neonwatty/job-apply-plugin/blob/370204c58b1137d08c5a7e7449538ae6447be0b9/qa/oracle.py#L555-L565"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/_vendor/README.md",
+          "line": 3,
+          "url": "../src/career_evidence_graph/_vendor/README.md#L3"
+        },
+        {
+          "path": "src/career_evidence_graph/_vendor/job_apply_store.py",
+          "line": 83,
+          "url": "../src/career_evidence_graph/_vendor/job_apply_store.py#L83"
+        },
+        {
+          "path": "src/career_evidence_graph/application_worker.py",
+          "line": 467,
+          "url": "../src/career_evidence_graph/application_worker.py#L467"
+        },
+        {
+          "path": "src/career_evidence_graph/application_worker_fixtures.py",
+          "line": 110,
+          "url": "../src/career_evidence_graph/application_worker_fixtures.py#L110"
+        }
+      ],
+      "benefit": "Store 已原样 vendor，无需新增；可把多 ATS fixture/语义控件目录和 oracle 断言翻译进现有 synthetic server。",
+      "caveat": "MIT；真实表单未验证；final-action policy helper inert，当前人工 Submit 不需要自动提交 lease。",
+      "catalog_sha": "370204c58b1137d08c5a7e7449538ae6447be0b9",
+      "license_declared": "MIT",
+      "license_url": "https://github.com/neonwatty/job-apply-plugin/blob/370204c58b1137d08c5a7e7449538ae6447be0b9/LICENSE"
+    },
+    {
+      "repository": "AbhishekMandapmalvi/AutoApply",
+      "sha": "053071ba1bba5733b522d78c3d645002d817e55a",
+      "decision": "inspired-by",
+      "local_state": "已有",
+      "upstream_refs": [
+        {
+          "path": "bot/bot.py",
+          "line": 139,
+          "end_line": 228,
+          "url": "https://github.com/AbhishekMandapmalvi/AutoApply/blob/053071ba1bba5733b522d78c3d645002d817e55a/bot/bot.py#L139-L228"
+        },
+        {
+          "path": "bot/apply/greenhouse.py",
+          "line": 64,
+          "end_line": 94,
+          "url": "https://github.com/AbhishekMandapmalvi/AutoApply/blob/053071ba1bba5733b522d78c3d645002d817e55a/bot/apply/greenhouse.py#L64-L94"
+        },
+        {
+          "path": "bot/bot.py",
+          "line": 640,
+          "end_line": 681,
+          "url": "https://github.com/AbhishekMandapmalvi/AutoApply/blob/053071ba1bba5733b522d78c3d645002d817e55a/bot/bot.py#L640-L681"
+        },
+        {
+          "path": "core/resume_assembler.py",
+          "line": 440,
+          "end_line": 475,
+          "url": "https://github.com/AbhishekMandapmalvi/AutoApply/blob/053071ba1bba5733b522d78c3d645002d817e55a/core/resume_assembler.py#L440-L475"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/application_flow.py",
+          "line": 390,
+          "url": "../src/career_evidence_graph/application_flow.py#L390"
+        },
+        {
+          "path": "src/career_evidence_graph/application_resume.py",
+          "line": 667,
+          "url": "../src/career_evidence_graph/application_resume.py#L667"
+        },
+        {
+          "path": "src/career_evidence_graph/application_worker.py",
+          "line": 1136,
+          "url": "../src/career_evidence_graph/application_worker.py#L1136"
+        }
+      ],
+      "benefit": "借 résumé 版本来源/组装 entry IDs 展示；本地已有 selected/used/unselected source 与 artifact 版本，不导入 DB/engine。",
+      "caveat": "MIT；无可见 error 即 success/applied，生成简历反向写 KB，重新 goto/login retry/关闭页与本地契约冲突。",
+      "catalog_sha": "053071ba1bba5733b522d78c3d645002d817e55a",
+      "license_declared": "MIT",
+      "license_url": "https://github.com/AbhishekMandapmalvi/AutoApply/blob/053071ba1bba5733b522d78c3d645002d817e55a/LICENSE"
+    },
+    {
+      "repository": "yuyao-wang/Jobops",
+      "sha": "643f489936e07494941d58433da82826ed224ae8",
+      "decision": "adapt",
+      "local_state": "部分",
+      "upstream_refs": [
+        {
+          "path": "core/current_priority_queue.py",
+          "line": 244,
+          "end_line": 295,
+          "url": "https://github.com/yuyao-wang/Jobops/blob/643f489936e07494941d58433da82826ed224ae8/core/current_priority_queue.py#L244-L295"
+        },
+        {
+          "path": "core/resume_fact_qa.py",
+          "line": 1195,
+          "end_line": 1412,
+          "url": "https://github.com/yuyao-wang/Jobops/blob/643f489936e07494941d58433da82826ed224ae8/core/resume_fact_qa.py#L1195-L1412"
+        },
+        {
+          "path": "core/application_engine.py",
+          "line": 620,
+          "end_line": 674,
+          "url": "https://github.com/yuyao-wang/Jobops/blob/643f489936e07494941d58433da82826ed224ae8/core/application_engine.py#L620-L674"
+        },
+        {
+          "path": "core/application_engine.py",
+          "line": 705,
+          "end_line": 833,
+          "url": "https://github.com/yuyao-wang/Jobops/blob/643f489936e07494941d58433da82826ed224ae8/core/application_engine.py#L705-L833"
+        },
+        {
+          "path": "core/event_ledger.py",
+          "line": 913,
+          "end_line": 1012,
+          "url": "https://github.com/yuyao-wang/Jobops/blob/643f489936e07494941d58433da82826ed224ae8/core/event_ledger.py#L913-L1012"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/application_flow.py",
+          "line": 256,
+          "url": "../src/career_evidence_graph/application_flow.py#L256"
+        },
+        {
+          "path": "src/career_evidence_graph/job_screening.py",
+          "line": 188,
+          "url": "../src/career_evidence_graph/job_screening.py#L188"
+        },
+        {
+          "path": "src/career_evidence_graph/application_resume.py",
+          "line": 517,
+          "url": "../src/career_evidence_graph/application_resume.py#L517"
+        },
+        {
+          "path": "src/career_evidence_graph/application_execution.py",
+          "line": 50,
+          "url": "../src/career_evidence_graph/application_execution.py#L50"
+        },
+        {
+          "path": "src/career_evidence_graph/application_worker_browser.py",
+          "line": 955,
+          "url": "../src/career_evidence_graph/application_worker_browser.py#L955"
+        }
+      ],
+      "benefit": "可借跨岗位 current/stale 的明确原因、逐来源事实检查 finding；本地逐岗审批/unknown intent/原页交接已有。",
+      "caveat": "MIT；源码体量大、多个 domain ports；不导入完整 SQLite/gate/lease/自动提交；facts token 启发式不能证明语义忠实。",
+      "catalog_sha": "643f489936e07494941d58433da82826ed224ae8",
+      "license_declared": "MIT",
+      "license_url": "https://github.com/yuyao-wang/Jobops/blob/643f489936e07494941d58433da82826ed224ae8/LICENSE"
+    },
+    {
+      "repository": "GodsScion/Auto_job_applier_linkedIn",
+      "sha": "e0b2401a7a7b333eab0b518e80be5285c3ee85c5",
+      "decision": "adapt",
+      "local_state": "部分",
+      "upstream_refs": [
+        {
+          "path": "runAiBot.py",
+          "line": 403,
+          "end_line": 427,
+          "url": "https://github.com/GodsScion/Auto_job_applier_linkedIn/blob/e0b2401a7a7b333eab0b518e80be5285c3ee85c5/runAiBot.py#L403-L427"
+        },
+        {
+          "path": "runAiBot.py",
+          "line": 472,
+          "end_line": 523,
+          "url": "https://github.com/GodsScion/Auto_job_applier_linkedIn/blob/e0b2401a7a7b333eab0b518e80be5285c3ee85c5/runAiBot.py#L472-L523"
+        },
+        {
+          "path": "runAiBot.py",
+          "line": 1349,
+          "end_line": 1429,
+          "url": "https://github.com/GodsScion/Auto_job_applier_linkedIn/blob/e0b2401a7a7b333eab0b518e80be5285c3ee85c5/runAiBot.py#L1349-L1429"
+        },
+        {
+          "path": "NOTICE",
+          "line": 1,
+          "end_line": 26,
+          "url": "https://github.com/GodsScion/Auto_job_applier_linkedIn/blob/e0b2401a7a7b333eab0b518e80be5285c3ee85c5/NOTICE#L1-L26"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/application_worker.py",
+          "line": 125,
+          "url": "../src/career_evidence_graph/application_worker.py#L125"
+        },
+        {
+          "path": "src/career_evidence_graph/application_worker.py",
+          "line": 175,
+          "url": "../src/career_evidence_graph/application_worker.py#L175"
+        },
+        {
+          "path": "src/career_evidence_graph/application_worker.py",
+          "line": 467,
+          "url": "../src/career_evidence_graph/application_worker.py#L467"
+        }
+      ],
+      "benefit": "借 whole-word/极性安全的资格问题反例，扩充审阅过的 aliases/option mapping；纯函数可独立提取。",
+      "caveat": "固定 SHA 为 MIT，历史 pre-relicense 为 AGPL；Selenium/PyAutoGUI/LangGraph 不导入；click 即 date_applied、dryrun discard 原页不可照搬。",
+      "catalog_sha": "e0b2401a7a7b333eab0b518e80be5285c3ee85c5",
+      "license_declared": "MIT（当前；早期发布 AGPL-3.0）",
+      "license_url": "https://github.com/GodsScion/Auto_job_applier_linkedIn/blob/e0b2401a7a7b333eab0b518e80be5285c3ee85c5/LICENSE"
+    },
+    {
+      "repository": "Pickle-Pixel/ApplyPilot",
+      "sha": "4a8d521f67f5139811c0a910ef37410f8e6d836a",
+      "decision": "reject",
+      "local_state": "已有",
+      "upstream_refs": [
+        {
+          "path": "src/applypilot/apply/prompt.py",
+          "line": 510,
+          "end_line": 514,
+          "url": "https://github.com/Pickle-Pixel/ApplyPilot/blob/4a8d521f67f5139811c0a910ef37410f8e6d836a/src/applypilot/apply/prompt.py#L510-L514"
+        },
+        {
+          "path": "src/applypilot/apply/launcher.py",
+          "line": 468,
+          "end_line": 498,
+          "url": "https://github.com/Pickle-Pixel/ApplyPilot/blob/4a8d521f67f5139811c0a910ef37410f8e6d836a/src/applypilot/apply/launcher.py#L468-L498"
+        },
+        {
+          "path": "src/applypilot/apply/launcher.py",
+          "line": 580,
+          "end_line": 623,
+          "url": "https://github.com/Pickle-Pixel/ApplyPilot/blob/4a8d521f67f5139811c0a910ef37410f8e6d836a/src/applypilot/apply/launcher.py#L580-L623"
+        },
+        {
+          "path": "src/applypilot/apply/launcher.py",
+          "line": 199,
+          "end_line": 205,
+          "url": "https://github.com/Pickle-Pixel/ApplyPilot/blob/4a8d521f67f5139811c0a910ef37410f8e6d836a/src/applypilot/apply/launcher.py#L199-L205"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/application_worker.py",
+          "line": 1136,
+          "url": "../src/career_evidence_graph/application_worker.py#L1136"
+        },
+        {
+          "path": "src/career_evidence_graph/application_worker.py",
+          "line": 1193,
+          "url": "../src/career_evidence_graph/application_worker.py#L1193"
+        },
+        {
+          "path": "src/career_evidence_graph/application_execution.py",
+          "line": 50,
+          "url": "../src/career_evidence_graph/application_execution.py#L50"
+        }
+      ],
+      "benefit": "仅借按阶段显示进度/耗时/成本的产品思路；本地测量模块已有。",
+      "caveat": "AGPL-3.0-only；dry_run 也输出 RESULT:APPLIED，runner 直接记 applied；未知/超时当 failed 释放锁可重试；不复制执行/持久层。",
+      "catalog_sha": "4a8d521f67f5139811c0a910ef37410f8e6d836a",
+      "license_declared": "AGPL-3.0",
+      "license_url": "https://github.com/Pickle-Pixel/ApplyPilot/blob/4a8d521f67f5139811c0a910ef37410f8e6d836a/LICENSE"
+    },
+    {
+      "repository": "suxrobGM/jobpilot",
+      "sha": "bdc8eb5c215bd0c7234b6ca411ec5ed1e8d6d895",
+      "decision": "adapt",
+      "local_state": "缺口",
+      "upstream_refs": [
+        {
+          "path": "apps/api/src/modules/resume/tailoring/facts.ts",
+          "line": 12,
+          "end_line": 29,
+          "url": "https://github.com/suxrobGM/jobpilot/blob/bdc8eb5c215bd0c7234b6ca411ec5ed1e8d6d895/apps/api/src/modules/resume/tailoring/facts.ts#L12-L29"
+        },
+        {
+          "path": "apps/api/src/modules/resume/tailoring/guards.ts",
+          "line": 150,
+          "end_line": 176,
+          "url": "https://github.com/suxrobGM/jobpilot/blob/bdc8eb5c215bd0c7234b6ca411ec5ed1e8d6d895/apps/api/src/modules/resume/tailoring/guards.ts#L150-L176"
+        },
+        {
+          "path": "apps/api/src/modules/campaign/jobs/job-result.ts",
+          "line": 45,
+          "end_line": 138,
+          "url": "https://github.com/suxrobGM/jobpilot/blob/bdc8eb5c215bd0c7234b6ca411ec5ed1e8d6d895/apps/api/src/modules/campaign/jobs/job-result.ts#L45-L138"
+        },
+        {
+          "path": "apps/api/src/modules/campaign/jobs/apply-guard.ts",
+          "line": 132,
+          "end_line": 155,
+          "url": "https://github.com/suxrobGM/jobpilot/blob/bdc8eb5c215bd0c7234b6ca411ec5ed1e8d6d895/apps/api/src/modules/campaign/jobs/apply-guard.ts#L132-L155"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/application_resume.py",
+          "line": 517,
+          "url": "../src/career_evidence_graph/application_resume.py#L517"
+        },
+        {
+          "path": "src/career_evidence_graph/application_resume.py",
+          "line": 285,
+          "url": "../src/career_evidence_graph/application_resume.py#L285"
+        },
+        {
+          "path": "src/career_evidence_graph/application_worker.py",
+          "line": 1136,
+          "url": "../src/career_evidence_graph/application_worker.py#L1136"
+        }
+      ],
+      "benefit": "最可取小函数：逐条改写新增/删除数字与技术词检查+audit finding，用 Python stdlib 移植；本地已有结构/归属验证。",
+      "caveat": "MIT；不能用整个 résumé corpus 给单条 Contribution 添个人技术能力；无 finding 不证明忠实；API 的 appliedAt+agent outcome 不是接收回执。",
+      "catalog_sha": "bdc8eb5c215bd0c7234b6ca411ec5ed1e8d6d895",
+      "license_declared": "MIT",
+      "license_url": "https://github.com/suxrobGM/jobpilot/blob/bdc8eb5c215bd0c7234b6ca411ec5ed1e8d6d895/LICENSE"
+    },
+    {
+      "repository": "siddharthjain094/linkedin-ai-apply",
+      "sha": "a9ffec23adcacff4b0d470ffac95e7017c345dec",
+      "decision": "inspired-by",
+      "local_state": "已有",
+      "upstream_refs": [
+        {
+          "path": "agent/pipeline/apply.py",
+          "line": 198,
+          "end_line": 228,
+          "url": "https://github.com/siddharthjain094/linkedin-ai-apply/blob/a9ffec23adcacff4b0d470ffac95e7017c345dec/agent/pipeline/apply.py#L198-L228"
+        },
+        {
+          "path": "agent/browser/easy_apply.py",
+          "line": 114,
+          "end_line": 139,
+          "url": "https://github.com/siddharthjain094/linkedin-ai-apply/blob/a9ffec23adcacff4b0d470ffac95e7017c345dec/agent/browser/easy_apply.py#L114-L139"
+        },
+        {
+          "path": "agent/browser/forms.py",
+          "line": 21,
+          "end_line": 97,
+          "url": "https://github.com/siddharthjain094/linkedin-ai-apply/blob/a9ffec23adcacff4b0d470ffac95e7017c345dec/agent/browser/forms.py#L21-L97"
+        },
+        {
+          "path": "agent/runlock.py",
+          "line": 29,
+          "end_line": 54,
+          "url": "https://github.com/siddharthjain094/linkedin-ai-apply/blob/a9ffec23adcacff4b0d470ffac95e7017c345dec/agent/runlock.py#L29-L54"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/application_worker.py",
+          "line": 1603,
+          "url": "../src/career_evidence_graph/application_worker.py#L1603"
+        },
+        {
+          "path": "src/career_evidence_graph/application_worker.py",
+          "line": 467,
+          "url": "../src/career_evidence_graph/application_worker.py#L467"
+        },
+        {
+          "path": "src/career_evidence_graph/application_execution.py",
+          "line": 50,
+          "url": "../src/career_evidence_graph/application_execution.py#L50"
+        }
+      ],
+      "benefit": "结构化 needs_input + 未解决不自动再跑的 attention list，可借文案，本地 question/scope/one-use 已有。",
+      "caveat": "AGPL-3.0-or-later；substring/LLM 可直接成为答案，click 即 applied、dismiss 原页、非原子 PID 锁不能移入。",
+      "catalog_sha": "a9ffec23adcacff4b0d470ffac95e7017c345dec",
+      "license_declared": "AGPL-3.0-or-later（README）",
+      "license_url": "https://github.com/siddharthjain094/linkedin-ai-apply/blob/a9ffec23adcacff4b0d470ffac95e7017c345dec/LICENSE"
+    },
+    {
+      "repository": "madingess/EasyApplyBot",
+      "sha": "b77bbb46e0f8a7a15ba3f099b309416d787f3f9d",
+      "decision": "reject",
+      "local_state": "已有",
+      "upstream_refs": [
+        {
+          "path": "linkedineasyapply.py",
+          "line": 519,
+          "end_line": 618,
+          "url": "https://github.com/madingess/EasyApplyBot/blob/b77bbb46e0f8a7a15ba3f099b309416d787f3f9d/linkedineasyapply.py#L519-L618"
+        },
+        {
+          "path": "linkedineasyapply.py",
+          "line": 644,
+          "end_line": 750,
+          "url": "https://github.com/madingess/EasyApplyBot/blob/b77bbb46e0f8a7a15ba3f099b309416d787f3f9d/linkedineasyapply.py#L644-L750"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/application_worker.py",
+          "line": 467,
+          "url": "../src/career_evidence_graph/application_worker.py#L467"
+        },
+        {
+          "path": "src/career_evidence_graph/application_worker.py",
+          "line": 1136,
+          "url": "../src/career_evidence_graph/application_worker.py#L1136"
+        },
+        {
+          "path": "src/career_evidence_graph/application_resume.py",
+          "line": 31,
+          "url": "../src/career_evidence_graph/application_resume.py#L31"
+        }
+      ],
+      "benefit": "保留为合成负样本来源：总经验≠每项 Skill 经验、未知以前雇佣不可默认 No、dismiss 不代表接收。",
+      "caveat": "GPL-3.0；Selenium/PyAutoGUI/OpenAI 耦合；布尔默认、敏感选择、自动提交与当前边界相反，无引入必要。",
+      "catalog_sha": "b77bbb46e0f8a7a15ba3f099b309416d787f3f9d",
+      "license_declared": "GPL-3.0",
+      "license_url": "https://github.com/madingess/EasyApplyBot/blob/b77bbb46e0f8a7a15ba3f099b309416d787f3f9d/LICENSE"
+    },
+    {
+      "repository": "devdattatalele/auto-apply",
+      "sha": "be05095da900ef531ac8f7f47005e06be922b774",
+      "decision": "inspired-by",
+      "local_state": "部分",
+      "upstream_refs": [
+        {
+          "path": "lib/scanner.mjs",
+          "line": 78,
+          "end_line": 107,
+          "url": "https://github.com/devdattatalele/auto-apply/blob/be05095da900ef531ac8f7f47005e06be922b774/lib/scanner.mjs#L78-L107"
+        },
+        {
+          "path": "lib/fields.mjs",
+          "line": 23,
+          "end_line": 72,
+          "url": "https://github.com/devdattatalele/auto-apply/blob/be05095da900ef531ac8f7f47005e06be922b774/lib/fields.mjs#L23-L72"
+        },
+        {
+          "path": "lib/learner.mjs",
+          "line": 106,
+          "end_line": 155,
+          "url": "https://github.com/devdattatalele/auto-apply/blob/be05095da900ef531ac8f7f47005e06be922b774/lib/learner.mjs#L106-L155"
+        },
+        {
+          "path": "lib/engine.mjs",
+          "line": 506,
+          "end_line": 532,
+          "url": "https://github.com/devdattatalele/auto-apply/blob/be05095da900ef531ac8f7f47005e06be922b774/lib/engine.mjs#L506-L532"
+        },
+        {
+          "path": "lib/fields.mjs",
+          "line": 223,
+          "end_line": 255,
+          "url": "https://github.com/devdattatalele/auto-apply/blob/be05095da900ef531ac8f7f47005e06be922b774/lib/fields.mjs#L223-L255"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/hosted_ats.py",
+          "line": 24,
+          "url": "../src/career_evidence_graph/hosted_ats.py#L24"
+        },
+        {
+          "path": "src/career_evidence_graph/hosted_ats.py",
+          "line": 179,
+          "url": "../src/career_evidence_graph/hosted_ats.py#L179"
+        },
+        {
+          "path": "src/career_evidence_graph/application_worker.py",
+          "line": 467,
+          "url": "../src/career_evidence_graph/application_worker.py#L467"
+        },
+        {
+          "path": "src/career_evidence_graph/application_worker_browser.py",
+          "line": 955,
+          "url": "../src/career_evidence_graph/application_worker_browser.py#L955"
+        }
+      ],
+      "benefit": "借控件家族诊断和人工审阅映射建议库，不替换现有 scanner；确认重复阻塞后再做 form-fingerprint scoped mapping。",
+      "caveat": "MIT；Node+postinstall Chromium+imapflow 不导入；dropdown 非空不等于 expectedValue、提交最多3次/无error即submitted、15秒关页都拒绝。",
+      "catalog_sha": "be05095da900ef531ac8f7f47005e06be922b774",
+      "license_declared": "MIT",
+      "license_url": "https://github.com/devdattatalele/auto-apply/blob/be05095da900ef531ac8f7f47005e06be922b774/LICENSE"
+    },
+    {
+      "repository": "geckguy/AutoApply",
+      "decision": "adapt",
+      "local_state": "部分",
+      "source_sha": "6c5fbc42833278acaa45981e86b5d99ae97d77a0",
+      "license_declared": "MIT",
+      "upstream_refs": [
+        {
+          "path": "extension-chrome/content/filler.js",
+          "line": 283,
+          "url": "https://github.com/geckguy/AutoApply/blob/6c5fbc42833278acaa45981e86b5d99ae97d77a0/extension-chrome/content/filler.js#L283"
+        },
+        {
+          "path": "extension-chrome/content/filler.js",
+          "line": 328,
+          "url": "https://github.com/geckguy/AutoApply/blob/6c5fbc42833278acaa45981e86b5d99ae97d77a0/extension-chrome/content/filler.js#L328"
+        },
+        {
+          "path": "extension-chrome/content/scraper.js",
+          "line": 186,
+          "url": "https://github.com/geckguy/AutoApply/blob/6c5fbc42833278acaa45981e86b5d99ae97d77a0/extension-chrome/content/scraper.js#L186"
+        },
+        {
+          "path": "extension-chrome/content/overlay.js",
+          "line": 1991,
+          "url": "https://github.com/geckguy/AutoApply/blob/6c5fbc42833278acaa45981e86b5d99ae97d77a0/extension-chrome/content/overlay.js#L1991"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/application_worker_browser.py",
+          "line": 1357,
+          "url": "../src/career_evidence_graph/application_worker_browser.py#L1357"
+        },
+        {
+          "path": "src/career_evidence_graph/hosted_ats.py",
+          "line": 216,
+          "url": "../src/career_evidence_graph/hosted_ats.py#L216"
+        }
+      ],
+      "benefit": "借用网页保留值的精确/格式化/截断/拒绝诊断，限小纯逻辑与fixture",
+      "caveat": "不得复用通用去标点相等、digits-only重写、模糊选项匹配及Next启发式作为发送硬门",
+      "top_priority": 2,
+      "verification": "固定源码与本地源码/测试只读审查；未运行候选、未实站验收",
+      "catalog_sha": "6c5fbc42833278acaa45981e86b5d99ae97d77a0",
+      "license_url": "https://github.com/geckguy/AutoApply/blob/6c5fbc42833278acaa45981e86b5d99ae97d77a0/LICENSE"
+    },
+    {
+      "repository": "muhammad-saadd/applyai",
+      "decision": "inspired-by",
+      "local_state": "已有",
+      "source_sha": "d4a97b5643aa219592883a43b068fc18dff94678",
+      "license_declared": "MIT",
+      "upstream_refs": [
+        {
+          "path": "content_scripts/generic.js",
+          "line": 22,
+          "url": "https://github.com/muhammad-saadd/applyai/blob/d4a97b5643aa219592883a43b068fc18dff94678/content_scripts/generic.js#L22"
+        },
+        {
+          "path": "content_scripts/detector.js",
+          "line": 112,
+          "url": "https://github.com/muhammad-saadd/applyai/blob/d4a97b5643aa219592883a43b068fc18dff94678/content_scripts/detector.js#L112"
+        },
+        {
+          "path": "content_scripts/modal.js",
+          "line": 28,
+          "url": "https://github.com/muhammad-saadd/applyai/blob/d4a97b5643aa219592883a43b068fc18dff94678/content_scripts/modal.js#L28"
+        },
+        {
+          "path": "content_scripts/modal.js",
+          "line": 186,
+          "url": "https://github.com/muhammad-saadd/applyai/blob/d4a97b5643aa219592883a43b068fc18dff94678/content_scripts/modal.js#L186"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/portal_static/worker.js",
+          "line": 92,
+          "url": "../src/career_evidence_graph/portal_static/worker.js#L92"
+        },
+        {
+          "path": "src/career_evidence_graph/application_worker_browser.py",
+          "line": 1357,
+          "url": "../src/career_evidence_graph/application_worker_browser.py#L1357"
+        }
+      ],
+      "benefit": "现有材料/发送审批中的逐字段review/copy交互",
+      "caveat": "无select options、过滤radio/checkbox/file、fieldName碰撞、填写即true无回读；不迁入执行器",
+      "top_priority": null,
+      "verification": "固定源码与本地源码/测试只读审查；未运行候选、未实站验收",
+      "catalog_sha": "d4a97b5643aa219592883a43b068fc18dff94678",
+      "license_url": "https://github.com/muhammad-saadd/applyai/blob/d4a97b5643aa219592883a43b068fc18dff94678/LICENSE"
+    },
+    {
+      "repository": "offlyn-ai/offlyn-apply",
+      "decision": "inspired-by",
+      "local_state": "缺口",
+      "source_sha": "6179317448bcaf8c04dbdf50905771b98d7af93a",
+      "license_declared": "MIT",
+      "upstream_refs": [
+        {
+          "path": "apps/extension-chrome/src/shared/dom.ts",
+          "line": 804,
+          "url": "https://github.com/offlyn-ai/offlyn-apply/blob/6179317448bcaf8c04dbdf50905771b98d7af93a/apps/extension-chrome/src/shared/dom.ts#L804"
+        },
+        {
+          "path": "apps/extension-chrome/src/shared/dom.ts",
+          "line": 19,
+          "url": "https://github.com/offlyn-ai/offlyn-apply/blob/6179317448bcaf8c04dbdf50905771b98d7af93a/apps/extension-chrome/src/shared/dom.ts#L19"
+        },
+        {
+          "path": "apps/extension-chrome/src/content.ts",
+          "line": 1412,
+          "url": "https://github.com/offlyn-ai/offlyn-apply/blob/6179317448bcaf8c04dbdf50905771b98d7af93a/apps/extension-chrome/src/content.ts#L1412"
+        },
+        {
+          "path": "apps/extension-chrome/src/content.ts",
+          "line": 3685,
+          "url": "https://github.com/offlyn-ai/offlyn-apply/blob/6179317448bcaf8c04dbdf50905771b98d7af93a/apps/extension-chrome/src/content.ts#L3685"
+        },
+        {
+          "path": "apps/extension-chrome/src/content.ts",
+          "line": 2297,
+          "url": "https://github.com/offlyn-ai/offlyn-apply/blob/6179317448bcaf8c04dbdf50905771b98d7af93a/apps/extension-chrome/src/content.ts#L2297"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/hosted_ats.py",
+          "line": 19,
+          "url": "../src/career_evidence_graph/hosted_ats.py#L19"
+        },
+        {
+          "path": "src/career_evidence_graph/hosted_ats.py",
+          "line": 52,
+          "url": "../src/career_evidence_graph/hosted_ats.py#L52"
+        },
+        {
+          "path": "src/career_evidence_graph/hosted_ats.py",
+          "line": 179,
+          "url": "../src/career_evidence_graph/hosted_ats.py#L179"
+        },
+        {
+          "path": "src/career_evidence_graph/application_worker_browser.py",
+          "line": 560,
+          "url": "../src/career_evidence_graph/application_worker_browser.py#L560"
+        }
+      ],
+      "benefit": "iframe/open-shadow独立发现及容器排除设计；同页动态重扫本地已有",
+      "caveat": "跨域message不核验origin/source、直接click、多次upload重试；只参考设计，需frame_path与guard同scope绑定",
+      "top_priority": null,
+      "verification": "固定源码与本地源码/测试只读审查；未运行候选、未实站验收",
+      "catalog_sha": "6179317448bcaf8c04dbdf50905771b98d7af93a",
+      "license_url": "https://github.com/offlyn-ai/offlyn-apply/blob/6179317448bcaf8c04dbdf50905771b98d7af93a/LICENSE"
+    },
+    {
+      "repository": "M-SaaD-H/porter",
+      "decision": "adapt",
+      "local_state": "部分",
+      "source_sha": "5d7222239edc48f68a514a23170f22dac307517b",
+      "license_declared": "MIT",
+      "upstream_refs": [
+        {
+          "path": "src/scanner.ts",
+          "line": 67,
+          "url": "https://github.com/M-SaaD-H/porter/blob/5d7222239edc48f68a514a23170f22dac307517b/src/scanner.ts#L67"
+        },
+        {
+          "path": "src/classifier.ts",
+          "line": 106,
+          "url": "https://github.com/M-SaaD-H/porter/blob/5d7222239edc48f68a514a23170f22dac307517b/src/classifier.ts#L106"
+        },
+        {
+          "path": "src/filler.ts",
+          "line": 29,
+          "url": "https://github.com/M-SaaD-H/porter/blob/5d7222239edc48f68a514a23170f22dac307517b/src/filler.ts#L29"
+        },
+        {
+          "path": "src/content.ts",
+          "line": 17,
+          "url": "https://github.com/M-SaaD-H/porter/blob/5d7222239edc48f68a514a23170f22dac307517b/src/content.ts#L17"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/hosted_ats.py",
+          "line": 16,
+          "url": "../src/career_evidence_graph/hosted_ats.py#L16"
+        },
+        {
+          "path": "src/career_evidence_graph/application_worker.py",
+          "line": 125,
+          "url": "../src/career_evidence_graph/application_worker.py#L125"
+        }
+      ],
+      "benefit": "把autocomplete原始tokens作为严格已审阅语义候选，无需模型",
+      "caveat": "上游full/first/last合并name且双向includes过宽；不搬filler；本地姓名细分和scoped答案必须保留",
+      "top_priority": 3,
+      "verification": "固定源码与本地源码/测试只读审查；未运行候选、未实站验收",
+      "catalog_sha": "5d7222239edc48f68a514a23170f22dac307517b",
+      "license_url": "https://github.com/M-SaaD-H/porter/blob/5d7222239edc48f68a514a23170f22dac307517b/LICENSE"
+    },
+    {
+      "repository": "FoxiFill/foxifill-extension",
+      "decision": "inspired-by",
+      "local_state": "部分",
+      "source_sha": "fa674ade9025017b3355eebab89fa3429e9e6cf2",
+      "license_declared": "MIT",
+      "upstream_refs": [
+        {
+          "path": "src/libs/mapping.ts",
+          "line": 73,
+          "url": "https://github.com/FoxiFill/foxifill-extension/blob/fa674ade9025017b3355eebab89fa3429e9e6cf2/src/libs/mapping.ts#L73"
+        },
+        {
+          "path": "src/popup/Popup.tsx",
+          "line": 126,
+          "url": "https://github.com/FoxiFill/foxifill-extension/blob/fa674ade9025017b3355eebab89fa3429e9e6cf2/src/popup/Popup.tsx#L126"
+        },
+        {
+          "path": "src/background/sw.ts",
+          "line": 556,
+          "url": "https://github.com/FoxiFill/foxifill-extension/blob/fa674ade9025017b3355eebab89fa3429e9e6cf2/src/background/sw.ts#L556"
+        },
+        {
+          "path": "src/content/form-fill.ts",
+          "line": 254,
+          "url": "https://github.com/FoxiFill/foxifill-extension/blob/fa674ade9025017b3355eebab89fa3429e9e6cf2/src/content/form-fill.ts#L254"
+        },
+        {
+          "path": "src/content/form-fill.ts",
+          "line": 313,
+          "url": "https://github.com/FoxiFill/foxifill-extension/blob/fa674ade9025017b3355eebab89fa3429e9e6cf2/src/content/form-fill.ts#L313"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/portal_static/worker.js",
+          "line": 122,
+          "url": "../src/career_evidence_graph/portal_static/worker.js#L122"
+        },
+        {
+          "path": "src/career_evidence_graph/application_worker_browser.py",
+          "line": 955,
+          "url": "../src/career_evidence_graph/application_worker_browser.py#L955"
+        }
+      ],
+      "benefit": "现有审批/异常复核中展示字段到已批准事实/答案范围映射，默认突出冲突与变更",
+      "caveat": "自动undo无URL/当前值保护并触发input/change，不能回滚真实ATS保存或附件；不新增每字段重复确认",
+      "top_priority": 1,
+      "verification": "固定源码与本地源码/测试只读审查；未运行候选、未实站验收",
+      "catalog_sha": "fa674ade9025017b3355eebab89fa3429e9e6cf2",
+      "license_url": "https://github.com/FoxiFill/foxifill-extension/blob/fa674ade9025017b3355eebab89fa3429e9e6cf2/LICENSE"
+    },
+    {
+      "repository": "kalinplus/auto-filler",
+      "decision": "inspired-by",
+      "local_state": "部分",
+      "source_sha": "6a5443c57e840066761ef5c66f6273a30cc7e8c7",
+      "license_declared": "Apache-2.0",
+      "upstream_refs": [
+        {
+          "path": "entrypoints/content.ts",
+          "line": 60,
+          "url": "https://github.com/kalinplus/auto-filler/blob/6a5443c57e840066761ef5c66f6273a30cc7e8c7/entrypoints/content.ts#L60"
+        },
+        {
+          "path": "entrypoints/content.ts",
+          "line": 244,
+          "url": "https://github.com/kalinplus/auto-filler/blob/6a5443c57e840066761ef5c66f6273a30cc7e8c7/entrypoints/content.ts#L244"
+        },
+        {
+          "path": "entrypoints/content.ts",
+          "line": 299,
+          "url": "https://github.com/kalinplus/auto-filler/blob/6a5443c57e840066761ef5c66f6273a30cc7e8c7/entrypoints/content.ts#L299"
+        },
+        {
+          "path": "entrypoints/content.ts",
+          "line": 372,
+          "url": "https://github.com/kalinplus/auto-filler/blob/6a5443c57e840066761ef5c66f6273a30cc7e8c7/entrypoints/content.ts#L372"
+        },
+        {
+          "path": "entrypoints/content.ts",
+          "line": 429,
+          "url": "https://github.com/kalinplus/auto-filler/blob/6a5443c57e840066761ef5c66f6273a30cc7e8c7/entrypoints/content.ts#L429"
+        },
+        {
+          "path": "entrypoints/content.ts",
+          "line": 552,
+          "url": "https://github.com/kalinplus/auto-filler/blob/6a5443c57e840066761ef5c66f6273a30cc7e8c7/entrypoints/content.ts#L552"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/hosted_ats.py",
+          "line": 26,
+          "url": "../src/career_evidence_graph/hosted_ats.py#L26"
+        },
+        {
+          "path": "src/career_evidence_graph/workable_uploads.py",
+          "line": 359,
+          "url": "../src/career_evidence_graph/workable_uploads.py#L359"
+        }
+      ],
+      "benefit": "表格邻接label及局部context只读展示，实际需求存在时扩展",
+      "caveat": "流式生成直接入表、radio/select虚报true、File赋值无远端回读；不接入matcher或上传执行器",
+      "top_priority": null,
+      "verification": "固定源码与本地源码/测试只读审查；未运行候选、未实站验收",
+      "catalog_sha": "6a5443c57e840066761ef5c66f6273a30cc7e8c7",
+      "license_url": "https://github.com/kalinplus/auto-filler/blob/6a5443c57e840066761ef5c66f6273a30cc7e8c7/LICENSE"
+    },
+    {
+      "repository": "bitwarden/clients",
+      "decision": "inspired-by",
+      "local_state": "部分",
+      "source_sha": "abccf1e342dccba06a3cc635cd4c706defa64a32",
+      "license_declared": "GPL-3.0 default; bitwarden_license directory proprietary",
+      "upstream_refs": [
+        {
+          "path": "LICENSE.txt",
+          "line": 1,
+          "url": "https://github.com/bitwarden/clients/blob/abccf1e342dccba06a3cc635cd4c706defa64a32/LICENSE.txt#L1"
+        },
+        {
+          "path": "apps/browser/src/autofill/services/collect-autofill-content.service.ts",
+          "line": 850,
+          "url": "https://github.com/bitwarden/clients/blob/abccf1e342dccba06a3cc635cd4c706defa64a32/apps/browser/src/autofill/services/collect-autofill-content.service.ts#L850"
+        },
+        {
+          "path": "apps/browser/src/autofill/services/dom-element-visibility.service.ts",
+          "line": 36,
+          "url": "https://github.com/bitwarden/clients/blob/abccf1e342dccba06a3cc635cd4c706defa64a32/apps/browser/src/autofill/services/dom-element-visibility.service.ts#L36"
+        },
+        {
+          "path": "apps/browser/src/autofill/services/insert-autofill-content.service.ts",
+          "line": 45,
+          "url": "https://github.com/bitwarden/clients/blob/abccf1e342dccba06a3cc635cd4c706defa64a32/apps/browser/src/autofill/services/insert-autofill-content.service.ts#L45"
+        },
+        {
+          "path": "apps/browser/src/autofill/services/dom-query.service.ts",
+          "line": 235,
+          "url": "https://github.com/bitwarden/clients/blob/abccf1e342dccba06a3cc635cd4c706defa64a32/apps/browser/src/autofill/services/dom-query.service.ts#L235"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/hosted_ats.py",
+          "line": 17,
+          "url": "../src/career_evidence_graph/hosted_ats.py#L17"
+        },
+        {
+          "path": "src/career_evidence_graph/hosted_ats.py",
+          "line": 53,
+          "url": "../src/career_evidence_graph/hosted_ats.py#L53"
+        },
+        {
+          "path": "src/career_evidence_graph/application_worker_browser.py",
+          "line": 1268,
+          "url": "../src/career_evidence_graph/application_worker_browser.py#L1268"
+        }
+      ],
+      "benefit": "多信号字段身份、shadow/iframe分界和opacity/clip/detached-node设计及独立负例",
+      "caveat": "所查路径默认GPLv3，仅设计参考/独立依赖待许可评估；不能过滤掉已验证隐藏native代理；不复制源码",
+      "top_priority": null,
+      "verification": "固定源码与本地源码/测试只读审查；未运行候选、未实站验收",
+      "catalog_sha": "abccf1e342dccba06a3cc635cd4c706defa64a32",
+      "license_url": "https://github.com/bitwarden/clients/blob/abccf1e342dccba06a3cc635cd4c706defa64a32/LICENSE.txt"
+    },
+    {
+      "repository": "skkhub/AI-form-filler-crx",
+      "decision": "inspired-by",
+      "local_state": "已有",
+      "source_sha": "7f3c873b08d2a30b3f4f5efa0bd0c181b03aa8be",
+      "license_declared": "MIT own code; bundled Playwright Apache-2.0",
+      "upstream_refs": [
+        {
+          "path": "src/background.ts",
+          "line": 598,
+          "url": "https://github.com/skkhub/AI-form-filler-crx/blob/7f3c873b08d2a30b3f4f5efa0bd0c181b03aa8be/src/background.ts#L598"
+        },
+        {
+          "path": "src/background.ts",
+          "line": 311,
+          "url": "https://github.com/skkhub/AI-form-filler-crx/blob/7f3c873b08d2a30b3f4f5efa0bd0c181b03aa8be/src/background.ts#L311"
+        },
+        {
+          "path": "src/content.ts",
+          "line": 1473,
+          "url": "https://github.com/skkhub/AI-form-filler-crx/blob/7f3c873b08d2a30b3f4f5efa0bd0c181b03aa8be/src/content.ts#L1473"
+        },
+        {
+          "path": "src/content.ts",
+          "line": 1507,
+          "url": "https://github.com/skkhub/AI-form-filler-crx/blob/7f3c873b08d2a30b3f4f5efa0bd0c181b03aa8be/src/content.ts#L1507"
+        },
+        {
+          "path": "src/content.ts",
+          "line": 1633,
+          "url": "https://github.com/skkhub/AI-form-filler-crx/blob/7f3c873b08d2a30b3f4f5efa0bd0c181b03aa8be/src/content.ts#L1633"
+        },
+        {
+          "path": "src/utils/pwcode.ts",
+          "line": 179,
+          "url": "https://github.com/skkhub/AI-form-filler-crx/blob/7f3c873b08d2a30b3f4f5efa0bd0c181b03aa8be/src/utils/pwcode.ts#L179"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/hosted_ats.py",
+          "line": 225,
+          "url": "../src/career_evidence_graph/hosted_ats.py#L225"
+        },
+        {
+          "path": "src/career_evidence_graph/application_worker_browser.py",
+          "line": 1268,
+          "url": "../src/career_evidence_graph/application_worker_browser.py#L1268"
+        },
+        {
+          "path": "src/career_evidence_graph/workable_uploads.py",
+          "line": 85,
+          "url": "../src/career_evidence_graph/workable_uploads.py#L85"
+        }
+      ],
+      "benefit": "定位0/多命中/动态选项诊断展示可借鉴；本地Playwright已具备定位和状态底座",
+      "caveat": "Reject执行器/上传：setInputFiles造模拟文字File；Enter调用requestSubmit；scope可退全页，未知method默认click；MIT与bundled Apache分别审查",
+      "top_priority": null,
+      "verification": "固定源码与本地源码/测试只读审查；未运行候选、未实站验收",
+      "catalog_sha": "7f3c873b08d2a30b3f4f5efa0bd0c181b03aa8be",
+      "license_url": "https://github.com/skkhub/AI-form-filler-crx/blob/7f3c873b08d2a30b3f4f5efa0bd0c181b03aa8be/LICENSE"
+    },
+    {
+      "repository": "browser-use/browser-use",
+      "sha": "ccd22fef47a1a36e0c4596fef5db73a5117b9d06",
+      "license": "MIT",
+      "license_url": "https://github.com/browser-use/browser-use/blob/ccd22fef47a1a36e0c4596fef5db73a5117b9d06/LICENSE",
+      "decision": "inspired-by",
+      "local_state": "部分",
+      "upstream_refs": [
+        {
+          "path": "browser_use/tools/service.py",
+          "line": 864,
+          "url": "https://github.com/browser-use/browser-use/blob/ccd22fef47a1a36e0c4596fef5db73a5117b9d06/browser_use/tools/service.py#L864"
+        },
+        {
+          "path": "browser_use/browser/watchdogs/default_action_watchdog.py",
+          "line": 2692,
+          "url": "https://github.com/browser-use/browser-use/blob/ccd22fef47a1a36e0c4596fef5db73a5117b9d06/browser_use/browser/watchdogs/default_action_watchdog.py#L2692"
+        },
+        {
+          "path": "browser_use/browser/watchdogs/crash_watchdog.py",
+          "line": 161,
+          "url": "https://github.com/browser-use/browser-use/blob/ccd22fef47a1a36e0c4596fef5db73a5117b9d06/browser_use/browser/watchdogs/crash_watchdog.py#L161"
+        },
+        {
+          "path": "pyproject.toml",
+          "line": 13,
+          "url": "https://github.com/browser-use/browser-use/blob/ccd22fef47a1a36e0c4596fef5db73a5117b9d06/pyproject.toml#L13"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/application_worker_browser.py",
+          "line": 1424,
+          "url": "../src/career_evidence_graph/application_worker_browser.py#L1424"
+        },
+        {
+          "path": "src/career_evidence_graph/cua_driver.py",
+          "line": 111,
+          "url": "../src/career_evidence_graph/cua_driver.py#L111"
+        }
+      ],
+      "benefit": "借鉴事件化诊断、上传路径穿越负例及控件实际值读回；现有上传字节与版本绑定更适合继续保留。",
+      "caveat": "pydantic==2.13.5与本地2.13.4冲突；新增cdp-use/bubus/PostHog/SDK及独立BrowserSession；上传成功回文不证明ATS接受。",
+      "catalog_sha": "ccd22fef47a1a36e0c4596fef5db73a5117b9d06",
+      "license_declared": "MIT"
+    },
+    {
+      "repository": "browserbase/stagehand",
+      "sha": "10418f98831285b3cddca5328c8013a94f22672a",
+      "license": "MIT",
+      "license_url": "https://github.com/browserbase/stagehand/blob/10418f98831285b3cddca5328c8013a94f22672a/LICENSE",
+      "decision": "adapt",
+      "local_state": "部分",
+      "upstream_refs": [
+        {
+          "path": "packages/extension/services/observeService.ts",
+          "line": 85,
+          "url": "https://github.com/browserbase/stagehand/blob/10418f98831285b3cddca5328c8013a94f22672a/packages/extension/services/observeService.ts#L85"
+        },
+        {
+          "path": "packages/extension/services/extractService.ts",
+          "line": 73,
+          "url": "https://github.com/browserbase/stagehand/blob/10418f98831285b3cddca5328c8013a94f22672a/packages/extension/services/extractService.ts#L73"
+        },
+        {
+          "path": "packages/extension/services/cacheService.ts",
+          "line": 62,
+          "url": "https://github.com/browserbase/stagehand/blob/10418f98831285b3cddca5328c8013a94f22672a/packages/extension/services/cacheService.ts#L62"
+        },
+        {
+          "path": "packages/extension/understudy/a11y/snapshot/capture.ts",
+          "line": 60,
+          "url": "https://github.com/browserbase/stagehand/blob/10418f98831285b3cddca5328c8013a94f22672a/packages/extension/understudy/a11y/snapshot/capture.ts#L60"
+        },
+        {
+          "path": "packages/extension/understudy/locator.ts",
+          "line": 924,
+          "url": "https://github.com/browserbase/stagehand/blob/10418f98831285b3cddca5328c8013a94f22672a/packages/extension/understudy/locator.ts#L924"
+        },
+        {
+          "path": "packages/extension/understudy/progress.ts",
+          "line": 49,
+          "url": "https://github.com/browserbase/stagehand/blob/10418f98831285b3cddca5328c8013a94f22672a/packages/extension/understudy/progress.ts#L49"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/hosted_ats.py",
+          "line": 179,
+          "url": "../src/career_evidence_graph/hosted_ats.py#L179"
+        },
+        {
+          "path": "src/career_evidence_graph/cua_driver.py",
+          "line": 1134,
+          "url": "../src/career_evidence_graph/cua_driver.py#L1134"
+        },
+        {
+          "path": "src/career_evidence_graph/application_worker_browser.py",
+          "line": 955,
+          "url": "../src/career_evidence_graph/application_worker_browser.py#L955"
+        }
+      ],
+      "benefit": "只移植观察候选→确定性唯一性检查→现有worker执行的边界；借鉴跨frame观察与共享deadline。",
+      "caveat": "v4已是extension/understudy；默认locator取首个匹配，云cache发送原始AX+URL且不含model配置；不能直接替换精确绑定/发送守卫。",
+      "catalog_sha": "10418f98831285b3cddca5328c8013a94f22672a",
+      "license_declared": "MIT"
+    },
+    {
+      "repository": "vercel-labs/agent-browser",
+      "sha": "dac13bb87468fe9d74a040d862720f6cc17a9565",
+      "license": "Apache-2.0",
+      "license_url": "https://github.com/vercel-labs/agent-browser/blob/dac13bb87468fe9d74a040d862720f6cc17a9565/LICENSE",
+      "decision": "adapt",
+      "local_state": "部分",
+      "upstream_refs": [
+        {
+          "path": "cli/src/native/snapshot.rs",
+          "line": 321,
+          "url": "https://github.com/vercel-labs/agent-browser/blob/dac13bb87468fe9d74a040d862720f6cc17a9565/cli/src/native/snapshot.rs#L321"
+        },
+        {
+          "path": "cli/src/native/element.rs",
+          "line": 151,
+          "url": "https://github.com/vercel-labs/agent-browser/blob/dac13bb87468fe9d74a040d862720f6cc17a9565/cli/src/native/element.rs#L151"
+        },
+        {
+          "path": "cli/src/native/element.rs",
+          "line": 671,
+          "url": "https://github.com/vercel-labs/agent-browser/blob/dac13bb87468fe9d74a040d862720f6cc17a9565/cli/src/native/element.rs#L671"
+        },
+        {
+          "path": "cli/src/native/actions.rs",
+          "line": 5768,
+          "url": "https://github.com/vercel-labs/agent-browser/blob/dac13bb87468fe9d74a040d862720f6cc17a9565/cli/src/native/actions.rs#L5768"
+        },
+        {
+          "path": "cli/src/native/tab_binding.rs",
+          "line": 24,
+          "url": "https://github.com/vercel-labs/agent-browser/blob/dac13bb87468fe9d74a040d862720f6cc17a9565/cli/src/native/tab_binding.rs#L24"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/cua_driver.py",
+          "line": 1088,
+          "url": "../src/career_evidence_graph/cua_driver.py#L1088"
+        },
+        {
+          "path": "src/career_evidence_graph/cua_driver.py",
+          "line": 1151,
+          "url": "../src/career_evidence_graph/cua_driver.py#L1151"
+        },
+        {
+          "path": "src/career_evidence_graph/application_worker_browser.py",
+          "line": 990,
+          "url": "../src/career_evidence_graph/application_worker_browser.py#L990"
+        }
+      ],
+      "benefit": "借鉴document/session/frame/loader绑定的ref失效与snapshot增量；不再为同名控件用全局序号。",
+      "caveat": "Rust原生daemon与Node>=24打包增加第二生命周期；自动snapshot只展开一层iframe并会忽略子树错误；命令级policy不能替代ATS请求契约。",
+      "catalog_sha": "dac13bb87468fe9d74a040d862720f6cc17a9565",
+      "license_declared": "Apache-2.0"
+    },
+    {
+      "repository": "microsoft/playwright-mcp",
+      "sha": "b8b4183e099f136cbec0388a6088d4aa2f6b9685",
+      "license": "Apache-2.0",
+      "license_url": "https://github.com/microsoft/playwright-mcp/blob/b8b4183e099f136cbec0388a6088d4aa2f6b9685/LICENSE",
+      "decision": "inspired-by",
+      "local_state": "已有",
+      "upstream_refs": [
+        {
+          "path": "index.js",
+          "line": 19,
+          "url": "https://github.com/microsoft/playwright-mcp/blob/b8b4183e099f136cbec0388a6088d4aa2f6b9685/index.js#L19"
+        },
+        {
+          "path": "package.json",
+          "line": 39,
+          "url": "https://github.com/microsoft/playwright-mcp/blob/b8b4183e099f136cbec0388a6088d4aa2f6b9685/package.json#L39"
+        },
+        {
+          "path": "src/README.md",
+          "line": 1,
+          "url": "https://github.com/microsoft/playwright-mcp/blob/b8b4183e099f136cbec0388a6088d4aa2f6b9685/src/README.md#L1"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/application_worker_browser.py",
+          "line": 1084,
+          "url": "../src/career_evidence_graph/application_worker_browser.py#L1084"
+        },
+        {
+          "path": "src/career_evidence_graph/application_worker_browser.py",
+          "line": 1435,
+          "url": "../src/career_evidence_graph/application_worker_browser.py#L1435"
+        },
+        {
+          "path": "src/career_evidence_graph/cua_driver.py",
+          "line": 1023,
+          "url": "../src/career_evidence_graph/cua_driver.py#L1023"
+        }
+      ],
+      "benefit": "复用已安装Playwright API；借鉴aria ref→locator、modal/file chooser和结果诊断，不新增MCP执行器。",
+      "caveat": "MCP 0.0.83实际依赖1.64.0-alpha-1790635538000，对应monorepo e8149b8257d32dcf8f72573ecc43e72439da7080；与本地1.63.0不同，内部AI snapshot API不可直接套用。",
+      "dependency_source": {
+        "package": "playwright-core",
+        "version": "1.64.0-alpha-1790635538000",
+        "gitHead": "e8149b8257d32dcf8f72573ecc43e72439da7080",
+        "metadata_url": "https://registry.npmjs.org/playwright-core/1.64.0-alpha-1790635538000",
+        "source_refs": [
+          {
+            "path": "packages/playwright-core/src/tools/backend/tab.ts",
+            "line": 531,
+            "url": "https://github.com/microsoft/playwright/blob/e8149b8257d32dcf8f72573ecc43e72439da7080/packages/playwright-core/src/tools/backend/tab.ts#L531"
+          },
+          {
+            "path": "packages/playwright-core/src/tools/mcp/browserFactory.ts",
+            "line": 53,
+            "url": "https://github.com/microsoft/playwright/blob/e8149b8257d32dcf8f72573ecc43e72439da7080/packages/playwright-core/src/tools/mcp/browserFactory.ts#L53"
+          }
+        ]
+      },
+      "catalog_sha": "b8b4183e099f136cbec0388a6088d4aa2f6b9685",
+      "license_declared": "Apache-2.0"
+    },
+    {
+      "repository": "BrowserMCP/mcp",
+      "sha": "9db12f2b4f61294f0bc11708986abc47db539d6c",
+      "license": "Apache-2.0（仅此仓库）",
+      "license_url": "https://github.com/BrowserMCP/mcp/blob/9db12f2b4f61294f0bc11708986abc47db539d6c/LICENSE",
+      "decision": "reject",
+      "local_state": "已有",
+      "upstream_refs": [
+        {
+          "path": "src/context.ts",
+          "line": 28,
+          "url": "https://github.com/BrowserMCP/mcp/blob/9db12f2b4f61294f0bc11708986abc47db539d6c/src/context.ts#L28"
+        },
+        {
+          "path": "src/tools/snapshot.ts",
+          "line": 28,
+          "url": "https://github.com/BrowserMCP/mcp/blob/9db12f2b4f61294f0bc11708986abc47db539d6c/src/tools/snapshot.ts#L28"
+        },
+        {
+          "path": "src/ws.ts",
+          "line": 8,
+          "url": "https://github.com/BrowserMCP/mcp/blob/9db12f2b4f61294f0bc11708986abc47db539d6c/src/ws.ts#L8"
+        },
+        {
+          "path": "README.md",
+          "line": 26,
+          "url": "https://github.com/BrowserMCP/mcp/blob/9db12f2b4f61294f0bc11708986abc47db539d6c/README.md#L26"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/cua_driver.py",
+          "line": 142,
+          "url": "../src/career_evidence_graph/cua_driver.py#L142"
+        },
+        {
+          "path": "src/career_evidence_graph/cua_driver.py",
+          "line": 1088,
+          "url": "../src/career_evidence_graph/cua_driver.py#L1088"
+        }
+      ],
+      "benefit": "仅有既有浏览器tab显式连接的交互参考；现有精确target/window绑定更完整。",
+      "caveat": "公开仓库缺monorepo内部types/utils与extension；ws启动直接killProcessOnPort；无法独立构建或审计完整执行与权限链。",
+      "catalog_sha": "9db12f2b4f61294f0bc11708986abc47db539d6c",
+      "license_declared": "Apache-2.0（仅此仓库）"
+    },
+    {
+      "repository": "microsoft/OmniParser",
+      "sha": "354021201345a96178360b28733573e27269f2de",
+      "license": "根 LICENSE=CC-BY-4.0；README MIT 徽章冲突；模型分许可",
+      "license_url": "https://github.com/microsoft/OmniParser/blob/354021201345a96178360b28733573e27269f2de/LICENSE",
+      "decision": "inspired-by",
+      "local_state": "缺口",
+      "upstream_refs": [
+        {
+          "path": "util/omniparser.py",
+          "line": 16,
+          "url": "https://github.com/microsoft/OmniParser/blob/354021201345a96178360b28733573e27269f2de/util/omniparser.py#L16"
+        },
+        {
+          "path": "util/utils.py",
+          "line": 417,
+          "url": "https://github.com/microsoft/OmniParser/blob/354021201345a96178360b28733573e27269f2de/util/utils.py#L417"
+        },
+        {
+          "path": "README.md",
+          "line": 70,
+          "url": "https://github.com/microsoft/OmniParser/blob/354021201345a96178360b28733573e27269f2de/README.md#L70"
+        },
+        {
+          "path": "LICENSE",
+          "line": 1,
+          "url": "https://github.com/microsoft/OmniParser/blob/354021201345a96178360b28733573e27269f2de/LICENSE#L1"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/cua_driver.py",
+          "line": 1134,
+          "url": "../src/career_evidence_graph/cua_driver.py#L1134"
+        },
+        {
+          "path": "src/career_evidence_graph/hosted_ats.py",
+          "line": 179,
+          "url": "../src/career_evidence_graph/hosted_ats.py#L179"
+        }
+      ],
+      "benefit": "未来canvas或缺AX控件的只读视觉候选检测；当前原生DOM/AX路径无需增加视觉模型。",
+      "caveat": "root LICENSE=CC-BY-4.0而README徽章MIT；icon_detect_v3 MIT、旧Ultralytics detector AGPL、caption MIT分开；像素框没有DOM/frame身份和ATS接受判据。",
+      "catalog_sha": "354021201345a96178360b28733573e27269f2de",
+      "license_declared": "根 LICENSE=CC-BY-4.0；README MIT 徽章冲突；模型分许可"
+    },
+    {
+      "repository": "ServiceNow/BrowserGym",
+      "sha": "e71419aef5759a11cb7896a26c36e5f7e92d82b2",
+      "license": "Apache-2.0（根文件）；API 检测为 Other",
+      "license_url": "https://github.com/ServiceNow/BrowserGym/blob/e71419aef5759a11cb7896a26c36e5f7e92d82b2/LICENSE",
+      "decision": "adapt",
+      "local_state": "部分",
+      "upstream_refs": [
+        {
+          "path": "browsergym/core/src/browsergym/core/env.py",
+          "line": 432,
+          "url": "https://github.com/ServiceNow/BrowserGym/blob/e71419aef5759a11cb7896a26c36e5f7e92d82b2/browsergym/core/src/browsergym/core/env.py#L432"
+        },
+        {
+          "path": "browsergym/core/src/browsergym/core/task.py",
+          "line": 44,
+          "url": "https://github.com/ServiceNow/BrowserGym/blob/e71419aef5759a11cb7896a26c36e5f7e92d82b2/browsergym/core/src/browsergym/core/task.py#L44"
+        },
+        {
+          "path": "browsergym/core/src/browsergym/core/action/highlevel.py",
+          "line": 517,
+          "url": "https://github.com/ServiceNow/BrowserGym/blob/e71419aef5759a11cb7896a26c36e5f7e92d82b2/browsergym/core/src/browsergym/core/action/highlevel.py#L517"
+        },
+        {
+          "path": "browsergym/core/src/browsergym/core/action/utils.py",
+          "line": 6,
+          "url": "https://github.com/ServiceNow/BrowserGym/blob/e71419aef5759a11cb7896a26c36e5f7e92d82b2/browsergym/core/src/browsergym/core/action/utils.py#L6"
+        },
+        {
+          "path": "tests/core/test_actions_highlevel.py",
+          "line": 520,
+          "url": "https://github.com/ServiceNow/BrowserGym/blob/e71419aef5759a11cb7896a26c36e5f7e92d82b2/tests/core/test_actions_highlevel.py#L520"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/worker_measurement.py",
+          "line": 213,
+          "url": "../src/career_evidence_graph/worker_measurement.py#L213"
+        },
+        {
+          "path": "tests/test_worker_recovery_regressions.py",
+          "line": 149,
+          "url": "../tests/test_worker_recovery_regressions.py#L149"
+        },
+        {
+          "path": "tests/test_worker_measurement.py",
+          "line": 134,
+          "url": "../tests/test_worker_measurement.py#L134"
+        }
+      ],
+      "benefit": "借鉴action/observation/independent validator拆分，补iframe、部分动作完成与显式终止负例；沿用本地synthetic fixture。",
+      "caveat": "这是评测环境，默认非strict且允许multiaction；OpenEndedTask reward恒0并靠user exit终止，不能当成功判据；task validate可导航，不能用于保留原Page的现场恢复。",
+      "catalog_sha": "e71419aef5759a11cb7896a26c36e5f7e92d82b2",
+      "license_declared": "Apache-2.0（根文件）；API 检测为 Other"
+    },
+    {
+      "repository": "Skyvern-AI/skyvern",
+      "sha": "2d274fcf0c1066314bb620e419ffb11f18477efb",
+      "license": "AGPL-3.0",
+      "license_url": "https://github.com/Skyvern-AI/skyvern/blob/2d274fcf0c1066314bb620e419ffb11f18477efb/LICENSE",
+      "decision": "inspired-by",
+      "local_state": "部分",
+      "upstream_refs": [
+        {
+          "path": "skyvern/webeye/utils/dom.py",
+          "line": 96,
+          "url": "https://github.com/Skyvern-AI/skyvern/blob/2d274fcf0c1066314bb620e419ffb11f18477efb/skyvern/webeye/utils/dom.py#L96"
+        },
+        {
+          "path": "skyvern/webeye/utils/dom.py",
+          "line": 1386,
+          "url": "https://github.com/Skyvern-AI/skyvern/blob/2d274fcf0c1066314bb620e419ffb11f18477efb/skyvern/webeye/utils/dom.py#L1386"
+        },
+        {
+          "path": "tests/unit/test_element_click_navigation_timeout_skips_fallback.py",
+          "line": 95,
+          "url": "https://github.com/Skyvern-AI/skyvern/blob/2d274fcf0c1066314bb620e419ffb11f18477efb/tests/unit/test_element_click_navigation_timeout_skips_fallback.py#L95"
+        },
+        {
+          "path": "skyvern/forge/sdk/enterprise_features.py",
+          "line": 5,
+          "url": "https://github.com/Skyvern-AI/skyvern/blob/2d274fcf0c1066314bb620e419ffb11f18477efb/skyvern/forge/sdk/enterprise_features.py#L5"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/application_worker_browser.py",
+          "line": 1084,
+          "url": "../src/career_evidence_graph/application_worker_browser.py#L1084"
+        },
+        {
+          "path": "src/career_evidence_graph/cua_driver.py",
+          "line": 111,
+          "url": "../src/career_evidence_graph/cua_driver.py#L111"
+        },
+        {
+          "path": "tests/test_worker_attempt_completion.py",
+          "line": 116,
+          "url": "../tests/test_worker_attempt_completion.py#L116"
+        }
+      ],
+      "benefit": "借鉴已dispatch与等待导航超时的区分、禁止fallback二次点击的反例、上传pending与completed分开记录。",
+      "caveat": "AGPL-3.0代码不作为当前直接复制候选；CUA引擎和若干模型有enterprise gating；其他失败仍有coordinate/JS fallback，不能拿来覆盖未知结果暂停。",
+      "catalog_sha": "2d274fcf0c1066314bb620e419ffb11f18477efb",
+      "license_declared": "AGPL-3.0"
+    },
+    {
+      "repository": "lavague-ai/LaVague",
+      "sha": "9024bb832c40291cd012916757f27ef60469b22d",
+      "license": "Apache-2.0",
+      "license_url": "https://github.com/lavague-ai/LaVague/blob/9024bb832c40291cd012916757f27ef60469b22d/LICENSE",
+      "decision": "inspired-by",
+      "local_state": "部分",
+      "upstream_refs": [
+        {
+          "path": "lavague-core/lavague/core/action_engine.py",
+          "line": 226,
+          "url": "https://github.com/lavague-ai/LaVague/blob/9024bb832c40291cd012916757f27ef60469b22d/lavague-core/lavague/core/action_engine.py#L226"
+        },
+        {
+          "path": "lavague-core/lavague/core/navigation.py",
+          "line": 400,
+          "url": "https://github.com/lavague-ai/LaVague/blob/9024bb832c40291cd012916757f27ef60469b22d/lavague-core/lavague/core/navigation.py#L400"
+        },
+        {
+          "path": "lavague-core/lavague/core/navigation.py",
+          "line": 417,
+          "url": "https://github.com/lavague-ai/LaVague/blob/9024bb832c40291cd012916757f27ef60469b22d/lavague-core/lavague/core/navigation.py#L417"
+        },
+        {
+          "path": "lavague-core/lavague/core/context.py",
+          "line": 34,
+          "url": "https://github.com/lavague-ai/LaVague/blob/9024bb832c40291cd012916757f27ef60469b22d/lavague-core/lavague/core/context.py#L34"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/application_worker_browser.py",
+          "line": 955,
+          "url": "../src/career_evidence_graph/application_worker_browser.py#L955"
+        },
+        {
+          "path": "src/career_evidence_graph/application_worker_browser.py",
+          "line": 1268,
+          "url": "../src/career_evidence_graph/application_worker_browser.py#L1268"
+        }
+      ],
+      "benefit": "参考规划与动作分层、只让候选xpath来自已观察上下文；不引入LLM生成代码执行。",
+      "caveat": "默认Context要求OpenAI context与LLM/MM/embedding；代码无异常被当success，未验证业务效果；整套driver/retriever重复现有执行器且增大出站/重试范围。",
+      "catalog_sha": "9024bb832c40291cd012916757f27ef60469b22d",
+      "license_declared": "Apache-2.0"
+    },
+    {
+      "repository": "steel-dev/steel-browser",
+      "sha": "d8a4a7e9fb1d49db833b41acf04e894b9ebb2b37",
+      "license": "Apache-2.0",
+      "license_url": "https://github.com/steel-dev/steel-browser/blob/d8a4a7e9fb1d49db833b41acf04e894b9ebb2b37/LICENSE",
+      "decision": "inspired-by",
+      "local_state": "已有",
+      "upstream_refs": [
+        {
+          "path": "api/src/services/session.service.ts",
+          "line": 93,
+          "url": "https://github.com/steel-dev/steel-browser/blob/d8a4a7e9fb1d49db833b41acf04e894b9ebb2b37/api/src/services/session.service.ts#L93"
+        },
+        {
+          "path": "api/src/services/cdp/cdp.service.ts",
+          "line": 1400,
+          "url": "https://github.com/steel-dev/steel-browser/blob/d8a4a7e9fb1d49db833b41acf04e894b9ebb2b37/api/src/services/cdp/cdp.service.ts#L1400"
+        },
+        {
+          "path": "api/src/services/cdp/instrumentation/browser-interaction-sanitize.ts",
+          "line": 92,
+          "url": "https://github.com/steel-dev/steel-browser/blob/d8a4a7e9fb1d49db833b41acf04e894b9ebb2b37/api/src/services/cdp/instrumentation/browser-interaction-sanitize.ts#L92"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/cua_driver.py",
+          "line": 561,
+          "url": "../src/career_evidence_graph/cua_driver.py#L561"
+        },
+        {
+          "path": "src/career_evidence_graph/cua_driver.py",
+          "line": 1008,
+          "url": "../src/career_evidence_graph/cua_driver.py#L1008"
+        },
+        {
+          "path": "src/career_evidence_graph/worker_measurement.py",
+          "line": 141,
+          "url": "../src/career_evidence_graph/worker_measurement.py#L141"
+        }
+      ],
+      "benefit": "参考脱敏交互事件、目标生命周期诊断；不再引入浏览器session服务。",
+      "caveat": "endSession执行shutdown后relaunch idle browser，cookie/localStorage持久化不能恢复DOM File；可配置logSinkUrl及危险请求详情，必须额外审计隐私；Node API/存储/代理栈过重。",
+      "catalog_sha": "d8a4a7e9fb1d49db833b41acf04e894b9ebb2b37",
+      "license_declared": "Apache-2.0"
+    },
+    {
+      "repository": "nanobrowser/nanobrowser",
+      "sha": "f1e912d7c9e859eec6638702be920c78a8eff0ea",
+      "license": "Apache-2.0",
+      "license_url": "https://github.com/nanobrowser/nanobrowser/blob/f1e912d7c9e859eec6638702be920c78a8eff0ea/LICENSE",
+      "decision": "adapt",
+      "local_state": "部分",
+      "upstream_refs": [
+        {
+          "path": "src/browser-control/core/refs.ts",
+          "line": 34,
+          "url": "https://github.com/nanobrowser/nanobrowser/blob/f1e912d7c9e859eec6638702be920c78a8eff0ea/src/browser-control/core/refs.ts#L34"
+        },
+        {
+          "path": "src/browser-control/core/interaction/gate.ts",
+          "line": 163,
+          "url": "https://github.com/nanobrowser/nanobrowser/blob/f1e912d7c9e859eec6638702be920c78a8eff0ea/src/browser-control/core/interaction/gate.ts#L163"
+        },
+        {
+          "path": "src/browser-control/core/tools/upload.ts",
+          "line": 64,
+          "url": "https://github.com/nanobrowser/nanobrowser/blob/f1e912d7c9e859eec6638702be920c78a8eff0ea/src/browser-control/core/tools/upload.ts#L64"
+        },
+        {
+          "path": "src/browser-control/core/tools/fill.ts",
+          "line": 21,
+          "url": "https://github.com/nanobrowser/nanobrowser/blob/f1e912d7c9e859eec6638702be920c78a8eff0ea/src/browser-control/core/tools/fill.ts#L21"
+        },
+        {
+          "path": "src/browser-control/core/navigation-guard.ts",
+          "line": 1,
+          "url": "https://github.com/nanobrowser/nanobrowser/blob/f1e912d7c9e859eec6638702be920c78a8eff0ea/src/browser-control/core/navigation-guard.ts#L1"
+        },
+        {
+          "path": "src/ui/manifest-permissions.ts",
+          "line": 19,
+          "url": "https://github.com/nanobrowser/nanobrowser/blob/f1e912d7c9e859eec6638702be920c78a8eff0ea/src/ui/manifest-permissions.ts#L19"
+        },
+        {
+          "path": "wxt.config.ts",
+          "line": 22,
+          "url": "https://github.com/nanobrowser/nanobrowser/blob/f1e912d7c9e859eec6638702be920c78a8eff0ea/wxt.config.ts#L22"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/cua_driver.py",
+          "line": 1151,
+          "url": "../src/career_evidence_graph/cua_driver.py#L1151"
+        },
+        {
+          "path": "src/career_evidence_graph/application_worker_browser.py",
+          "line": 896,
+          "url": "../src/career_evidence_graph/application_worker_browser.py#L896"
+        },
+        {
+          "path": "src/career_evidence_graph/application_worker_browser.py",
+          "line": 955,
+          "url": "../src/career_evidence_graph/application_worker_browser.py#L955"
+        },
+        {
+          "path": "src/career_evidence_graph/application_worker_browser.py",
+          "line": 1424,
+          "url": "../src/career_evidence_graph/application_worker_browser.py#L1424"
+        }
+      ],
+      "benefit": "优先借鉴frame+loader+session refs、动作delivered/effect/postcondition分离、fill_form部分回执与授权后重验目标。",
+      "caveat": "扩展有debugger与all_urls；默认/记忆submit策略不符合manual final Submit；main-frame导航守卫不覆盖fetch/XHR/WebSocket；文件名大小读回不等于SHA或ATS接受，禁止引入其自动submit分支。",
+      "catalog_sha": "f1e912d7c9e859eec6638702be920c78a8eff0ea",
+      "license_declared": "Apache-2.0"
+    },
+    {
+      "repository": "ChromeDevTools/chrome-devtools-mcp",
+      "sha": "2777fa05b296cdb51507e6fd33ae05c06fe0b9e7",
+      "license": "Apache-2.0",
+      "license_url": "https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/2777fa05b296cdb51507e6fd33ae05c06fe0b9e7/LICENSE",
+      "decision": "adapt",
+      "local_state": "部分",
+      "upstream_refs": [
+        {
+          "path": "src/TextSnapshot.ts",
+          "line": 47,
+          "url": "https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/2777fa05b296cdb51507e6fd33ae05c06fe0b9e7/src/TextSnapshot.ts#L47"
+        },
+        {
+          "path": "src/McpPage.ts",
+          "line": 927,
+          "url": "https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/2777fa05b296cdb51507e6fd33ae05c06fe0b9e7/src/McpPage.ts#L927"
+        },
+        {
+          "path": "src/McpContext.ts",
+          "line": 87,
+          "url": "https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/2777fa05b296cdb51507e6fd33ae05c06fe0b9e7/src/McpContext.ts#L87"
+        },
+        {
+          "path": "src/tools/input.ts",
+          "line": 582,
+          "url": "https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/2777fa05b296cdb51507e6fd33ae05c06fe0b9e7/src/tools/input.ts#L582"
+        },
+        {
+          "path": "src/tools/network.ts",
+          "line": 35,
+          "url": "https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/2777fa05b296cdb51507e6fd33ae05c06fe0b9e7/src/tools/network.ts#L35"
+        },
+        {
+          "path": "src/tools/console.ts",
+          "line": 43,
+          "url": "https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/2777fa05b296cdb51507e6fd33ae05c06fe0b9e7/src/tools/console.ts#L43"
+        },
+        {
+          "path": "src/config/mcp-options.ts",
+          "line": 139,
+          "url": "https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/2777fa05b296cdb51507e6fd33ae05c06fe0b9e7/src/config/mcp-options.ts#L139"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/application_worker_browser.py",
+          "line": 174,
+          "url": "../src/career_evidence_graph/application_worker_browser.py#L174"
+        },
+        {
+          "path": "src/career_evidence_graph/worker_measurement.py",
+          "line": 213,
+          "url": "../src/career_evidence_graph/worker_measurement.py#L213"
+        },
+        {
+          "path": "src/career_evidence_graph/cua_driver.py",
+          "line": 1088,
+          "url": "../src/career_evidence_graph/cua_driver.py#L1088"
+        }
+      ],
+      "benefit": "只借鉴按页面绑定的网络/console诊断和loader感知AX身份；浏览器控制保持现有worker。",
+      "caveat": "usageStatistics和CrUX默认开启；upload异常后fallback点击可能二次动作，成功回文无SHA/ATS读回；关闭eval等选项也不是请求发送沙箱。",
+      "catalog_sha": "2777fa05b296cdb51507e6fd33ae05c06fe0b9e7",
+      "license_declared": "Apache-2.0"
+    },
+    {
+      "repository": "microsoft/playwright",
+      "decision": "reuse",
+      "local_state": "已有基础；frame/AX观测可补充",
+      "upstream_refs": [
+        {
+          "repository": "microsoft/playwright-python",
+          "path": "playwright/_impl/_locator.py",
+          "line": 426,
+          "revision": "3e7abc4edba4dee1e1553a02c437f5b45e22a8ed",
+          "url": "https://github.com/microsoft/playwright-python/blob/3e7abc4edba4dee1e1553a02c437f5b45e22a8ed/playwright/_impl/_locator.py#L426"
+        },
+        {
+          "repository": "microsoft/playwright-python",
+          "path": "playwright/_impl/_locator.py",
+          "line": 740,
+          "revision": "3e7abc4edba4dee1e1553a02c437f5b45e22a8ed",
+          "url": "https://github.com/microsoft/playwright-python/blob/3e7abc4edba4dee1e1553a02c437f5b45e22a8ed/playwright/_impl/_locator.py#L740"
+        },
+        {
+          "repository": "microsoft/playwright-python",
+          "path": "playwright/_impl/_locator.py",
+          "line": 805,
+          "revision": "3e7abc4edba4dee1e1553a02c437f5b45e22a8ed",
+          "url": "https://github.com/microsoft/playwright-python/blob/3e7abc4edba4dee1e1553a02c437f5b45e22a8ed/playwright/_impl/_locator.py#L805"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/hosted_ats.py",
+          "line": 179,
+          "url": "../src/career_evidence_graph/hosted_ats.py#L179"
+        },
+        {
+          "path": "src/career_evidence_graph/hosted_ats.py",
+          "line": 212,
+          "url": "../src/career_evidence_graph/hosted_ats.py#L212"
+        },
+        {
+          "path": "src/career_evidence_graph/application_worker_browser.py",
+          "line": 1094,
+          "url": "../src/career_evidence_graph/application_worker_browser.py#L1094"
+        }
+      ],
+      "benefit": "继续复用已装Playwright；frame_locator与aria_snapshot可支撑受控iframe发现和故障观测，不必新增浏览器框架。",
+      "caveat": "必须保留同一BrowserContext/Page、scope与发送守卫；AX树不能成为岗位身份或答案事实。",
+      "detail": "原生locator.fill/select_option/set_input_files已经被本地hosted_ats和runner使用；无需复制第三方内部实现。真正的增量是当前document级观察与控制缺少frame身份，借原生FrameLocator补充frame_path、父页面/子frame URL、字段唯一性和失效检查。aria_snapshot可用于失败时的私有结构化观测；不能把所有快照全量发云。当前运行环境实读Python3.13.14/Playwright1.63.0/Pydantic2.13.4；上游Python源码SHA是清单默认分支快照，不是声称已安装该HEAD。",
+      "validation": "同名字段分处主文档/iframe、iframe导航到别岗位、父页面换岗、frame detach、空/错误PDF、填写后server未保存；最终动作0次。",
+      "dependency_cost": "无需新增依赖；扩展既有观察/控制接口，难点在frame对应的网络授权与schema绑定。",
+      "license": "Apache-2.0",
+      "license_url": "https://github.com/microsoft/playwright/blob/b335271cdc2b57cac2be8ad37c5dd283ac6b8938/LICENSE",
+      "catalog_sha": "b335271cdc2b57cac2be8ad37c5dd283ac6b8938",
+      "license_declared": "Apache-2.0"
+    },
+    {
+      "repository": "puppeteer/puppeteer",
+      "decision": "reject",
+      "local_state": "现有Playwright覆盖控制/上传",
+      "upstream_refs": [
+        {
+          "repository": "puppeteer/puppeteer",
+          "path": "packages/puppeteer-core/src/cdp/ElementHandle.ts",
+          "line": 106,
+          "revision": "ff3103c8e46f1b97e00a6a4a72f8e2509cbc796f",
+          "url": "https://github.com/puppeteer/puppeteer/blob/ff3103c8e46f1b97e00a6a4a72f8e2509cbc796f/packages/puppeteer-core/src/cdp/ElementHandle.ts#L106"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/hosted_ats.py",
+          "line": 216,
+          "url": "../src/career_evidence_graph/hosted_ats.py#L216"
+        },
+        {
+          "path": "src/career_evidence_graph/application_worker_browser.py",
+          "line": 1094,
+          "url": "../src/career_evidence_graph/application_worker_browser.py#L1094"
+        }
+      ],
+      "benefit": "可读uploadFile的multiple约束和清空文件时事件行为作测试参考。",
+      "caveat": "引入Node与另一控制栈会重复已有能力；CDP设定File不证明ATS收件。",
+      "detail": "uploadFile先检查multiple，解析绝对路径，通过DOM.setFileInputFiles设置；零文件专门用DataTransfer触发input/change。当地Playwright已经有文件接口，不能为这几行细节再带入Puppeteer或另起Chrome。可借鉴空文件、multiple、不存在路径的负例，业务批准PDF和远端digest仍由本地既有逻辑负责。",
+      "validation": "多文件误传、清空原附件、路径不可读，均不能记ready_for_review。",
+      "dependency_cost": "新增Node/包/浏览器连接与生命周期；当前收益不足。",
+      "license": "Apache-2.0",
+      "license_url": "https://github.com/puppeteer/puppeteer/blob/ff3103c8e46f1b97e00a6a4a72f8e2509cbc796f/LICENSE",
+      "catalog_sha": "ff3103c8e46f1b97e00a6a4a72f8e2509cbc796f",
+      "license_declared": "Apache-2.0"
+    },
+    {
+      "repository": "SeleniumHQ/selenium",
+      "decision": "reject",
+      "local_state": "已有浏览器等待与输入",
+      "upstream_refs": [
+        {
+          "repository": "SeleniumHQ/selenium",
+          "path": "py/selenium/webdriver/support/wait.py",
+          "line": 78,
+          "revision": "b1d954354b37c3bca42989f4529b73528e1c15fa",
+          "url": "https://github.com/SeleniumHQ/selenium/blob/b1d954354b37c3bca42989f4529b73528e1c15fa/py/selenium/webdriver/support/wait.py#L78"
+        },
+        {
+          "repository": "SeleniumHQ/selenium",
+          "path": "py/selenium/webdriver/remote/webelement.py",
+          "line": 235,
+          "revision": "b1d954354b37c3bca42989f4529b73528e1c15fa",
+          "url": "https://github.com/SeleniumHQ/selenium/blob/b1d954354b37c3bca42989f4529b73528e1c15fa/py/selenium/webdriver/remote/webelement.py#L235"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/application_worker_browser.py",
+          "line": 45,
+          "url": "../src/career_evidence_graph/application_worker_browser.py#L45"
+        },
+        {
+          "path": "src/career_evidence_graph/hosted_ats.py",
+          "line": 216,
+          "url": "../src/career_evidence_graph/hosted_ats.py#L216"
+        }
+      ],
+      "benefit": "可研究until等待谓词和本地/远程文件区分；不用移植webdriver。",
+      "caveat": "until反复调用谓词，不应包装一次性上传/保存；remote upload会产生另一条文件发送路径。",
+      "detail": "send_keys会在远程driver下使用file_detector并_upload压缩文件，和当前受控本地PDF路径不同；WebDriverWait只是一种轮询，并不负责动作结果幂等。本地已有browser_deadline、显式等待与持久intent。因此旧LinkedIn bots的selector可作资料，运行时不替换。",
+      "validation": "谓词超时不能触发重发；等待期间取消后不得写入；原附件和Page保留。",
+      "dependency_cost": "第二浏览器driver与同步机制，且没有当前需求证明必要。",
+      "license": "Apache-2.0",
+      "license_url": "https://github.com/SeleniumHQ/selenium/blob/b1d954354b37c3bca42989f4529b73528e1c15fa/LICENSE",
+      "catalog_sha": "b1d954354b37c3bca42989f4529b73528e1c15fa",
+      "license_declared": "Apache-2.0"
+    },
+    {
+      "repository": "apify/crawlee",
+      "decision": "inspired-by",
+      "local_state": "已有串行推荐入口、去重和错误记录",
+      "upstream_refs": [
+        {
+          "repository": "apify/crawlee-python",
+          "path": "src/crawlee/crawlers/_basic/_basic_crawler.py",
+          "line": 1016,
+          "revision": "508f544f7f0260b4f26b806d50e84592538f8db6",
+          "url": "https://github.com/apify/crawlee-python/blob/508f544f7f0260b4f26b806d50e84592538f8db6/src/crawlee/crawlers/_basic/_basic_crawler.py#L1016"
+        },
+        {
+          "repository": "apify/crawlee-python",
+          "path": "src/crawlee/crawlers/_basic/_basic_crawler.py",
+          "line": 1235,
+          "revision": "508f544f7f0260b4f26b806d50e84592538f8db6",
+          "url": "https://github.com/apify/crawlee-python/blob/508f544f7f0260b4f26b806d50e84592538f8db6/src/crawlee/crawlers/_basic/_basic_crawler.py#L1235"
+        },
+        {
+          "repository": "apify/crawlee-python",
+          "path": "src/crawlee/crawlers/_basic/_basic_crawler.py",
+          "line": 1527,
+          "revision": "508f544f7f0260b4f26b806d50e84592538f8db6",
+          "url": "https://github.com/apify/crawlee-python/blob/508f544f7f0260b4f26b806d50e84592538f8db6/src/crawlee/crawlers/_basic/_basic_crawler.py#L1527"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/application_intake.py",
+          "line": 48,
+          "url": "../src/career_evidence_graph/application_intake.py#L48"
+        },
+        {
+          "path": "src/career_evidence_graph/application_recommendations.py",
+          "line": 406,
+          "url": "../src/career_evidence_graph/application_recommendations.py#L406"
+        },
+        {
+          "path": "src/career_evidence_graph/application_job_source.py",
+          "line": 661,
+          "url": "../src/career_evidence_graph/application_job_source.py#L661"
+        }
+      ],
+      "benefit": "只读职位发现若扩量，可借鉴RequestQueue、request状态和failed_request_handler的可观测分层。",
+      "caveat": "其handler异常会重排整个request；不能直接用作申请/上传/保存队列。",
+      "detail": "_run_request_handler成功后commit/mark handled；_handle_request_retries默认可将异常request reclaim到队列。这个事务只涵盖crawler结果，不撤销handler已造成的外站副作用。当前Gmail推荐→只读fetch→选中建记录已串行且有身份去重，不需要为了申请引入crawler队列。若日后有大量职位索引，应单独限于只读获取，并继续使用本地URL/DNS/peer/redirect约束。",
+      "validation": "抓取失败/超时可计失败；不能重复建application；cross-domain重定向与私网DNS仍拒绝；POST/上传不进入crawler retry。",
+      "dependency_cost": "Python核心12个直接依赖；playwright extra另加fingerprint包；其stagehand extra当前要求<4，不兼容本清单Stagehand v4。",
+      "license": "Apache-2.0",
+      "license_url": "https://github.com/apify/crawlee/blob/02899241d570624a0ce0b77dbcb44b9d58a98ade/LICENSE.md",
+      "catalog_sha": "02899241d570624a0ce0b77dbcb44b9d58a98ade",
+      "license_declared": "Apache-2.0"
+    },
+    {
+      "repository": "unclecode/crawl4ai",
+      "decision": "inspired-by",
+      "local_state": "已有JSON-LD/LinkedIn有界正文提取；通用CSS schema未实现",
+      "upstream_refs": [
+        {
+          "repository": "unclecode/crawl4ai",
+          "path": "crawl4ai/extraction_strategy.py",
+          "line": 1088,
+          "revision": "94b67888ca8b335ff2121423a50e06dd27661922",
+          "url": "https://github.com/unclecode/crawl4ai/blob/94b67888ca8b335ff2121423a50e06dd27661922/crawl4ai/extraction_strategy.py#L1088"
+        },
+        {
+          "repository": "unclecode/crawl4ai",
+          "path": "crawl4ai/extraction_strategy.py",
+          "line": 1241,
+          "revision": "94b67888ca8b335ff2121423a50e06dd27661922",
+          "url": "https://github.com/unclecode/crawl4ai/blob/94b67888ca8b335ff2121423a50e06dd27661922/crawl4ai/extraction_strategy.py#L1241"
+        },
+        {
+          "repository": "unclecode/crawl4ai",
+          "path": "crawl4ai/extraction_strategy.py",
+          "line": 1989,
+          "revision": "94b67888ca8b335ff2121423a50e06dd27661922",
+          "url": "https://github.com/unclecode/crawl4ai/blob/94b67888ca8b335ff2121423a50e06dd27661922/crawl4ai/extraction_strategy.py#L1989"
+        },
+        {
+          "repository": "unclecode/crawl4ai",
+          "path": "crawl4ai/async_webcrawler.py",
+          "line": 729,
+          "revision": "94b67888ca8b335ff2121423a50e06dd27661922",
+          "url": "https://github.com/unclecode/crawl4ai/blob/94b67888ca8b335ff2121423a50e06dd27661922/crawl4ai/async_webcrawler.py#L729"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/application_job_source.py",
+          "line": 552,
+          "url": "../src/career_evidence_graph/application_job_source.py#L552"
+        },
+        {
+          "path": "src/career_evidence_graph/application_job_source.py",
+          "line": 649,
+          "url": "../src/career_evidence_graph/application_job_source.py#L649"
+        },
+        {
+          "path": "src/career_evidence_graph/application_recommendations.py",
+          "line": 410,
+          "url": "../src/career_evidence_graph/application_recommendations.py#L410"
+        }
+      ],
+      "benefit": "可借鉴schema extraction的必需字段覆盖诊断；字段coverage仅是提取状态，不是JD完整性。",
+      "caveat": "整库引入34个直接核心依赖；新的fetch会绕过现有DNS绑定及传输约束。",
+      "detail": "JsonCssExtractionStrategy通过baseSelector/fields对保留HTML提取，核心实现仍依赖bs4/lxml及父类；不是几行无依赖函数。生成schema部分可能调用LLM，不能因CSS执行无模型就将整条生成路径称为无模型。最小可借鉴的是明确expected_fields、记录missing/empty以及保留原HTML/URL/hash；不直接把Markdown、字段非空或coverage高标作full JD。",
+      "validation": "职位列表混杂、资格条件在description之外、尾部丢失、登录页与同名岗位、多源冲突都保持unknown/拒绝full。",
+      "dependency_cost": "核心34依赖含unclecode-litellm/patchright/Playwright等；当前不装，若需实验只对已保留HTML的解析。",
+      "license": "Apache-2.0",
+      "license_url": "https://github.com/unclecode/crawl4ai/blob/94b67888ca8b335ff2121423a50e06dd27661922/LICENSE",
+      "catalog_sha": "94b67888ca8b335ff2121423a50e06dd27661922",
+      "license_declared": "Apache-2.0"
+    },
+    {
+      "repository": "firecrawl/firecrawl",
+      "decision": "reject",
+      "local_state": "已有受控JD获取；缺口不需要完整爬虫平台",
+      "upstream_refs": [
+        {
+          "repository": "firecrawl/firecrawl",
+          "path": "apps/api/src/scraper/scrapeURL/engines/index.ts",
+          "line": 238,
+          "revision": "acd9d4155c213e1239e3cc1d65aefd2286a55fda",
+          "url": "https://github.com/firecrawl/firecrawl/blob/acd9d4155c213e1239e3cc1d65aefd2286a55fda/apps/api/src/scraper/scrapeURL/engines/index.ts#L238"
+        },
+        {
+          "repository": "firecrawl/firecrawl",
+          "path": "apps/api/src/scraper/scrapeURL/engines/playwright/index.ts",
+          "line": 8,
+          "revision": "acd9d4155c213e1239e3cc1d65aefd2286a55fda",
+          "url": "https://github.com/firecrawl/firecrawl/blob/acd9d4155c213e1239e3cc1d65aefd2286a55fda/apps/api/src/scraper/scrapeURL/engines/playwright/index.ts#L8"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/application_job_source.py",
+          "line": 661,
+          "url": "../src/career_evidence_graph/application_job_source.py#L661"
+        },
+        {
+          "path": "src/career_evidence_graph/ats_forms.py",
+          "line": 13,
+          "url": "../src/career_evidence_graph/ats_forms.py#L13"
+        }
+      ],
+      "benefit": "可借鉴引擎能力表，把读取、截图、动作与外部服务能力分开声明。",
+      "caveat": "AGPL核心与多服务部署成本高；SDK的MIT不等于核心可按MIT抽取。",
+      "detail": "engines表对默认fetch/Playwright列出actions=false，与云Fire-engine能力不同。其“引擎支持能力/失败原因”的声明方式可加强候选方案说明，但不能把云Browser/interact当自托管现成填表能力。当前精确岗位capture可在标准库保持DNS/SSL/redirect/byte/deadline证据，移到Firecrawl需要重建这些约束且引入外站数据发送面。",
+      "validation": "引擎不支持动作时显式unsupported；抓取success不得等于正确JD/成功投递；模型抽取不得升级completeness。",
+      "dependency_cost": "Node服务栈与数据库/消息基础设施，或外部云服务；当前不采用。",
+      "license": "AGPL-3.0",
+      "license_url": "https://github.com/firecrawl/firecrawl/blob/acd9d4155c213e1239e3cc1d65aefd2286a55fda/LICENSE",
+      "catalog_sha": "acd9d4155c213e1239e3cc1d65aefd2286a55fda",
+      "license_declared": "AGPL-3.0"
+    },
+    {
+      "repository": "scrapy/scrapy",
+      "decision": "inspired-by",
+      "local_state": "推荐按岗位身份去重已有",
+      "upstream_refs": [
+        {
+          "repository": "scrapy/scrapy",
+          "path": "scrapy/dupefilters.py",
+          "line": 140,
+          "revision": "1b4b7946e36fd311458878893004ca18410eb848",
+          "url": "https://github.com/scrapy/scrapy/blob/1b4b7946e36fd311458878893004ca18410eb848/scrapy/dupefilters.py#L140"
+        },
+        {
+          "repository": "scrapy/scrapy",
+          "path": "scrapy/downloadermiddlewares/retry.py",
+          "line": 95,
+          "revision": "1b4b7946e36fd311458878893004ca18410eb848",
+          "url": "https://github.com/scrapy/scrapy/blob/1b4b7946e36fd311458878893004ca18410eb848/scrapy/downloadermiddlewares/retry.py#L95"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/application_recommendations.py",
+          "line": 99,
+          "url": "../src/career_evidence_graph/application_recommendations.py#L99"
+        },
+        {
+          "path": "src/career_evidence_graph/application_recommendations.py",
+          "line": 410,
+          "url": "../src/career_evidence_graph/application_recommendations.py#L410"
+        },
+        {
+          "path": "src/career_evidence_graph/application_intake.py",
+          "line": 48,
+          "url": "../src/career_evidence_graph/application_intake.py#L48"
+        }
+      ],
+      "benefit": "只读抓取可借鉴request fingerprint与重试原因统计。",
+      "caveat": "请求去重不是逐岗材料版本绑定，skip_dupefilter_once重试也不是恰好一次发送。",
+      "detail": "RFPDupeFilter记录request指纹；get_retry_request复制原request并设置skip_dupefilter_once。适合无副作用HTTP采集，不替代application identity、批准PDF、答案revision与send scope。当前候选合并同时保留邮件provenance，不能用通用URL dedup覆盖掉这些上下文。",
+      "validation": "不同跟踪URL指向同一岗位应合并来源；同岗位新的已批准材料不能因旧request指纹被静默吞掉；未知写结果不可retry。",
+      "dependency_cost": "新爬虫运行时；只读规模未证明前保持标准库当前路径。",
+      "license": "BSD-3-Clause",
+      "license_url": "https://github.com/scrapy/scrapy/blob/1b4b7946e36fd311458878893004ca18410eb848/LICENSE",
+      "catalog_sha": "1b4b7946e36fd311458878893004ca18410eb848",
+      "license_declared": "BSD-3-Clause"
+    },
+    {
+      "repository": "D4Vinci/Scrapling",
+      "decision": "inspired-by",
+      "local_state": "已有字段身份/schema检查；无相似候选排序",
+      "upstream_refs": [
+        {
+          "repository": "D4Vinci/Scrapling",
+          "path": "scrapling/parser.py",
+          "line": 530,
+          "revision": "7a684934907a8c7feaafe9ff1ccfd9d45cc26faf",
+          "url": "https://github.com/D4Vinci/Scrapling/blob/7a684934907a8c7feaafe9ff1ccfd9d45cc26faf/scrapling/parser.py#L530"
+        },
+        {
+          "repository": "D4Vinci/Scrapling",
+          "path": "scrapling/parser.py",
+          "line": 670,
+          "revision": "7a684934907a8c7feaafe9ff1ccfd9d45cc26faf",
+          "url": "https://github.com/D4Vinci/Scrapling/blob/7a684934907a8c7feaafe9ff1ccfd9d45cc26faf/scrapling/parser.py#L670"
+        },
+        {
+          "repository": "D4Vinci/Scrapling",
+          "path": "scrapling/core/storage.py",
+          "line": 109,
+          "revision": "7a684934907a8c7feaafe9ff1ccfd9d45cc26faf",
+          "url": "https://github.com/D4Vinci/Scrapling/blob/7a684934907a8c7feaafe9ff1ccfd9d45cc26faf/scrapling/core/storage.py#L109"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/hosted_ats.py",
+          "line": 179,
+          "url": "../src/career_evidence_graph/hosted_ats.py#L179"
+        },
+        {
+          "path": "src/career_evidence_graph/application_worker_browser.py",
+          "line": 896,
+          "url": "../src/career_evidence_graph/application_worker_browser.py#L896"
+        }
+      ],
+      "benefit": "可借鉴候选元素特征与相似度排序，作为只读诊断/人工候选，不作为自动写授权。",
+      "caveat": "relocate默认40阈值且可能返回并列多个；持久缓存按注册域+identifier，不足以隔离ATS租户/岗位/frame。",
+      "detail": "relocate遍历整棵树并按结构相似度返回最高分集合；xpath失败后可retrieve旧元素、relocate再auto_save第一项。StorageSystem将URL折成注册域，SQL主键为域+identifier，无法区分greenhouse同域的不同公司/岗位。未来只接受唯一且身份/label/options/required/visible相符的候选，缓存至少绑定posting、form、frame和schema revision。不能直接引入自动“自愈并填写”。",
+      "validation": "两个同名Email、hidden proxy、recruiter邮箱、同域不同公司、frame换岗、选项变化、并列最高分，一律拒绝自动改绑。",
+      "dependency_cost": "库加解析/浏览器依赖，SQLite缓存为第二状态源；只借鉴特征设计。",
+      "license": "BSD-3-Clause",
+      "license_url": "https://github.com/D4Vinci/Scrapling/blob/7a684934907a8c7feaafe9ff1ccfd9d45cc26faf/LICENSE",
+      "catalog_sha": "7a684934907a8c7feaafe9ff1ccfd9d45cc26faf",
+      "license_declared": "BSD-3-Clause"
+    },
+    {
+      "repository": "adbar/trafilatura",
+      "decision": "reuse",
+      "local_state": "当前能读正文；非结构化页面清理可作候选",
+      "upstream_refs": [
+        {
+          "repository": "adbar/trafilatura",
+          "path": "trafilatura/core.py",
+          "line": 169,
+          "revision": "e2f85c965662c7df26b73290ef175b2c2a5fdca6",
+          "url": "https://github.com/adbar/trafilatura/blob/e2f85c965662c7df26b73290ef175b2c2a5fdca6/trafilatura/core.py#L169"
+        },
+        {
+          "repository": "adbar/trafilatura",
+          "path": "trafilatura/core.py",
+          "line": 278,
+          "revision": "e2f85c965662c7df26b73290ef175b2c2a5fdca6",
+          "url": "https://github.com/adbar/trafilatura/blob/e2f85c965662c7df26b73290ef175b2c2a5fdca6/trafilatura/core.py#L278"
+        },
+        {
+          "repository": "adbar/trafilatura",
+          "path": "trafilatura/core.py",
+          "line": 482,
+          "revision": "e2f85c965662c7df26b73290ef175b2c2a5fdca6",
+          "url": "https://github.com/adbar/trafilatura/blob/e2f85c965662c7df26b73290ef175b2c2a5fdca6/trafilatura/core.py#L482"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/application_job_source.py",
+          "line": 552,
+          "url": "../src/career_evidence_graph/application_job_source.py#L552"
+        },
+        {
+          "path": "src/career_evidence_graph/application_job_source.py",
+          "line": 649,
+          "url": "../src/career_evidence_graph/application_job_source.py#L649"
+        }
+      ],
+      "benefit": "可通过公开extract/bare_extraction对已捕获HTML生成辅助正文，不复制算法。",
+      "caveat": "文章正文启发式会裁掉JD资格尾部/侧栏/列表；结果不能自动获full标记。",
+      "detail": "extract提供no_fallback/favor_recall/tables等选项；内部有提取cascade与短文本recall escalation，是可成熟依赖复用的解析器而非小段可抽取代码。若真实非JSON-LD样本确有正文污染，可把retained HTML送本地extract作辅助候选，与原source保持映射和hash，仍由既有岗位身份/完整性规则或人工核验决定可用性。不能直接替换现有JSON-LD和LinkedIn封闭scope提取。",
+      "validation": "保留资格/薪资/地点/授权条件尾部；related jobs不混入；提取出流畅文本但缺硬条件仍unknown；原始capture hash保持。",
+      "dependency_cost": "Apache-2.0；Python>=3.10，核心7依赖含lxml/courlan/htmldate/justext；当前仅候选，不安装。",
+      "license": "Apache-2.0",
+      "license_url": "https://github.com/adbar/trafilatura/blob/e2f85c965662c7df26b73290ef175b2c2a5fdca6/LICENSE",
+      "catalog_sha": "e2f85c965662c7df26b73290ef175b2c2a5fdca6",
+      "license_declared": "Apache-2.0"
+    },
+    {
+      "repository": "AutomaApp/automa",
+      "decision": "inspired-by",
+      "local_state": "已有固定流程与暂停复核；无通用可视化编排器",
+      "upstream_refs": [
+        {
+          "repository": "AutomaApp/automa",
+          "path": "src/content/blocksHandler/handlerForms.js",
+          "line": 7,
+          "revision": "a4cbe34a60c92873c48c2470ca8ab1d96c22c7a0",
+          "url": "https://github.com/AutomaApp/automa/blob/a4cbe34a60c92873c48c2470ca8ab1d96c22c7a0/src/content/blocksHandler/handlerForms.js#L7"
+        },
+        {
+          "repository": "AutomaApp/automa",
+          "path": "src/content/blocksHandler/handlerUploadFile.js",
+          "line": 4,
+          "revision": "a4cbe34a60c92873c48c2470ca8ab1d96c22c7a0",
+          "url": "https://github.com/AutomaApp/automa/blob/a4cbe34a60c92873c48c2470ca8ab1d96c22c7a0/src/content/blocksHandler/handlerUploadFile.js#L4"
+        },
+        {
+          "repository": "AutomaApp/automa",
+          "path": "src/workflowEngine/WorkflowWorker.js",
+          "line": 15,
+          "revision": "a4cbe34a60c92873c48c2470ca8ab1d96c22c7a0",
+          "url": "https://github.com/AutomaApp/automa/blob/a4cbe34a60c92873c48c2470ca8ab1d96c22c7a0/src/workflowEngine/WorkflowWorker.js#L15"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/application_worker_browser.py",
+          "line": 685,
+          "url": "../src/career_evidence_graph/application_worker_browser.py#L685"
+        },
+        {
+          "path": "src/career_evidence_graph/application_flow.py",
+          "line": 594,
+          "url": "../src/career_evidence_graph/application_flow.py#L594"
+        },
+        {
+          "path": "src/career_evidence_graph/worker_measurement.py",
+          "line": 330,
+          "url": "../src/career_evidence_graph/worker_measurement.py#L330"
+        }
+      ],
+      "benefit": "借鉴每步说明、目标高亮、断点和失败项展示，放进既有流程视图。",
+      "caveat": "AGPL核心/business商业分区；forms多元素路径allSettled后不检查失败，不能复制为成功判据。",
+      "detail": "forms通过selector→handleFormElement执行；multiple用Promise.allSettled并返回null，没有聚合逐元素失败。upload通过File/DataTransfer向input派change，既无批准PDF hash绑定也无服务端readback；WorkflowWorker timeout包装只reject promise，不等于取消实际动作。这些语义与当前未知动作保留不同。应借鉴交互展示，而非引入block编辑器或执行器；已确认字段不新增逐项弹窗。",
+      "validation": "步骤超时后晚到完成不能清除下一intent；部分元素失败不能显示全完成；上传事件不得证明服务端接受。",
+      "dependency_cost": "扩展运行时与可视化engine很重，许可分区需另评；当前不抽取代码。",
+      "license": "AGPL core; business directory commercial",
+      "license_url": "https://github.com/AutomaApp/automa/blob/a4cbe34a60c92873c48c2470ca8ab1d96c22c7a0/LICENSE.txt",
+      "catalog_sha": "a4cbe34a60c92873c48c2470ca8ab1d96c22c7a0",
+      "license_declared": "AGPL core; business directory commercial"
+    },
+    {
+      "repository": "A9T9/RPA",
+      "decision": "inspired-by",
+      "local_state": "已有同页native/custom控件及Cua",
+      "upstream_refs": [
+        {
+          "repository": "A9T9/RPA",
+          "path": "src/ext/content_script/command_runner.js",
+          "line": 52,
+          "revision": "17b6302f1617b838efe2b26d3ef19c2face81350",
+          "url": "https://github.com/A9T9/RPA/blob/17b6302f1617b838efe2b26d3ef19c2face81350/src/ext/content_script/command_runner.js#L52"
+        },
+        {
+          "repository": "A9T9/RPA",
+          "path": "src/ext/content_script/command_runner.js",
+          "line": 596,
+          "revision": "17b6302f1617b838efe2b26d3ef19c2face81350",
+          "url": "https://github.com/A9T9/RPA/blob/17b6302f1617b838efe2b26d3ef19c2face81350/src/ext/content_script/command_runner.js#L596"
+        },
+        {
+          "repository": "A9T9/RPA",
+          "path": "Not_included.txt",
+          "line": 1,
+          "revision": "17b6302f1617b838efe2b26d3ef19c2face81350",
+          "url": "https://github.com/A9T9/RPA/blob/17b6302f1617b838efe2b26d3ef19c2face81350/Not_included.txt#L1"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/hosted_ats.py",
+          "line": 212,
+          "url": "../src/career_evidence_graph/hosted_ats.py#L212"
+        },
+        {
+          "path": "src/career_evidence_graph/hosted_ats.py",
+          "line": 216,
+          "url": "../src/career_evidence_graph/hosted_ats.py#L216"
+        },
+        {
+          "path": "src/career_evidence_graph/cua_driver.py",
+          "line": 982,
+          "url": "../src/career_evidence_graph/cua_driver.py#L982"
+        }
+      ],
+      "benefit": "可借鉴明确的selector候选来源、frame选择错误和人工诊断展示。",
+      "caveat": "fallback locator可能选到语义不同元素；AGPL核心外的XModules源码未公开。",
+      "detail": "command_runner在最终定位重试用targetOptions备用定位，支持selectFrame/type/check；file由chrome.debugger路径处理，Firefox另有限制。fallback选择器只提供位置匹配，不证明仍是原问题；需要当前schema/答案/岗位重新绑定。XModules是独立native模块，不属于此开源核心。当前Cua已有native集成，因此不再引入另一RPA native messaging链。",
+      "validation": "备用selector落到相似问题必须阻止；frame不存在或身份变化时停；不能把XModules可做桌面上传当作可复制源码。",
+      "dependency_cost": "AGPL/商业核心 + 独立XModules；只借鉴设计和负例。",
+      "license": "AGPL-3.0 or commercial; XModules excluded",
+      "license_url": "https://github.com/A9T9/RPA/blob/17b6302f1617b838efe2b26d3ef19c2face81350/LICENSE.txt",
+      "catalog_sha": "17b6302f1617b838efe2b26d3ef19c2face81350",
+      "license_declared": "AGPL-3.0 or commercial; XModules excluded"
+    },
+    {
+      "repository": "open-rpa/openrpa",
+      "decision": "reject",
+      "local_state": "已有macOS Cua/Playwright执行链",
+      "upstream_refs": [
+        {
+          "repository": "open-rpa/openrpa",
+          "path": "OpenRPA.NM/NMElement.cs",
+          "line": 233,
+          "revision": "b78115e45bcfdc1a22398662bac355fdd52fac87",
+          "url": "https://github.com/open-rpa/openrpa/blob/b78115e45bcfdc1a22398662bac355fdd52fac87/OpenRPA.NM/NMElement.cs#L233"
+        },
+        {
+          "repository": "open-rpa/openrpa",
+          "path": "OpenRPA.NM/Activities/GetElement.cs",
+          "line": 1,
+          "revision": "b78115e45bcfdc1a22398662bac355fdd52fac87",
+          "url": "https://github.com/open-rpa/openrpa/blob/b78115e45bcfdc1a22398662bac355fdd52fac87/OpenRPA.NM/Activities/GetElement.cs#L1"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/cua_driver.py",
+          "line": 982,
+          "url": "../src/career_evidence_graph/cua_driver.py#L982"
+        },
+        {
+          "path": "src/career_evidence_graph/hosted_ats.py",
+          "line": 212,
+          "url": "../src/career_evidence_graph/hosted_ats.py#L212"
+        }
+      ],
+      "benefit": "可读其tabid/frameId/element-id消息绑定作对照，但本地已有owner/target约束。",
+      "caveat": "Windows/.NET/工作流基础与当前macOS不匹配；消息返回不等于服务器字段正确。",
+      "detail": "SendText setter将browser/tabid/frameId/zn_id和值编码进NativeMessagingMessage并等result；这说明frame身份应进入命令，而不是只保存selector。框架整体针对Windows/.NET流程，不宜迁进macOS包。未来frame-aware接口应使用现有Playwright frame对象和exact posting/schema绑定，避免复制C#桥和第二存储。",
+      "validation": "frame切换、tab重用、旧element id失效、未知message结果均不自动再发。",
+      "dependency_cost": "MPL-2.0，Windows/.NET/扩展桥；当前reject运行时。",
+      "license": "MPL-2.0",
+      "license_url": "https://github.com/open-rpa/openrpa/blob/b78115e45bcfdc1a22398662bac355fdd52fac87/LICENSE",
+      "catalog_sha": "b78115e45bcfdc1a22398662bac355fdd52fac87",
+      "license_declared": "MPL-2.0"
+    },
+    {
+      "repository": "aisingapore/TagUI",
+      "decision": "reject",
+      "local_state": "已有问答、暂停/恢复和填写任务",
+      "upstream_refs": [
+        {
+          "repository": "aisingapore/TagUI",
+          "path": "src/tagui_parse.php",
+          "line": 800,
+          "revision": "7508625e815913f691598295817b9953d101e319",
+          "url": "https://github.com/aisingapore/TagUI/blob/7508625e815913f691598295817b9953d101e319/src/tagui_parse.php#L800"
+        },
+        {
+          "repository": "aisingapore/TagUI",
+          "path": "src/tagui_parse.php",
+          "line": 859,
+          "revision": "7508625e815913f691598295817b9953d101e319",
+          "url": "https://github.com/aisingapore/TagUI/blob/7508625e815913f691598295817b9953d101e319/src/tagui_parse.php#L859"
+        },
+        {
+          "repository": "aisingapore/TagUI",
+          "path": "src/tagui_parse.php",
+          "line": 986,
+          "revision": "7508625e815913f691598295817b9953d101e319",
+          "url": "https://github.com/aisingapore/TagUI/blob/7508625e815913f691598295817b9953d101e319/src/tagui_parse.php#L986"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/application_worker_browser.py",
+          "line": 651,
+          "url": "../src/career_evidence_graph/application_worker_browser.py#L651"
+        },
+        {
+          "path": "src/career_evidence_graph/application_worker_browser.py",
+          "line": 685,
+          "url": "../src/career_evidence_graph/application_worker_browser.py#L685"
+        }
+      ],
+      "benefit": "自然语言步骤日志可读，但不需要新增DSL/parser。",
+      "caveat": "旧CasperJS/Chrome/Sikuli路径与当前栈不同；live直接eval输入，不作为模型动作接口。",
+      "detail": "type/select/upload编译为浏览器语句；ask以prompt/stdin收用户输入；live读到done前执行eval(tagui_parse(live_input))。这些是通用脚本能力，不包含确认答案作用域和当前版本绑定。已有App不要求终端与外部task复制，新增DSL会增加学习/解释/恢复语义。官方维护停止的事实已在清单记录，保留为历史设计对照。",
+      "validation": "未知资格问题仍停在既有needs_input；输入不是可执行代码；暂停后不隐式恢复。",
+      "dependency_cost": "Apache-2.0，但旧多语言运行时/维护成本与当前无增量。",
+      "license": "Apache-2.0",
+      "license_url": "https://github.com/aisingapore/TagUI/blob/7508625e815913f691598295817b9953d101e319/LICENSE.md",
+      "catalog_sha": "7508625e815913f691598295817b9953d101e319",
+      "license_declared": "Apache-2.0"
+    },
+    {
+      "repository": "MarketSquare/robotframework-browser",
+      "decision": "inspired-by",
+      "local_state": "pytest/Playwright已有合成与故障回归",
+      "upstream_refs": [
+        {
+          "repository": "MarketSquare/robotframework-browser",
+          "path": "Browser/keywords/interaction.py",
+          "line": 94,
+          "revision": "b8aa7b64f5cf15630579ed83e8845f27c8410be9",
+          "url": "https://github.com/MarketSquare/robotframework-browser/blob/b8aa7b64f5cf15630579ed83e8845f27c8410be9/Browser/keywords/interaction.py#L94"
+        },
+        {
+          "repository": "MarketSquare/robotframework-browser",
+          "path": "Browser/keywords/interaction.py",
+          "line": 224,
+          "revision": "b8aa7b64f5cf15630579ed83e8845f27c8410be9",
+          "url": "https://github.com/MarketSquare/robotframework-browser/blob/b8aa7b64f5cf15630579ed83e8845f27c8410be9/Browser/keywords/interaction.py#L224"
+        },
+        {
+          "repository": "MarketSquare/robotframework-browser",
+          "path": "node/playwright-wrapper/interaction.ts",
+          "line": 66,
+          "revision": "b8aa7b64f5cf15630579ed83e8845f27c8410be9",
+          "url": "https://github.com/MarketSquare/robotframework-browser/blob/b8aa7b64f5cf15630579ed83e8845f27c8410be9/node/playwright-wrapper/interaction.ts#L66"
+        }
+      ],
+      "local_refs": [
+        {
+          "path": "src/career_evidence_graph/hosted_ats.py",
+          "line": 216,
+          "url": "../src/career_evidence_graph/hosted_ats.py#L216"
+        },
+        {
+          "path": "src/career_evidence_graph/worker_measurement.py",
+          "line": 128,
+          "url": "../src/career_evidence_graph/worker_measurement.py#L128"
+        },
+        {
+          "path": "tests/test_generic_worker.py",
+          "line": 1,
+          "url": "../tests/test_generic_worker.py#L1"
+        }
+      ],
+      "benefit": "借鉴strict locator、动作/观察断言分离和日志脱敏；沿用现有pytest夹具。",
+      "caveat": "它是Python→gRPC→Node→Playwright包装，不会新增ATS业务正确性；secret包装也不保护Playwright debug日志。",
+      "detail": "Fill Text透过RPC把strict模式传给Node locator.fill；Fill Secret避免Robot输出并替换异常中的secret，文档同时明确Playwright debug仍会泄漏明文。可借鉴不记录个人值的测试/诊断规则，而非为了可读关键字加Robot/gRPC/Node三层。现有offline suite与synthetic worker-browser用例已可承载功能/生命周期回归。",
+      "validation": "重复selector拒绝；动作成功与readback分开；错误/trace不进入公开报告；mask不误掩盖字段不一致。",
+      "dependency_cost": "Apache-2.0；新增Robot+Node/gRPC包装无当前必要。",
+      "license": "Apache-2.0",
+      "license_url": "https://github.com/MarketSquare/robotframework-browser/blob/b8aa7b64f5cf15630579ed83e8845f27c8410be9/LICENSE",
+      "catalog_sha": "b8aa7b64f5cf15630579ed83e8845f27c8410be9",
+      "license_declared": "Apache-2.0"
+    }
+  ],
+  "local_baseline": {
+    "git_head": "e4a26d0c24311d014d478f7f92e58a88e6709b4b",
+    "git_head_is_not_complete_worktree_identity": true,
+    "source_hashes": {
+      "ARCHITECTURE.md": "65c28c3c062cb043f66276df93ec2feaa64ff8a2ac9e147f134be99145899e7e",
+      "CONVENTIONS.md": "1b57bb030d962cf2f647c31a5041f6a13f1ea8c063eb73935b09625eb25fb92a",
+      "README.md": "455fe4aacb260c2338b059710077a6ebfd063d26ceb657675682c987c2a1fea1",
+      "pyproject.toml": "d8e768edb87837a2a6a229947126e8a4dff6d59e3aa124c08c24528190e1edbd",
+      "references/README.md": "c6a39711a108d0e56c6ef171746a3691b2b404fa0e07be44e7dbe8b660c082d6",
+      "src/career_evidence_graph/__init__.py": "cd083f0aa26b20779855109be887a725e453cc312584e81238f63e130adacbea",
+      "src/career_evidence_graph/_vendor/README.md": "ab5081f4ca4ea21e476174cc1e3d897bcad2db98a849c00ec44019a5158f0234",
+      "src/career_evidence_graph/_vendor/job_apply_store.py": "aeff412145497a87929c04b712a2f87bf4521256c67c98f6b4bc0271c5655d03",
+      "src/career_evidence_graph/application_automation.py": "4e14e57eb4cc7bffc513fe40371df1bd9dbc613c94cad364b79a4759181e5f43",
+      "src/career_evidence_graph/application_benchmark.py": "aef9281cfb1a806354d16862612a6f56b7b8da14bd897839c82eb84224ad2a7a",
+      "src/career_evidence_graph/application_execution.py": "b2032489506177cf1a31485ba7c1007284c54facc1dc4e8480435913c511e732",
+      "src/career_evidence_graph/application_flow.py": "d81417ebd1dc7163a095083578a7185fe22e2f3add384597793778b58d5252db",
+      "src/career_evidence_graph/application_gmail.py": "9060e8ebf2fbc76987710b53721a486220af017b4842e66a5f949a2f83fe68a7",
+      "src/career_evidence_graph/application_handoff.py": "f2bd871d2977bcb29948e73ae5cdebf7da59ea07f9fc94a14bc1d964dcb5a1aa",
+      "src/career_evidence_graph/application_intake.py": "6f8acfad9fde90d1b4fe4f063cbe4258ab0cccdaeef27915f45b18f9b241c586",
+      "src/career_evidence_graph/application_job_source.py": "e457b02c2666e7c63b669bd5cf36b0c81dce06159033aacdc411ac1d8c11ced0",
+      "src/career_evidence_graph/application_match.py": "639303b0acbb23ad929146bedd7a41ac04a303471998b7ec393175635a5d73ec",
+      "src/career_evidence_graph/application_recommendations.py": "9da8b95349e130d4b6dc98317b47390d98c2901bec14e45c3ef4419284e2a532",
+      "src/career_evidence_graph/application_resume.py": "9e89175c951f5268f94ec5df1a6570e792c82f48e9922a3a4e727c6f22c03343",
+      "src/career_evidence_graph/application_single_binding.py": "af7e2cc5d2a0d7b8e1f1e02ce52600f56d6360245ca4a46b3380651ff982ad1b",
+      "src/career_evidence_graph/application_worker.py": "d4d2b2879c988a1e3ed71b47271fa367eb6b5941c837afd3b062cf432a3faa5a",
+      "src/career_evidence_graph/application_worker_browser.py": "4ad6a13a84f12be42a1a0a02ca7c6afaf34726c14304a103f1537929ed330c81",
+      "src/career_evidence_graph/application_worker_fixtures.py": "8d9abb55f449ef1b1ed9a4106ca1a7e1e8c6df154998bf26c4ef4ed330448dc6",
+      "src/career_evidence_graph/ashby_drafts.py": "1e526f7e4e38adc69752fd92c1734b081cdc5e2838a824166daeeb9c25421777",
+      "src/career_evidence_graph/assessment.py": "ff7ca1121c4a87e985ad6113ddfed090dfd25a37a6c7925ca31d7738da20a01e",
+      "src/career_evidence_graph/ats_forms.py": "25b5f990e1f511425c45d0b2c124c5d7bd4bafb78099100dd21faf726c365723",
+      "src/career_evidence_graph/career_portal.py": "3ba70ef42c0c23703f54343dbbf2bd17a84da976115b6acc31a672663d21e482",
+      "src/career_evidence_graph/career_portal_data.py": "afd71f59f6df30bcb573f63037db0bfb81dcb6d2cf1851ba87c6b7f2779e6f75",
+      "src/career_evidence_graph/career_portal_graph.py": "ba9d809926f976cb3d07b5602eb5cb325f28613bed423dbae1e72535041a8692",
+      "src/career_evidence_graph/cli.py": "57bb35062385aa39c5bb94fff55dfe70ab0ccf9eb7ade8b1fbaa39b0b5ca8e99",
+      "src/career_evidence_graph/codex_cli.py": "87ecf8ed2de445d0a00edb82cbb8499afc751318d9667d31119ab53aec031e6d",
+      "src/career_evidence_graph/cua_driver.py": "c27fe44fa282f15f8bbad4c337b82643b7bc4fc57bf5f9f882c60adc024e615a",
+      "src/career_evidence_graph/hosted_ats.py": "81d022481121a1a78b926f925d74a9fdbe0a3a4e8b9e05d3fdea1fc9960e1bf8",
+      "src/career_evidence_graph/interview.py": "8fb472ed8ce55b490134d879193e792cbbc3648eafbc1df2d3703f12734768f4",
+      "src/career_evidence_graph/interview_calibration.py": "232270c8d63e3e830203a85cd6568bd52d2aff80c3a8bfa7b6e6cd24ab1bf3c9",
+      "src/career_evidence_graph/jd.py": "2fb3e45d401101936e70103913547c13bc87977d01b57767c038b280b2c67ee0",
+      "src/career_evidence_graph/job_screening.py": "cbb3d2a4f4c32864d45b977168dd263a4644c9e8633914fdbefb47b26eb9183a",
+      "src/career_evidence_graph/lever_worker.py": "88c2d532ca9366477f7641d0fd4a2a9f938702f89c5f4b43d92bcf5d6d424183",
+      "src/career_evidence_graph/portal_static/app.js": "f6180134d5169c42ac49aff1e6644c9c7e06029a6c00263801ffcc21b93b5783",
+      "src/career_evidence_graph/portal_static/application_flow.js": "cacb66ca960e72e97e50dbeabfe8281d8976af50e0ca16b3f077964044ce48cc",
+      "src/career_evidence_graph/portal_static/graph.js": "e529aa795fb9d6aea08dd15952f980c516bcfb45cec9c1045625b8bd601f5d2e",
+      "src/career_evidence_graph/portal_static/handoff.js": "ca0a3f81ca26724348d45d259670f3dc70734980ae52d7c990a743499d05bcba",
+      "src/career_evidence_graph/portal_static/worker.js": "5150e4199bbe9c16acac803d4135a135f8fba825c21276a9ae1e31c893ba4935",
+      "src/career_evidence_graph/public_site.py": "b88841994a13345b96edff4f2ef5cff74d71c96c6949e173d37e4aeb751407a9",
+      "src/career_evidence_graph/url_safety.py": "3a411ed01277efb86b147836bae0ffd071dd3302b05b72566f71c6c6b2d37049",
+      "src/career_evidence_graph/workable_uploads.py": "e7a4e592d1e406c22a7893028331502324d7699eead0027a8c50a4be6c20776a",
+      "src/career_evidence_graph/worker_measurement.py": "8cf4732e52fb76b522c1ffa8f3d964465a2207c8f7dc32bbd35679d843dbba46",
+      "src/career_evidence_graph/workspace.py": "3f79352b501ed9d97ba4627a12bbc282d39dffbb77ca70a90ae5e0165e927824",
+      "tests/test_application_job_source.py": "950a684872054e0a1783a32ab4cafe08473d2009521912712375f4f8128b7011",
+      "tests/test_application_worker.py": "a00d50071b66c042a898528658c70271a536faceaa9e216d27636e08656de7b3",
+      "tests/test_career_source_custody.py": "1f33d5bbd8471d14260d56f316f70c89f8ca9658f33a1dc19037d3c0f9a65a37",
+      "tests/test_career_source_security.py": "dc56ad979fc9825c390e61a52a19b611cffc82870cf24836f2367d52f4ec47ae",
+      "tests/test_cua_worker.py": "fe0ea207452a3a928a49b48b9bb6cd1b6780d432f06ea1ea17c4ba4f0491d80b",
+      "tests/test_generic_worker.py": "0ec2fb3ee9e9ed3090e780efb89c7c37c338fdea20e16a69483be4b757b61091",
+      "tests/test_greenhouse_worker_browser.py": "dd995f5e75c44792aa3d195b50b4339d694e1886103b031c80a27324966494f9",
+      "tests/test_lever_worker_browser.py": "5dc0f085ee86fff767d617e6f8b0329195e266e447400c12205028e13e3b3af8",
+      "tests/test_single_application_worker.py": "691a41ef6e88d4a0dd9c4113fa9417e9a24aeb10eab0af17543cb0deadfb999a",
+      "tests/test_worker_attempt_completion.py": "633a169107aa1828e16013c91dac0fced79a73a30627bf5eda9964867a30c077",
+      "tests/test_worker_configuration_boundaries.py": "8051bb92f045c08feb31045b1d4d10f54daa819ad9850e775e18fd2ebc595c05",
+      "tests/test_worker_crash_injection.py": "d9ec39850b783cc926969b0c54c3bf4338f77794f5aa6f4f56913c83045e52a1",
+      "tests/test_worker_legacy_completion.py": "4c0daf0f866df9e4971044db76a9a5530889b822f0e77f0164992dc351b37cf6",
+      "tests/test_worker_measurement.py": "afd4e908eb993b3bdaccd4721641d3cc7331d33ff2bfcbbf8eac82cc55df04e7",
+      "tests/test_worker_recovery_regressions.py": "c08c966d9b2f6db838b01f07ce0ca5382a11829538c2fe64463629e4430b46b9",
+      "tests/test_worker_stability.py": "0236caaba4186af53c512bfafa44eca4c721c669c83f41c39e64236957d7f788",
+      "uv.lock": "8cc53c5f479e664641bb533d242271c9564bab0efde7104795eeae7b5bcb2dbe"
+    },
+    "initially_captured_file_count": 64,
+    "changed_since_initial_capture": [],
+    "runtime_versions": {
+      "python": "3.13.14",
+      "playwright": "1.63.0",
+      "pydantic": "2.13.4"
+    }
+  },
+  "verification": {
+    "command": "uv run --locked --offline --cache-dir /private/tmp/tomorrowstar-reuse-uv-cache python scripts/run_pytest.py -q tests/test_generic_worker.py tests/test_workable_uploads.py tests/test_worker_measurement.py tests/test_application_job_source.py tests/test_application_single_binding.py tests/test_worker_recovery_regressions.py",
+    "result": "198 passed, 46 deselected in 2.43s",
+    "scope": "Selected current offline contracts only; no candidate packages installed or exercised, no browser/model/real ATS runs.",
+    "candidate_integrations_executed": false,
+    "production_code_modified": false,
+    "existing_vendor_byte_comparison": {
+      "repository": "neonwatty/job-apply-plugin",
+      "revision": "370204c58b1137d08c5a7e7449538ae6447be0b9",
+      "upstream_file": "scripts/job-apply-store.py",
+      "local_file": "src/career_evidence_graph/_vendor/job_apply_store.py",
+      "byte_identical": true,
+      "sha256": "aeff412145497a87929c04b712a2f87bf4521256c67c98f6b4bc0271c5655d03"
+    }
+  },
+  "completion_audit": {
+    "catalog_43_exact_coverage": true,
+    "each_project_has_fixed_source_refs": true,
+    "each_project_has_current_local_counterpart": true,
+    "license_and_cost_and_risk_considered": true,
+    "concrete_incremental_recommendations_and_validation_design": true,
+    "source_scope_and_runtime_verification_separated": true
+  },
+  "artifact_checks": {
+    "main_catalog_exact_coverage": 43,
+    "local_file_links_checked": 114,
+    "remote_url_format_checked_unique": 343,
+    "fixed_upstream_code_references": 167,
+    "local_source_hashes_matched": 65,
+    "markdown_trailing_whitespace": "passed",
+    "report_sha256": "d90c47c8227c6f5169af499d5e507f81521c47d3727dce5a5850c74e9c1f713d"
+  }
+}

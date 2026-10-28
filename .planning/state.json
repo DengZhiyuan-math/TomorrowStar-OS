@@ -1,0 +1,53 @@
+{
+  "contract": "1.0.0",
+  "flavor": "core",
+  "milestone": "v1.1 — Full Career Graph and Real JD Validation",
+  "phases": [
+    {
+      "number": "7",
+      "name": "Career Source Custody and Private Workspace",
+      "status": "completed"
+    },
+    {
+      "number": "8",
+      "name": "Full-Career Inventory Review and Seal",
+      "status": "completed"
+    },
+    {
+      "number": "9",
+      "name": "Generic Contribution Audit and Attribution",
+      "status": "in_progress"
+    },
+    {
+      "number": "10",
+      "name": "Skill Resolution and Reviewed Mastery",
+      "status": "pending"
+    },
+    {
+      "number": "11",
+      "name": "Canonical Career Graph and User Confirmation",
+      "status": "pending"
+    },
+    {
+      "number": "12",
+      "name": "Three Real JDs and Immutable Corpus",
+      "status": "pending"
+    },
+    {
+      "number": "13",
+      "name": "Reproducible Comparison and Automated Evaluation",
+      "status": "pending"
+    },
+    {
+      "number": "14",
+      "name": "Independent Review and Core-Hypothesis Decision",
+      "status": "pending"
+    }
+  ],
+  "next": {
+    "command": "/gsd:progress --next",
+    "label": "Review interview quality and calibration",
+    "reason": "Phases 7–8 accepted at the first inventory cutoff; Phase 9 implementation and synthetic validation in progress. Personal calibration and later inventory successor acceptance remain separate gates."
+  },
+  "updated_at": "2026-10-08T09:08:13.175500+00:00"
+}

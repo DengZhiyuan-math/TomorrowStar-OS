@@ -378,6 +378,7 @@ class SpecificSkillProposal(StrictModel):
     evidence_ids: tuple[Identifier, ...] = Field(min_length=1)
     answer_question_ids: tuple[str, ...] = Field(min_length=1)
     attribution_area_ids: tuple[str, ...] = Field(min_length=1)
+    candidate_skill_link_ids: tuple[str, ...] = ()
     normalization_record_hash: str = Field(pattern=SHA256_PATTERN)
 
     @model_validator(mode="after")
@@ -386,6 +387,7 @@ class SpecificSkillProposal(StrictModel):
         _unique_ids(self.evidence_ids, "evidence_ids")
         _unique_ids(self.answer_question_ids, "answer_question_ids")
         _unique_ids(self.attribution_area_ids, "attribution_area_ids")
+        _unique_ids(self.candidate_skill_link_ids, "candidate_skill_link_ids")
         return self
 
 
@@ -820,6 +822,14 @@ class AcceptedJDPacket(StrictModel):
             raise ValueError("recorded JD proposal must bind the raw source hash")
         if self.recorded_proposal.raw_source_id != self.raw_source.source_id:
             raise ValueError("recorded JD proposal must bind the raw source ID")
+        proposal = json.loads(self.recorded_proposal.proposal_json)
+        requirements = proposal.get("requirements")
+        if (
+            not isinstance(requirements, list)
+            or tuple(JDRequirement.model_validate(item) for item in requirements)
+            != self.requirements
+        ):
+            raise ValueError("accepted JD requirements must match the recorded proposal")
         source_bytes = self.raw_source.utf8_text.encode("utf-8")
         for requirement in self.requirements:
             span = requirement.source_span

@@ -6,3 +6,6 @@ __pycache__/
 .ruff_cache/
 /formal-runs/
 /.career-evidence/
+/.claude/worktrees/
+/.planning/research/.cache/
+/build/

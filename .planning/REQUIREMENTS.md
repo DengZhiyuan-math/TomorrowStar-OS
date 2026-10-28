@@ -1,31 +1,51 @@
-# Requirements: Career Evidence Graph — Full Career Graph and Real JD Validation
+# Requirements: Application Product and Career Evidence Research
 
 **Defined:** 2026-08-28
 **Milestone:** v1.1 — Full Career Graph and Real JD Validation
 **Core Value:** Accurately determine what the user can genuinely do within specific contributions and convert that understanding into skill scores and graph relationships that are useful for JD-relevant career decisions.
 
-## v1.1 Requirements
+## Current application product requirements — 2026-10-20
+
+[APP-01–18](../docs/single-job-flow.md#可验证要求) are the normative operational
+requirements. Their acceptance conditions are defined there, with implementation
+ownership, dependencies and verification in [the development plan](../docs/development-plan.md).
+The [audit](../docs/system-audit-2026-10-20.md) records why old approval and bounded-cycle
+requirements are superseded. These are target requirements, not completed checkboxes.
+
+| Requirements | Scope |
+| --- | --- |
+| APP-01–03 | Durable mail ingestion, label/archive, incrementality, deduplication and continuous sequential execution |
+| APP-04–05 | Authoritative career facts, application information, direct correction and autonomous reuse |
+| APP-06–09 | Match routing, automatic materials, browser fallback and actual login waits |
+| APP-10–14 | One-Continue manual handoff, manual Submit, observed result, recovery and skip |
+| APP-15–18 | Impact-based updates, operation-level failure handling, minimal local checks and truthfulness |
+
+The following v1.1 requirements retain their research meaning. Their accepted
+snapshots and mastery review do not require the user to approve a direct fact
+correction twice and do not gate documentary résumé preparation.
+
+## v1.1 Research Requirements
 
 Requirements for this milestone. Each requirement must map to exactly one roadmap phase.
 
 ### Full-Career Inventory and Source Custody
 
-- [ ] **INV-01**: The user can declare the career-source universe, unavailable sources, and a cutoff that define what “all known career history” means for one inventory revision.
-- [ ] **INV-02**: The user can record every known employment, project, research, publication, education, teaching, open-source, internship, and related Experience in one inventory without a résumé or repository list being treated as complete by itself.
-- [ ] **INV-03**: The user can review every discovered or user-added inventory item and explicitly confirm, edit, add, split, merge, exclude with reason, or retain it as unresolved without silent omission.
-- [ ] **INV-04**: The user can inspect a coverage report for every supported Experience category, declared source, candidate item, unresolved item, and unavailable source before the inventory is called complete.
-- [ ] **INV-05**: The user can seal one exact inventory revision and cutoff only after every candidate has a recorded disposition; any later correction creates a new immutable revision instead of rewriting the accepted inventory.
-- [ ] **INV-06**: An evaluator can trace every accepted inventory fact and Evidence item to a retained source identity, content hash, capture metadata, and any versioned transformation that produced derived text.
-- [ ] **INV-07**: The operator can process raw career sources in the ignored private workspace while committed artifacts, routine status output, logs, and errors expose only safe identifiers, counts, hashes, and redacted diagnostics.
+- [x] **INV-01**: The user can declare the career-source universe, unavailable sources, and a cutoff that define what “all known career history” means for one inventory revision.
+- [x] **INV-02**: The user can record every known employment, project, research, publication, education, teaching, open-source, internship, and related Experience in one inventory without a résumé or repository list being treated as complete by itself.
+- [x] **INV-03**: The user can review every discovered or user-added inventory item and explicitly confirm, edit, add, split, merge, exclude with reason, or retain it as unresolved without silent omission.
+- [x] **INV-04**: The user can inspect a coverage report for every supported Experience category, declared source, candidate item, unresolved item, and unavailable source before the inventory is called complete.
+- [x] **INV-05**: The user can seal one exact inventory revision and cutoff only after every candidate has a recorded disposition; any later correction creates a new immutable revision instead of rewriting the accepted inventory.
+- [x] **INV-06**: An evaluator can trace every accepted inventory fact and Evidence item to a retained source identity, content hash, capture metadata, and any versioned transformation that produced derived text.
+- [x] **INV-07**: The operator can process raw career sources in the ignored private workspace while committed artifacts, routine status output, logs, and errors expose only safe identifiers, counts, hashes, and redacted diagnostics.
 
 ### Canonical Skill Graph and Assessment Authority
 
-- [ ] **GRF-01**: The user can run the existing artifact-aware, one-question-at-a-time audit for any accepted Contribution ID without production schemas, workflows, or CLI commands requiring a STOA-specific identifier or path.
-- [ ] **GRF-02**: Each real Contribution audit preserves capability coverage, user/team/other-person/coding-agent/third-party attribution, evidence sufficiency, assistance, skips, contradictions, and unresolved responsibility as distinct reviewable facts.
+- [ ] **GRF-01**: The user can run the artifact-aware, one-question-at-a-time audit for any accepted Contribution ID without STOA-specific production identifiers or paths. A project interview orders overview, depth and transfer, keeps layer separate from difficulty, and declares evaluation criteria before answers.
+- [ ] **GRF-02**: Each real Contribution audit preserves capability coverage, user/team/other-person/coding-agent/third-party attribution, evidence sufficiency, assistance, skips, contradictions, unresolved responsibility, layer conclusions and context requests as distinct reviewable facts. Prior answers are reused; missing recall is not negative capability evidence.
 - [ ] **GRF-03**: The user can review candidate Skill identities and explicitly accept, correct, merge, split, or leave ambiguous aliases while source-local identity and decision lineage remain inspectable.
 - [ ] **GRF-04**: The user can inspect one canonical graph snapshot containing every item in the accepted inventory, including reviewed, pending, insufficient-evidence, unresolved-responsibility, confirmed, and excluded-with-reason states where applicable.
 - [ ] **GRF-05**: Only current admitted `reviewed-user-truth` Contribution–Skill assessments can establish or increase mastery; inventory presence, pending review, insufficient evidence, unresolved responsibility, résumé/JD wording, ontology relations, titles, credentials, and repository presence have no mastery effect.
-- [ ] **GRF-06**: The user can inspect mastery, skill centrality, evidence confidence, context, duration, recency, responsibility, assistance, assessment basis, and admission status as separate meanings for every score-bearing Contribution–Skill relationship.
+- [ ] **GRF-06**: The user can inspect mastery, skill centrality, evidence confidence, context, duration, recency, responsibility, assistance, assessment basis, and admission status as separate meanings for every score-bearing Contribution–Skill relationship. The three interview layers are not averaged; overview fluency alone cannot establish technical mastery, and transfer reasoning cannot establish completed work or repeated real contexts.
 - [ ] **GRF-07**: Duplicate sources, Evidence, Contributions, aliases, and incidental uses cannot mechanically increase mastery, confidence, duration, or cross-context promotion; a higher band still requires observable evidence for that anchor.
 - [ ] **GRF-08**: The user can inspect and confirm a deterministic graph snapshot bound to the accepted inventory, current audit and assessment versions, Skill-resolution decisions, policy versions, exclusions, coverage states, and one canonical graph hash.
 - [ ] **GRF-09**: A correction, reassessment, attribution change, or policy change creates a linked new version, invalidates stale graph snapshots and dependent results, and preserves the prior accepted lineage.
@@ -88,21 +108,30 @@ Tracked product capabilities that remain central but are not part of the v1.1 ro
 | Multi-user SaaS, authentication, billing, production web UI, or graph visualization | Delivery infrastructure and polish do not test the core hypothesis. |
 | Upload, synchronization, telemetry, or cloud processing of private career/JD material | No external-transfer boundary is authorized for this local validation milestone. |
 
+The table defines only the v1.1 hypothesis experiment. The separately authorized
+application product includes tailored materials, browser filling/upload and
+label/archive after durable mail ingestion. It follows APP-01–18. No final Submit
+is automated. Research scoring and the fixed three-JD corpus remain independent.
+
+## Acceptance evidence
+
+INV-01, INV-06 and INV-07 use the [independent local MVP verification](phases/07-career-source-custody-and-private-workspace/07-VERIFICATION-2026-10-07.md). INV-02–05 use the exact private user acceptance, complete coverage and retained seal, reverified on 2026-10-08. Personal identifiers and fingerprints remain private. The [delivery record](../docs/interview-delivery-2026-10-08.md) records successor and adapter tests. These checkboxes establish the accepted research cutoff only. Explicit new or corrected career facts are saved directly with source/history under APP-04. Using a successor as a formally accepted research input retains its research review; no capability is inferred.
+
 ## Traceability
 
 Every active v1.1 requirement maps to exactly one roadmap phase. Future requirements and out-of-scope items remain unmapped.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INV-01 | Phase 7 | Gaps Found |
-| INV-02 | Phase 8 | Pending |
-| INV-03 | Phase 8 | Pending |
-| INV-04 | Phase 8 | Pending |
-| INV-05 | Phase 8 | Pending |
-| INV-06 | Phase 7 | Gaps Found |
-| INV-07 | Phase 7 | Gaps Found |
-| GRF-01 | Phase 9 | Pending |
-| GRF-02 | Phase 9 | Pending |
+| INV-01 | Phase 7 | Verified, local MVP |
+| INV-02 | Phase 8 | Accepted research baseline; research successor acceptance separate from direct fact updates |
+| INV-03 | Phase 8 | Accepted research baseline; research successor acceptance separate from direct fact updates |
+| INV-04 | Phase 8 | Accepted research baseline; research successor acceptance separate from direct fact updates |
+| INV-05 | Phase 8 | Accepted research baseline; research successor acceptance separate from direct fact updates |
+| INV-06 | Phase 7 | Verified, local MVP |
+| INV-07 | Phase 7 | Verified, local MVP |
+| GRF-01 | Phase 9 | Implemented; quality and real review pending |
+| GRF-02 | Phase 9 | Implemented; quality and real review pending |
 | GRF-03 | Phase 10 | Pending |
 | GRF-04 | Phase 11 | Pending |
 | GRF-05 | Phase 10 | Pending |
@@ -110,7 +139,7 @@ Every active v1.1 requirement maps to exactly one roadmap phase. Future requirem
 | GRF-07 | Phase 10 | Pending |
 | GRF-08 | Phase 11 | Pending |
 | GRF-09 | Phase 11 | Pending |
-| GRF-10 | Phase 9 | Pending |
+| GRF-10 | Phase 9 | Implemented; quality and real review pending |
 | JD-01 | Phase 12 | Pending |
 | JD-05 | Phase 12 | Pending |
 | JD-06 | Phase 12 | Pending |
@@ -136,4 +165,4 @@ Every active v1.1 requirement maps to exactly one roadmap phase. Future requirem
 
 ---
 *Requirements defined: 2026-08-28*
-*Last updated: 2026-08-28 after v1.1 research and scope confirmation*
+*Research evidence updated: 2026-10-08. Product requirements aligned: 2026-10-20. Inventory requirements reflect the accepted baseline and linked-successor implementation. Phase 9 real review and Phase 10 personal calibration remain open. Requirement IDs and phase mappings remain unchanged.*

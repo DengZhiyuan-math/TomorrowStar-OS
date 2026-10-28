@@ -1,0 +1,177 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____________ test_workbench_keeps_completed_jobs_in_manual_review _____________
+
+tmp_path = PosixPath('/private/var/folders/13/jgb8c061583ggg622pgv9l0c0000gp/T/pytest-of-zhdeng/pytest-123/test_workbench_keeps_completed0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109b116e0>
+
+    def test_workbench_keeps_completed_jobs_in_manual_review(tmp_path: Path, monkeypatch) -> None:
+        from playwright.sync_api import expect, sync_playwright
+    
+        monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", "0")
+        with running_preview(tmp_path, 1) as p:
+            p.seed("Will you now or in the future require visa sponsorship?", "No", {"country": "USA"})
+            p.prepare(["USA"])
+            p.post("resume", controller=p.controller)
+            state = p.wait(lambda s: s["jobs"][0]["status"] == "ready_for_review")
+            p.post("pause", controller=p.controller)
+            with sync_playwright() as playwright:
+                browser = playwright.chromium.launch(headless=True, channel="chromium")
+                try:
+                    page = browser.new_page()
+                    page.goto(p.origin + "/#applications")
+                    worker = page.locator("#worker-root")
+                    expect(worker.get_by_text("等待人工复核", exact=True)).to_be_visible()
+                    expect(worker.get_by_role("button", name="开始／继续", exact=True)).to_be_disabled()
+                    p.post("review", application_id=state["jobs"][0]["application_id"])
+                    p.wait(lambda s: s["jobs"][0]["handed_off"])
+                    expect(
+                        worker.get_by_text("已转为人工处理，自动填写已停止。", exact=True)
+                    ).to_be_visible()
+                    expect(
+                        worker.get_by_role("button", name="我已人工提交", exact=True)
+                    ).to_be_visible()
+                    assert p.events()["submissions"] == []
+                    assert len(p.events()["uploads"]) == 1
+                    assert p.get("/api/worker/state")["jobs"][0]["page_open"]
+                    stop_worker(p)
+                    expect(
+                        worker.get_by_text(
+                            "页面状态来自上次记录。worker 未连接，尚未核验页面是否仍打开。", exact=True
+                        )
+>                   ).to_be_visible(timeout=10000)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E                   AssertionError: Locator expected to be visible
+E                   Actual value: None
+E                   Error: element(s) not found 
+E                   Call log:
+E                     - Expect "to_be_visible" locator("#worker-root").get_by_text("页面状态来自上次记录。worker 未连接，尚未核验页面是否仍打开。", exact=True) with timeout 10000ms
+E                     - waiting for locator("#worker-root").get_by_text("页面状态来自上次记录。worker 未连接，尚未核验页面是否仍打开。", exact=True)
+E                   
+E                   Aria snapshot:
+E                   - link "跳到主要内容":
+E                     - /url: "#main"
+E                   - complementary "工作台导航":
+E                     - link "TomorrowStar 工作台首页":
+E                       - /url: "#overview"
+E                       - text: TomorrowStar 职业工作台
+E                     - text: 个人工作空间
+E                     - navigation "主要导航":
+E                       - link "工作总览":
+E                         - /url: "#overview"
+E                       - link "求职进度 1":
+E                         - /url: "#applications"
+E                       - link "职业证据 0":
+E                         - /url: "#evidence"
+E                       - link "项目访谈":
+E                         - /url: "#interview"
+E                       - link "公开展示":
+E                         - /url: "#website"
+E                     - text: 数据连接 投递记录 已连接 职业证据 已连接 每一次行动，都有迹可循。 TomorrowStar OS · 本机工作台
+E                   - main:
+E                     - text: 个人工作空间
+E                     - strong: 求职进度
+E                     - button "刷新工作台": ↻
+E                     - button "新增投递 N"
+E                     - region "求职进度":
+E                       - text: APPLICATIONS
+E                       - heading "求职进度" [level=1]
+E                       - paragraph: 从心动的机会，到下一次沟通。每一步都清楚。
+E                       - link "导出 CSV":
+E                         - /url: /api/export.csv
+E                       - searchbox "搜索投递记录"
+E                       - text: / 状态
+E                       - combobox "筛选投递状态":
+E                         - option "全部状态" [selected]
+E                         - option "准备投递"
+E                         - option "已投递"
+E                         - option "已确认收到"
+E                         - option "等待回复"
+E                         - option "招聘方已回复"
+E                         - option "面试已安排"
+E                         - option "待完成测评"
+E                         - option "测评已提交"
+E                         - option "已获 Offer"
+E                         - option "未通过"
+E                         - option "已撤回"
+E                         - option "可跟进"
+E                         - option "可能无回复"
+E                         - option "无回复"
+E                       - text: 方向
+E                       - combobox "筛选求职方向":
+E                         - option "全部方向" [selected]
+E                         - option "AI/ML"
+E                         - option "Data Science"
+E                         - option "Education"
+E                         - option "Other"
+E                         - option "Quant"
+E                         - option "Research"
+E                         - option "Software Engineering"
+E                       - text: 候选
+E                       - combobox "筛选岗位可用性":
+E                         - option "全部记录" [selected]
+E                         - option "AI / 量化候选"
+E                         - option "worker 可准备"
+E                         - option "条件待确认"
+E                         - option "需直达链接或平台适配"
+E                         - option "暂不进入批次"
+E                       - text: 排序
+E                       - combobox "岗位排序":
+E                         - option "最近记录" [selected]
+E                         - option "筛选优先"
+E                       - paragraph: 关键词可用空格分隔。未知条件保留待确认；技术可准备不代表资格已核验。
+E                       - text: 1 条投递记录
+E                       - button "准备填表批次"
+E                       - checkbox "只看待办"
+E                       - text: 只看待办
+E                       - table:
+E                         - rowgroup:
+E                           - row "公司 / 岗位 状态 方向 下一步 截止日期 详情":
+E                             - columnheader "公司 / 岗位"
+E                             - columnheader "状态"
+E                             - columnheader "方向"
+E                             - columnheader "下一步"
+E                             - columnheader "截止日期"
+E                             - columnheader "详情"
+E                         - rowgroup:
+E                           - row "选择 Synthetic 0 Engineer 加入批次 Sy Synthetic 0 Engineer 准备投递 Other 已填写并核验：请在专用浏览器复核并人工提交。 其他方向 · Lever 申请地区、职级和个人资格尚需确认；未保存 JD，资格和岗位开放状态尚未核对 — 查看 Synthetic 0 Engineer":
+E                             - cell "选择 Synthetic 0 Engineer 加入批次 Sy Synthetic 0 Engineer":
+E                               - checkbox "选择 Synthetic 0 Engineer 加入批次"
+E                               - button "Sy Synthetic 0 Engineer":
+E                                 - text: Sy
+E                                 - strong: Synthetic 0
+E                                 - text: Engineer
+E                             - cell "准备投递"
+E                             - cell "Other"
+E                             - cell "已填写并核验：请在专用浏览器复核并人工提交。 其他方向 · Lever 申请地区、职级和个人资格尚需确认；未保存 JD，资格和岗位开放状态尚未核对"
+E                             - cell "—"
+E                             - cell "查看 Synthetic 0 Engineer":
+E                               - button "查看 Synthetic 0 Engineer": ↗
+E                     - region "岗位申请助手":
+E                       - text: APPLICATION PREVIEW
+E                       - heading "集中补充，逐岗位复核" [level=2]
+E                       - button "开始／继续" [disabled]
+E                       - button "暂停批次" [disabled]
+E                       - button "取消批次"
+E                       - paragraph: Lever / Greenhouse 本地合成预览：使用独立可见浏览器。所选 PDF 与确认答案仅发送到隔离测试页面。最终 Submit 由你操作。
+E                       - paragraph: 批次已暂停 · worker 尚未就绪
+E                       - heading "需要你补充" [level=3]
+E                       - paragraph: 目前没有待补充问题。
+E                       - heading "岗位与简历" [level=3]
+E                       - article:
+E                         - heading "Synthetic 0 · Engineer" [level=4]
+E                         - text: 等待人工复核
+E                         - paragraph: Lever · 美国 · resume.pdf
+E                         - paragraph: 内容版本：73ce312f5055
+E                         - paragraph: 已转为人工处理，自动填写已停止。
+E                         - button "定位复核页面"
+E                         - button "我已人工提交"
+E                         - button "关闭并释放页面"
+E                         - button "取消此岗位"
+E                       - group: 信息库 · 已确认答案
+E                     - text: TomorrowStar · 下一步，从这里开始 / 搜索 · N 新增投递
+
+tests/test_lever_worker_browser.py:56: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_lever_worker_browser.py::test_workbench_keeps_completed_jobs_in_manual_review
+1 failed in 19.56s

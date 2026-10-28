@@ -1,0 +1,41 @@
+{
+  "mode": "synthetic_independent_worker",
+  "round": "round-2-answer-loop",
+  "checks": [
+    "unknown_only_pauses_one_job",
+    "equivalent_phrasings_group",
+    "country_scope",
+    "saved_while_paused_no_browser_action",
+    "automatic_waiting_resume",
+    "answer_revision_invalidates_handoff"
+  ],
+  "result": "passed",
+  "worker_pid": 85613,
+  "jobs": [
+    {
+      "company": "Synthetic 2",
+      "status": "needs_recheck",
+      "reason": "answer_changed",
+      "file_sha256": "ab4cefe83eb7fe32543e8e2277455ff613dd8f3c8e85390b905ba6b57fd5712a",
+      "sync_error": ""
+    },
+    {
+      "company": "Synthetic 1",
+      "status": "needs_recheck",
+      "reason": "answer_changed",
+      "file_sha256": "7dd986b322d91ed00f9b4450b5bd680a814341cfb06be45d691e3fe2d290e723",
+      "sync_error": ""
+    },
+    {
+      "company": "Synthetic 0",
+      "status": "ready_for_review",
+      "reason": "",
+      "file_sha256": "15db881371f44a77a06329aa1ed3701d04d7ac16f5bb32c08f74e03c70b68642",
+      "sync_error": ""
+    }
+  ],
+  "uploaded_files": 3,
+  "automatic_final_submissions": 0,
+  "model_calls": 0,
+  "real_ats_calls": 0
+}

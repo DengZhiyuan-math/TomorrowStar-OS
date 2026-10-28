@@ -1,0 +1,82 @@
+{
+  "schema_version": "synthetic-question-review/v1",
+  "authority": "assistant-semantic-review-of-synthetic-plans",
+  "independent_human_review": false,
+  "raw_candidates_passed": 1,
+  "raw_candidates_total": 3,
+  "reviewed_plans_passed": 3,
+  "method": "Inspect every retained prompt and criterion. Preserve raw output, reject unasked criteria and a repeated higher boundary, and create explicitly linked reviewed successors.",
+  "reviews": [
+    {
+      "attempt": 1,
+      "raw_plan_hash": "sha256:0beef3bc445bf80bc47d17dcd57eb9b20c5b760d6eb4bc700a78082b43dee67c",
+      "raw_semantic_verdict": "pass",
+      "issues": [],
+      "successor_plan_hash": "sha256:4173e1ed22e12be44cb954ec5748e3f8e909747e906bcfe1738878b464771a62",
+      "successor_verdict": "pass",
+      "changes": [],
+      "reviewed_checks": [
+        "scope",
+        "grounding",
+        "role",
+        "one focused task",
+        "criteria align with asked task",
+        "changed condition",
+        "distinct next-higher behavior",
+        "no mastery or new performed-work claim"
+      ]
+    },
+    {
+      "attempt": 2,
+      "raw_plan_hash": "sha256:f13725ea7dcf4c8462227292df2f5c6f538c51bbaeaf7043702bbc064be66866",
+      "raw_semantic_verdict": "revision-required",
+      "issues": [
+        "Depth hard criterion asks for an assumption not requested by the question.",
+        "Transfer hard criterion requires verification not requested by the question."
+      ],
+      "successor_plan_hash": "sha256:b568b6d2522275532064b61311dfc144e7621267e187e6f2c808795e5d92863f",
+      "successor_verdict": "pass",
+      "changes": [
+        "Depth hard criterion asks for an assumption not requested by the question.",
+        "Transfer hard criterion requires verification not requested by the question."
+      ],
+      "reviewed_checks": [
+        "scope",
+        "grounding",
+        "role",
+        "one focused task",
+        "criteria align with asked task",
+        "changed condition",
+        "distinct next-higher behavior",
+        "no mastery or new performed-work claim"
+      ]
+    },
+    {
+      "attempt": 3,
+      "raw_plan_hash": "sha256:cb1bbcaace72e2f126501cae2986c1ccba59942dcbf30a49d36e07c199933a73",
+      "raw_semantic_verdict": "revision-required",
+      "issues": [
+        "Depth hard criterion requires an unasked limitation or assumption.",
+        "Transfer next-higher capability repeats the demanded adaptation and verification."
+      ],
+      "successor_plan_hash": "sha256:fd3eb8e1fcd1da53c0c4377a22b79f58010191153d127b958ed0efe8f005d1af",
+      "successor_verdict": "pass",
+      "changes": [
+        "Depth hard criterion requires an unasked limitation or assumption.",
+        "Transfer next-higher capability repeats the demanded adaptation and verification."
+      ],
+      "reviewed_checks": [
+        "scope",
+        "grounding",
+        "role",
+        "one focused task",
+        "criteria align with asked task",
+        "changed condition",
+        "distinct next-higher behavior",
+        "no mastery or new performed-work claim"
+      ]
+    }
+  ],
+  "real_personal_calibration": "pending",
+  "personal_scoring_authorized": false
+}

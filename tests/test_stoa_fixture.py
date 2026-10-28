@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from career_evidence_graph.domain.fixtures import (
+    CandidateLedger,
     CandidateReviewRecord,
     SourceScopeError,
     evaluate_review_status,
@@ -21,6 +22,7 @@ from career_evidence_graph.domain.fixtures import (
     seal_reviewed_fixture,
     verify_source_manifest,
 )
+from career_evidence_graph.validation.hashing import canonical_json_bytes, sha256_digest
 from career_evidence_graph.validation.replay import replay_recorded_response
 from career_evidence_graph.validation.store import FormalRunStorageError, FormalRunStore
 
@@ -237,6 +239,59 @@ def test_review_materialization_preserves_human_corrections_and_unresolved_value
         ).read_text(encoding="utf-8")
     )
     assert fixture.model_dump(mode="json") == confirmed_result
+
+
+@pytest.mark.parametrize("rejected_index", [0, 1])
+def test_partial_claim_rejection_keeps_the_contribution_sealable(
+    tmp_path: Path, rejected_index: int
+) -> None:
+    """Compose a synthetic multi-claim probe without changing the sealed source packet."""
+    candidates, review = load_candidate_packet(CANDIDATES, REVIEW)
+    payload = candidates.model_dump(mode="json")
+    first, second = payload["contributions"][:2]
+    first_id, second_id = first["claim_ids"][0], second["claim_ids"][0]
+    rejected_id = (first_id, second_id)[rejected_index]
+    retained_id = (second_id, first_id)[rejected_index]
+    first["claim_ids"].extend(second["claim_ids"])
+    payload["contributions"].remove(second)
+    next(claim for claim in payload["claims"] if claim["id"] == second_id)["contribution_id"] = (
+        first["id"]
+    )
+    candidates = CandidateLedger.model_validate(payload)
+    proposal = candidates.model_dump(mode="json")
+    ledger_hash = sha256_digest(canonical_json_bytes(proposal))
+    reviewed = review.model_dump(mode="json")
+    reviewed["candidate_ledger_hash"] = ledger_hash
+    next(item for item in reviewed["items"] if item["candidate_id"] == rejected_id)["fact"][
+        "status"
+    ] = "rejected"
+    for correction in reviewed["corrections"]:
+        correction["original_proposal"] = proposal
+        correction["original_proposal_hash"] = ledger_hash
+    review = CandidateReviewRecord.model_validate(reviewed)
+    assert evaluate_review_status(candidates, review).sealable is True
+
+    workspace = _sealed_workspace(tmp_path)
+    (workspace / "review.json").write_text(review.model_dump_json(), encoding="utf-8")
+    output = workspace / "known-good.json"
+    sealed = seal_reviewed_fixture(
+        workspace=workspace,
+        run_id="synthetic-partial-rejection",
+        manifest_path=workspace / "source-manifest.json",
+        candidates=candidates,
+        review=review,
+        checkpoint_summary_bytes=CHECKPOINT_SUMMARY.read_bytes(),
+        output_path=output,
+    )
+
+    confirmed = FormalRunStore(workspace).payload(
+        "synthetic-partial-rejection", "confirmed_result.json"
+    )
+    contribution = next(item for item in confirmed["contributions"] if item["id"] == first["id"])
+    assert contribution["claim_ids"] == [retained_id]
+    assert rejected_id not in {claim["id"] for claim in confirmed["claims"]}
+    assert rejected_id not in {link["claim_id"] for link in confirmed["claim_evidence_links"]}
+    assert load_sealed_fixture(output, workspace).fixture_hash == sealed.fixture_hash
 
 
 def test_rejected_fact_is_omitted_but_unresolved_fact_cannot_be_sealed() -> None:

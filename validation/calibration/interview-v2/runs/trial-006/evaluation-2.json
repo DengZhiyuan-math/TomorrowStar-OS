@@ -1,0 +1,173 @@
+{
+  "schema_version": "codex-cli-result/v1",
+  "started_at": "2026-10-08T09:16:57.111537Z",
+  "completed_at": "2026-10-08T09:17:13.210917Z",
+  "cli_version": "codex-cli 0.156.1",
+  "sanitized_argv": [
+    "codex",
+    "exec",
+    "--model",
+    "gpt-5.6-luna",
+    "--config",
+    "model_reasoning_effort=\"medium\"",
+    "--json",
+    "--output-schema",
+    "/private/tmp/tomorrowstar-three-items/trial-006/evaluation.schema.json",
+    "--cd",
+    "/private/tmp/tomorrowstar-three-items/trial-006",
+    "--sandbox",
+    "read-only",
+    "<prompt:sha256:17c6693df87e36e835054566d3797fc371a2c4993983dfd3eb76acb7996e0521>"
+  ],
+  "exit_code": 0,
+  "raw_stdout_jsonl": "{\"type\":\"thread.started\",\"thread_id\":\"01a11acd-30d5-7560-84fc-32de20dbc89f\"}\n{\"type\":\"turn.started\"}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":\"{\\\"observations\\\":[{\\\"case_id\\\":\\\"alternative\\\",\\\"route\\\":\\\"capability\\\",\\\"boundary\\\":{\\\"schema_version\\\":\\\"audit-boundary-decision/v1\\\",\\\"question_id\\\":\\\"question-alternative\\\",\\\"answer\\\":\\\"I would use a version token bound to the data. A changed token makes the old entry invalid; token checks cost a read.\\\",\\\"outcome\\\":\\\"established\\\",\\\"rationale\\\":\\\"The passage “use a version token bound to the data” and “a changed token makes the old entry invalid” identifies a valid freshness mechanism. The passage “token checks cost a read” states its limitation. No practical implementation or verification is demonstrated.\\\",\\\"strongest_capability\\\":\\\"Can explain a bounded freshness mechanism and its read-cost limitation.\\\",\\\"next_higher_not_established\\\":\\\"Can independently implement and verify the freshness mechanism in a practical task.\\\"},\\\"supported_anchor_id\\\":null,\\\"rationale\\\":\\\"The answer satisfies the declared explanation criterion, but it does not establish a practical mastery anchor.\\\"},{\\\"case_id\\\":\\\"partial\\\",\\\"route\\\":\\\"capability\\\",\\\"boundary\\\":{\\\"schema_version\\\":\\\"audit-boundary-decision/v1\\\",\\\"question_id\\\":\\\"question-partial\\\",\\\"answer\\\":\\\"Caching makes reads fast.\\\",\\\"outcome\\\":\\\"incomplete\\\",\\\"rationale\\\":\\\"The passage only states a general benefit of caching. It does not identify a freshness mechanism or its limitation.\\\",\\\"strongest_capability\\\":null,\\\"next_higher_not_established\\\":null},\\\"supported_anchor_id\\\":null,\\\"rationale\\\":\\\"The required mechanism and limitation are missing.\\\"},{\\\"case_id\\\":\\\"assisted-design\\\",\\\"route\\\":\\\"capability\\\",\\\"boundary\\\":{\\\"schema_version\\\":\\\"audit-boundary-decision/v1\\\",\\\"question_id\\\":\\\"question-assisted-design\\\",\\\"answer\\\":\\\"I designed a version-token check. The coding agent implemented it. A stale token invalidates the entry, and the check adds a read.\\\",\\\"outcome\\\":\\\"established\\\",\\\"rationale\\\":\\\"The passages “a stale token invalidates the entry” and “the check adds a read” explain both the freshness mechanism and its limitation. The answer clearly attributes implementation to the coding agent, while retaining the user’s design contribution. Independent implementation is not established.\\\",\\\"strongest_capability\\\":\\\"Can explain and design a bounded freshness mechanism with an explicit trade-off, including when execution is agent-assisted.\\\",\\\"next_higher_not_established\\\":\\\"Can independently implement and verify the designed mechanism.\\\"},\\\"supported_anchor_id\\\":null,\\\"rationale\\\":\\\"The explanation criterion is satisfied through the user’s design understanding. Assistance does not negate that design capability, but no practical anchor is established.\\\"},{\\\"case_id\\\":\\\"denied-ownership\\\",\\\"route\\\":\\\"attribution\\\",\\\"boundary\\\":{\\\"schema_version\\\":\\\"audit-boundary-decision/v1\\\",\\\"question_id\\\":\\\"question-denied-ownership\\\",\\\"answer\\\":\\\"I did not design or implement this. Another person did.\\\",\\\"outcome\\\":\\\"attribution-signal\\\",\\\"rationale\\\":\\\"The answer explicitly denies both design and implementation ownership. Repository presence is documentary context only and cannot establish capability.\\\",\\\"strongest_capability\\\":null,\\\"next_higher_not_established\\\":null},\\\"supported_anchor_id\\\":null,\\\"rationale\\\":\\\"Ownership requires attribution clarification before capability evaluation.\\\"},{\\\"case_id\\\":\\\"context-request\\\",\\\"route\\\":\\\"request-context\\\",\\\"boundary\\\":null,\\\"supported_anchor_id\\\":null,\\\"rationale\\\":\\\"The answer requests an explanation of the version-token label before answering. It is a context request, not a capability answer, so no capability boundary is evaluated.\\\"},{\\\"case_id\\\":\\\"transfer-only\\\",\\\"route\\\":\\\"capability\\\",\\\"boundary\\\":{\\\"schema_version\\\":\\\"audit-boundary-decision/v1\\\",\\\"question_id\\\":\\\"question-transfer-only\\\",\\\"answer\\\":\\\"Under a larger workload I would partition cache keys and validate a version token per partition. A token change rejects old entries; token checks add reads. I have not implemented this changed-condition design.\\\",\\\"outcome\\\":\\\"established\\\",\\\"rationale\\\":\\\"The passages “partition cache keys” and “validate a version token per partition” propose an adaptation to the changed workload condition. The passages “a token change rejects old entries” and “token checks add reads” state the mechanism and limitation. The answer explicitly says the design was not implemented, so practical completion is not established.\\\",\\\"strongest_capability\\\":\\\"Can reason about adapting a freshness mechanism under a changed workload condition and identify its read-cost limitation.\\\",\\\"next_higher_not_established\\\":\\\"Can implement and verify the adapted design under the larger workload.\\\"},\\\"supported_anchor_id\\\":null,\\\"rationale\\\":\\\"The transfer criterion is satisfied as reasoned adaptation. It does not establish deployment, implementation, or repeated real-world execution.\\\"},{\\\"case_id\\\":\\\"overview-only\\\",\\\"route\\\":\\\"capability\\\",\\\"boundary\\\":{\\\"schema_version\\\":\\\"audit-boundary-decision/v1\\\",\\\"question_id\\\":\\\"question-overview-only\\\",\\\"answer\\\":\\\"The project accelerates reads through a cache. My role was design; implementation was assisted.\\\",\\\"outcome\\\":\\\"established\\\",\\\"rationale\\\":\\\"The passage “the project accelerates reads through a cache” describes the project accurately. The passage “my role was design; implementation was assisted” accurately states the role and attribution. This overview does not establish technical mastery or independent implementation.\\\",\\\"strongest_capability\\\":\\\"Can accurately communicate the project purpose, personal design role, and assisted implementation attribution.\\\",\\\"next_higher_not_established\\\":\\\"Can independently perform and verify the project’s technical implementation.\\\"},\\\"supported_anchor_id\\\":null,\\\"rationale\\\":\\\"The declared overview criterion is satisfied. Overview fluency is not treated as independent technical mastery.\\\"},{\\\"case_id\\\":\\\"bounded-task\\\",\\\"route\\\":\\\"capability\\\",\\\"boundary\\\":{\\\"schema_version\\\":\\\"audit-boundary-decision/v1\\\",\\\"question_id\\\":\\\"question-bounded-task\\\",\\\"answer\\\":\\\"I independently fixed stale-cache reads using a version token, demonstrated stale rejection in a retained test, and delivered the bounded change with routine documentation.\\\",\\\"outcome\\\":\\\"established\\\",\\\"rationale\\\":\\\"The passage “independently fixed stale-cache reads using a version token” identifies the completed bounded change and personal responsibility. The passage “demonstrated stale rejection in a retained test” provides retained verification. The passage “delivered the bounded change with routine documentation” supports completion and maintenance documentation. The observations do not establish complex-system responsibility or repeated contexts.\\\",\\\"strongest_capability\\\":\\\"Can independently complete and verify a common, well-bounded cache task.\\\",\\\"next_higher_not_established\\\":\\\"Can independently handle complex problems and defend decisions beyond this bounded task.\\\"},\\\"supported_anchor_id\\\":\\\"anchor-55-69\\\",\\\"rationale\\\":\\\"The supplied observations establish the accepted anchor for independently completing common, well-bounded practical tasks, but not the next higher complex-problem boundary.\\\"},{\\\"case_id\\\":\\\"module-responsibility\\\",\\\"route\\\":\\\"capability\\\",\\\"boundary\\\":{\\\"schema_version\\\":\\\"audit-boundary-decision/v1\\\",\\\"question_id\\\":\\\"question-module-responsibility\\\",\\\"answer\\\":\\\"I owned the cache module design, integration, incident handling and maintenance; retained observations show I diagnosed a stale-read incident, defended token versus TTL trade-offs, verified the repair, and maintained the module.\\\",\\\"outcome\\\":\\\"established\\\",\\\"rationale\\\":\\\"The answer identifies ownership of “design, integration, incident handling and maintenance.” It supports failure handling through “diagnosed a stale-read incident,” trade-off reasoning through “defended token versus TTL trade-offs,” verification through “verified the repair,” and maintenance through “maintained the module.” The observations do not establish multiple real contexts or guiding others.\\\",\\\"strongest_capability\\\":\\\"Can own a complete module, including failures, trade-offs, verification, integration, and maintenance.\\\",\\\"next_higher_not_established\\\":\\\"Has repeatedly carried advanced responsibility in multiple real contexts and can guide others.\\\"},\\\"supported_anchor_id\\\":\\\"anchor-80-89\\\",\\\"rationale\\\":\\\"The supplied observations establish the complete-module responsibility anchor, but not repeated advanced responsibility across multiple real contexts or guidance of others.\\\"}]}\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":25368,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":1762,\"reasoning_output_tokens\":224}}\n",
+  "redacted_stderr": "Reading additional input from stdin...\n",
+  "structured_result": {
+    "observations": [
+      {
+        "case_id": "alternative",
+        "route": "capability",
+        "boundary": {
+          "schema_version": "audit-boundary-decision/v1",
+          "question_id": "question-alternative",
+          "answer": "I would use a version token bound to the data. A changed token makes the old entry invalid; token checks cost a read.",
+          "outcome": "established",
+          "rationale": "The passage “use a version token bound to the data” and “a changed token makes the old entry invalid” identifies a valid freshness mechanism. The passage “token checks cost a read” states its limitation. No practical implementation or verification is demonstrated.",
+          "strongest_capability": "Can explain a bounded freshness mechanism and its read-cost limitation.",
+          "next_higher_not_established": "Can independently implement and verify the freshness mechanism in a practical task."
+        },
+        "supported_anchor_id": null,
+        "rationale": "The answer satisfies the declared explanation criterion, but it does not establish a practical mastery anchor."
+      },
+      {
+        "case_id": "partial",
+        "route": "capability",
+        "boundary": {
+          "schema_version": "audit-boundary-decision/v1",
+          "question_id": "question-partial",
+          "answer": "Caching makes reads fast.",
+          "outcome": "incomplete",
+          "rationale": "The passage only states a general benefit of caching. It does not identify a freshness mechanism or its limitation.",
+          "strongest_capability": null,
+          "next_higher_not_established": null
+        },
+        "supported_anchor_id": null,
+        "rationale": "The required mechanism and limitation are missing."
+      },
+      {
+        "case_id": "assisted-design",
+        "route": "capability",
+        "boundary": {
+          "schema_version": "audit-boundary-decision/v1",
+          "question_id": "question-assisted-design",
+          "answer": "I designed a version-token check. The coding agent implemented it. A stale token invalidates the entry, and the check adds a read.",
+          "outcome": "established",
+          "rationale": "The passages “a stale token invalidates the entry” and “the check adds a read” explain both the freshness mechanism and its limitation. The answer clearly attributes implementation to the coding agent, while retaining the user’s design contribution. Independent implementation is not established.",
+          "strongest_capability": "Can explain and design a bounded freshness mechanism with an explicit trade-off, including when execution is agent-assisted.",
+          "next_higher_not_established": "Can independently implement and verify the designed mechanism."
+        },
+        "supported_anchor_id": null,
+        "rationale": "The explanation criterion is satisfied through the user’s design understanding. Assistance does not negate that design capability, but no practical anchor is established."
+      },
+      {
+        "case_id": "denied-ownership",
+        "route": "attribution",
+        "boundary": {
+          "schema_version": "audit-boundary-decision/v1",
+          "question_id": "question-denied-ownership",
+          "answer": "I did not design or implement this. Another person did.",
+          "outcome": "attribution-signal",
+          "rationale": "The answer explicitly denies both design and implementation ownership. Repository presence is documentary context only and cannot establish capability.",
+          "strongest_capability": null,
+          "next_higher_not_established": null
+        },
+        "supported_anchor_id": null,
+        "rationale": "Ownership requires attribution clarification before capability evaluation."
+      },
+      {
+        "case_id": "context-request",
+        "route": "request-context",
+        "boundary": null,
+        "supported_anchor_id": null,
+        "rationale": "The answer requests an explanation of the version-token label before answering. It is a context request, not a capability answer, so no capability boundary is evaluated."
+      },
+      {
+        "case_id": "transfer-only",
+        "route": "capability",
+        "boundary": {
+          "schema_version": "audit-boundary-decision/v1",
+          "question_id": "question-transfer-only",
+          "answer": "Under a larger workload I would partition cache keys and validate a version token per partition. A token change rejects old entries; token checks add reads. I have not implemented this changed-condition design.",
+          "outcome": "established",
+          "rationale": "The passages “partition cache keys” and “validate a version token per partition” propose an adaptation to the changed workload condition. The passages “a token change rejects old entries” and “token checks add reads” state the mechanism and limitation. The answer explicitly says the design was not implemented, so practical completion is not established.",
+          "strongest_capability": "Can reason about adapting a freshness mechanism under a changed workload condition and identify its read-cost limitation.",
+          "next_higher_not_established": "Can implement and verify the adapted design under the larger workload."
+        },
+        "supported_anchor_id": null,
+        "rationale": "The transfer criterion is satisfied as reasoned adaptation. It does not establish deployment, implementation, or repeated real-world execution."
+      },
+      {
+        "case_id": "overview-only",
+        "route": "capability",
+        "boundary": {
+          "schema_version": "audit-boundary-decision/v1",
+          "question_id": "question-overview-only",
+          "answer": "The project accelerates reads through a cache. My role was design; implementation was assisted.",
+          "outcome": "established",
+          "rationale": "The passage “the project accelerates reads through a cache” describes the project accurately. The passage “my role was design; implementation was assisted” accurately states the role and attribution. This overview does not establish technical mastery or independent implementation.",
+          "strongest_capability": "Can accurately communicate the project purpose, personal design role, and assisted implementation attribution.",
+          "next_higher_not_established": "Can independently perform and verify the project’s technical implementation."
+        },
+        "supported_anchor_id": null,
+        "rationale": "The declared overview criterion is satisfied. Overview fluency is not treated as independent technical mastery."
+      },
+      {
+        "case_id": "bounded-task",
+        "route": "capability",
+        "boundary": {
+          "schema_version": "audit-boundary-decision/v1",
+          "question_id": "question-bounded-task",
+          "answer": "I independently fixed stale-cache reads using a version token, demonstrated stale rejection in a retained test, and delivered the bounded change with routine documentation.",
+          "outcome": "established",
+          "rationale": "The passage “independently fixed stale-cache reads using a version token” identifies the completed bounded change and personal responsibility. The passage “demonstrated stale rejection in a retained test” provides retained verification. The passage “delivered the bounded change with routine documentation” supports completion and maintenance documentation. The observations do not establish complex-system responsibility or repeated contexts.",
+          "strongest_capability": "Can independently complete and verify a common, well-bounded cache task.",
+          "next_higher_not_established": "Can independently handle complex problems and defend decisions beyond this bounded task."
+        },
+        "supported_anchor_id": "anchor-55-69",
+        "rationale": "The supplied observations establish the accepted anchor for independently completing common, well-bounded practical tasks, but not the next higher complex-problem boundary."
+      },
+      {
+        "case_id": "module-responsibility",
+        "route": "capability",
+        "boundary": {
+          "schema_version": "audit-boundary-decision/v1",
+          "question_id": "question-module-responsibility",
+          "answer": "I owned the cache module design, integration, incident handling and maintenance; retained observations show I diagnosed a stale-read incident, defended token versus TTL trade-offs, verified the repair, and maintained the module.",
+          "outcome": "established",
+          "rationale": "The answer identifies ownership of “design, integration, incident handling and maintenance.” It supports failure handling through “diagnosed a stale-read incident,” trade-off reasoning through “defended token versus TTL trade-offs,” verification through “verified the repair,” and maintenance through “maintained the module.” The observations do not establish multiple real contexts or guiding others.",
+          "strongest_capability": "Can own a complete module, including failures, trade-offs, verification, integration, and maintenance.",
+          "next_higher_not_established": "Has repeatedly carried advanced responsibility in multiple real contexts and can guide others."
+        },
+        "supported_anchor_id": "anchor-80-89",
+        "rationale": "The supplied observations establish the complete-module responsibility anchor, but not repeated advanced responsibility across multiple real contexts or guidance of others."
+      }
+    ]
+  },
+  "requested_configuration": {
+    "model": "gpt-5.6-luna",
+    "reasoning_effort": "medium",
+    "sandbox": "read-only"
+  },
+  "model_identity": {
+    "schema_version": "model-identity/v1",
+    "model_alias": "gpt-5.6-luna",
+    "resolved_snapshot": null
+  },
+  "model_drift_limitation": {
+    "schema_version": "model-drift-limitation/v1",
+    "reason": "Alias identity can drift; each raw response and exact configuration are retained.",
+    "raw_response_retained": true
+  },
+  "prompt_hash": "sha256:17c6693df87e36e835054566d3797fc371a2c4993983dfd3eb76acb7996e0521",
+  "output_schema_hash": "sha256:e178fa9442dc3912fc03b337ac7945539287d053f6cb422f977a7b1488ee8b04"
+}

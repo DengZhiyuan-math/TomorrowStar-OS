@@ -3,6 +3,23 @@
 **Gathered:** 2026-09-01
 **Status:** Ready for planning
 
+## Current navigation clarification — 2026-10-20
+
+This phase governs reviewable research inventory snapshots. Current application
+behavior follows [single-job flow](../../../docs/single-job-flow.md), and remaining
+implementation work follows [development plan](../../../docs/development-plan.md).
+The decisions and historical verification records below do not require a user to
+reseal a complete inventory before correcting or reusing an ordinary career fact.
+Save a direct correction with its source and previous value; update only affected
+derived results. Research seal acceptance and numeric capability assessment keep
+their separate evidence requirements. No ordinary fact correction implies an
+accepted Skill score or silently rewrites an earlier accepted research snapshot.
+
+The application workflow is strictly sequential. Important missing facts, actual
+conflicts and unknown results wait on the current job; only a user skip moves past
+it. New mail may be collected while waiting. These product rules do not claim
+that this historical phase plan or the installed App already implements them.
+
 <domain>
 ## Phase Boundary
 
@@ -73,10 +90,11 @@ has an independent verification result and every Phase 8 candidate has a recorde
   candidate as explicitly unresolved. Review operations must preserve the candidate revision and
   the source lineage that motivated the decision.
 - **D-11:** An explicitly unresolved Experience is a valid inventory-level disposition and may
-  remain in an accepted inventory revision. It is visibly unresolved and is not eligible for
-  Contribution, Skill, assessment, JD, or resume admission until a later linked revision resolves
-  it. This does not relax the existing claim-level rule that unresolved facts cannot become
-  confirmed claims.
+  remain in an accepted inventory revision. It is visibly unresolved and cannot supply accepted
+  research Contribution, Skill, assessment or JD-evaluation conclusions until a later linked
+  revision resolves it. Ordinary application material may reuse independently documented facts
+  or a direct user correction without inventory acceptance. The unresolved claim itself cannot
+  silently become a confirmed résumé claim or an assessed capability.
 - **D-12:** Seal only an exact immutable inventory revision after every source and candidate has a
   recorded disposition, the coverage report has no silent omissions, the Phase 7 independent
   verification prerequisite passes, and the user explicitly accepts the blocking checkpoint.

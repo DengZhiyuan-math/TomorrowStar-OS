@@ -1,0 +1,81 @@
+{
+  "case": "missing-confirmed-answers",
+  "expected": "block before review; do not infer answers or submit",
+  "syntheticOnly": true,
+  "withheldControlIds": [
+    "authorization.work_authorized",
+    "authorization.sponsorship_status",
+    "compensation.total_range"
+  ],
+  "browserEvidence": {
+    "finalButtonCount": 0,
+    "checkedCriticalAnswerCount": 0,
+    "requiredErrors": 3
+  },
+  "browserTimings": {
+    "setFilesMs": 7731
+  },
+  "reviewedAttempt": {
+    "exitCode": 2,
+    "stderr": "replay review event not observed"
+  },
+  "evaluate": {
+    "assertions": {
+      "final-action-untouched": "passed",
+      "history-not-completed": "passed",
+      "history-started-reviewed": "failed",
+      "required-fields-filled": "failed",
+      "resume-filename-matched": "passed",
+      "resume-uploaded": "passed",
+      "review-reached": "failed",
+      "session-present": "failed",
+      "session-value-free": "passed"
+    },
+    "failureCategories": [
+      "history-lifecycle-incomplete",
+      "required-fields-missing",
+      "review-not-reached",
+      "session-not-correlated"
+    ],
+    "fixtureId": "lever-application-2026-08-v1",
+    "missingControlIds": [
+      "authorization.sponsorship_status",
+      "authorization.work_authorized",
+      "compensation.total_range"
+    ],
+    "scenarioId": "lever-complete-profile",
+    "status": "failed"
+  },
+  "history-list": [
+    {
+      "answerKeys": [],
+      "applicationId": "qa-run-20261009-c656468c",
+      "at": "2026-10-09T11:59:20Z",
+      "ats": "lever",
+      "event": "started",
+      "eventId": "4d6c6e24-7204-43ee-8eb6-9727a4d5487b",
+      "schemaVersion": 1,
+      "status": "active"
+    }
+  ],
+  "session-list": [
+    {
+      "answerKeys": [],
+      "applicationId": "qa-run-20261009-c656468c",
+      "ats": "lever",
+      "createdAt": "2026-10-09T11:59:20Z",
+      "pendingFields": [],
+      "schemaVersion": 1,
+      "status": "active",
+      "step": "application",
+      "updatedAt": "2026-10-09T11:59:20Z"
+    }
+  ],
+  "oracleNote": "session-present requires correlation to a reviewed history record; a started-only session cannot pass this complete-profile assertion",
+  "expectedBlockResult": "passed",
+  "cleanup": {
+    "reportRetained": true,
+    "runId": "qa-run-20261009-c656468c",
+    "state": "completed"
+  }
+}

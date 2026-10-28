@@ -20,12 +20,12 @@ from career_evidence_graph.domain.fixtures import resolve_checkpoint_summary
 from career_evidence_graph.validation.hashing import sha256_digest
 
 ROOT = Path(__file__).parents[1]
-CORPUS = ROOT / "validation/calibration/phase-04/corpus.json"
+CORPUS = ROOT / "validation/calibration/phase-04/corpus-review-safe-v1.json"
 POLICIES = ROOT / "validation/calibration/phase-04/policies.json"
 HISTORY = ROOT / "validation/calibration/phase-04/policy-calibration/history.json"
 
 
-def test_corpus_expansion_preserves_the_sole_real_audit_and_labels_derivations() -> None:
+def test_corpus_preserves_source_bound_synthetic_journey_and_labels_derivations() -> None:
     payload = json.loads(CORPUS.read_text(encoding="utf-8"))
 
     assert payload["audit_id"] == "audit-e2e"
@@ -336,7 +336,7 @@ def test_calibration_history_rejects_symlink_aliases_and_malformed_payloads(tmp_
 
 
 def _scratch_calibration_artifacts(tmp_path: Path) -> tuple[Path, Path]:
-    """Copy the real offline calibration inputs into a repository-shaped scratch tree."""
+    """Copy checked-in offline calibration inputs into a repository-shaped scratch tree."""
     repository = tmp_path / "repository"
     shutil.copytree(ROOT / "validation", repository / "validation")
     phase_two = "02-domain-contracts-stoa-fixture-and-deterministic-invariants"
@@ -347,7 +347,7 @@ def _scratch_calibration_artifacts(tmp_path: Path) -> tuple[Path, Path]:
         summary_path,
     )
     return (
-        repository / "validation/calibration/phase-04/corpus.json",
+        repository / "validation/calibration/phase-04/corpus-review-safe-v1.json",
         repository / "validation/calibration/phase-04/policies.json",
     )
 

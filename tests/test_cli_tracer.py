@@ -8,6 +8,7 @@ import os
 import re
 import subprocess
 import sys
+import tarfile
 import zipfile
 from pathlib import Path
 
@@ -154,6 +155,42 @@ def test_built_wheel_is_self_contained_outside_the_checkout(tmp_path: Path) -> N
     assert virtualenv.resolve() in Path(installed_paths["package_path"]).resolve().parents
     assert virtualenv.resolve() in Path(installed_paths["cli_path"]).resolve().parents
     assert installed_paths["entry_points"] == ["career_evidence_graph.cli:main"]
+
+
+def test_sdist_can_build_an_offline_wheel_with_the_upstream_license(tmp_path: Path) -> None:
+    distribution_dir = tmp_path / "dist"
+    extracted = tmp_path / "extracted"
+    extracted.mkdir()
+    offline_environment = os.environ | {
+        "UV_CACHE_DIR": str(tmp_path / "fresh-uv-cache"),
+        "UV_OFFLINE": "1",
+    }
+    built_source = subprocess.run(
+        ["uv", "build", "--sdist", "--offline", "--out-dir", str(distribution_dir)],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        env=offline_environment,
+    )
+    assert built_source.returncode == 0, built_source.stderr
+    with tarfile.open(next(distribution_dir.glob("career_evidence_graph-*.tar.gz"))) as archive:
+        archive.extractall(extracted, filter="data")
+
+    source_root = next(extracted.iterdir())
+    built_wheel = subprocess.run(
+        ["uv", "build", "--wheel", "--offline", "--out-dir", str(distribution_dir)],
+        cwd=source_root,
+        check=False,
+        capture_output=True,
+        text=True,
+        env=offline_environment,
+    )
+    assert built_wheel.returncode == 0, built_wheel.stderr
+    license_name = "career_evidence_graph/_vendor/JOB_APPLY_LICENSE"
+    with zipfile.ZipFile(next(distribution_dir.glob("career_evidence_graph-*.whl"))) as archive:
+        assert archive.read(license_name) == (ROOT / "src" / license_name).read_bytes()
+        assert "career_evidence_graph/_vendor/job_apply_store.py" in archive.namelist()
 
 
 def _run(*args: str) -> subprocess.CompletedProcess[str]:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ctypes
 import errno
 import json
 import os
@@ -49,6 +48,8 @@ class FormalRunStorageError(RuntimeError):
 
 def _rename_noreplace(source: Path, destination: Path) -> None:
     """Atomically rename a path only when the destination does not exist."""
+    import ctypes
+
     source_bytes = os.fsencode(source)
     destination_bytes = os.fsencode(destination)
     libc = ctypes.CDLL(None, use_errno=True)

@@ -15,6 +15,7 @@ from career_evidence_graph.workspace import (
     declare_sources,
     load_source_universe_snapshot,
     open_private_workspace,
+    record_self_report_source_successor,
 )
 
 
@@ -70,7 +71,41 @@ def test_private_workspace_must_be_a_separate_git_worktree(tmp_path: Path) -> No
     assert rejected.value.code == "private-workspace-not-git"
 
 
-def test_only_git_worktree_identity_is_queried(
+def test_sibling_worktree_sharing_public_git_storage_is_not_private(tmp_path: Path) -> None:
+    public = _git_workspace(tmp_path / "public-harness")
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(public),
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            "user.name=Synthetic",
+            "-c",
+            "user.email=synthetic@example.invalid",
+            "commit",
+            "--allow-empty",
+            "--quiet",
+            "-m",
+            "synthetic fixture",
+        ],
+        check=True,
+    )
+    sibling = tmp_path / "sibling-records"
+    subprocess.run(
+        ["git", "-C", str(public), "worktree", "add", "--quiet", "--detach", str(sibling)],
+        check=True,
+    )
+
+    with pytest.raises(WorkspaceError) as rejected:
+        open_private_workspace(sibling, public_root=public)
+
+    assert rejected.value.code == "private-workspace-not-separate"
+    assert not (sibling / ".career-evidence").exists()
+
+
+def test_only_git_worktree_and_common_directory_identity_are_queried(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     public = _git_workspace(tmp_path / "public-harness")
@@ -86,8 +121,16 @@ def test_only_git_worktree_identity_is_queried(
     open_private_workspace(private, public_root=public)
 
     assert commands == [
-        ["git", "-C", str(private), "rev-parse", "--show-toplevel"],
-        ["git", "-C", str(public), "rev-parse", "--show-toplevel"],
+        [
+            "git",
+            "-C",
+            str(path),
+            "rev-parse",
+            "--path-format=absolute",
+            "--show-toplevel",
+            "--git-common-dir",
+        ]
+        for path in (private, public)
     ]
 
 
@@ -107,6 +150,65 @@ def test_raw_capture_requires_an_ignored_vault_before_any_raw_write(tmp_path: Pa
 
     assert rejected.value.code == "raw-vault-not-ignored"
     assert not (workspace / ".career-evidence/raw").exists()
+
+
+@pytest.mark.parametrize("operation", ("capture", "self-report"))
+@pytest.mark.parametrize("unsafe_state", ("negated-ignore", "tracked-raw"))
+def test_raw_write_requires_effective_ignore_and_no_tracked_raw(
+    tmp_path: Path, operation: str, unsafe_state: str
+) -> None:
+    private = _git_workspace(tmp_path / "private-records")
+    (private / ".gitignore").write_text(".career-evidence/raw/\n", encoding="utf-8")
+    declare_sources(private, _declaration())
+    parent = load_source_universe_snapshot(private)
+    raw_root = private / ".career-evidence/raw"
+    if unsafe_state == "negated-ignore":
+        (private / ".gitignore").write_text(
+            ".career-evidence/raw/\n!.career-evidence/raw/\n", encoding="utf-8"
+        )
+    else:
+        raw_root.mkdir()
+        (raw_root / "synthetic-tracked").write_bytes(b"synthetic-existing-raw")
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(private),
+                "add",
+                "--force",
+                "--",
+                ".career-evidence/raw/synthetic-tracked",
+            ],
+            check=True,
+        )
+    before = (
+        {path.name: path.read_bytes() for path in raw_root.iterdir()} if raw_root.exists() else {}
+    )
+
+    with pytest.raises(WorkspaceError) as rejected:
+        if operation == "capture":
+            capture_source(
+                private,
+                "source-synthetic-a",
+                b"synthetic-new-raw",
+                captured_at="2001-02-03T04:05:06+00:00",
+            )
+        else:
+            record_self_report_source_successor(
+                private,
+                parent_registry_hash=parent["registry_hash"],
+                source_id="synthetic-new-report",
+                statement=b"synthetic-new-raw",
+                captured_at="2001-02-03T04:05:06+00:00",
+            )
+
+    assert rejected.value.code == "raw-vault-not-ignored"
+    after = (
+        {path.name: path.read_bytes() for path in raw_root.iterdir()} if raw_root.exists() else {}
+    )
+    assert after == before
+    assert load_source_universe_snapshot(private)["registry_hash"] == parent["registry_hash"]
+    assert not (private / ".career-evidence/source-universe-revisions").exists()
 
 
 def test_symlinked_private_namespace_is_rejected_without_raw_write(tmp_path: Path) -> None:

@@ -1,0 +1,5760 @@
+"""Sequential, separately launched Playwright process with no final-action API."""
+
+from __future__ import annotations
+
+import argparse
+import base64
+import fcntl
+import hashlib
+import json
+import os
+import re
+import signal
+import subprocess
+import threading
+import time
+from contextlib import ExitStack, contextmanager, suppress
+from copy import deepcopy
+from dataclasses import asdict
+from pathlib import Path
+from urllib.parse import parse_qsl, urljoin, urlsplit
+from uuid import uuid4
+
+from playwright.sync_api import Error, Page, TimeoutError, sync_playwright
+
+from . import application_form_runner as form_flow
+from . import hosted_ats
+from ._vendor.job_apply_store import StoreError, normalize_question
+from .application_automation import _job_identity, validate_application_target
+from .application_codex_assist import CodexAdapter, CodexAssistConfig
+from .application_execution import automated_owner, release_execution, require_execution
+from .application_information import fact_for
+from .application_worker import (
+    CONTROLLER_HANDOFF_INSPECTION,
+    OWNED_PAGE_OBSERVATION,
+    WorkerStore,
+    adopt_assistance_outcome,
+    adopt_assistance_report,
+    adopt_assistance_stop,
+    assistance_backend_permitted,
+    assistance_binding,
+    assistance_binding_resumed_only,
+    assistance_completion,
+    assistance_reference,
+    assistance_stop_pending,
+    backend_recovery_timely,
+    default_scope,
+    effective_action_results,
+    handoff_binding,
+    latest_action_resolutions,
+    manual_submission_unresolved,
+    mark_assistance_backend_lost,
+    material_edit_pending,
+    precision_preparation_pending,
+    record_takeover_failure,
+    revoke_assistance,
+    script_writes_allowed,
+    start_run,
+    takeover_pending_intent,
+    validate_native_assistance_policy,
+    validate_native_assistance_scope,
+    worker_lock_is_held,
+)
+from .application_worker import (
+    failed_write as _failed_write,  # noqa: F401 -- compatible control predicate export
+)
+from .application_worker import (
+    unresolved_write_failure as _unresolved_write_failure,
+)
+from .ashby_drafts import DraftSession
+from .ashby_drafts import supports as supports_ashby_drafts
+from .ats_forms import FORMS, form_for
+from .career_portal_data import ApplicationStore, PortalDataError
+from .cua_driver import managed_cua_browser
+from .loaded_code import loaded_runtime_revision
+from .owned_browser_cdp import OwnedCDP, browser_budget, pause_browser_budget, pump_events
+from .owned_browser_cdp import screenshot as owned_screenshot
+from .owned_page_observation import INSPECT as INSPECT_OWNED_PAGE
+from .validation.hashing import record_digest as digest
+from .workable_uploads import ResumeUpload, job_shortcode
+from .worker_process_identity import process_identity
+
+# Fixed DOM reads. Page text and model output never become executable code.
+INSPECT = FORMS["lever"].inspect_script()
+
+# Add semantic locator hints only to JSON handoff; keep the v1 image payload stable.
+INSPECT_ASSISTANCE_CONTEXT = (
+    "() => { const data = ("
+    + INSPECT_OWNED_PAGE
+    + ")();"
+    + r"""
+    const controls = [...document.querySelectorAll(
+      'input,textarea,select,[role=combobox],[role=checkbox],[role=radio]')]
+      .filter(e=>!['hidden','submit','button','reset'].includes(e.type));
+    data.fields.forEach((field,index)=> {
+      const e=controls[index];
+      field.role=(e.getAttribute('role')||'').slice(0,200);
+      const tag=e.tagName.toLowerCase(),type=tag==='textarea'?'textarea':String(e.type||'');
+      if(tag==='textarea'||tag==='input'&&['text','file'].includes(type)) {
+        try {
+        const bounded=(value,limit)=> {
+          value=String(value??'');
+          if([...value].length>limit) throw Error('material_target_limit');
+          return value;
+        };
+        field.material_target={tag,id:bounded(e.id,200),name:bounded(e.name,200),type,
+          label:bounded([...e.labels||[]].map(x=>x.textContent).join(' ')||
+            e.getAttribute('aria-label')||(e.getAttribute('aria-labelledby')||'').split(/\s+/)
+              .map(id=>document.getElementById(id)?.textContent||'').join(' '),1000),
+          frame:'main',worker_field:bounded(e.getAttribute('data-ts-worker-field')||'',200),
+          draft_path:bounded(e.closest('[data-field-path]')?.dataset.fieldPath||'',1000),
+          required:Boolean(e.required||e.getAttribute('aria-required')==='true'),
+          disabled:Boolean(e.disabled),readonly:Boolean(e.readOnly),
+          value_empty:type==='file'?e.files.length===0:e.value==='',
+          accept:bounded(type==='file'?e.accept:'',1000),multiple:Boolean(e.multiple),
+          max_length:e.hasAttribute('maxlength')?e.maxLength:null,
+          file_count:type==='file'?e.files.length:0};
+        if(field.material_target.max_length!==null&&field.material_target.max_length<0||
+           field.material_target.file_count>20) delete field.material_target;
+        } catch (_) {
+          // An unrepresentable material target does not disable ordinary context.
+          // A material call still requires the complete, untruncated descriptor.
+          delete field.material_target;
+        }
+      }
+    });
+    // A button-based combobox is often precisely the control the script could not fill.
+    const extra=[...document.querySelectorAll('button[role=combobox]')];
+    if(data.fields.length+extra.length>500) throw Error('observation_field_limit');
+    for(const e of extra) {
+      const trim=(value,n=4000)=>String(value??'').slice(0,n);
+      data.fields.push({id:trim(e.id,200),name:trim(e.name,200),type:'combobox',
+        role:'combobox',label:trim([...e.labels||[]].map(x=>x.textContent).join(' ')||
+          e.getAttribute('aria-label')||(e.getAttribute('aria-labelledby')||'').split(/\s+/)
+            .map(id=>document.getElementById(id)?.textContent||'').join(' '),1000),
+        value:trim(e.getAttribute('aria-valuetext')||''),redacted:false,
+        required:e.getAttribute('aria-required')==='true',disabled:Boolean(e.disabled),
+        readonly:false,valid:null,aria_invalid:e.getAttribute('aria-invalid'),
+        visible:Boolean(e.getClientRects().length)&&getComputedStyle(e).visibility!=='hidden',
+        files:[]});
+    }
+    return data;
+    }"""
+)
+
+
+def readonly_combobox_target(page, question: dict) -> str:
+    """Admit only an explicit single-listbox relationship, never a page-wide guess."""
+    if question["type"] != "combobox":
+        return ""
+    return hosted_ats.control(page, question).evaluate(
+        r"""e => {
+          const ids=(e.getAttribute('aria-controls')||'').trim().split(/\s+/).filter(Boolean);
+          return (e.readOnly || e.tagName==='BUTTON') && ids.length===1 ? ids[0] : '';
+        }"""
+    )
+
+
+def select_fill_route(page, question: dict, cua) -> dict:
+    """Read current support before admitting a field action; never probe by writing."""
+    route = {"executor": "playwright", "input_route": "dom", "route_reason": "supported_dom_field"}
+    if question["type"] == "combobox":
+        target = readonly_combobox_target(page, question)
+        if target:
+            return {**route, "route_reason": "supported_dom_readonly", "dom_target": target}
+        if hosted_ats.control(page, question).is_editable():
+            return route
+        if (
+            cua is not None
+            and callable(getattr(cua, "fill", None))
+            and not getattr(getattr(cua, "client", None), "failed", False)
+        ):
+            return {
+                "executor": "cua_driver",
+                "input_route": cua.click_route,
+                "route_reason": "supported_cua_readonly",
+            }
+        reason = "cua_unavailable"
+    elif question["type"] in {"text", "email", "tel", "url", "number", "date", "textarea"}:
+        if hosted_ats.control(page, question).is_editable():
+            return route
+        reason = "unsupported_control"
+    elif question["type"] in {"select", "radio", "checkbox"} and not question.get("multiple"):
+        return route
+    else:
+        reason = "unsupported_control"
+    return {"executor": "manual", "input_route": None, "route_reason": reason}
+
+
+def fill_readonly_combobox(page, field, value: str, target: str, *, check) -> None:
+    """Expand once, choose one exact visible option, and leave result verification to the runner."""
+    check()
+    field.click(timeout=3000)
+    listbox = page.locator(f'[id={json.dumps(target)}][role="listbox"]')
+    listbox.wait_for(state="visible", timeout=5000)
+    option = listbox.get_by_role("option", name=value, exact=True)
+    if option.count() > 1:
+        raise PortalDataError("ambiguous_option", "选项不唯一，请人工选择。", 409)
+    option.wait_for(state="visible", timeout=5000)
+    if option.count() != 1:
+        raise PortalDataError("ambiguous_option", "选项不唯一，请人工选择。", 409)
+    original = option.element_handle()
+    if original is None:
+        raise PortalDataError("question_changed", "选项已变更。", 409)
+    try:
+        check()
+        if not option.evaluate_all(
+            "(nodes, original) => original.isConnected && "
+            "nodes.length === 1 && nodes[0] === original",
+            original,
+        ):
+            raise PortalDataError("question_changed", "选项已变更。", 409)
+        # A retained node cannot silently bind to a replacement during auto-wait.
+        original.click(timeout=3000)
+        check(after_write=True)
+    finally:
+        original.dispose()
+
+
+@contextmanager
+def browser_deadline(seconds: float):
+    """Bound ordinary calls; owned reads suspend the alarm within this budget."""
+
+    def expired(_signum, _frame):
+        raise Error("native_operation_timeout")
+
+    with browser_budget(seconds) as budget:
+        remaining = budget.end - time.monotonic()
+        if remaining <= 0:
+            raise Error("native_operation_timeout")
+        handler = signal.signal(signal.SIGALRM, expired)
+        previous = signal.setitimer(signal.ITIMER_REAL, 0)
+        started = time.monotonic()
+        signal.setitimer(
+            signal.ITIMER_REAL, min(remaining, previous[0]) if previous[0] else remaining
+        )
+        try:
+            yield
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, handler)
+            if previous[0]:
+                remaining = previous[0] - (time.monotonic() - started - budget.paused)
+                if remaining <= 0:
+                    raise Error("native_operation_timeout")
+                signal.setitimer(signal.ITIMER_REAL, remaining, previous[1])
+
+
+@contextmanager
+def pause_browser_deadline():
+    """Model calls keep their own deadline; restore the unspent browser budget."""
+    with pause_browser_budget():
+        remaining = signal.setitimer(signal.ITIMER_REAL, 0)
+        try:
+            yield
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, *remaining)
+
+
+def _diagnostic_location(url):
+    """Keep structural HTTP location facts without credentials or query values."""
+    try:
+        if not isinstance(url, str):
+            return None
+        parsed = urlsplit(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            return None
+        return {
+            "scheme": parsed.scheme,
+            "hostname": parsed.hostname,
+            "port": parsed.port,
+            "path": parsed.path,
+            "query_keys": sorted(
+                {key for key, _ in parse_qsl(parsed.query, keep_blank_values=True)}
+            ),
+        }
+    except Exception:
+        # Diagnostic metadata must never change a guard decision.
+        return None
+
+
+def _request_diagnostic_facts(request, page, job):
+    facts = {
+        "is_navigation_request": None,
+        "is_main_frame": None,
+        "page_location": None,
+        "redirected_from_location": None,
+        "job_status": job.get("status") if job else None,
+        "job_reason": job.get("reason") if job else None,
+        "http_status": None,
+        "response_redirect_location": None,
+        "redirect_followed": None,
+    }
+    with suppress(Exception):
+        navigation = request.is_navigation_request()
+        facts["is_navigation_request"] = navigation if isinstance(navigation, bool) else None
+    with suppress(Exception):
+        main_frame = request.frame is page.main_frame
+        facts["is_main_frame"] = main_frame if isinstance(main_frame, bool) else None
+    with suppress(Exception):
+        facts["page_location"] = _diagnostic_location(page.url)
+    with suppress(Exception):
+        previous = request.redirected_from
+        facts["redirected_from_location"] = _diagnostic_location(previous.url) if previous else None
+    return facts
+
+
+@contextmanager
+def _fetch_without_redirects(route, facts=None):
+    """Browser redirect hops may bypass routing; never forward an unchecked hop."""
+    response = route.fetch(max_redirects=0, max_retries=0, timeout=10000)
+    try:
+        status = response.status
+        if facts is not None:
+            facts["http_status"] = status if type(status) is int else None
+        if 300 <= status < 400:
+            if facts is not None:
+                facts["redirect_followed"] = False
+                try:
+                    location = response.headers.get("location")
+                    if location:
+                        base = getattr(response, "url", None) or route.request.url
+                        facts["response_redirect_location"] = _diagnostic_location(
+                            urljoin(base, location)
+                        )
+                except Exception:
+                    # A missing response header cannot alter redirect refusal.
+                    pass
+            raise ValueError("redirect_result_unverified")
+        yield response
+    finally:
+        response.dispose()
+
+
+def _manual_submission_target(job, binding, *, document_url=None):
+    """Recognize a concrete original-job endpoint, separately from a final operation."""
+    if not isinstance(binding, dict):
+        return False
+    request, expected = urlsplit(binding.get("request_url", "")), urlsplit(job["job_url"])
+    if (
+        binding.get("job_url") != job["job_url"]
+        or binding.get("method") != "POST"
+        or request.scheme != "https"
+        or request.netloc != expected.netloc
+        or not hosted_ats.matches_page(binding.get("page_url", ""), job, document_url=document_url)
+    ):
+        return False
+    if job["platform"] == "lever":
+        return request.path.rstrip("/") == expected.path.rstrip("/") + "/apply"
+    if job["platform"] == "greenhouse":
+        return request.path.rstrip("/") == expected.path.rstrip("/")
+    # A generic GraphQL operation name alone carries no verified job identity.
+    return False
+
+
+class ApplicationRunner:
+    def __init__(
+        self,
+        store: WorkerStore,
+        context,
+        fixture_origin: str = "",
+        *,
+        cua=None,
+        native_assistance_policy=None,
+    ):
+        self.store, self.context, self.origin = store, context, fixture_origin
+        self.cua = cua
+        self.native_assistance_policy = validate_native_assistance_policy(native_assistance_policy)
+        self.codex_assist = None
+        self._assistance_run = None
+        self._assistance_baseline = None
+        self._servicing_assistance_stop = False
+        self._dispatched: set[tuple[str, str]] = set()
+        self.pages: dict[str, Page] = {}
+        self.guards: dict[str, object] = {}
+        self.temporary: dict = {}
+        self.batch_id = self.store.load()["batch_id"]
+        self.live = self.store.load()["mode"] == "live"
+        self.handed_off_pages: set = set()
+        self.upload_job: dict | None = None
+        self.bound_material_read = None
+        self.blocked_pages: dict[Page, str] = {}
+        self.public_reads: dict[Page, set[tuple[str, str, str]]] = {}
+        self.document_urls: dict[Page, str] = {}
+        self.editing_pages: set[Page] = set()
+        self.drafts: dict[Page, DraftSession] = {}
+        self.workable: dict[Page, ResumeUpload] = {}
+        self.transports: list[dict] = []
+        self.requests: dict = {}
+        self.request_sequence = 0
+        self.sent_requests: set[tuple[str, str, str]] = set()
+        self.run_id = self.store.load().get("runtime", {}).get("id")
+        self._page_thread = threading.get_ident()
+        self._page_source = ((self.store.load().get("runtime") or {}).get("source") or {}).get(
+            "sha256"
+        )
+        self.events: list[dict] = []
+        self.page_faults: dict[Page, str] = {}
+        self.page_ids: dict[Page, str] = {}
+        self.shared_fault = ""
+        self.storage_stopped = False
+        self.stopped_serial = 0
+        self.action_timeout = 35.0
+        self.work_progressed = False
+        if context is not None:
+            context.on("close", lambda *_: self.event("context_closed"))
+            if context.browser is not None:
+                context.browser.on("disconnected", lambda *_: self.event("browser_disconnected"))
+        if context is not None:
+            context.on("request", lambda request: self.transport(request, "request"))
+            context.on(
+                "response",
+                lambda response: self.transport(response.request, "response", response.status),
+            )
+            context.on(
+                "requestfinished", lambda request: self.transport(request, "requestfinished")
+            )
+            context.on("requestfailed", lambda request: self.transport(request, "requestfailed"))
+        if self.live and context is not None:
+            context.route("**/*", self._live_guard)
+            context.route_web_socket("**/*", lambda ws: self._websocket_guard(None, ws))
+            context.on("requestfinished", self._draft_finished)
+
+    def track_request(self, request, job: dict, kind: str) -> bool:
+        if hosted_ats.is_final_submission(request, job):
+            return False
+        intent = job.get("intent")
+        if intent:
+            attempt = intent.get("attempt_id") or digest(intent)
+            permit = (job["application_id"], attempt, kind)
+            if permit in self.sent_requests or any(
+                event.get("stage") == "dispatch_authorized"
+                and event.get("attempt_id") == attempt
+                and event.get("kind") == kind
+                for event in job["observations"]
+            ):
+                return False
+            # Consume before dispatch, including when the response later fails.
+            self.sent_requests.add(permit)
+            record = {
+                "application_id": job["application_id"],
+                "run_id": self.run_id,
+                "attempt_id": attempt,
+                "action": intent["action"],
+                "intent": deepcopy(intent),
+                "batch_id": self.batch_id,
+                "kind": kind,
+            }
+            self.requests[request] = record
+            # This is permission to dispatch, not proof of remote application.
+            self.transports.append({**record, "stage": "dispatch_authorized", "at": time.time()})
+            return True
+        return False
+
+    def request_diagnostic(
+        self, request, page, job, state, stage, reason, *, sequence, caused_stop=False, facts=None
+    ):
+        """Retain guard facts in the selected private worker checkpoint, never request bodies."""
+        if job is None:
+            return
+        intent = deepcopy(job.get("intent"))
+        self.transports.append(
+            {
+                "action": "request_diagnostic",
+                "request_id": uuid4().hex,
+                "sequence": sequence,
+                "stage": stage,
+                "method": request.method,
+                "url": request.url,
+                "resource_type": request.resource_type,
+                "purpose": (
+                    "public_read"
+                    if stage == "request_permitted" and request.method == "GET"
+                    else "unknown"
+                ),
+                "dispatch": "not_sent" if stage == "request_blocked" else "unknown",
+                "application_id": job["application_id"],
+                "batch_id": state["batch_id"],
+                "run_id": self.run_id,
+                "page_id": self.page_ids.get(page),
+                "attempt_id": (intent or {}).get("attempt_id"),
+                "field_id": (intent or {}).get("field_id"),
+                "intent": intent,
+                "reason": reason,
+                "caused_stop": caused_stop,
+                **(facts or {}),
+                "at": time.time(),
+            }
+        )
+
+    def transport(self, request, stage: str, status=None) -> None:
+        record = self.requests.get(request)
+        if record:
+            if stage == "response":
+                record["http_status"] = status
+            self.transports.append(
+                {
+                    **record,
+                    "stage": stage,
+                    "at": time.time(),
+                    **({"http_status": status} if status is not None else {}),
+                }
+            )
+            if stage in {"requestfinished", "requestfailed"}:
+                self.requests.pop(request, None)
+
+    def record_transports(self, state: dict) -> None:
+        for event in self.transports:
+            job = next(
+                (j for j in state["jobs"] if j["application_id"] == event["application_id"]), None
+            )
+            if job and event not in job["observations"]:
+                job["observations"].append(event)
+                if _unresolved_write_failure(event, job, state):
+                    # A local DOM read may finish before the remote failure arrives.
+                    # Keep that history, but retain the attempt for explicit recovery.
+                    if job["intent"] is None:
+                        job["intent"] = deepcopy(event["intent"])
+                    job.update(
+                        status="needs_recheck",
+                        reason=event.get("reason")
+                        or (
+                            "upload_result_unknown"
+                            if event["intent"]["action"] == "upload"
+                            else "draft_result_unknown"
+                        ),
+                    )
+                    page = self.pages.get(job["application_id"])
+                    if page is not None:
+                        self.blocked_pages[page] = job["reason"]
+                        if page in self.workable:
+                            self.workable[page].failed = True
+
+    def persist(self, state: dict) -> None:
+        try:
+            self.record_transports(state)
+            self.store.save(state)
+            self.transports.clear()
+        except (OSError, ValueError, TypeError):
+            self.unsaved_state = deepcopy(state)
+            self.storage_stopped = True
+            self.stopped_serial = state.get("resume_serial", 0)
+            self.store.block_storage()
+            raise
+
+    def permitted(self, state: dict, page=None) -> bool:
+        return (
+            not self.shared_fault
+            and not self.storage_stopped
+            and not self.store.stop_reason()
+            and page not in self.page_faults
+            and page not in self.blocked_pages
+            and not any(
+                _unresolved_write_failure(event, job, state)
+                for event in self.transports
+                for job in state["jobs"]
+                if (
+                    "current_job_id" not in state
+                    or job["application_id"] == state["current_job_id"]
+                )
+                and (page is None or self.pages.get(job["application_id"]) is page)
+            )
+            and (
+                page is None
+                or "current_job_id" not in state
+                or self.pages.get(state["current_job_id"]) is page
+            )
+            and state["control"] == "running"
+            and script_writes_allowed(state)
+            and state.get("applications_root") == str(self.store.applications.root)
+            and (not self.run_id or state.get("runtime", {}).get("id") == self.run_id)
+        )
+
+    def _native_material_network_permitted(self, state, job, page):
+        """Allow a sealed original attempt without granting general script writes."""
+        assistance = job.get("assistance") or {}
+        if assistance.get("protocol") != "codex-assistance/native/v1":
+            return False
+        reference = assistance_reference(assistance)
+        intent = self.store.native_material_intent(state, job, reference)
+        if (
+            not intent
+            or state.get("control") != "running"
+            or job["status"] != "filling"
+            or job.get("handed_off")
+            or self.pages.get(job["application_id"]) is not page
+            or any(
+                _unresolved_write_failure(event, job, state)
+                for event in [*job["observations"], *self.transports]
+            )
+        ):
+            return False
+        native = intent["native_material"]
+        run = next(
+            row for row in job["native_handoff_runs"] if row["request_id"] == native["request_id"]
+        )
+        receipt = next(
+            (
+                event["receipt"]
+                for event in reversed(run["events"])
+                if event.get("receipt") is not None
+            ),
+            {},
+        )
+        call = next(
+            (row for row in receipt.get("calls", []) if row["call_id"] == native["call_id"]), None
+        )
+        if (
+            receipt.get("revoked")
+            or call is None
+            or any(row.get("status") == "unknown" for row in receipt.get("calls", []))
+            or call.get("status") not in {"awaiting_host", "in_flight", "observed"}
+            or call.get("material_resolution") != native["resolution"]
+        ):
+            return False
+        try:
+            original, check = self._assistance_page_checker(reference)
+            check()  # Store/handle checks only; never wait on the busy renderer.
+            return original is page
+        except (PortalDataError, OSError, StoreError, ValueError):
+            return False
+
+    def event(self, kind: str, page=None, identifier=None) -> None:
+        # Callbacks only collect facts. Authorization sees them immediately.
+        if page is None:
+            self.shared_fault = kind
+        else:
+            self.page_faults[page] = kind
+        self.events.append(
+            {
+                "event": kind,
+                "run_id": self.run_id,
+                "page_id": self.page_ids.get(page),
+                "application_id": identifier,
+                "at": time.time(),
+            }
+        )
+
+    def pump(self) -> None:
+        if self.shared_fault:
+            time.sleep(0.25)
+            return
+        try:
+            # A local timer and owned task keep control moving without throwing
+            # SIGALRM into Playwright's dispatcher, including under an outer scope.
+            pump_events(self.context, 5 if self.work_progressed else 250)
+        except TimeoutError:
+            pass
+        except Error:
+            if not self.shared_fault:
+                self.event("browser_connection_unknown")
+
+    def drain_events(self, state: dict) -> None:
+        for event in self.events:
+            identifier = event["application_id"]
+            if identifier is None:
+                state.update(control="paused", worker_error=event["event"])
+                state.setdefault("observations", []).append(event)
+                for job in state["jobs"]:
+                    job["page_observation"] = event
+                    if job["status"] != "cancelled":
+                        job.update(status="needs_recheck", reason=event["event"])
+                continue
+            job = next((j for j in state["jobs"] if j["application_id"] == identifier), None)
+            if job is None:
+                continue
+            job["page_observation"] = event
+            job["observations"].append(event)
+            job["page_open"] = False
+            if job["status"] != "cancelled":
+                job.update(status="needs_recheck", reason=event["event"])
+            page = self.pages.get(identifier)
+            if page:
+                self._forget_page(identifier, page)
+        self.events.clear()
+
+    def _draft_finished(self, request) -> None:
+        # Parse only after the body has finished. A slow body stays in the bounded draft wait.
+        response = request.response()
+        if response is not None:
+            self._draft_response(response)
+
+    def _draft_response(self, response) -> None:
+        page = None
+        try:
+            page = response.request.frame.page
+            if page in self.drafts:
+                self.drafts[page].response(response)
+            if page in self.workable:
+                self.workable[page].response(response)
+        except (Error, ValueError, TypeError, KeyError, IndexError):
+            if page is not None:
+                self.blocked_pages[page] = "draft_result_unverified"
+                if page in self.drafts:
+                    self.drafts[page].failed = True
+                if page in self.workable:
+                    self.workable[page].failed = True
+                    self.blocked_pages[page] = "upload_result_unknown"
+
+    def observe(self, page: Page, job: dict) -> dict:
+        with self.store.measurements.stage(
+            "form_scan",
+            episode_id=job.get("measurement_id"),
+            application_id=job["application_id"],
+            run_id=self.run_id,
+        ):
+            observed = self._observe(page, job)
+            draft = self.drafts.get(page)
+            if draft:
+                for question in observed["fields"]:
+                    entry = draft.fields.get(question.get("draft_path"), {})
+                    if entry.get("isRequired") and not entry.get("isHidden"):
+                        question["required"] = True
+            if self.live:
+                from .application_materials import material_kind
+
+                for question in observed["fields"]:
+                    if material_kind(question) == "cover_letter":
+                        question.update(
+                            hosted_ats.control(page, question).evaluate(
+                                "e => ({accept:e.getAttribute('accept') || '',"
+                                "max_length:e.maxLength >= 0 ? e.maxLength : null})"
+                            )
+                        )
+            return observed
+
+    def _observe(self, page: Page, job: dict) -> dict:
+        if page in self.page_faults or self.shared_fault:
+            raise PortalDataError(
+                self.page_faults.get(page, self.shared_fault), "页面需要核验。", 409
+            )
+        if self.live:
+            if page in self.blocked_pages:
+                state = self.store.load()
+                current = next(
+                    row for row in state["jobs"] if row["application_id"] == job["application_id"]
+                )
+                intent = deepcopy(current.get("intent"))
+                blocked = next(
+                    (
+                        row
+                        for row in reversed([*current["observations"], *self.transports])
+                        if row.get("action") == "request_diagnostic"
+                        and row.get("stage")
+                        in {
+                            "request_blocked",
+                            "public_read_response_rejected",
+                            "request_response_rejected",
+                        }
+                        and row.get("caused_stop") is True
+                        and row.get("reason") == self.blocked_pages[page]
+                        and row.get("application_id") == current["application_id"]
+                        and row.get("batch_id") == state["batch_id"]
+                        and row.get("run_id") == self.run_id
+                        and row.get("page_id") == self.page_ids.get(page)
+                    ),
+                    {},
+                )
+                self.transports.append(
+                    {
+                        "action": "readback_diagnostic",
+                        "stage": "before_dom_read",
+                        "request_id": blocked.get("request_id"),
+                        "reason": self.blocked_pages[page],
+                        "application_id": current["application_id"],
+                        "batch_id": state["batch_id"],
+                        "run_id": self.run_id,
+                        "page_id": self.page_ids.get(page),
+                        "attempt_id": (intent or {}).get("attempt_id"),
+                        "field_id": (intent or {}).get("field_id"),
+                        "intent": intent,
+                        "at": time.time(),
+                    }
+                )
+                raise PortalDataError(self.blocked_pages[page], "页面发送路径需要人工核验。", 409)
+            if page in self.document_urls:
+                return hosted_ats.observe(page, job, document_url=self.document_urls[page])
+            return hosted_ats.observe(page, job)
+        form = form_for(job)
+        if page.is_closed() or page.url != self.origin + form.page_path(job["application_id"]):
+            raise PortalDataError("page_changed", "页面已关闭或岗位来源已变更。", 409)
+        result = page.evaluate(form.inspect_script())
+        identity = result["identity"]
+        if identity != {
+            "company": job["company"],
+            "role": job["role_title"],
+            "jobUrl": job["job_url"],
+        }:
+            raise PortalDataError("identity_changed", "公司、岗位或表单身份已变更。", 409)
+        fields = result["fields"]
+        if (
+            not fields
+            or len({q["id"] for q in fields}) != len(fields)
+            or any(
+                not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,99}", q["id"])
+                or not q["question"]
+                or q.get("multiple", False)
+                or q["type"]
+                not in {"text", "email", "tel", "url", "date", "textarea", "select", "file"}
+                for q in fields
+            )
+        ):
+            raise PortalDataError("unsupported_structure", "表单结构需要人工核验。", 409)
+        files = [q for q in fields if q["type"] == "file"]
+        if len(files) != 1 or files[0]["id"] != "resume":
+            raise PortalDataError("unsupported_attachments", "附件结构未验证。", 409)
+        return result
+
+    def check_inputs(self, job: dict, *, material_required: bool | None = None) -> None:
+        if material_required is None:
+            material_required = (
+                job.get("workflow") != "single"
+                or (job.get("intent") or {}).get("action") == "upload"
+            )
+        state = self.store.load()
+        fixed_qualification = (
+            self.store.check_single(job, state, material_required=material_required) is True
+        )
+        self.store.check_generic_enabled(job, state)
+        app = self.store.applications.get_application(job["application_id"])
+        task = validate_application_target(
+            self.store.applications,
+            job["application_id"],
+            job["revision"],
+            allow_generic=state.get("generic_enabled") is True,
+        )
+        if app["status"] != "drafting" or task["job_url"] != job["job_url"]:
+            raise PortalDataError("input_changed", "原申请记录已变更。", 409)
+        if self.live and not fixed_qualification:
+            # The checked single binding owns the delivered P04 qualification.
+            # Legacy deliveries retain their language adapter.
+            self.store.check_language_requirement(app, country=job["country"])
+        if material_required:
+            if (
+                hashlib.sha256(Path(job["file_path"]).read_bytes()).hexdigest()
+                != job["file_sha256"]
+            ):
+                raise PortalDataError("file_changed", "所选简历版本已变更。", 409)
+            for material in job.get("materials", []):
+                if material.get("status") == "ready":
+                    self.store.verify_material(material, job)
+
+    def _guard(self, identifier: str, platform: str = "lever"):
+        if self.live:
+            return self._live_guard
+
+        def guard(route):
+            request = route.request
+            if hosted_ats.is_final_submission(request, None):
+                page = self.pages.get(identifier)
+                if page is not None:
+                    self.blocked_pages[page] = "manual_submit_required"
+                route.abort("blockedbyclient")
+                return
+            allowed = request.url.startswith(self.origin + "/") and (
+                request.method == "GET"
+                or request.url == self.origin + FORMS[platform].upload_path(identifier)
+                and request.method == "POST"
+            )
+            if allowed and request.method != "GET":
+                try:
+                    state = self.store.load()
+                    current = next(j for j in state["jobs"] if j["application_id"] == identifier)
+                    self.check_inputs(current)
+                    allowed = (
+                        self.permitted(state, self.pages.get(identifier))
+                        and not current["handed_off"]
+                        and current["status"] == "filling"
+                        and current["intent"] is not None
+                        and current["intent"]["action"] == "upload"
+                    )
+                except (PortalDataError, OSError, StoreError, ValueError, KeyError, StopIteration):
+                    self.storage_stopped = True
+                    self.store.block_storage()
+                    allowed = False
+            if allowed and request.method != "GET":
+                allowed = self.track_request(request, current, "upload")
+            if allowed:
+                try:
+                    with _fetch_without_redirects(route) as response:
+                        route.fulfill(response=response)
+                except (Error, ValueError, TypeError, KeyError, OSError):
+                    page = self.pages.get(identifier)
+                    if page is not None:
+                        self.blocked_pages[page] = (
+                            "upload_result_unknown"
+                            if request.method != "GET"
+                            else "public_read_result_unknown"
+                        )
+                    route.abort("blockedbyclient")
+            else:
+                route.abort("blockedbyclient")
+
+        return guard
+
+    def _live_guard(self, route) -> None:
+        try:
+            self._live_guard_request(route)
+        except (OSError, StoreError, PortalDataError, ValueError, KeyError, StopIteration):
+            self.storage_stopped = True
+            self.store.block_storage()
+            route.abort("blockedbyclient")
+
+    def _live_guard_request(self, route) -> None:
+        request = route.request
+        try:
+            page = request.frame.page
+        except Error:
+            route.abort("blockedbyclient")
+            return
+        if page in self.handed_off_pages:
+            state = self.store.load()
+            job = next(
+                (row for row in state["jobs"] if self.pages.get(row["application_id"]) is page),
+                None,
+            )
+            if job and hosted_ats.is_final_submission(request, job):
+                record = {
+                    "action": "manual_submit_observed",
+                    "request_id": uuid4().hex,
+                    "kind": "manual_submit",
+                    "target_binding": {
+                        "job_url": job["job_url"],
+                        "request_url": request.url,
+                        "method": request.method,
+                        "page_url": getattr(page, "url", ""),
+                    },
+                    "application_id": job["application_id"],
+                    "run_id": self.run_id,
+                    "batch_id": state["batch_id"],
+                    "page_id": self.page_ids.get(page),
+                }
+                # Observation failure must not prevent the human's own request.
+                # Without a tracked response the result remains unknown.
+                with suppress(TypeError):
+                    self.requests[request] = record
+                self.transports.append(record | {"stage": "request", "at": time.time()})
+            route.continue_()
+            return
+        state = self.store.load()
+        owned_job = next(
+            (job for job in state["jobs"] if page is self.pages.get(job["application_id"])),
+            None,
+        )
+        facts = _request_diagnostic_facts(request, page, owned_job)
+        previous_stop = self.blocked_pages.get(page)
+        self.request_sequence += 1
+        sequence = self.request_sequence
+        if hosted_ats.is_final_submission(request, owned_job):
+            self.blocked_pages[page] = "manual_submit_required"
+            route.abort("blockedbyclient")
+            self.request_diagnostic(
+                request,
+                page,
+                owned_job,
+                state,
+                "request_blocked",
+                "manual_submit_required",
+                sequence=sequence,
+                facts=facts,
+                caused_stop=previous_stop != "manual_submit_required",
+            )
+            return
+        if (
+            owned_job
+            and owned_job["platform"] == "generic"
+            and state.get("generic_enabled") is not True
+        ):
+            self.blocked_pages[page] = "generic_disabled"
+            route.abort("blockedbyclient")
+            self.request_diagnostic(
+                request,
+                page,
+                owned_job,
+                state,
+                "request_blocked",
+                "generic_disabled",
+                sequence=sequence,
+                facts=facts,
+                caused_stop=previous_stop != "generic_disabled",
+            )
+            return
+        allowed = False
+        precision_read = request.method == "GET"
+        bounded_public_read = False
+        if owned_job and request.method == "GET":
+            workable = self.workable.get(page)
+            scoped_read = not workable or workable.allows_public_read(request)
+            discovery_allowed = (
+                page not in self.editing_pages
+                and owned_job["status"] == "filling"
+                and (owned_job.get("intent") or {}).get("action") == "open"
+                and (
+                    self.permitted(state, page)
+                    or (
+                        self.blocked_pages.get(page) == "unverified_send_path"
+                        and page not in self.page_faults
+                        and self.permitted(state)
+                    )
+                )
+            )
+            if request.is_navigation_request():
+                allowed = (
+                    scoped_read
+                    and (not workable or discovery_allowed)
+                    and hosted_ats.allows_read(request, [owned_job])
+                )
+                intent = owned_job.get("intent") or {}
+                navigation = intent.get("navigation") or {}
+                document_step = (
+                    intent.get("action") == "advance"
+                    and intent.get("run_id") == self.run_id
+                    and intent.get("page_id") == self.page_ids.get(page)
+                    and request.frame == page.main_frame
+                    and request.redirected_from is None
+                    and request.post_data_buffer is None
+                    and request.url == navigation.get("to_step")
+                    and page.url == navigation.get("from_step")
+                    and page.url == self.document_urls.get(page, owned_job["job_url"])
+                    and hosted_ats.document_step_target(page.url, request.url, owned_job)
+                    and self.permitted(state, page)
+                    and owned_job["status"] == "filling"
+                    and not owned_job["handed_off"]
+                )
+                allowed = allowed or document_step
+                bounded_public_read = document_step
+            else:
+                signature = (request.url, request.resource_type, digest(request.headers))
+                known = self.public_reads.setdefault(page, set())
+                if scoped_read and discovery_allowed:
+                    candidate = hosted_ats.allows_read(request, [owned_job])
+                    if owned_job["platform"] == "generic":
+                        try:
+                            _job_identity(request.url, allow_generic=True)
+                            candidate = True
+                        except PortalDataError:
+                            candidate = False
+                    if candidate:
+                        known.add(signature)
+                allowed = scoped_read and signature in known
+            bounded_public_read = bounded_public_read or bool(allowed and workable)
+        generic_job = owned_job if owned_job and owned_job["platform"] == "generic" else None
+        if self.upload_job and page is self.pages.get(self.upload_job["application_id"]):
+            state = self.store.load()
+            current = next(
+                j for j in state["jobs"] if j["application_id"] == self.upload_job["application_id"]
+            )
+            upload_allowed = (
+                self.permitted(state, page)
+                and not current["handed_off"]
+                and current["status"] == "filling"
+                and current["intent"] is not None
+                and current["intent"]["action"] == "upload"
+                and hosted_ats.is_resume_parse(request, self.upload_job)
+            )
+            if upload_allowed:
+                try:
+                    self.check_inputs(current)
+                except PortalDataError as error:
+                    upload_allowed = False
+                    self.blocked_pages[page] = error.code
+            if upload_allowed:
+                upload_allowed = self.track_request(request, current, "resume_parse")
+            allowed = allowed or upload_allowed
+        draft = self.drafts.get(page)
+        if draft and generic_job:
+            if draft.track_public(request):
+                allowed = True
+                precision_read = True
+            if not allowed:
+                state = self.store.load()
+                current = next(
+                    j for j in state["jobs"] if j["application_id"] == generic_job["application_id"]
+                )
+                native_material = (
+                    self._native_material_network_permitted(state, current, page)
+                    and request.frame is page.main_frame
+                    and request.redirected_from is None
+                )
+                if (
+                    (self.permitted(state, page) or native_material)
+                    and current["status"] == "filling"
+                    and draft.active
+                    and current["intent"] == draft.active["intent"]
+                ):
+                    try:
+                        self.check_inputs(current)
+                        ref = current["intent"].get("answer_ref")
+                        if (
+                            ref
+                            and ref["key"] != "one-use"
+                            and ref.get("source") != "system_material"
+                        ):
+                            record = self.store.answers_for(current).get_answer(ref["key"])
+                            if record is None or digest(record) != ref["revision"]:
+                                raise ValueError
+                        allowed = draft.allows(request)
+                        if allowed:
+                            allowed = self.track_request(
+                                request, current, draft.pending[request][0]
+                            )
+                    except (PortalDataError, OSError, ValueError):
+                        allowed = False
+        workable = self.workable.get(page)
+        workable_kind = None
+        if workable and workable.sensitive(request):
+            # Workable writes never inherit generic public-read grants or discovery.
+            allowed = False
+            current = owned_job
+            if (
+                current
+                and request.frame == page.main_frame
+                and request.redirected_from is None
+                and page.url == current["job_url"]
+                and self.permitted(state, page)
+                and not current["handed_off"]
+                and current["status"] == "filling"
+                and current["intent"] == workable.active
+                and current["intent"] is not None
+                and current["intent"]["action"] == "upload"
+                and current["intent"].get("sha256") == current["file_sha256"]
+                and current["intent"].get("page_id") == self.page_ids.get(page)
+            ):
+                try:
+                    require_execution(
+                        self.store.applications,
+                        current["application_id"],
+                        automated_owner(
+                            self.store.root, state["batch_id"], current["application_id"]
+                        ),
+                        "automated",
+                    )
+                    self.check_inputs(current)
+                    kind = workable.allows(request)
+                    if kind:
+                        allowed = self.track_request(request, current, kind)
+                        if allowed:
+                            workable_kind = kind
+                except (PortalDataError, OSError, ValueError, TypeError, KeyError):
+                    workable.failed = True
+            read = self.bound_material_read or {}
+            if (
+                not allowed
+                and current
+                and read.get("page") is page
+                and read.get("application_id") == current["application_id"]
+                and read.get("material_update_id")
+                == (current.get("material_update") or {}).get("id")
+                and (current.get("material_update") or {}).get("status")
+                in {"inspect_pending", "page_verified", "bound"}
+                and state.get("control") in {"paused", "running"}
+                and current.get("intent") == read.get("intent")
+                and not manual_submission_unresolved(
+                    {**current, "observations": [*current["observations"], *self.transports]}
+                )
+                and not any(
+                    _unresolved_write_failure(event, current, state) for event in self.transports
+                )
+                and (
+                    read.get("intent") is None
+                    or self.permitted(state, page)
+                    and current["status"] == "filling"
+                    and not current["handed_off"]
+                )
+                and workable.reading
+                and workable.handle
+                and request.frame == page.main_frame
+                and request.redirected_from is None
+                and request.method == "GET"
+                and request.url == workable.handle["downloadUrl"]
+                and request.post_data_buffer is None
+                and request.resource_type in {"fetch", "xhr"}
+                and (state.get("runtime") or {}).get("id") == self.run_id
+                and self.page_ids.get(page)
+                == (current.get("page_observation") or {}).get("page_id")
+            ):
+                workable_kind = workable.allows(request)
+                allowed = workable_kind == "workable_readback"
+        if (
+            precision_preparation_pending(owned_job)
+            or owned_job
+            and material_edit_pending(owned_job)
+        ) and (not precision_read or workable_kind and workable_kind != "workable_readback"):
+            allowed = False
+        if allowed and workable_kind:
+            # Browser routing does not guarantee interception of redirect hops.
+            # Fetch the exact authorized request once, refusing redirects/retries,
+            # and validate its actual response before the page can consume it.
+            try:
+                with _fetch_without_redirects(route) as response:
+                    workable.response(response, request=request)
+                    route.fulfill(response=response)
+            except (Error, ValueError, TypeError, KeyError, OSError):
+                workable.failed = True
+                self.blocked_pages[page] = "upload_result_unknown"
+                route.abort("blockedbyclient")
+        elif allowed and bounded_public_read:
+            # Fetch only a reviewed public read. A public GET redirect
+            # cannot grant its target access outside the original job scope.
+            try:
+                with _fetch_without_redirects(route, facts) as response:
+                    if not 200 <= response.status < 300:
+                        raise ValueError("public read response is not successful")
+                    route.fulfill(response=response)
+                stage, reason = "request_permitted", "request_allowed"
+            except (Error, ValueError, TypeError, KeyError, OSError):
+                self.blocked_pages.setdefault(page, "public_read_result_unknown")
+                route.abort("blockedbyclient")
+                stage, reason = "public_read_response_rejected", "public_read_result_unknown"
+            self.request_diagnostic(
+                request,
+                page,
+                owned_job,
+                state,
+                stage,
+                reason,
+                sequence=sequence,
+                facts=facts,
+                caused_stop=self.blocked_pages.get(page) != previous_stop,
+            )
+        elif allowed:
+            try:
+                with _fetch_without_redirects(route, facts) as response:
+                    route.fulfill(response=response)
+            except (Error, ValueError, TypeError, KeyError, OSError):
+                reason = (
+                    "public_read_result_unknown"
+                    if request.method == "GET"
+                    else "draft_result_unknown"
+                    if draft is not None
+                    else "upload_result_unknown"
+                )
+                self.blocked_pages[page] = reason
+                if draft is not None:
+                    draft.failed = True
+                route.abort("blockedbyclient")
+                self.request_diagnostic(
+                    request,
+                    page,
+                    owned_job,
+                    state,
+                    "request_response_rejected",
+                    reason,
+                    sequence=sequence,
+                    facts=facts,
+                    caused_stop=previous_stop != reason,
+                )
+                return
+            self.request_diagnostic(
+                request,
+                page,
+                owned_job,
+                state,
+                "request_permitted",
+                "request_allowed",
+                sequence=sequence,
+                facts=facts,
+            )
+        else:
+            if workable and workable.sensitive(request):
+                workable.failed = True
+            # Reviewed Ashby telemetry remains blocked. It is not a draft action.
+            destination = urlsplit(request.url)
+            telemetry = (
+                draft is not None
+                and request.method == "POST"
+                and destination.scheme == "https"
+                and destination.netloc == "browser-intake-datadoghq.com"
+                and destination.path in {"/api/v2/rum", "/api/v2/replay"}
+            )
+            if (
+                owned_job
+                and not telemetry
+                and (
+                    request.method != "GET"
+                    or urlsplit(request.url).netloc == urlsplit(owned_job["job_url"]).netloc
+                    or page in self.editing_pages
+                )
+            ):
+                self.blocked_pages.setdefault(page, "unverified_send_path")
+            route.abort("blockedbyclient")
+            self.request_diagnostic(
+                request,
+                page,
+                owned_job,
+                state,
+                "request_blocked",
+                (
+                    "telemetry_blocked"
+                    if telemetry
+                    else self.blocked_pages.get(page, "read_not_allowed")
+                ),
+                sequence=sequence,
+                facts=facts,
+                caused_stop=self.blocked_pages.get(page) != previous_stop,
+            )
+
+    def _websocket_guard(self, page, websocket) -> None:
+        if getattr(self, "synthetic_browser", False):
+            websocket.on_message(lambda _message: None)
+            return
+        if page in self.handed_off_pages:
+            websocket.connect_to_server()
+            return
+        if page is not None:
+            self.blocked_pages[page] = "unverified_send_path"
+        # A routed socket stays local unless connect_to_server() is called.
+        websocket.on_message(lambda _message: None)
+
+    def _forget_page(self, identifier: str, page: Page) -> None:
+        self.pages.pop(identifier, None)
+        self.guards.pop(identifier, None)
+        self.drafts.pop(page, None)
+        self.workable.pop(page, None)
+        self.public_reads.pop(page, None)
+        self.document_urls.pop(page, None)
+        self.blocked_pages.pop(page, None)
+        self.editing_pages.discard(page)
+        self.handed_off_pages.discard(page)
+        self.page_ids.pop(page, None)
+        self.page_faults.pop(page, None)
+        for request, record in list(self.requests.items()):
+            if record["application_id"] == identifier:
+                self.requests.pop(request)
+
+    def commands(self, state: dict) -> None:
+        retained = []
+        for command in state["commands"]:
+            job = next(
+                (row for row in state["jobs"] if row["application_id"] == command.get("id")),
+                None,
+            )
+            if (
+                command["action"] == "recover-backend"
+                and job
+                and job.get("assistance")
+                and not assistance_stop_pending(job)
+            ):
+                # The original persistent command remains until the unlocked
+                # read-only service has conditionally saved its observation.
+                self._backend_recovery_candidate = deepcopy(command)
+                retained.append(command)
+                continue
+            if not script_writes_allowed(state, command.get("id")):
+                retained.append(command)
+                continue
+            try:
+                with browser_deadline(5):
+                    self._command(state, command)
+            except (Error, PortalDataError, ValueError, KeyError, TypeError) as exc:
+                job = next(
+                    (j for j in state["jobs"] if j["application_id"] == command.get("id")), None
+                )
+                if command["action"] == "recover-backend":
+                    receipt = state.get("backend_recovery") or {}
+                    if receipt.get("request_id") == command.get("request_id"):
+                        receipt.update(
+                            status="needs_recheck",
+                            reason=getattr(exc, "code", "backend_recovery_failed"),
+                        )
+                    state["control"] = "paused"
+                    continue
+                if job:
+                    if command["action"] == "inspect-handoff":
+                        receipt = (state.get("runtime") or {}).get("controller_handoff") or {}
+                        if receipt.get("request_id") == command.get("request_id"):
+                            receipt.update(
+                                status="failed",
+                                captured_at=time.time(),
+                                reason=getattr(exc, "code", "handoff_capture_failed"),
+                                execution_authority=False,
+                            )
+                        continue
+                    if command["action"] == "observe-page":
+                        receipt = job.get("owned_page_inspection") or {}
+                        if receipt.get("request_id") == command.get("request_id"):
+                            receipt.update(
+                                status="failed",
+                                at=time.time(),
+                                reason=getattr(exc, "code", "page_observation_failed"),
+                            )
+                        continue
+                    if command["action"] == "observe-result":
+                        (job.get("submission_observation") or {}).update(
+                            status="observed",
+                            conclusion="unknown",
+                            reason=getattr(exc, "code", "page_command_failed"),
+                        )
+                        continue
+                    if command["action"] == "continue-current":
+                        (job.get("continuation") or {}).update(
+                            status="needs_recheck",
+                            reason=getattr(exc, "code", "page_command_failed"),
+                        )
+                        state["control"] = "paused"
+                    if job["status"] != "cancelled":
+                        job.update(
+                            status="needs_recheck",
+                            reason=getattr(exc, "code", "page_command_failed"),
+                        )
+                    job["observations"].append(
+                        {
+                            "event": "page_command_failed",
+                            "run_id": self.run_id,
+                            "stage": command["action"],
+                            "reason": getattr(exc, "code", "page_command_failed"),
+                            "at": time.time(),
+                        }
+                    )
+                    if command["action"] == "review":
+                        job["handed_off"] = True
+                        job["handoff"] = {
+                            "status": "unknown",
+                            "run_id": self.run_id,
+                            "at": time.time(),
+                            "source": "user_requested_handoff",
+                        }
+        state["commands"] = retained
+
+    def service_backend_recovery(self):
+        """Read an original stopped Codex page outside the business write lock."""
+        command = getattr(self, "_backend_recovery_candidate", None)
+        self._backend_recovery_candidate = None
+        if command is None:
+            return None
+        identifier = command.get("id")
+        with self.store.applications.write_lock():
+            state = self.store.load()
+            job = next((row for row in state["jobs"] if row["application_id"] == identifier), None)
+            receipt = state.get("backend_recovery") or {}
+            if command not in state["commands"]:
+                return None
+            if (
+                receipt.get("request_id") != command.get("request_id")
+                or receipt.get("status") != "pending"
+            ):
+                state["commands"] = [row for row in state["commands"] if row != command]
+                self.store.save(state)
+                return None
+            if not job or not job.get("assistance") or assistance_stop_pending(job):
+                return None
+            reference = assistance_reference(job["assistance"])
+            if digest(receipt.get("assistance_ref")) != digest(reference):
+                receipt.update(
+                    status="needs_recheck",
+                    reason="backend_recovery_unbound"
+                    if "assistance_ref" not in receipt
+                    else "assistance_generation_changed",
+                )
+                state["commands"] = [row for row in state["commands"] if row != command]
+                self.store.save(state)
+                return deepcopy(receipt)
+            binding = deepcopy(receipt["binding"])
+            expected_lock = deepcopy(receipt.get("worker_lock"))
+            page = self.pages.get(identifier)
+
+        def validate(current):
+            current_job = next(
+                (row for row in current["jobs"] if row["application_id"] == identifier), None
+            )
+            current_receipt = current.get("backend_recovery") or {}
+            if current_job:
+                require_execution(
+                    self.store.applications,
+                    identifier,
+                    automated_owner(self.store.root, current["batch_id"], identifier),
+                    "automated",
+                )
+            descriptor = getattr(self.store, "worker_lock_descriptor", None)
+            actual_lock = None
+            if descriptor is not None:
+                observed = os.fstat(descriptor)
+                actual_lock = {"device": observed.st_dev, "inode": observed.st_ino}
+            runtime = current.get("runtime") or {}
+            if (
+                not current_job
+                or not current_job.get("assistance")
+                or assistance_stop_pending(current_job)
+                or digest(assistance_reference(current_job["assistance"])) != digest(reference)
+                or digest(assistance_binding(current, current_job)) != digest(reference["binding"])
+                or current_receipt.get("request_id") != command.get("request_id")
+                or current_receipt.get("status") != "pending"
+                or digest(current_receipt.get("assistance_ref")) != digest(reference)
+                or current_receipt.get("binding") != binding
+                or not backend_recovery_timely(current_receipt)
+                or current["control"] != "paused"
+                or current.get("current_job_id") != identifier
+                or current.get("controller") != current_receipt.get("controller")
+                or handoff_binding(current, current_job) != binding
+                or runtime.get("id") != self.run_id
+                or runtime.get("pid") != os.getpid()
+                or runtime.get("source", {}).get("sha256") != self._page_source
+                or current.get("worker_pid") != os.getpid()
+                or actual_lock is None
+                or actual_lock != expected_lock
+                or not worker_lock_is_held(self.store.root, actual_lock)
+                or not (
+                    current_job["status"] in {"queued", "filling"}
+                    and not current_job.get("reason")
+                    or current_job["status"] == "needs_recheck"
+                    and current_job.get("reason") == "backend_authority_lost"
+                    and current_job["assistance"].get("backend_loss")
+                )
+                or current_job.get("intent")
+                or current_job.get("handed_off")
+                or not current_job["page_open"]
+                or manual_submission_unresolved(
+                    {
+                        **current_job,
+                        "observations": [*current_job["observations"], *self.transports],
+                    }
+                )
+                or self.shared_fault
+                or self.storage_stopped
+                or self.store.stop_reason()
+                or page is None
+                or self.pages.get(identifier) is not page
+                or page.is_closed()
+                or page.context is not self.context
+                or page.url != reference["binding"]["step"]
+                or self.context is None
+                or not self.context.browser
+                or not self.context.browser.is_connected()
+                or self.page_ids.get(page) != reference["binding"].get("page_id")
+                or page in self.blocked_pages
+                or page in self.page_faults
+                or page in self.handed_off_pages
+            ):
+                raise PortalDataError(
+                    "backend_owner_unverified", "原接管页面或停止范围尚不能核验。", 409
+                )
+
+        def check():
+            with self.store.applications.write_lock():
+                validate(self.store.load())
+
+        capture, failure = None, None
+        try:
+            check()
+            with browser_deadline(5):
+                capture = self._capture_owned_page(
+                    page, check, expected_document=reference["binding"]["document_token"]
+                )
+            check()
+        except (Error, OSError, PortalDataError, ValueError, KeyError, TypeError) as error:
+            failure = getattr(error, "code", "backend_page_readback_failed")
+        with self.store.applications.write_lock():
+            current = self.store.load()
+            current_receipt = current.get("backend_recovery") or {}
+            if (
+                current_receipt.get("request_id") == command.get("request_id")
+                and current_receipt.get("status") == "pending"
+            ):
+                try:
+                    validate(current)
+                except (OSError, PortalDataError, ValueError, KeyError, TypeError) as error:
+                    failure = getattr(error, "code", "backend_owner_unverified")
+                current_receipt.update(
+                    status="needs_recheck", reason=failure or "assistance_handoff_required"
+                )
+                if capture is not None and failure is None:
+                    current_receipt.update(
+                        page_verified=True,
+                        verified_at=max(time.time(), capture["at"]),
+                        run_id=self.run_id,
+                        page_verification={
+                            "protocol": "backend-page-verification/v1",
+                            "at": capture["at"],
+                            "assistance_ref": reference,
+                            "document": capture["document"],
+                            "data": capture["data"],
+                            "worker_source": self._page_source,
+                        },
+                    )
+            current["commands"] = [row for row in current["commands"] if row != command]
+            self.store.save(current)
+            return deepcopy(current_receipt)
+
+    def _command(self, state: dict, command: dict) -> None:
+        identifier = command.get("id")
+        page = self.pages.get(identifier)
+        job = next((j for j in state["jobs"] if j["application_id"] == identifier), None)
+        if command["action"] == "inspect-material-update":
+            from .application_bound_materials import inspect_runner
+
+            try:
+                inspect_runner(self, state, job, page, command)
+            except (PortalDataError, OSError, ValueError, KeyError, TypeError) as error:
+                if job:
+                    job["material_update"].update(
+                        status="needs_recheck",
+                        error_code=getattr(error, "code", "bound_material_page_unknown"),
+                    )
+                raise
+            return
+        if command["action"] == "recover-backend":
+            receipt = state.get("backend_recovery") or {}
+            if (
+                receipt.get("request_id") != command.get("request_id")
+                or receipt.get("status") != "pending"
+            ):
+                return
+            if job and job.get("assistance"):
+                receipt.update(
+                    status="needs_recheck",
+                    reason="assistance_stop_pending"
+                    if assistance_stop_pending(job)
+                    else "assistance_handoff_required",
+                )
+                state["control"] = "paused"
+                return
+            if not backend_recovery_timely(receipt):
+                receipt.update(status="needs_recheck", reason="backend_recovery_expired")
+                state["control"] = "paused"
+                return
+            descriptor = getattr(self.store, "worker_lock_descriptor", None)
+            lock_evidence = None
+            if descriptor is not None:
+                stat = os.fstat(descriptor)
+                lock_evidence = {"device": stat.st_dev, "inode": stat.st_ino}
+            if (
+                not job
+                or state["control"] != "paused"
+                or state.get("current_job_id") != identifier
+                or state.get("controller") != receipt.get("controller")
+                or (state.get("runtime") or {}).get("id") != self.run_id
+                or state.get("worker_pid") != os.getpid()
+                or not worker_lock_is_held(self.store.root, lock_evidence)
+                or handoff_binding(state, job) != receipt["binding"]
+                or job["status"] not in {"queued", "filling"}
+                or job.get("reason")
+                or job.get("intent")
+                or job.get("handed_off")
+                or manual_submission_unresolved(
+                    {**job, "observations": [*job["observations"], *self.transports]}
+                )
+                or self.shared_fault
+                or self.storage_stopped
+                or self.store.stop_reason()
+                or page in self.blocked_pages
+                or page in self.page_faults
+                or job["page_open"]
+                and (
+                    page is None
+                    or page.is_closed()
+                    or page.context is not self.context
+                    or self.page_ids.get(page) != (job.get("page_observation") or {}).get("page_id")
+                )
+            ):
+                receipt.update(status="needs_recheck", reason="backend_owner_unverified")
+                return
+            self.check_inputs(job)
+            if page is not None:
+                observed = self.observe(page, job)
+                # Read the retained original page before remaining work can write.
+                # These are the same manual-value boundaries as one Continue.
+                job["manual_fields"] = {
+                    field["id"]: deepcopy(field)
+                    for field in observed["fields"]
+                    if field["type"] != "file"
+                    and field.get("valid")
+                    and field.get("value") not in (None, "", [])
+                }
+                job["manual_attachments"] = [
+                    deepcopy(field) for field in observed["fields"] if field["type"] == "file"
+                ]
+                if manual_submission_unresolved(
+                    {**job, "observations": [*job["observations"], *self.transports]}
+                ):
+                    receipt.update(status="needs_recheck", reason="submission_result_unknown")
+                    return
+            if not backend_recovery_timely(receipt):
+                receipt.update(status="needs_recheck", reason="backend_recovery_expired")
+                state["control"] = "paused"
+                return
+            receipt.update(
+                status="verified",
+                verified_at=time.time(),
+                run_id=self.run_id,
+                worker_lock=lock_evidence,
+            )
+            state.update(control="running", heartbeat_at=time.time())
+            return
+        if command["action"] == "inspect-handoff":
+            runtime = state.get("runtime") or {}
+            receipt = runtime.get("controller_handoff") or {}
+            identity = process_identity(os.getpid())
+            worker_lock = None
+            descriptor = getattr(self.store, "worker_lock_descriptor", None)
+            if descriptor is not None:
+                try:
+                    held = os.fstat(descriptor)
+                    current = (self.store.root / ".worker.lock").lstat()
+                    if (held.st_dev, held.st_ino) == (current.st_dev, current.st_ino):
+                        worker_lock = {"device": held.st_dev, "inode": held.st_ino}
+                        if not worker_lock_is_held(self.store.root, worker_lock):
+                            worker_lock = None
+                except OSError:
+                    pass
+            valid = bool(
+                job
+                and worker_lock is not None
+                and state["control"] == "paused"
+                and not self.shared_fault
+                and not self.storage_stopped
+                and not self.store.stop_reason()
+                and runtime.get("id") == self.run_id
+                and runtime.get("pid") == os.getpid()
+                and receipt.get("protocol") == CONTROLLER_HANDOFF_INSPECTION
+                and receipt.get("status") == "pending"
+                and receipt.get("request_id") == command.get("request_id")
+                and receipt.get("binding") == handoff_binding(state, job)
+                and identity is not None
+                and identity == receipt.get("process_identity")
+                and 0 <= time.time() - receipt.get("requested_at", 0) < 10
+                and page is not None
+                and not page.is_closed()
+                and self.page_ids.get(page) == receipt["binding"]["page"]["page_id"]
+                and page.context is self.context
+                and self.context.browser.is_connected()
+            )
+            receipt.update(
+                status="captured" if valid else "failed",
+                captured_at=time.time(),
+                execution_authority=False,
+                worker_lock=worker_lock,
+            )
+            if not valid:
+                receipt["reason"] = "handoff_binding_unverified"
+                return
+            if not hosted_ats.matches_page(
+                page.url, job, document_url=self.document_urls.get(page)
+            ):
+                raise PortalDataError("handoff_page_changed", "原页已离开当前岗位。", 409)
+            # Reuse the original isolated-world/owner capture without changing the job.
+            observed_job = deepcopy(job)
+            target = {
+                "batch_id": state["batch_id"],
+                "run_id": self.run_id,
+                "page_id": self.page_ids[page],
+            }
+            observed_job["owned_page_inspection"] = {
+                "request_id": receipt["request_id"],
+                "status": "pending",
+                "requested_at": receipt["requested_at"],
+                "binding": target,
+            }
+            self.observe_owned_page(
+                state,
+                observed_job,
+                page,
+                {
+                    "request_id": receipt["request_id"],
+                    "binding": target,
+                },
+            )
+            if not hosted_ats.matches_page(
+                page.url, job, document_url=self.document_urls.get(page)
+            ):
+                raise PortalDataError("handoff_page_changed", "原页已离开当前岗位。", 409)
+            receipt["page_snapshot"] = observed_job["owned_page_inspection"]
+            receipt["captured_at"] = receipt["page_snapshot"]["at"]
+            receipt["capture_scope"] = "url_document_dom_file_metadata_at_capture"
+            return
+        if command["action"] == "observe-page":
+            self.observe_owned_page(state, job, page, command)
+            return
+        if command["action"] == "observe-result":
+            receipt = (job or {}).get("submission_observation") or {}
+            if (
+                receipt.get("request_id") != command.get("request_id")
+                or receipt.get("status") != "pending"
+            ):
+                return
+            if (
+                not job
+                or state.get("current_job_id") != identifier
+                or not page
+                or page.is_closed()
+                or page.context is not self.context
+                or receipt.get("run_id") != self.run_id
+                or receipt.get("page_id") != self.page_ids.get(page)
+            ):
+                raise PortalDataError(
+                    "page_changed", "结果观察的原页已变化，不能推断提交成功。", 409
+                )
+            data = self.read_submission_page(page, job)
+            events = [
+                row
+                for row in [*job["observations"], *self.transports]
+                if row.get("kind") == "manual_submit"
+                and row.get("application_id") == identifier
+                and row.get("run_id") == self.run_id
+                and row.get("page_id") == self.page_ids.get(page)
+            ]
+            latest_request = next(
+                (row for row in reversed(events) if row.get("stage") == "request"), {}
+            )
+            response = next(
+                (
+                    row
+                    for row in reversed(events)
+                    if row.get("stage") == "response"
+                    and (
+                        not latest_request
+                        or row.get("request_id") == latest_request.get("request_id")
+                    )
+                ),
+                {},
+            )
+            target_verified = _manual_submission_target(
+                job,
+                (latest_request or response).get("target_binding") or {},
+                document_url=self.document_urls.get(page),
+            )
+            expected, actual = urlsplit(job["job_url"]), urlsplit(data["url"])
+            # The original Page/run and observed final request bind the target;
+            # confirmation redirects may omit the job ID from their path.
+            bound_url = actual.scheme == "https" and actual.hostname == expected.hostname
+            messages = [
+                re.sub(r"\s+", " ", text).strip().lower() for text in data.get("messages", [])
+            ]
+            positive = any(
+                re.fullmatch(
+                    r"(?:your application (?:has been|was) (?:successfully )?submitted|"
+                    r"application (?:successfully )?submitted|we have received your application|"
+                    r"thank you for applying)[.!]?",
+                    text,
+                )
+                for text in messages
+            )
+            negative = any(
+                re.fullmatch(
+                    r"(?:application (?:could not be|was not|not) submitted|"
+                    r"(?:we )?(?:could not|couldn't|cannot) submit your application|"
+                    r"application submission failed)[.!]?",
+                    text,
+                )
+                for text in messages
+            )
+            status = response.get("http_status", 0)
+            conclusion = (
+                "success"
+                if target_verified
+                and bound_url
+                and job["handed_off"]
+                and positive
+                and not negative
+                and 200 <= status < 400
+                and not data.get("has_form")
+                else "rejected"
+                if target_verified and bound_url and job["handed_off"] and negative
+                else "awaiting_submit"
+                if not events and not positive and not negative and data.get("has_form")
+                else "unknown"
+            )
+            receipt.update(
+                status="observed",
+                conclusion=conclusion,
+                data=data,
+                response=deepcopy(response),
+                manual_request_id=latest_request.get("request_id"),
+                target_verified=target_verified,
+                at=time.time(),
+            )
+            if conclusion == "success":
+                job["manual_submission"] = {
+                    "source": "read_only_browser_result",
+                    "request_id": receipt["request_id"],
+                    "at": time.time(),
+                }
+                job["pending_status"] = "applied"
+                self.store.sync(job, "原申请页和人工提交响应已确认成功，等待接收证据。")
+            return
+        if command["action"] == "continue-current":
+            receipt = (job or {}).get("continuation") or {}
+            if (
+                receipt.get("request_id") != command.get("request_id")
+                or receipt.get("status") != "pending"
+            ):
+                return
+            if (
+                not job
+                or job.get("status") == "cancelled"
+                or state.get("controller") != command.get("controller")
+                or state.get("current_job_id") != identifier
+                or state["control"] != "paused"
+                or not page
+                or page.is_closed()
+                or page.context is not self.context
+                or receipt.get("run_id") != self.run_id
+                or receipt.get("page_id") != self.page_ids.get(page)
+            ):
+                raise PortalDataError("page_changed", "继续时原岗位或原页已变化。", 409)
+            if manual_submission_unresolved(
+                {**job, "observations": [*job["observations"], *self.transports]}
+            ):
+                receipt["status"] = "needs_recheck"
+                job.update(status="needs_recheck", reason="submission_result_unknown")
+                return
+            self.check_inputs(job)
+            from .application_bound_materials import verify_original_page
+
+            already_current_material = verify_original_page(self, page, job)
+            observed = self.observe_pending(page, job)
+            form_flow.capture(
+                self,
+                page,
+                job,
+                state["batch_id"],
+                observed,
+                acknowledge=True,
+                current_state=state,
+            )
+            receipt.update(observed=deepcopy(observed), at=time.time())
+            if job["intent"]:
+                form_flow.inspect_pending(self, page, job, observed)
+            if job["intent"]:
+                receipt["status"] = "needs_recheck"
+                job.update(status="needs_recheck", reason="action_result_unknown")
+                return
+            if material_edit_pending(job):
+                raise PortalDataError(
+                    "material_edit_needs_recheck", "材料编辑尚未完成，请保留原稿核验。", 409
+                )
+            precision = job.get("precision_preparation") or {}
+            if precision.get("status") == "ready":
+                from .application_bound_materials import attachment_snapshot, document_token
+
+                if (
+                    precision.get("run_id") != self.run_id
+                    or precision.get("page_id") != self.page_ids.get(page)
+                    or precision.get("document_token") != document_token(page)
+                ):
+                    raise PortalDataError(
+                        "page_changed", "精准调整的原文档已变化，请保留材料核验。", 409
+                    )
+                precision["resume_before_continue"] = attachment_snapshot(self, page, job, observed)
+            job["manual_fields"] = {
+                field["id"]: deepcopy(field)
+                for field in observed["fields"]
+                if field["type"] != "file"
+                and field.get("valid")
+                and field.get("value") not in (None, "", [])
+            }
+            job["manual_attachments"] = [
+                deepcopy(field) for field in observed["fields"] if field["type"] == "file"
+            ]
+            if (job.get("material_update") or {}).get("status") == "bound":
+                from .application_bound_materials import refreshed_contact_fields
+
+                refreshed_contact_fields(self, job)
+                if already_current_material:
+                    job["material_update"]["status"] = "complete"
+            self.handed_off_pages.discard(page)
+            if precision.get("status") == "ready":
+                precision.update(status="released", request_id=command["request_id"])
+            job.update(handed_off=False, status="queued", reason="")
+            receipt["status"] = "verified"
+            state.update(
+                control="running",
+                controller=command["controller"],
+                heartbeat_at=time.time(),
+                resume_serial=state.get("resume_serial", 0) + 1,
+            )
+            return
+        if job and command["action"] in {"review", "recheck"}:
+            self.store.check_generic_enabled(job, state)
+        if command["action"] == "one-use" and job and job["status"] != "cancelled":
+            value = {
+                "key": "one-use",
+                "question": command["fact"],
+                "value": command["value"],
+                "scope": {"application_id": identifier},
+                "state": "confirmed",
+            }
+            self.temporary.setdefault(identifier, {})[command["fact"]] = value
+        elif (
+            command["action"] == "review"
+            and page
+            and not page.is_closed()
+            and job
+            and job["status"] != "cancelled"
+            and (job["status"] == "ready_for_review" or job.get("manual_intervention"))
+        ):
+            if not job.get("manual_intervention") and assistance_completion(job) is None:
+                observed = self.observe(page, job)
+                form_flow.capture(self, page, job, state["batch_id"], observed, current_state=state)
+                form_flow.check_ready(job, observed)
+            job["handed_off"] = True
+            job["handoff"] = {
+                "status": "pending",
+                "run_id": self.run_id,
+                "at": time.time(),
+                "source": "automatic_submit_wait"
+                if command.get("actor") == "system"
+                else "user_requested_handoff",
+                "actor": command.get("actor", "user"),
+                "human_reviewed": False,
+            }
+            self.persist(state)
+            if self.cua is not None:
+                self.cua.review(page, pump=self.pump)
+            page.unroute("**/*", self.guards[identifier])
+            self.handed_off_pages.add(page)
+            page.bring_to_front()
+            job["handoff"]["status"] = "complete"
+        elif command["action"] == "review" and job:
+            if job["status"] != "cancelled":
+                job.update(handed_off=True, status="needs_recheck", reason="handoff_unknown")
+            job["handoff"] = {
+                "status": "unknown",
+                "run_id": self.run_id,
+                "at": time.time(),
+                "source": "automatic_submit_wait"
+                if command.get("actor") == "system"
+                else "user_requested_handoff",
+                "actor": command.get("actor", "user"),
+                "human_reviewed": False,
+            }
+        elif command["action"] == "release" and job:
+            if page:
+                page.close()
+                self._forget_page(identifier, page)
+            if job:
+                job["page_open"] = False
+                if job["status"] == "cancelled" and not job["intent"]:
+                    release_execution(
+                        self.store.applications,
+                        identifier,
+                        automated_owner(self.store.root, state["batch_id"], identifier),
+                        "automated",
+                    )
+                if job["status"] == "ready_for_review" and not job.get("manual_submission"):
+                    job.update(status="needs_recheck", reason="page_released")
+        elif command["action"] == "recheck" and job and job["status"] != "cancelled":
+            if command.get("authentication"):
+                if not page or page.is_closed():
+                    job.update(status="needs_recheck", reason="page_lost", page_open=False)
+                    return
+                observed_page = job.get("page_observation") or {}
+                if (
+                    page.context is not self.context
+                    or observed_page.get("page_id") != self.page_ids.get(page)
+                    or observed_page.get("run_id") != self.run_id
+                ):
+                    raise PortalDataError(
+                        "page_changed", "登录等待的原页面已变更，请核验保留页面。", 409
+                    )
+                # Continue checks the actual retained page; it never reopens it or
+                # promotes a login wait into permission to replay an unknown action.
+                self.check_inputs(job)
+                hosted_ats.observe(page, job, document_url=self.document_urls.get(page))
+            self.handed_off_pages.discard(page)
+            self.blocked_pages.pop(page, None)
+            if page and not page.is_closed() and not self.live:
+                page.unroute("**/*", self.guards[identifier])
+                page.route("**/*", self.guards[identifier])
+            if (
+                self.live
+                and job.get("form_state")
+                and (
+                    not page
+                    or page.is_closed()
+                    or page.context is not self.context
+                    or not self.run_id
+                    or not self.page_ids.get(page)
+                    or job["form_state"].get("binding", {}).get("run_id") != self.run_id
+                    or job["form_state"].get("binding", {}).get("page_id") != self.page_ids[page]
+                )
+            ):
+                raise PortalDataError("page_changed", "原申请页不能核验，请保留当前记录。", 409)
+            if page in self.drafts and job.get("action_resolutions"):
+                self.drafts[page].refresh(page, self.effective_action_results(job))
+            if self.live and job.get("form_state"):
+                observed = self.observe_pending(page, job)
+                form_flow.capture(
+                    self,
+                    page,
+                    job,
+                    state["batch_id"],
+                    observed,
+                    acknowledge=True,
+                    current_state=state,
+                )
+            job["handed_off"] = False
+        elif command["action"] == "answers-changed":
+            for existing in state["jobs"]:
+                if existing["status"] != "ready_for_review" or existing.get("manual_submission"):
+                    continue
+                for ref in existing["answer_refs"]:
+                    if ref["key"] == "one-use" or ref.get("source") == "system_material":
+                        continue
+                    record = self.store.answers_for(existing).get_answer(ref["key"])
+                    if record is None or digest(record) != ref["revision"]:
+                        existing.update(status="needs_recheck", reason="answer_changed")
+                        self.store.sync(existing, "答案已变更：请核验待复核页面后重新接管。")
+                        break
+
+    @staticmethod
+    def read_submission_page(page, job):
+        """Read stable status messages from the retained handle; never navigate or submit."""
+        script = """() => ({url: location.href,
+          messages: [...document.querySelectorAll(
+            'h1,h2,[role=status],[role=alert],.application-confirmation,.application-success'
+          )].filter(e => e.getClientRects().length)
+            .map(e => e.innerText.trim()).filter(Boolean).slice(0,40),
+          has_form: !!document.querySelector('form input, form textarea')})"""
+        first = page.evaluate(script)
+        if page.evaluate(script) != first:
+            raise PortalDataError("submission_page_changed", "观察期间结果页已变化。", 409)
+        return first
+
+    def observe_owned_page(self, state: dict, job: dict | None, page, command: dict) -> None:
+        receipt = (job or {}).get("owned_page_inspection") or {}
+        if (
+            receipt.get("request_id") != command.get("request_id")
+            or receipt.get("status") != "pending"
+        ):
+            return  # A superseded request cannot overwrite its successor.
+        binding = command["binding"]
+
+        def check():
+            client = getattr(self.cua, "client", None)
+            if (
+                not job
+                or state["control"] != "paused"
+                or self.store.stop_reason()
+                or state.get("worker_error", "") not in {"", "control_connection_lost"}
+                or self.shared_fault
+                or self.storage_stopped
+                or not page
+                or page.is_closed()
+                or page in self.page_faults
+                or self.pages.get(job["application_id"]) is not page
+                or page.context is not self.context
+                or not self.context.browser
+                or not self.context.browser.is_connected()
+                or getattr(client, "failed", False)
+                or client is not None
+                and client.process.poll() is not None
+                or binding
+                != {
+                    "batch_id": state["batch_id"],
+                    "run_id": self.run_id,
+                    "page_id": self.page_ids.get(page),
+                }
+                or binding != receipt.get("binding")
+                or (job.get("page_observation") or {}).get("run_id") != self.run_id
+                or (job.get("page_observation") or {}).get("page_id") != binding["page_id"]
+                or (job.get("page_observation") or {}).get("event") != "observed"
+                or not 0 <= time.time() - receipt.get("requested_at", 0) < 10
+                or state.get("runtime", {}).get("id") != self.run_id
+                or OWNED_PAGE_OBSERVATION not in state.get("runtime", {}).get("capabilities", [])
+            ):
+                raise PortalDataError(
+                    "page_observation_owner_lost", "所属原页或控制连接已失效。", 409
+                )
+
+        captured = self._capture_owned_page(page, check)
+        receipt.update(
+            **captured,
+            worker_source=state["runtime"]["source"]["sha256"],
+        )
+
+    def _capture_owned_page(self, page, check, *, expected_document=None, include_screenshot=True):
+        """Read one retained handle; callers keep state checks outside Page IO."""
+        if threading.get_ident() != self._page_thread:
+            raise PortalDataError(
+                "page_observation_thread_changed", "原页只能在所属执行线程读取。", 409
+            )
+        check()
+        if self.cua is None:
+            owner = {"status": "not_used", "transport": "retained-playwright"}
+        elif getattr(self.cua.client, "handoff_active", False):
+            # The yielded session belongs to the peer; check() still binds its driver.
+            owner = {"status": "yielded", "transport": "retained-playwright"}
+        else:
+            owner = self.cua.observe_owner(pump=self.pump)
+        check()
+        url = page.url
+        session = OwnedCDP(page).__enter__()
+        try:
+            frame = session.send("Page.getFrameTree")["frameTree"]["frame"]
+
+            def read_document():
+                if expected_document is None:
+                    return
+                # CDP property descriptors do not invoke a page-defined getter.
+                result = session.send(
+                    "Runtime.evaluate",
+                    {"expression": "this", "silent": True, "returnByValue": False},
+                )
+                handle = result.get("result", {}).get("objectId")
+                if result.get("exceptionDetails") or not isinstance(handle, str):
+                    raise PortalDataError("page_observation_changed", "原页文档不能核验。", 409)
+                try:
+                    properties = session.send(
+                        "Runtime.getProperties", {"objectId": handle, "ownProperties": True}
+                    ).get("result", [])
+                    descriptor = next(
+                        (
+                            row
+                            for row in properties
+                            if row.get("name") == "__tomorrowstarMaterialDocument"
+                        ),
+                        {},
+                    )
+                    value = descriptor.get("value") or {}
+                    if (
+                        "get" in descriptor
+                        or "set" in descriptor
+                        or value.get("type") != "string"
+                        or value.get("value") != expected_document
+                    ):
+                        raise PortalDataError("page_observation_changed", "原页文档已改变。", 409)
+                finally:
+                    with browser_deadline(1):
+                        session.send("Runtime.releaseObject", {"objectId": handle})
+
+            read_document()
+            execution = session.send(
+                "Page.createIsolatedWorld",
+                {
+                    "frameId": frame["id"],
+                    "worldName": "tomorrowstar-owned-page-observation",
+                },
+            )["executionContextId"]
+
+            def read_dom():
+                result = session.send(
+                    "Runtime.evaluate",
+                    {
+                        "expression": "("
+                        + (INSPECT_OWNED_PAGE if include_screenshot else INSPECT_ASSISTANCE_CONTEXT)
+                        + ")()",
+                        "contextId": execution,
+                        "returnByValue": True,
+                        "silent": True,
+                    },
+                )
+                if result.get("exceptionDetails") or not isinstance(
+                    result.get("result", {}).get("value"), dict
+                ):
+                    raise PortalDataError("page_observation_failed", "原页只读内容不能核验。", 409)
+                return result["result"]["value"]
+
+            data = read_dom()
+            screenshot = owned_screenshot(page, session.deadline) if include_screenshot else None
+            if owner["status"] == "accepted":
+                owner = self.cua.observe_owner(pump=self.pump)
+            if read_dom() != data:
+                raise PortalDataError("page_observation_changed", "观察期间原页字段已变更。", 409)
+            read_document()
+            check()
+            after = session.send("Page.getFrameTree")["frameTree"]["frame"]
+            if (
+                page.url != url
+                or data["url"] != url
+                or any(after.get(key) != frame.get(key) for key in ("id", "loaderId", "url"))
+            ):
+                raise PortalDataError("page_observation_changed", "观察期间原页已变更。", 409)
+            if (
+                include_screenshot
+                and expected_document is not None
+                and (
+                    not isinstance(screenshot, bytes)
+                    or not screenshot.startswith(b"\x89PNG\r\n\x1a\n")
+                )
+            ):
+                raise PortalDataError("page_observation_failed", "原页图像格式不能核验。", 409)
+            if (
+                include_screenshot
+                and len(screenshot) > 2_000_000
+                or len(json.dumps(data).encode()) > 2_000_000
+            ):
+                raise PortalDataError("page_observation_limit", "观察内容超过限额。", 409)
+            check()
+            return {
+                "status": "captured",
+                "at": time.time(),
+                "data": data,
+                **(
+                    {
+                        "screenshot": {
+                            "mime_type": "image/png",
+                            "base64": base64.b64encode(screenshot).decode("ascii"),
+                        }
+                    }
+                    if include_screenshot
+                    else {}
+                ),
+                "executor": "retained-page-isolated-world/v1",
+                "owner": owner,
+                "document": {
+                    "frame_id": frame.get("id"),
+                    "loader_id": frame.get("loaderId"),
+                    "url": frame.get("url"),
+                },
+            }
+        finally:
+            with browser_deadline(1):
+                session.detach()
+
+    def _assistance_page_checker(self, assistance_ref, *, after_stop=False):
+        """Bind short state checks to the original handle without collecting content.
+
+        ``after_stop`` is the read-only post-stop path: the scope must be proven
+        stopped, its writer still Codex, and the native session already reclaimed.
+        """
+        if threading.get_ident() != self._page_thread:
+            raise PortalDataError(
+                "page_observation_thread_changed", "原页只能在所属执行线程读取。", 409
+            )
+        if not isinstance(assistance_ref, dict) or not isinstance(
+            assistance_ref.get("binding"), dict
+        ):
+            raise PortalDataError("assistance_binding_changed", "原页接管引用无效。", 409)
+        identifier = assistance_ref["binding"].get("application_id")
+        page = self.pages.get(identifier)
+
+        def check():
+            with self.store.applications.write_lock():
+                state = self.store.load()
+                job = next(
+                    (row for row in state["jobs"] if row["application_id"] == identifier), None
+                )
+                assistance = (job or {}).get("assistance")
+                runtime = state.get("runtime") or {}
+                observed = (job or {}).get("page_observation") or {}
+                now = time.time()
+                if (
+                    not job
+                    or not assistance
+                    or assistance.get("status") != ("stopped" if after_stop else "claimed")
+                    or after_stop
+                    and (
+                        (assistance.get("stop") or {}).get("stop_status") != "stopped"
+                        or assistance_stop_pending(job)
+                        or material_edit_pending(job)
+                    )
+                    or assistance.get("active_writer") != "codex"
+                    or not assistance_backend_permitted(state, assistance)
+                    or digest(assistance_reference(assistance)) != digest(assistance_ref)
+                    or digest(assistance_binding(state, job)) != digest(assistance_ref["binding"])
+                    and not (
+                        after_stop
+                        and assistance_binding_resumed_only(
+                            assistance_binding(state, job), assistance_ref["binding"]
+                        )
+                    )
+                    or state["control"] != "running"
+                    or state.get("current_job_id") != identifier
+                    or job["status"] == "cancelled"
+                    or job.get("handed_off")
+                    or job.get("manual_submission")
+                    or runtime.get("id") != self.run_id
+                    or (runtime.get("source") or {}).get("sha256") != self._page_source
+                    or not self._page_source
+                    or not 0 <= now - runtime.get("observed_at", 0) < 6
+                    or not 0 <= now - observed.get("at", 0) < 6
+                    or state.get("worker_error")
+                ):
+                    raise PortalDataError(
+                        "assistance_binding_changed", "原页、材料或接管范围已改变。", 409
+                    )
+                require_execution(
+                    self.store.applications,
+                    identifier,
+                    automated_owner(self.store.root, state["batch_id"], identifier),
+                    "automated",
+                )
+            client = getattr(self.cua, "client", None)
+            if (
+                self.store.stop_reason()
+                or self.shared_fault
+                or self.storage_stopped
+                or page is None
+                or page.is_closed()
+                or self.pages.get(identifier) is not page
+                or page.context is not self.context
+                or self.context is None
+                or not self.context.browser
+                or not self.context.browser.is_connected()
+                or self.page_ids.get(page) != assistance_ref["binding"].get("page_id")
+                or page.url != assistance_ref["binding"].get("step")
+                or page in self.page_faults
+                or page in self.blocked_pages
+                or page in self.handed_off_pages
+                or getattr(client, "failed", False)
+                or client is not None
+                and client.process.poll() is not None
+                or after_stop
+                and getattr(client, "handoff_active", False)
+            ):
+                raise PortalDataError(
+                    "page_observation_owner_lost", "所属原页或控制连接已失效。", 409
+                )
+
+        return page, check
+
+    def _reclaim_native_session(self):
+        """Take the yielded native session back once; an owned session is a no-op."""
+        client = getattr(self.cua, "client", None)
+        if client is None or not getattr(client, "handoff_active", False):
+            return False
+        client.resume_after_handoff(pump=self.pump)
+        return True
+
+    def assistance_read_permitted(self, assistance_ref, *, document=None):
+        """Cheap current-scope check for the read-only protocol event pump."""
+        try:
+            page, check = self._assistance_page_checker(assistance_ref)
+            check()
+            if document is not None:
+                with browser_deadline(2):
+                    session = OwnedCDP(page).__enter__()
+                    try:
+                        frame = session.send("Page.getFrameTree")["frameTree"]["frame"]
+                        if document != {
+                            "frame_id": frame.get("id"),
+                            "loader_id": frame.get("loaderId"),
+                            "url": frame.get("url"),
+                        }:
+                            return False
+                        check()
+                    finally:
+                        with browser_deadline(1):
+                            session.detach()
+                check()
+            return True
+        except (Error, OSError, StoreError, PortalDataError, ValueError, KeyError, TypeError):
+            return False
+
+    def observe_assistance_page(self, assistance_ref):
+        """Observe a claimed original page without adopting state or granting writes."""
+        page, check = self._assistance_page_checker(assistance_ref)
+        with browser_deadline(5):
+            captured = self._capture_owned_page(
+                page, check, expected_document=assistance_ref["binding"].get("document_token")
+            )
+        captured.update(
+            binding=deepcopy(assistance_ref["binding"]),
+            worker_source=self._page_source,
+            image_url="data:image/png;base64," + captured["screenshot"]["base64"],
+            page_writes_enabled=False,
+        )
+        check()
+        return captured
+
+    def observe_assistance_context(self, assistance_ref, *, after_stop=False):
+        """Read JSON locator context from the original Page without taking a screenshot."""
+        page, check = self._assistance_page_checker(assistance_ref, after_stop=after_stop)
+        with browser_deadline(5):
+            captured = self._capture_owned_page(
+                page,
+                check,
+                expected_document=assistance_ref["binding"].get("document_token"),
+                include_screenshot=False,
+            )
+        fields = captured["data"]["fields"]
+        for field in fields:
+            field["locator_hint"] = {
+                key: field.get(key, "") for key in ("id", "name", "role", "label")
+            }
+        captured["data"]["validation_errors"] = [
+            {
+                "field_hint": deepcopy(field["locator_hint"]),
+                "valid": field.get("valid"),
+                "aria_invalid": field.get("aria_invalid"),
+            }
+            for field in fields
+            if field.get("valid") is False or field.get("aria_invalid") not in (None, "", "false")
+        ]
+        captured.update(
+            binding=deepcopy(assistance_ref["binding"]),
+            worker_source=self._page_source,
+            observed_at=captured["at"],
+            page_writes_enabled=False,
+        )
+        if len(json.dumps(captured, allow_nan=False).encode()) > 2_000_000:
+            raise PortalDataError("page_observation_limit", "观察内容超过限额。", 409)
+        check()
+        return captured
+
+    def _read_native_material_field(self, reference, worker_field, *, document, after_stop=False):
+        """Read one original field's actual bytes, never dispatch or replay its action."""
+        if not isinstance(worker_field, str) or not worker_field or len(worker_field) > 200:
+            raise PortalDataError("material_readback_unknown", "原材料字段不能核验。", 409)
+        page, check = self._assistance_page_checker(reference, after_stop=after_stop)
+        expression = (
+            "(async () => { const marker="
+            + json.dumps(worker_field)
+            + "; const inspect=("
+            + INSPECT_ASSISTANCE_CONTEXT
+            + ");"
+            + r"""
+            const fields=inspect().fields.filter(f=>f.material_target?.worker_field===marker);
+            const nodes=[...document.querySelectorAll('[data-ts-worker-field]')]
+              .filter(e=>e.getAttribute('data-ts-worker-field')===marker);
+            if(fields.length!==1||nodes.length!==1) throw Error('material_target_changed');
+            const field=fields[0],e=nodes[0];
+            let result={field,sha256:null,size_bytes:0,filename:null,value:null};
+            let originalFile=null;
+            if(e.type==='file') {
+              if(e.files.length>1) throw Error('material_file_count');
+              if(e.files.length===1) {
+                const file=e.files[0];
+                originalFile=file;
+                if(file.size<1||file.size>700000) throw Error('material_file_size');
+                const raw=await Blob.prototype.arrayBuffer.call(file);
+                if(raw.byteLength!==file.size||e.files.length!==1||e.files[0]!==file)
+                  throw Error('material_file_changed');
+                result.sha256=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',raw)),
+                  b=>b.toString(16).padStart(2,'0')).join('');
+                result.size_bytes=raw.byteLength; result.filename=file.name;
+              }
+            } else {
+              if(!['text','textarea'].includes(e.type)) throw Error('material_control_type');
+              result.value=e.value;
+              result.size_bytes=new TextEncoder().encode(result.value).length;
+              if(result.size_bytes>20000) throw Error('material_text_size');
+            }
+            const again=inspect().fields.filter(f=>f.material_target?.worker_field===marker);
+            if(again.length!==1||JSON.stringify(again[0])!==JSON.stringify(field)||
+                !e.isConnected||e.getAttribute('data-ts-worker-field')!==marker||
+                e.type==='file'&&(e.files.length!==(originalFile?1:0)||
+                  originalFile&&e.files[0]!==originalFile))
+              throw Error('material_field_changed');
+            return result;
+            })()"""
+        )
+        with browser_deadline(3), OwnedCDP(page) as session:
+            check()
+            frame = session.send("Page.getFrameTree")["frameTree"]["frame"]
+            if document != {
+                "frame_id": frame.get("id"),
+                "loader_id": frame.get("loaderId"),
+                "url": frame.get("url"),
+            }:
+                raise PortalDataError("material_readback_unknown", "原材料文档已变化。", 409)
+            execution = session.send(
+                "Page.createIsolatedWorld",
+                {
+                    "frameId": frame["id"],
+                    "worldName": "tomorrowstar-material-readback",
+                },
+            )["executionContextId"]
+            raw = session.send(
+                "Runtime.evaluate",
+                {
+                    "expression": expression,
+                    "contextId": execution,
+                    "returnByValue": True,
+                    "awaitPromise": True,
+                    "silent": True,
+                },
+            )
+            result = raw.get("result", {}).get("value")
+            after = session.send("Page.getFrameTree")["frameTree"]["frame"]
+            check()
+            if (
+                raw.get("exceptionDetails")
+                or not isinstance(result, dict)
+                or set(result) != {"field", "sha256", "size_bytes", "filename", "value"}
+                or any(after.get(key) != frame.get(key) for key in ("id", "loaderId", "url"))
+                or not isinstance(result.get("field"), dict)
+            ):
+                raise PortalDataError(
+                    "material_readback_unknown", "当前材料的实际回读不能核验。", 409
+                )
+            if result["value"] is not None:
+                result["sha256"] = hashlib.sha256(result["value"].encode()).hexdigest()
+            return result
+
+    def _resolve_native_material_call(self, reference, call, context):
+        """Match the native control to one prepared field without altering the Page."""
+        from .cua_driver import validate_native_material_metadata
+
+        try:
+            validate_native_material_metadata(call)
+        except ValueError as error:
+            raise PortalDataError(
+                "material_destination_unverified", "原生材料控件不能核验。", 409
+            ) from error
+        target = call["target_descriptor"]
+        fields = [
+            field
+            for field in context.get("data", {}).get("fields", [])
+            if field.get("material_target", {}).get("worker_field") == target["worker_field"]
+        ]
+        if (
+            not target["worker_field"]
+            or call["scope"]["expected_document"] != context.get("document")
+            or len(fields) != 1
+            or fields[0].get("material_target") != target
+            or not target["value_empty"]
+            or target["file_count"] != 0
+            or target["type"] != "file"
+            and fields[0].get("value", "") != ""
+        ):
+            raise PortalDataError(
+                "material_destination_unverified", "当前原页材料字段已变化或尚未准备。", 409
+            )
+        with self.store.applications.write_lock():
+            state = self.store.load()
+            job = next(
+                (
+                    row
+                    for row in state["jobs"]
+                    if row["application_id"] == reference["binding"]["application_id"]
+                ),
+                None,
+            )
+            questions = [
+                question
+                for question in ((job or {}).get("form_state", {}).get("snapshot") or {}).get(
+                    "fields", []
+                )
+                if question.get("control_ids") == [target["worker_field"]]
+                and question.get("draft_path", "") == target["draft_path"]
+            ]
+            if len(questions) != 1:
+                raise PortalDataError(
+                    "material_destination_unverified", "固定材料没有唯一的当前字段。", 409
+                )
+            question = deepcopy(questions[0])
+
+            # Preparation owns field meaning. A retained marker cannot authorize a
+            # newly relabelled salary, legal declaration or other application field.
+            def normalize(value):
+                return " ".join(re.sub(r"[✱*]", "", value).split()).casefold()
+
+            if normalize(target["label"]) != normalize(question["question"]):
+                raise PortalDataError(
+                    "material_field_changed", "材料字段含义已改变，请保留当前原页。", 409
+                )
+            return self.store.resolve_bound_material(
+                reference, call["material_ref"], question=question, page_context=context
+            )
+
+    def _prepare_native_material_call(
+        self, reference, call, context, *, request_id, scope, receipt
+    ):
+        """Seal this field's fixed material only after saving its original send intent."""
+        from .cua_driver import validate_fixed_material_resolution
+
+        resolved = self._resolve_native_material_call(reference, call, context)
+        question = resolved["question"]
+        kind = resolved["kind"]
+        raw = resolved["text"].encode() if kind == "text" else resolved["bytes"]
+        attempt_id = uuid4().hex
+        payload = {
+            "protocol": "fixed-material/v1",
+            "resolution_id": attempt_id,
+            "material_ref": resolved["material_ref"],
+            "kind": kind,
+            "sha256": resolved["sha256"],
+            "size_bytes": len(raw),
+        }
+        if kind == "text":
+            payload["text"] = resolved["text"]
+        else:
+            payload.update(
+                bytes_base64=base64.b64encode(raw).decode("ascii"),
+                filename=resolved["filename"],
+                mime_type="application/pdf",
+            )
+        payload = validate_fixed_material_resolution(payload, material_ref=call["material_ref"])
+        manifest = {
+            key: value for key, value in payload.items() if key not in {"text", "bytes_base64"}
+        }
+        with self.store.applications.write_lock():
+            state = self.store.load()
+            job = next(
+                row
+                for row in state["jobs"]
+                if row["application_id"] == reference["binding"]["application_id"]
+            )
+            if job.get("intent") is not None:
+                raise PortalDataError(
+                    "material_attempt_unresolved", "原发送结果尚未核验，保留原尝试。", 409
+                )
+            if any(
+                previous.get("form_binding") == job["form_state"]["binding"]
+                and previous.get("run_id") == reference["binding"]["run_id"]
+                and previous.get("page_id") == reference["binding"]["page_id"]
+                and previous.get("action") == ("fill" if kind == "text" else "upload")
+                and previous.get("field_id") == question["id"]
+                and previous.get("draft_path", "") == question.get("draft_path", "")
+                and (previous.get("material_id") or "resume") == resolved["material_id"]
+                and previous.get("sha256") == resolved["sha256"]
+                for previous in self.verified_intents(job)
+            ):
+                raise PortalDataError(
+                    "recovered_result_not_visible",
+                    "已核验材料被清空，保留原结果且不重复发送。",
+                    409,
+                )
+            intent = {
+                "action": "fill" if kind == "text" else "upload",
+                "field_id": question["id"],
+                "draft_path": question.get("draft_path", ""),
+                "material_id": resolved["material_id"],
+                "sha256": resolved["sha256"],
+                "form_protocol": "form-state/v1",
+                "form_binding": deepcopy(job["form_state"]["binding"]),
+                "attempt_id": attempt_id,
+                "run_id": reference["binding"]["run_id"],
+                "page_id": reference["binding"]["page_id"],
+                "prepared_at": time.time(),
+                "input_refs": {"revision": job["revision"], "file_sha256": job["file_sha256"]},
+                "native_material": {
+                    "protocol": "fixed-material/v1",
+                    "request_id": request_id,
+                    "handoff_id": receipt["handoff_id"],
+                    "assistance_ref_digest": digest(reference),
+                    "resolution": manifest,
+                    **{
+                        key: call[key]
+                        for key in ("call_id", "arguments_digest", "generation", "sequence")
+                    },
+                },
+            }
+            intent.update(
+                {"expected_value": resolved["text"]}
+                if kind == "text"
+                else {"filename": resolved["filename"]}
+            )
+            page = self.pages.get(job["application_id"])
+            if kind == "file" and page in self.workable:
+                raise PortalDataError(
+                    "unsupported_attachment_transport", "该平台的原生附件路径尚未核验。", 409
+                )
+            draft = self.drafts.get(page)
+            if draft:
+                material = {"id": resolved["material_id"], "sha256": resolved["sha256"]}
+                if kind == "file":
+                    material["filename"] = resolved["filename"]
+                draft.begin(
+                    question,
+                    resolved["text"] if kind == "text" else len(raw),
+                    intent,
+                    material=material,
+                )
+            # The draft observer alone is never permission. A failed atomic save
+            # leaves no matching durable intent, so the network guard stays closed.
+            try:
+                self.store.record_native_handoff(
+                    reference,
+                    request_id=request_id,
+                    phase="granted",
+                    scope=scope,
+                    receipt=receipt,
+                    material_intent=intent,
+                )
+            except (ValueError, TypeError) as error:
+                if self.store.storage_error:
+                    raise StoreError("Native material checkpoint failed") from error
+                raise
+        return payload
+
+    def _reconcile_native_material(self, reference, receipt, *, request_id, after_stop=False):
+        """Complete only an observed original attempt with independent current readback."""
+        calls = receipt.get("calls", [])
+        if any(call.get("status") == "in_flight" for call in calls):
+            return False
+        state = self.store.load()
+        job = next(
+            (
+                row
+                for row in state["jobs"]
+                if row["application_id"] == reference["binding"]["application_id"]
+            ),
+            None,
+        )
+        if not job:
+            return False
+        intent = self.store.native_material_intent(state, job, reference, request_id=request_id)
+        if not intent:
+            return False
+        call = next(
+            (row for row in calls if row["call_id"] == intent["native_material"]["call_id"]), None
+        )
+        if (
+            call is None
+            or call.get("status") != "observed"
+            or not self.store.native_material_intent(
+                state, job, reference, request_id=request_id, call=call
+            )
+        ):
+            return False
+        try:
+            # The live call keeps its original signature; after a stop only
+            # readback is possible, so no admission or dispatch exists here.
+            options = {"after_stop": True} if after_stop else {}
+            page, check = self._assistance_page_checker(reference, **options)
+            check()
+            actual = self._read_native_material_field(
+                reference,
+                call["target_descriptor"]["worker_field"],
+                document=call["scope"]["expected_document"],
+                **options,
+            )
+        except (PortalDataError, Error):
+            # The physical native receipt is already durable. An unavailable
+            # readback leaves its business intent unresolved, not a failed save.
+            return False
+        target = actual["field"].get("material_target", {})
+        manifest = intent["native_material"]["resolution"]
+        file = manifest["kind"] == "file"
+        if (
+            any(
+                target.get(key) != value
+                for key, value in call["target_descriptor"].items()
+                if key not in {"value_empty", "file_count"}
+            )
+            or actual["sha256"] != manifest["sha256"]
+            or actual["size_bytes"] != manifest["size_bytes"]
+            or actual["field"].get("valid") is not True
+            or actual["field"].get("aria_invalid") not in (None, "", "false")
+            or file
+            and (target.get("file_count") != 1 or actual["filename"] != manifest["filename"])
+            or not file
+            and actual["value"] != intent["expected_value"]
+        ):
+            return False
+        questions = [
+            row
+            for row in job["form_state"]["snapshot"]["fields"]
+            if row["id"] == intent["field_id"] and row.get("draft_path", "") == intent["draft_path"]
+        ]
+        if len(questions) != 1:
+            return False
+        question = deepcopy(questions[0])
+        material = {"id": intent["material_id"], "sha256": manifest["sha256"]}
+        if file:
+            material["filename"] = manifest["filename"]
+            question.update(filename=manifest["filename"], file_sha256=manifest["sha256"])
+        draft = self.drafts.get(page)
+        if draft and not draft.native_material_verified(intent, question, material):
+            return False
+        # A local value does not turn a failed or missing network response into
+        # remote success. Draft proof above is tied to this attempt's own requests.
+        if any(
+            _unresolved_write_failure(event, job, state)
+            for event in [*job["observations"], *self.transports]
+            if event.get("intent") == intent
+        ):
+            return False
+        with self.store.applications.write_lock():
+            try:
+                check()
+            except PortalDataError:
+                return False
+            current_state = self.store.load()
+            current = next(
+                row
+                for row in current_state["jobs"]
+                if row["application_id"] == job["application_id"]
+            )
+            if (
+                self.store.native_material_intent(
+                    current_state, current, reference, request_id=request_id, call=call
+                )
+                != intent
+            ):
+                return False
+            form_flow.note_write(
+                current,
+                question,
+                manifest["filename"] if file else actual["value"],
+                {
+                    "source": "system_material",
+                    "material_id": intent["material_id"],
+                    "revision": manifest["sha256"],
+                },
+            )
+            try:
+                updated = self.update(
+                    current,
+                    current_state["batch_id"],
+                    completed_intent=intent,
+                    intent=None,
+                    form_state=current["form_state"],
+                )
+            except (ValueError, TypeError) as error:
+                if self.storage_stopped:
+                    raise StoreError("Native material checkpoint failed") from error
+                raise
+            saved = next(
+                row
+                for row in self.store.load()["jobs"]
+                if row["application_id"] == current["application_id"]
+            )
+            return updated and saved.get("intent") is None
+
+    def start_native_assistance(self, assistance_ref, *, request_id):
+        """Deliver JSON, then let the original native session execute its own tools."""
+        reference = deepcopy(assistance_ref)
+        policy = self.native_assistance_policy
+        client = getattr(self.cua, "client", None)
+        executable = getattr(client, "driver_executable", None)
+        if (
+            policy is None
+            or self.codex_assist is None
+            or reference.get("protocol") != "codex-assistance/native/v1"
+            or reference.get("page_writes_enabled") is not True
+            or reference.get("native_policy_digest") != digest(policy)
+            or getattr(client, "native_session", False) is not True
+            or getattr(client, "driver_sha256", None) != policy["driver_sha256"]
+            or executable is None
+        ):
+            raise PortalDataError(
+                "native_assistance_unavailable", "原生原页接管能力尚不可用。", 409
+            )
+        executable = Path(executable)
+        if (
+            not executable.is_absolute()
+            or executable.is_symlink()
+            or not executable.is_file()
+            or hashlib.sha256(executable.read_bytes()).hexdigest() != policy["driver_sha256"]
+        ):
+            raise PortalDataError("native_assistance_unavailable", "原生驱动身份已改变。", 409)
+        page, check = self._assistance_page_checker(reference)
+        check()
+        context = self.observe_assistance_context(reference)
+        native_scope = self.cua.native_page_scope(page, pump=self.pump)
+        native_scope["application_ref_digest"] = digest(reference)
+        validate_native_assistance_scope(native_scope, reference)
+        context["native_scope"] = native_scope
+        if not self.assistance_read_permitted(reference, document=context["document"]):
+            raise PortalDataError(
+                "assistance_binding_changed", "原页文档已改变，保留当前现场。", 409
+            )
+        delivery = self.store.assistance_delivery(reference, page_context=context)
+        document = deepcopy(context["document"])
+        journal_scope = {"native_scope": deepcopy(native_scope), "document": document}
+        call_scope = {
+            "target_id": native_scope["target_id"],
+            "tab_id": native_scope["tab_id"],
+            "expected_document": document,
+        }
+        latest = {}
+
+        def permitted():
+            return self.assistance_read_permitted(reference, document=document)
+
+        def before_yield(intent):
+            if (
+                intent.get("application_ref_digest") != digest(reference)
+                or intent.get("scope") != call_scope
+                or intent.get("request_id") != request_id
+                or not permitted()
+            ):
+                raise PortalDataError("assistance_binding_changed", "原生交接范围已改变。", 409)
+            self.store.record_native_handoff(
+                reference,
+                request_id=request_id,
+                phase="prepared",
+                scope=journal_scope,
+                expected_worker_source=self._page_source,
+            )
+
+        def after_yield(receipt):
+            latest.update(deepcopy(receipt))
+            calls = receipt.get("calls", [])
+            unknown = any(row.get("status") == "unknown" for row in calls)
+            if unknown:
+                phase = "unknown"
+            elif receipt.get("revoked"):
+                phase = (
+                    "stopped"
+                    if receipt.get("return_ready") is True
+                    and receipt.get("local_tools_drained") is True
+                    else "stopping"
+                )
+            else:
+                phase = "granted"
+            self.store.record_native_handoff(
+                reference,
+                request_id=request_id,
+                phase=phase,
+                scope=journal_scope,
+                receipt=receipt,
+            )
+            # A returned receipt is revoked too; reconciliation itself requires an
+            # observed original call and exact readback, so stop cannot launder it.
+            self._reconcile_native_material(reference, receipt, request_id=request_id)
+
+        def before_native_call(call):
+            if not permitted() or call.get("scope") != call_scope or not latest.get("handoff_id"):
+                return False
+            current = next(
+                row
+                for row in self.store.load()["jobs"]
+                if row["application_id"] == reference["binding"]["application_id"]
+            )
+            if current.get("intent") is not None and not takeover_pending_intent(current):
+                return False
+            self.store.validate_native_answers(reference, delivery["answers"])
+            if call.get("tool") == "browser_type":
+                field_name = (call.get("field_hint") or {}).get("name")
+                if not isinstance(field_name, str) or not field_name.strip():
+                    return False
+                expected_fact = fact_for(field_name)
+                allowed = {
+                    hashlib.sha256(fact["value"].encode()).hexdigest()
+                    for fact in delivery["answers"]["facts"]
+                    if fact.get("fact") == expected_fact
+                    and fact.get("status") == "confirmed"
+                    and isinstance(fact.get("value"), str)
+                }
+                if call.get("text_sha256") not in allowed:
+                    return False
+            # Persist the exact native request metadata before the host admits it.
+            records = {row["call_id"]: row for row in latest.get("calls", [])}
+            records[call["call_id"]] = deepcopy(call)
+            receipt = {
+                **latest,
+                "calls": list(records.values()),
+                "active_calls": 1,
+                "local_tools_drained": False,
+                "return_ready": False,
+            }
+            if call.get("tool") == "browser_deliver_material":
+                context = self.observe_assistance_context(reference)
+                return self._prepare_native_material_call(
+                    reference,
+                    call,
+                    context,
+                    request_id=request_id,
+                    scope=journal_scope,
+                    receipt=receipt,
+                )
+            self.store.record_native_handoff(
+                reference,
+                request_id=request_id,
+                phase="granted",
+                scope=journal_scope,
+                receipt=receipt,
+            )
+            return True
+
+        def pump():
+            # Yield and each new admission verify the full document above.
+            # Keep control/revocation moving while native input owns the renderer.
+            permitted = self.pump_codex_events(reference)
+            if permitted and latest:
+                self._reconcile_native_material(reference, latest, request_id=request_id)
+            return permitted
+
+        # The one unknown script intent this takeover's dispatch carries, by its
+        # delivery action identity; the Adapter refuses any other pending action.
+        held = next(
+            row
+            for row in self.store.load()["jobs"]
+            if row["application_id"] == reference["binding"]["application_id"]
+        )
+        pending_intent = held["intent"] if takeover_pending_intent(held) else None
+        try:
+            result = self.codex_assist.start_takeover(
+                reference,
+                request_id=request_id,
+                delivery=delivery,
+                pending_action_id=pending_intent
+                and (pending_intent.get("attempt_id") or digest(pending_intent)),
+                native_client=client,
+                native_scope=call_scope,
+                driver_executable=executable,
+                before_yield=before_yield,
+                after_yield=after_yield,
+                before_native_call=before_native_call,
+                pump=pump,
+            )
+        except PortalDataError:
+            raise
+        except ValueError as error:
+            # The adapter's own pre-checks (unresolved run, driver identity) start
+            # nothing; that is a capability refusal, not a checkpoint failure.
+            raise PortalDataError(
+                "native_assistance_unavailable", "原生原页接管能力尚不可用。", 409
+            ) from error
+        self._assistance_run = reference, result.run_id
+        # The pre-handoff read is the baseline that attributes later page changes.
+        self._assistance_baseline = result.run_id, context
+        self._service_assistance_stop()
+        return result
+
+    def start_json_assistance(self, assistance_ref, *, request_id):
+        """Bind JSON context delivery to the existing original-page reservation."""
+        reference = deepcopy(assistance_ref)
+        if self.codex_assist is None or not self.assistance_read_permitted(reference):
+            raise PortalDataError("assistance_read_unavailable", "原页 JSON 交接尚不可用。", 409)
+        captured = {}
+
+        def context(current_reference):
+            page_context = self.observe_assistance_context(current_reference)
+            delivery = self.store.assistance_delivery(current_reference, page_context=page_context)
+            captured["document"] = deepcopy(page_context["document"])
+            return delivery
+
+        def pump():
+            return self.pump_codex_events(reference, document=captured.get("document"))
+
+        result = self.codex_assist.start(
+            reference, request_id=request_id, context_handler=context, pump=pump
+        )
+        self._assistance_run = reference, result.run_id
+        self._service_assistance_stop()
+        return result
+
+    def start_readonly_assistance(self, assistance_ref, *, request_id):
+        """Explicitly bind the passive observer; no model turn or page write is started."""
+        reference = deepcopy(assistance_ref)
+        if self.codex_assist is None or not self.assistance_read_permitted(reference):
+            raise PortalDataError("assistance_read_unavailable", "原页只读接管尚不可用。", 409)
+        captured = {}
+
+        def observe(current_reference):
+            result = self.observe_assistance_page(current_reference)
+            captured["document"] = deepcopy(result["document"])
+            return result
+
+        def pump():
+            return self.pump_codex_events(reference, document=captured.get("document"))
+
+        result = self.codex_assist.start(
+            reference, request_id=request_id, readonly_handler=observe, pump=pump
+        )
+        self._assistance_run = reference, result.run_id
+        self._service_assistance_stop()
+        return result
+
+    def _service_assistance_stop(self):
+        """Persist revocation before stopping the dedicated process, outside the lock."""
+        if self._servicing_assistance_stop:
+            return
+        if self._assistance_run is None:
+            # Unclaimed metadata, or a dispatch this runner refused or never began,
+            # started no run. Only its original owner may acknowledge this no-start outcome.
+            with self.store.applications.write_lock():
+                state = self.store.load()
+                changed = False
+                for job in state["jobs"]:
+                    assistance = job.get("assistance") or {}
+                    dispatch = assistance.get("dispatch") or {}
+                    if (
+                        assistance.get("status") == "stopping"
+                        and (
+                            assistance.get("claim_request_id") is None
+                            or "failed_code" in dispatch
+                            or dispatch
+                            and (
+                                digest(assistance_reference(assistance)),
+                                assistance["claim_request_id"],
+                            )
+                            not in self._dispatched
+                        )
+                        and assistance.get("binding", {}).get("run_id") == self.run_id
+                        and (state.get("runtime") or {}).get("id") == self.run_id
+                    ):
+                        changed |= adopt_assistance_stop(
+                            job,
+                            assistance_reference(assistance),
+                            {
+                                "tools_revoked": True,
+                                "local_tools_drained": True,
+                                "process_stopped": True,
+                                "native_turn_id": None,
+                                "native_turn_status": "idle",
+                                "stop_status": "stopped",
+                            },
+                            request_id=assistance["stop"]["request_id"],
+                        )
+                        changed |= self._paused_assistance_wait(job)
+                if changed:
+                    self.persist(state)
+            return
+        reference, run_id = self._assistance_run
+        self._servicing_assistance_stop = True
+        request_id = "stop-" + run_id
+        try:
+            progress = self.codex_assist.progress(run_id)
+            permitted = self.assistance_read_permitted(reference)
+            with self.store.applications.write_lock():
+                state = self.store.load()
+                job = next(
+                    (
+                        item
+                        for item in state["jobs"]
+                        if item["application_id"] == reference["binding"]["application_id"]
+                    ),
+                    None,
+                )
+                assistance = (job or {}).get("assistance")
+                matched = assistance and digest(assistance_reference(assistance)) == digest(
+                    reference
+                )
+                if matched:
+                    if (
+                        permitted
+                        and progress.status == "ready"
+                        and not progress.tools_revoked
+                        and not assistance.get("stop")
+                    ):
+                        return
+                    changed = False
+                    backend = assistance_backend_permitted(state, assistance)
+                    if not backend:
+                        changed = mark_assistance_backend_lost(state, reference)
+                    # A normal native turn end revokes tools too; only a clean
+                    # completion on the still-valid scope is not a scope loss.
+                    completed = (
+                        permitted
+                        and backend
+                        and progress.status == "ready"
+                        and getattr(progress, "native_turn_status", None) == "completed"
+                        and getattr(progress, "error_code", None) is None
+                    )
+                    # A run that failed to start is a capability failure, not a lost scope.
+                    failed = progress.status == "failed"
+                    reason = (
+                        "native_turn_completed"
+                        if completed
+                        else "assistance_unavailable"
+                        if failed
+                        else "assistance_scope_lost"
+                    )
+                    if revoke_assistance(job, reason=reason, request_id=request_id):
+                        changed = True
+                        if not completed:
+                            # Stop the job here; its earlier blocker reason is stale.
+                            self._assistance_wait(
+                                job,
+                                (getattr(progress, "error_code", None) or reason)
+                                if failed
+                                else reason,
+                            )
+                    if changed:
+                        self.persist(state)
+                    request_id = assistance["stop"]["request_id"]
+            stopped = self.codex_assist.stop(run_id, request_id=request_id)
+            if matched:
+                with self.store.applications.write_lock():
+                    state = self.store.load()
+                    job = next(
+                        (
+                            item
+                            for item in state["jobs"]
+                            if item["application_id"] == reference["binding"]["application_id"]
+                        ),
+                        None,
+                    )
+                    changed = bool(job) and adopt_assistance_stop(
+                        job, reference, asdict(stopped), request_id=request_id
+                    )
+                    saved = (job or {}).get("assistance") or {}
+                    if stopped.report is not None and saved.get("stop") and "report" not in saved:
+                        # A claim received before any stop is history; only the
+                        # return service can turn a completed turn into an outcome.
+                        with suppress(PortalDataError):
+                            changed |= adopt_assistance_report(
+                                job, reference, stopped.report, request_id=request_id
+                            )
+                    if job:
+                        changed |= self._paused_assistance_wait(job)
+                    if changed:
+                        self.persist(state)
+                    if saved.get("stop", {}).get("stop_status") == "stopped" and (
+                        saved["stop"]["reason"]
+                        in {"assistance_scope_lost", "assistance_unavailable", "user_paused"}
+                        or (saved.get("superseded") or {}).get("reason") == "user_paused"
+                    ):
+                        # Nothing remains to drive or return. The once-guard still keeps
+                        # this claim from restarting; a later claim may start. Backend
+                        # stops keep the run so a later tick still records the loss.
+                        self._assistance_run = None
+                        self._assistance_baseline = None
+            elif (
+                stopped.stop_status == "stopped"
+                and stopped.process_stopped
+                and stopped.tools_revoked
+                and stopped.local_tools_drained
+            ):
+                # The job no longer holds this run's record (archived on Continue or
+                # replaced by a new claim) and its stop is proven: release the handle
+                # so the job's current claim can start.
+                self._assistance_run = None
+                self._assistance_baseline = None
+        except (OSError, StoreError):
+            self.codex_assist.stop(run_id, request_id=request_id)
+            raise
+        finally:
+            self._servicing_assistance_stop = False
+
+    def _paused_assistance_wait(self, job):
+        """A takeover stopped by Pause waits, so a later Continue lets the script recheck."""
+        assistance = job.get("assistance") or {}
+        stop = assistance.get("stop") or {}
+        if (
+            stop.get("stop_status") != "stopped"
+            or "user_paused"
+            not in {stop.get("reason"), (assistance.get("superseded") or {}).get("reason")}
+            or (job["status"], job.get("reason")) == ("needs_recheck", "assistance_paused")
+            or job["status"] == "cancelled"
+        ):
+            return False
+        self._assistance_wait(job, "assistance_paused")
+        return True
+
+    def _service_assistance_dispatch(self):
+        """Start the current job's claimed system takeover once; a refusal waits.
+
+        A capability failure keeps the page, materials and policy, records its code
+        and is never retried here; only a new claim may start another takeover.
+        """
+        if self._assistance_run is not None or self.codex_assist is None:
+            return
+        state = self.store.load()
+        identifier = state.get("current_job_id")
+        job = next((row for row in state["jobs"] if row["application_id"] == identifier), None)
+        assistance = (job or {}).get("assistance") or {}
+        dispatch = assistance.get("dispatch")
+        if (
+            assistance.get("protocol") != "codex-assistance/native/v1"
+            or assistance.get("status") != "claimed"
+            or not isinstance(dispatch, dict)
+            or "stop" in assistance
+            or "failed_code" in dispatch
+            or state["control"] != "running"
+            or self.shared_fault
+            or self.storage_stopped
+            or self.store.stop_reason()
+        ):
+            return
+        reference = assistance_reference(assistance)
+        request_id = assistance["claim_request_id"]
+        key = digest(reference), request_id
+        if key in self._dispatched:
+            return
+        self._dispatched.add(key)
+        try:
+            result = self.start_native_assistance(reference, request_id=request_id)
+            code = result.error_code if getattr(result, "status", None) == "failed" else None
+        except (PortalDataError, Error) as error:
+            code = getattr(error, "code", "native_assistance_unavailable")
+        if code is None:
+            return
+        with self.store.applications.write_lock():
+            state = self.store.load()
+            job = next((row for row in state["jobs"] if row["application_id"] == identifier), None)
+            current = (job or {}).get("assistance")
+            if not current or digest(assistance_reference(current)) != digest(reference):
+                return
+            record_takeover_failure(job, request_id=request_id, code=code)
+            revoke_assistance(job, reason="assistance_unavailable", request_id="stop-" + request_id)
+            self._assistance_wait(job, code)
+            self.persist(state)
+        self._service_assistance_stop()
+
+    def pump_codex_events(self, assistance_ref, *, document=None) -> bool:
+        """Keep control and browser events alive without executing queued page work."""
+        self.tick(control_only=True)
+        if self.context is not None:
+            self.pump()
+        return self.assistance_read_permitted(assistance_ref, document=document)
+
+    def _fill_route(self, page, question):
+        return (
+            select_fill_route(page, question, self.cua)
+            if self.live
+            else {
+                "executor": "playwright",
+                "input_route": "dom",
+                "route_reason": "supported_synthetic_field",
+            }
+        )
+
+    def _service_assistance_return(self):
+        """Adopt one completed native turn only after reclaim and a read-only page check.
+
+        Codex's report is a claim. A check failure keeps it as history and waits;
+        another dispatch is not started here. Store save failures still propagate.
+        """
+        if self._assistance_run is None or self.codex_assist is None:
+            return
+        reference, run_id = self._assistance_run
+        if reference.get("protocol") != "codex-assistance/native/v1":
+            return
+        identifier = reference["binding"]["application_id"]
+        state = self.store.load()
+        job = next((row for row in state["jobs"] if row["application_id"] == identifier), None)
+        assistance = (job or {}).get("assistance")
+        if (
+            not assistance
+            or digest(assistance_reference(assistance)) != digest(reference)
+            or assistance["status"] != "stopped"
+            or (assistance.get("stop") or {}).get("reason") != "native_turn_completed"
+            or "superseded" in assistance
+            or state["control"] != "running"
+        ):
+            return
+        stop = assistance["stop"]
+        report = self.codex_assist.progress(run_id).report
+        claimed = (report or {}).get("claimed") if isinstance(report, dict) else None
+        wait = (
+            "assistance_completion_unverified"
+            if isinstance(claimed, dict) and claimed.get("status") == "ready_for_review"
+            else "assistance_return_unverified"
+        )
+        try:
+            if report is None:
+                raise PortalDataError("assistance_report_missing", "接管未给出结构化回报。", 409)
+            with self.store.applications.write_lock():
+                state = self.store.load()
+                job = next(row for row in state["jobs"] if row["application_id"] == identifier)
+                if adopt_assistance_report(job, reference, report, request_id=stop["request_id"]):
+                    self.persist(state)
+            self._reclaim_native_session()
+            reclaimed_at = time.time()
+            runs = [
+                row
+                for row in job.get("native_handoff_runs", [])
+                if row["assistance_ref"] == reference
+            ]
+            if not runs:
+                raise PortalDataError("native_handoff_missing", "没有该接管的原生记录。", 409)
+            run = runs[-1]
+            self._reconcile_native_material(
+                reference,
+                run["events"][-1]["receipt"] or {},
+                request_id=run["request_id"],
+                after_stop=True,
+            )
+            job = next(
+                row for row in self.store.load()["jobs"] if row["application_id"] == identifier
+            )
+            if takeover_pending_intent(job):
+                # The carried unknown result is settled by readback, never replayed.
+                wait, unverified = "assistance_pending_intent", wait
+                with browser_deadline(5):
+                    self._readback_pending(self.pages[identifier], job, state["batch_id"])
+                job = next(
+                    row for row in self.store.load()["jobs"] if row["application_id"] == identifier
+                )
+                if takeover_pending_intent(job):
+                    raise PortalDataError(wait, "接管携带的未知结果仍不能核验。", 409)
+                wait = unverified
+            context = self.observe_assistance_context(reference, after_stop=True)
+            job = next(
+                row for row in self.store.load()["jobs"] if row["application_id"] == identifier
+            )
+            outcome, writes = self._assistance_outcome(job, run_id, run, context, reclaimed_at)
+            script_read = None
+            if outcome["kind"] == "script_checkpoint":
+                # Native input is trusted; acknowledge it only on attributed controls,
+                # as the script does after its own readback, so a return is not an edit.
+                with browser_deadline(5):
+                    script_read = self.observe(self.pages[identifier], job)
+            with self.store.applications.write_lock():
+                state = self.store.load()
+                job = next(row for row in state["jobs"] if row["application_id"] == identifier)
+                outcome["adopted_at"] = time.time()
+                adopt_assistance_outcome(state, job, reference, outcome)
+                if job["assistance"]["status"] != "released":
+                    self._assistance_wait(job, wait)
+                elif outcome["kind"] == "script_checkpoint":
+                    for question, value, call_id in writes:
+                        form_flow.note_write(
+                            job,
+                            question,
+                            value,
+                            {
+                                "source": "codex_native",
+                                "request_id": run["request_id"],
+                                "call_id": call_id,
+                            },
+                            observed=script_read,
+                        )
+                    if job["status"] != "cancelled":
+                        job.update(status="filling", reason="")
+                    self.work_progressed = True
+                elif job["status"] != "cancelled":
+                    message = "已填写并核验：请在专用浏览器复核并人工提交。"
+                    # Make the outcome durable before the external App write, so a
+                    # lost save leaves the App record for the same re-save (S6).
+                    job.update(status="ready_for_review", reason="", pending_sync=message)
+                    self.persist(state)
+                    self.store.sync(job, message)
+                self.persist(state)
+        except (PortalDataError, Error):
+            with self.store.applications.write_lock():
+                state = self.store.load()
+                job = next(
+                    (row for row in state["jobs"] if row["application_id"] == identifier), None
+                )
+                current = (job or {}).get("assistance")
+                if (
+                    current
+                    and digest(assistance_reference(current)) == digest(reference)
+                    and current["status"] == "stopped"
+                    and "superseded" not in current
+                ):
+                    self._assistance_wait(job, wait)
+                    self.persist(state)
+        self._assistance_run = None
+        self._assistance_baseline = None
+
+    def _assistance_wait(self, job, reason):
+        if job["status"] != "cancelled":
+            job.update(status="needs_recheck", reason=reason)
+            self.store.sync(job, "自动填表暂停该岗位：请核验页面、笔记和简历。")
+
+    def _assistance_outcome(self, job, run_id, run, context, reclaimed_at):
+        """Derive the Worker's own conclusion from the stopped page; never from the claim."""
+        assistance = job["assistance"]
+        report = assistance.get("report")
+        claimed = report["claimed"]
+        kind = {
+            "blocked_segment_resolved": "script_checkpoint",
+            "ready_for_review": "filling_complete",
+        }.get(claimed["status"])
+        fields = context["data"]["fields"]
+        calls = {
+            call["call_id"]: call
+            for event in run["events"]
+            for call in (event["receipt"] or {}).get("calls", [])
+        }
+
+        def refused():
+            raise PortalDataError(
+                "assistance_outcome_unverified", "接管结果不能核验，保留原页。", 409
+            )
+
+        if (
+            kind is None
+            or claimed["unresolved_action_ids"]
+            or job.get("intent")
+            or run["phase"] != "stopped"
+            or run["semantic_unknown"]
+            or any(
+                call["mutation"] and call["status"] in {"awaiting_host", "in_flight", "unknown"}
+                for call in calls.values()
+            )
+            or context["document"] != run["scope"]["document"]
+            or context["data"]["validation_errors"]
+            or not self._assistance_baseline
+            or self._assistance_baseline[0] != run_id
+        ):
+            refused()
+
+        def keys(row):
+            target = (row.get("material_target") or {}).get("worker_field", "")
+            return {row.get("id", ""), row.get("name", ""), target} - {""}
+
+        def key(index, row):
+            return (
+                row.get("id")
+                or row.get("name")
+                or (row.get("material_target") or {}).get("worker_field")
+                or f"field-{index}"
+            )
+
+        def empty(row):
+            if row.get("type") == "file":
+                return not row.get("files")
+            if row.get("type") == "radio":
+                return not any(
+                    other.get("type") == "radio"
+                    and other.get("name") == row.get("name")
+                    and other.get("value") == "true"
+                    for other in fields
+                )
+            return row.get("value") in (None, "") or (
+                row.get("type") == "checkbox" and row.get("value") == "false"
+            )
+
+        verification = [
+            {
+                "id": key(index, row),
+                "required": bool(row.get("required")),
+                "valid": row.get("valid") is not False
+                and row.get("aria_invalid") in (None, "", "false"),
+                "value_empty": empty(row),
+                "file_count": min(len(row.get("files") or []), 100),
+            }
+            for index, row in enumerate(fields)
+        ]
+        before = {
+            key(index, row): row
+            for index, row in enumerate(self._assistance_baseline[1]["data"]["fields"])
+        }
+        observed = [
+            call for call in calls.values() if call["mutation"] and call["status"] == "observed"
+        ]
+
+        def norm(value):
+            return " ".join(str(value or "").split()).casefold()
+
+        def touches(call, row):
+            target = call.get("target_descriptor") or {}
+            return norm(call["field_hint"]["name"]) in (
+                {norm(row.get(name)) for name in ("label", "id", "name")} - {""}
+            ) or bool(keys(row) & ({target.get("worker_field", ""), target.get("id", "")} - {""}))
+
+        attributed, writes, unattributed = [], [], False
+        snapshot = ((job.get("form_state") or {}).get("snapshot") or {}).get("fields", [])
+
+        def label(value):
+            try:
+                return normalize_question(value)
+            except (StoreError, TypeError):
+                return ""
+
+        def question_for(row):
+            matches = [
+                question
+                for question in snapshot
+                if question.get("id") in keys(row)
+                or keys(row) & set(question.get("control_ids") or [])
+            ]
+            if not matches and label(row.get("label")):
+                # The form reader keys questions by hosted markers; a row without a
+                # material target links only through a label unique on both sides.
+                name = label(row.get("label"))
+                matches = [q for q in snapshot if label(q.get("question")) == name]
+                if sum(label(other.get("label")) == name for other in fields) != 1:
+                    matches = []
+            return matches[0] if len(matches) == 1 else None
+
+        for index, row in enumerate(fields):
+            previous = before.get(key(index, row))
+            if previous is not None and all(
+                previous.get(name) == row.get(name) for name in ("value", "files")
+            ):
+                continue
+            matches = [call for call in observed if touches(call, row)]
+            if len(matches) != 1:
+                unattributed = True
+                continue
+            attributed.append({"field_id": key(index, row), "call_id": matches[0]["call_id"]})
+            question = question_for(row)
+            if row.get("type") != "file":
+                writes.append(
+                    (
+                        deepcopy(question or {"id": key(index, row), "type": row.get("type")}),
+                        row.get("value"),
+                        matches[0]["call_id"],
+                    )
+                )
+        outcome = {
+            "protocol": "assistance-outcome/v1",
+            "kind": kind,
+            # The Worker's canonical JSON digest of the saved report.
+            "report_sha256": hashlib.sha256(
+                json.dumps(report, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest(),
+            "stop_request_id": assistance["stop"]["request_id"],
+            "session_reclaimed_at": reclaimed_at,
+            "page_verification": {
+                "at": context["at"],
+                "document": deepcopy(context["document"]),
+                "fields": verification,
+                "worker_source": self._page_source,
+            },
+            "verified": {"materials": [], "optional_failures": []},
+            "attributed_fields": attributed,
+            "return_count": job.get("assistance_return_count", 0) + (kind == "script_checkpoint"),
+        }
+        if kind == "script_checkpoint":
+            # One strict return per job; the next pending fields must be script-supported.
+            if unattributed or job.get("assistance_return_count", 0) != 0:
+                refused()
+            done = {row["field_id"] for row in attributed}
+            pending = []
+            for index, row in enumerate(fields):
+                question = question_for(row)
+                if (
+                    question is not None
+                    and question.get("type") != "file"
+                    and empty(row)
+                    and key(index, row) not in done
+                ):
+                    pending.append(question)
+            following = (claimed.get("next_step") or {}).get("field_id")
+            if following is not None:
+                # Codex names the field from the handoff page_context (DOM id/name);
+                # map it like question_for, else accept an exact script question id.
+                named = [row for row in fields if following in {row.get("id"), row.get("name")}]
+                question = (
+                    question_for(named[0])
+                    if len(named) == 1
+                    else None
+                    if named
+                    else next((q for q in pending if q.get("id") == following), None)
+                )
+                if question is None or all(q is not question for q in pending):
+                    refused()
+                following = question["id"]
+            page = self.pages.get(job["application_id"])
+            with browser_deadline(5):
+                if any(self._fill_route(page, q)["executor"] == "manual" for q in pending):
+                    refused()
+            outcome["checkpoint_field_id"] = following or (pending[0]["id"] if pending else None)
+            if not outcome["checkpoint_field_id"]:
+                refused()
+            return outcome, writes
+        if any(row["required"] and row["value_empty"] or not row["valid"] for row in verification):
+            refused()
+        verified = self.verified_intents(job)
+        materials = outcome["verified"]["materials"]
+        if job.get("file_sha256") and any(row.get("type") == "file" for row in fields):
+            visible = {file.get("name") for row in fields for file in row.get("files") or []} | {
+                item.get("name") for item in context["data"].get("attachments", [])
+            }
+            if job.get("filename") not in visible or not (
+                self.recovered_upload(job)
+                or any(
+                    intent.get("action") == "upload" and intent.get("material_id") == "resume"
+                    for intent in verified
+                )
+            ):
+                refused()
+            materials.append(
+                {"kind": "resume", "filename": job["filename"], "sha256": job["file_sha256"]}
+            )
+        materials.extend(
+            {
+                "kind": "material",
+                "material_id": intent["material_id"],
+                "action": intent["action"],
+                "field_id": intent.get("field_id", ""),
+            }
+            for intent in verified
+            if intent.get("material_id") not in (None, "resume")
+        )
+        delivery = job.get("cover_letter_delivery") or {}
+        if delivery.get("status") in {"queued", "running"} or (
+            delivery.get("status") == "failed" and delivery.get("requirement") != "optional"
+        ):
+            refused()
+        if delivery.get("status") == "failed":
+            outcome["verified"]["optional_failures"].append(
+                {
+                    "material": "cover_letter",
+                    "status": "failed",
+                    "reason": delivery.get("reason", ""),
+                }
+            )
+        return outcome, writes
+
+    def tick(self, *, control_only=False) -> None:
+        self.work_progressed = False
+        try:
+            maintain = getattr(self.cua, "maintain", None)
+            if maintain is not None and not self.shared_fault:
+                try:
+                    maintain(pump=self.pump)
+                except PortalDataError:
+                    self.event("cua_owner_unknown")
+            if control_only:
+                self._tick(control_only=True)
+            else:
+                self._tick()
+            self._service_assistance_stop()
+            if not control_only:
+                self._service_assistance_dispatch()
+                self._service_assistance_return()
+                self.service_backend_recovery()
+            if not control_only and self.codex_assist is not None:
+                self.codex_assist.service_readonly()
+                self._service_assistance_stop()
+        except (OSError, StoreError, PortalDataError, ValueError, KeyError, TypeError):
+            self.storage_stopped = True
+            self.store.block_storage()
+            if self._assistance_run is not None:
+                _, run_id = self._assistance_run
+                with suppress(OSError, ValueError):
+                    self.codex_assist.stop(run_id, request_id="checkpoint-unavailable-" + run_id)
+            # Failed snapshots do not replace the last valid checkpoint.
+            print("checkpoint_unavailable: automatic actions stopped", flush=True)
+
+    def _tick(self, *, control_only=False) -> None:
+        with self.store.applications.write_lock():
+            state = self.store.load()
+            if self.batch_id != state["batch_id"]:
+                self.batch_id = state["batch_id"]
+                self.temporary.clear()
+            if (
+                self.storage_stopped
+                and not self.store.stop_reason()
+                and state["control"] == "running"
+                and state.get("resume_serial", 0) > self.stopped_serial
+            ):
+                self.storage_stopped = False
+            if self.shared_fault or self.storage_stopped or self.store.stop_reason():
+                state.update(
+                    control="paused", worker_error=self.shared_fault or "checkpoint_unavailable"
+                )
+                for job in state["jobs"]:
+                    if job["intent"] and job["status"] != "cancelled":
+                        job.update(status="needs_recheck", reason="checkpoint_unavailable")
+            self.drain_events(state)
+            if not control_only:
+                self.commands(state)
+            self.drain_events(state)
+            now = time.time()
+            state["worker_heartbeat"] = now
+            state["worker_pid"] = os.getpid()
+            if state.get("runtime"):
+                state["runtime"]["observed_at"] = now
+            for job in state["jobs"]:
+                page = self.pages.get(job["application_id"])
+                if page in self.blocked_pages and job["status"] not in {
+                    "cancelled",
+                    "needs_recheck",
+                }:
+                    job.update(status="needs_recheck", reason=self.blocked_pages[page])
+                    self.store.sync(job, "页面发送路径未验证：请人工核验当前页面。")
+                if page and page.is_closed():
+                    self._forget_page(job["application_id"], page)
+                    job["page_open"] = False
+                    if job["status"] != "cancelled":
+                        job.update(status="needs_recheck", reason="page_lost")
+                elif page and not self.shared_fault:
+                    job["page_observation"] = {
+                        "run_id": self.run_id,
+                        "page_id": self.page_ids.get(page),
+                        "event": "observed",
+                        "at": now,
+                    }
+            self.persist(state)
+            if control_only or not self.permitted(state):
+                return
+            jobs = [
+                deepcopy(j)
+                for j in state["jobs"]
+                if (
+                    j["status"] in {"queued", "filling", "needs_input", "ready_for_review"}
+                    or j["status"] == "needs_recheck"
+                    and (j.get("intent") or {}).get("form_protocol") == "form-state/v1"
+                )
+                and not j["handed_off"]
+                and (
+                    "current_job_id" not in state or j["application_id"] == state["current_job_id"]
+                )
+            ]
+            batch_id = state["batch_id"]
+        for job in jobs:
+            try:
+                with (
+                    self.store.measurements.stage(
+                        "form_step",
+                        episode_id=job.get("measurement_id"),
+                        application_id=job["application_id"],
+                        batch_id=batch_id,
+                        run_id=self.run_id,
+                    ),
+                    browser_deadline(self.action_timeout),
+                ):
+                    if job["status"] == "ready_for_review":
+                        page = self.pages.get(job["application_id"])
+                        if page is None or page.is_closed():
+                            raise PortalDataError(
+                                "page_lost", "原页不可核验，保留终稿和动作。", 409
+                            )
+                        if assistance_completion(job) is not None:
+                            # The adopted outcome already holds the read-only page check.
+                            continue
+                        observed = self.observe(page, job)
+                        delivery = job.get("cover_letter_delivery") or {}
+                        if delivery and job.get("workflow") == "single":
+                            from .application_materials import material_consistency_status
+
+                            fixed = self.store.material_inputs(job)
+                            material_consistency_status(fixed)
+                            branch = fixed.get("cover_letter") or {}
+                            if branch.get("status") == "needs_recheck" or (
+                                delivery.get("status") in {"queued", "running"}
+                                and branch.get("status") == "ready"
+                                and delivery.get("selected_fields")
+                                and not job.get("manual_submission")
+                            ):
+                                if self.update(job, batch_id, status="filling"):
+                                    job["status"] = "filling"
+                                    self.process(job, batch_id)
+                                continue
+                        form_flow.capture(self, page, job, batch_id, observed)
+                        form_flow.check_ready(job, observed)
+                    else:
+                        self.process(job, batch_id)
+            except (
+                Error,
+                OSError,
+                PortalDataError,
+                ValueError,
+                StopIteration,
+                KeyError,
+                TypeError,
+                IndexError,
+            ) as exc:
+                self.update(
+                    job,
+                    batch_id,
+                    status="needs_recheck",
+                    reason=getattr(exc, "code", None)
+                    or self.blocked_pages.get(self.pages.get(job["application_id"]))
+                    or "browser_result_unknown",
+                )
+                if getattr(exc, "code", None) == "user_authentication":
+                    page = self.pages.get(job["application_id"])
+                    if page is not None and not page.is_closed():
+                        # Expose the retained page for the user's login. Network
+                        # restrictions remain active; this is not final-submit handoff.
+                        with suppress(Error, PortalDataError):
+                            if self.cua is not None:
+                                self.cua.review(page, pump=self.pump)
+                            page.bring_to_front()
+                pending = self.store.load()["jobs"]
+                current = next(
+                    (j for j in pending if j["application_id"] == job["application_id"]), {}
+                )
+                intent = current.get("intent")
+                if intent and intent.get("attempt_id"):
+                    self.store.measurements.event(
+                        "action_result",
+                        stage=intent["action"],
+                        attempt_id=intent["attempt_id"],
+                        result="unknown",
+                        run_id=self.run_id,
+                        episode_id=current.get("measurement_id"),
+                        application_id=current["application_id"],
+                    )
+
+            finally:
+                # Persist native facts before another job can occupy the next action budget.
+                if self.events or self.transports:
+                    with self.store.applications.write_lock():
+                        latest = self.store.load()
+                        self.drain_events(latest)
+                        self.persist(latest)
+
+    def update(
+        self, job: dict, batch_id: str, *, completed_intent: dict | None = None, **changes
+    ) -> bool:
+        with self.store.applications.write_lock():
+            state = self.store.load()
+            if state["batch_id"] != batch_id:
+                return False
+            current = next(j for j in state["jobs"] if j["application_id"] == job["application_id"])
+            if "questions" in changes or (
+                changes.get("status") == "ready_for_review"
+                and completed_intent is None
+                and not job.get("intent")
+            ):
+                # Read-derived waits and readiness do not replace a newer stop,
+                # handoff, pending action or saved answer queue.
+                if (
+                    current["status"] not in {"queued", "filling", "needs_input"}
+                    or current.get("intent")
+                    or current.get("handed_off")
+                    or current.get("manual_submission")
+                    or state.get("current_job_id", job["application_id"]) != job["application_id"]
+                    or (state.get("runtime") or {}).get("id") != self.run_id
+                    or any(
+                        current.get("form_state", {}).get(key) != job.get("form_state", {}).get(key)
+                        for key in ("binding", "revision", "snapshot_sha256")
+                    )
+                ):
+                    return False
+                try:
+                    require_execution(
+                        self.store.applications,
+                        job["application_id"],
+                        automated_owner(self.store.root, batch_id, job["application_id"]),
+                        "automated",
+                    )
+                except PortalDataError:
+                    return False
+                if "questions" in changes:
+                    temporary = deepcopy(self.temporary)
+                    for command in state["commands"]:
+                        if (
+                            command.get("action") == "one-use"
+                            and command.get("id") == job["application_id"]
+                        ):
+                            temporary.setdefault(job["application_id"], {})[command["fact"]] = {
+                                "key": "one-use",
+                                "question": command["fact"],
+                                "value": command["value"],
+                                "scope": {"application_id": job["application_id"]},
+                                "state": "confirmed",
+                            }
+                    changes["questions"] = [
+                        question
+                        for question in changes["questions"]
+                        if self.store.resolve(question, current, temporary) is None
+                    ]
+                    if not changes["questions"] and changes.get("reason") == "missing_answers":
+                        for key in ("status", "reason", "intent"):
+                            changes.pop(key, None)
+            cancelled = current["status"] == "cancelled"
+            if cancelled:
+                # Record an in-flight result without reviving the cancelled job.
+                changes = {k: v for k, v in changes.items() if k not in {"status", "reason"}}
+            if "observations" in changes:
+                changes["observations"] = [
+                    *current["observations"],
+                    *[o for o in changes["observations"] if o not in current["observations"]],
+                ]
+            completed_intent = (
+                deepcopy(completed_intent if completed_intent is not None else job["intent"])
+                if changes.get("intent", "retained") is None
+                else None
+            )
+            blocked = self.blocked_pages.get(self.pages.get(job["application_id"]))
+            if completed_intent and blocked and not cancelled and not current["handed_off"]:
+                changes.pop("intent", None)
+                changes.update(status="needs_recheck", reason=blocked)
+                completed_intent = None
+            if changes.get("intent", "retained") is None and current["intent"] not in (
+                None,
+                completed_intent,
+            ):
+                # A delayed completion does not clear or finish a different attempt.
+                changes = {
+                    k: v for k, v in changes.items() if k not in {"intent", "status", "reason"}
+                }
+            if "form_state" in changes and (
+                cancelled
+                or not completed_intent
+                or current.get("intent") != completed_intent
+                or current.get("form_state", {}).get("binding")
+                != changes["form_state"].get("binding")
+                or state.get("current_job_id", job["application_id"]) != job["application_id"]
+            ):
+                changes.pop("form_state", None)
+            current.update(changes)
+            if completed_intent:
+                current["observations"].append(
+                    {
+                        "action": "action_result",
+                        "intent": completed_intent,
+                        "result": "verified",
+                        "at": time.time(),
+                        "run_id": self.run_id,
+                    }
+                )
+            if changes.get("status") == "ready_for_review":
+                self.store.sync(current, "已填写并核验：请在专用浏览器复核并人工提交。")
+            elif changes.get("status") == "needs_input":
+                self.store.sync(current, "自动填表等待：请补充已确认答案。")
+            elif changes.get("status") == "needs_recheck":
+                self.store.sync(
+                    current,
+                    "请在原浏览器完成登录或验证，再点击一次继续。"
+                    if current.get("reason") == "user_authentication"
+                    else "自动填表暂停该岗位：请核验页面、笔记和简历。",
+                )
+            self.persist(state)
+            if changes.get("status") in {"ready_for_review", "needs_input", "needs_recheck"}:
+                self.work_progressed = False
+            if completed_intent and current["intent"] is None:
+                self.work_progressed = (
+                    completed_intent["action"] == "upload"
+                    and state["control"] == "running"
+                    and current["status"] == "filling"
+                )
+                self.store.measurements.event(
+                    "action_result",
+                    stage=completed_intent["action"],
+                    attempt_id=completed_intent.get("attempt_id"),
+                    result="verified",
+                    episode_id=current.get("measurement_id"),
+                    application_id=current["application_id"],
+                    run_id=self.run_id,
+                )
+            return True
+
+    @contextmanager
+    def dispatch_current(self, job, batch_id, intent, *, observed=None):
+        """Keep selection and the exact pending intent stable through one browser send."""
+        with self.store.applications.write_lock():
+            state = self.store.load()
+            current = next(
+                row for row in state["jobs"] if row["application_id"] == job["application_id"]
+            )
+            if (
+                state["batch_id"] != batch_id
+                or "current_job_id" in state
+                and state["current_job_id"] != job["application_id"]
+                or not self.permitted(state, self.pages.get(job["application_id"]))
+                or current["handed_off"]
+                or current["status"] != "filling"
+                or current["intent"] != intent
+                or material_edit_pending(current)
+                or precision_preparation_pending(current)
+                and intent["action"] != "open"
+                or manual_submission_unresolved(
+                    {**current, "observations": [*current["observations"], *self.transports]}
+                )
+            ):
+                raise PortalDataError(
+                    "current_action_changed", "当前岗位或待执行动作已变化，保留原动作记录。", 409
+                )
+            require_execution(
+                self.store.applications,
+                job["application_id"],
+                automated_owner(self.store.root, batch_id, job["application_id"]),
+                "automated",
+            )
+            self.check_inputs(current)
+            if observed is not None:
+                form_flow.check_snapshot(
+                    self, self.pages.get(job["application_id"]), current, observed
+                )
+            if intent.get("form_protocol") == "form-state/v1":
+                intent["dispatch_state"] = "sent"
+                current["intent"] = deepcopy(intent)
+                self.persist(state)
+            yield
+            if intent.get("form_protocol") == "form-state/v1":
+                latest = self.store.load()
+                current = next(
+                    row for row in latest["jobs"] if row["application_id"] == job["application_id"]
+                )
+                if current.get("intent") == intent:
+                    intent["dispatch_state"] = "returned"
+                    current["intent"] = deepcopy(intent)
+                    self.persist(latest)
+
+    def authorize(self, job: dict, batch_id: str, intent: dict) -> bool:
+        # The executor has no click/Enter/evaluate/submit action. New operations
+        # must establish their non-final meaning before entering this dispatcher.
+        if intent.get("action") not in {"open", "fill", "upload", "advance"}:
+            raise PortalDataError(
+                "unsupported_action", "此动作需核验，最终 Submit 由用户操作。", 409
+            )
+        with self.store.applications.write_lock():
+            state = self.store.load()
+            current = next(j for j in state["jobs"] if j["application_id"] == job["application_id"])
+            if (
+                state["batch_id"] != batch_id
+                or "current_job_id" in state
+                and state["current_job_id"] != job["application_id"]
+            ):
+                return False
+            if any(_unresolved_write_failure(event, current, state) for event in self.transports):
+                self.persist(state)
+                return False
+            if not script_writes_allowed(state, job["application_id"]):
+                return False
+            if not self.permitted(state, self.pages.get(job["application_id"])):
+                if state["control"] == "running":
+                    state.update(
+                        control="paused",
+                        worker_error=self.shared_fault
+                        or self.store.stop_reason()
+                        or "control_connection_lost",
+                    )
+                    self.persist(state)
+                return False
+            if (
+                state["control"] != "running"
+                or state["batch_id"] != batch_id
+                or "current_job_id" in state
+                and state["current_job_id"] != job["application_id"]
+            ):
+                return False
+            current = next(j for j in state["jobs"] if j["application_id"] == job["application_id"])
+            if (
+                current["status"] not in {"queued", "filling", "needs_input"}
+                or current["handed_off"]
+            ):
+                return False
+            if current["intent"] or manual_submission_unresolved(
+                {**current, "observations": [*current["observations"], *self.transports]}
+            ):
+                return False
+            require_execution(
+                self.store.applications,
+                current["application_id"],
+                automated_owner(self.store.root, batch_id, current["application_id"]),
+                "automated",
+            )
+            self.check_inputs(
+                current,
+                material_required=current.get("workflow") != "single"
+                or intent["action"] == "upload",
+            )
+            if (
+                material_edit_pending(current)
+                or precision_preparation_pending(current)
+                and intent["action"] != "open"
+            ):
+                return False
+            if intent["action"] == "advance":
+                page = self.pages.get(current["application_id"])
+                navigation = intent.get("navigation")
+                if (
+                    not self.live
+                    or page is None
+                    or not isinstance(navigation, dict)
+                    or set(intent) != {"action", "navigation"}
+                    or set(navigation) != {"control_id", "from_step", "to_step"}
+                    or any(not isinstance(value, str) or not value for value in navigation.values())
+                    or self.observe(page, current).get("navigation") != navigation
+                ):
+                    raise PortalDataError(
+                        "navigation_changed", "下一步的实际目标已变更，请核验原页。", 409
+                    )
+            if current.get("form_state") and intent["action"] != "open":
+                intent.update(
+                    form_protocol="form-state/v1",
+                    dispatch_state="prepared",
+                    form_binding=deepcopy(current["form_state"]["binding"]),
+                )
+                if intent["action"] == "upload":
+                    snapshot = current["form_state"].get("snapshot", {})
+                    candidates = list(snapshot.get("fields", []))
+                    if not intent.get("material_id"):
+                        candidates += [
+                            {"type": "file", "resume": True, **row}
+                            for row in snapshot.get("retained_resume", [])
+                        ]
+                    attachments = [
+                        row
+                        for row in candidates
+                        if row.get("type") == "file"
+                        and (
+                            (
+                                intent.get("field_id")
+                                and row.get("id") == intent["field_id"]
+                                and row.get("draft_path", "") == intent.get("draft_path", "")
+                            )
+                            or not intent.get("field_id")
+                            and row.get("resume", True)
+                        )
+                    ]
+                    intent["before_attachments_sha256"] = digest(attachments)
+            intent.update(
+                attempt_id=uuid4().hex,
+                run_id=self.run_id,
+                page_id=self.page_ids.get(self.pages.get(current["application_id"])),
+                prepared_at=time.time(),
+                input_refs={"revision": current["revision"], "file_sha256": current["file_sha256"]},
+            )
+            job["revision"] = current["revision"]
+            self.store.measurements.event(
+                "action_start",
+                stage=intent["action"],
+                attempt_id=intent["attempt_id"],
+                episode_id=current.get("measurement_id"),
+                application_id=current["application_id"],
+                run_id=self.run_id,
+            )
+            current.update(intent=intent, status="filling")
+            self.persist(state)
+            if self.live and intent["action"] in {"fill", "upload"}:
+                self.editing_pages.add(self.pages.get(current["application_id"]))
+            return True
+
+    @staticmethod
+    def effective_action_results(job: dict) -> dict[str, dict]:
+        """Keep the existing Runner entry point for the Worker-owned pure projection."""
+        return effective_action_results(job)
+
+    @staticmethod
+    def verified_intents(job: dict) -> list[dict]:
+        return [
+            row["intent"]
+            for row in ApplicationRunner.effective_action_results(job).values()
+            if row["conclusion"] == "current_matches"
+        ]
+
+    @staticmethod
+    def recovered_upload(job: dict) -> bool:
+        return any(
+            intent["action"] == "upload"
+            and not intent.get("material_id")
+            and intent.get("kind", "resume") == "resume"
+            and intent.get("sha256") == job["file_sha256"]
+            for intent in ApplicationRunner.verified_intents(job)
+        )
+
+    @staticmethod
+    def has_unbound_completion(job: dict) -> bool:
+        for index, observation in enumerate(job["observations"]):
+            if observation.get("verified") is not True:
+                continue
+            if observation.get("action") == "fill" and not observation.get("intent"):
+                return True
+            if observation.get("action") == "select_file":
+                completion = next(
+                    (
+                        item
+                        for item in job["observations"][index + 1 :]
+                        if item.get("action") in {"action_result", "select_file", "fill"}
+                    ),
+                    {},
+                )
+                intent = completion.get("intent") or {}
+                if not (
+                    completion.get("action") == "action_result"
+                    and completion.get("result") == "verified"
+                    and intent.get("action") == "upload"
+                    and intent.get("attempt_id")
+                    and "run_id" in intent
+                    and intent.get("page_id")
+                    and intent.get("sha256") == observation.get("local_sha256")
+                    and intent.get("page_id") == observation.get("page_id")
+                    and intent.get("run_id") == observation.get("run_id")
+                    and completion.get("run_id") == observation.get("run_id")
+                ):
+                    return True
+        return False
+
+    def advance(self, page, job: dict, batch_id: str, observed: dict) -> None:
+        """Perform one explicit forward step through the existing dispatcher."""
+        form_flow.check_ready(job, observed)
+        navigation = observed["navigation"]
+        if any(
+            previous["action"] == "advance" and previous.get("navigation") == navigation
+            for previous in self.verified_intents(job)
+        ):
+            raise PortalDataError(
+                "recovered_result_not_visible", "已完成的页面步骤不再可见，请核验原页。", 409
+            )
+        if any(not question["valid"] for question in observed["fields"]):
+            raise PortalDataError("readback_failed", "当前页面仍有未通过核验的字段。", 409)
+        control = page.locator(
+            f"[data-ts-worker-navigation={json.dumps(navigation['control_id'])}]"
+        )
+        original = control.element_handle()
+        if original is None:
+            raise PortalDataError("navigation_changed", "下一步按钮已变更。", 409)
+        intent = {"action": "advance", "navigation": deepcopy(navigation)}
+        document_step = navigation["from_step"].startswith("https://")
+        target = page.locator(f"[id={json.dumps(navigation['to_step'])}][role=tabpanel]")
+        original_target = None
+        try:
+            if not document_step:
+                original_target = target.element_handle()
+                if original_target is None:
+                    raise PortalDataError("navigation_changed", "下一步目标已变更。", 409)
+            if not self.authorize(job, batch_id, intent):
+                return
+            with self.store.applications.write_lock():
+                state = self.store.load()
+                current = next(
+                    row for row in state["jobs"] if row["application_id"] == job["application_id"]
+                )
+                if (
+                    state["batch_id"] != batch_id
+                    or not self.permitted(state, page)
+                    or current["status"] != "filling"
+                    or current["handed_off"]
+                    or current["intent"] != intent
+                ):
+                    raise PortalDataError("navigation_changed", "当前页面步骤已失效。", 409)
+                self.check_inputs(current)
+            fresh = self.observe(page, job)
+            if (
+                fresh.get("navigation") != navigation
+                or fresh["fields"] != observed["fields"]
+                or not control.evaluate_all(
+                    "(nodes, original) => original.isConnected && "
+                    "nodes.length === 1 && nodes[0] === original",
+                    original,
+                )
+                or not document_step
+                and not target.evaluate_all(
+                    "(nodes, original) => original.isConnected && "
+                    "nodes.length === 1 && nodes[0] === original",
+                    original_target,
+                )
+            ):
+                raise PortalDataError("navigation_changed", "下一步按钮、字段或目标已变更。", 409)
+            field_counter = page.evaluate("window.__tsWorkerNextField || 0") if document_step else 0
+            with self.dispatch_current(job, batch_id, intent, observed=observed):
+                original.click(timeout=3000)
+            if document_step:
+                page.wait_for_function(
+                    "target => location.href === target && document.readyState !== 'loading'",
+                    arg=navigation["to_step"],
+                    timeout=5000,
+                )
+                self.document_urls[page] = navigation["to_step"]
+                # The same Page now owns a new document. Allocate new control
+                # identities so a completed fill on the old document cannot be
+                # confused with a new, empty control that has the same label.
+                page.evaluate(
+                    "counter => { window.__tsWorkerNextField = "
+                    "Math.max(window.__tsWorkerNextField || 0, counter); }",
+                    field_counter,
+                )
+                # Read the new document before settling the existing attempt. Its
+                # role/company, fields and requests still pass the ordinary guard.
+                try:
+                    self.observe(page, job)
+                except PortalDataError as error:
+                    if error.code == "user_authentication":
+                        # The exact GET reached its bound document. Authentication
+                        # is an observed wait, not an unknown write or permission
+                        # to replay the navigation after the user signs in.
+                        self.update(job, batch_id, intent=None, completed_intent=intent)
+                    raise
+                self.update(job, batch_id, intent=None, completed_intent=intent)
+                return
+            page.wait_for_function(
+                """target => {
+                    const panel=document.getElementById(target);
+                    return panel?.getAttribute('role') === 'tabpanel' &&
+                        Boolean(panel.getClientRects().length) &&
+                        getComputedStyle(panel).visibility !== 'hidden';
+                }""",
+                arg=navigation["to_step"],
+                timeout=5000,
+            )
+            after = self.observe(page, job)
+            if after.get("stage") != navigation["to_step"] or not target.evaluate_all(
+                "(nodes, original) => original.isConnected && "
+                "nodes.length === 1 && nodes[0] === original",
+                original_target,
+            ):
+                raise PortalDataError("navigation_changed", "下一步结果需要核验。", 409)
+            self.update(job, batch_id, intent=None, completed_intent=intent)
+        finally:
+            original.dispose()
+            if original_target is not None:
+                original_target.dispose()
+
+    def upload_supplement(self, page, job, batch_id, observed):
+        """Each supplemental field has its own bytes, intent and readback evidence."""
+        from .application_materials import material_kind
+
+        for question in observed["fields"]:
+            kind = material_kind(question)
+            if (
+                question["type"] != "file"
+                or question["resume"]
+                or (not question["required"] and kind != "cover_letter")
+            ):
+                continue
+            delivery = job.get("cover_letter_delivery") or {}
+            if (
+                kind == "cover_letter"
+                and delivery
+                and [question["id"], question.get("draft_path", "")]
+                not in delivery.get("selected_fields", [])
+            ):
+                continue
+            manual = next(
+                (
+                    row
+                    for row in job.get("manual_attachments", [])
+                    if row["id"] == question["id"] and row.get("filename")
+                ),
+                None,
+            )
+            if manual:
+                if any(
+                    question.get(key) != manual.get(key)
+                    for key in ("filename", "file_sha256", "draft_path")
+                ):
+                    raise PortalDataError(
+                        "manual_attachment_changed", "人工附件已改变，请保留原页核验。", 409
+                    )
+                continue
+            material = self.store.field_material(question, job)
+            if material is None:
+                retained = next(
+                    (
+                        row
+                        for row in job.get("materials", [])
+                        if row.get("field_id") == question["id"] and row.get("status") == "manual"
+                    ),
+                    None,
+                )
+                if (
+                    retained
+                    and retained.get("filename") == question.get("filename")
+                    and question.get("file_sha256")
+                ):
+                    continue
+                if not question["required"] and not question.get("filename"):
+                    continue
+                raise PortalDataError(
+                    "material_attachment_unverified",
+                    "已有必要附件未绑定真实文件，请保留原页核验。",
+                    409,
+                )
+            previous = [
+                intent
+                for intent in self.verified_intents(job)
+                if intent["action"] == "upload"
+                and intent.get("material_id") == material["id"]
+                and intent.get("field_id") == question["id"]
+                and intent.get("draft_path", "") == question.get("draft_path", "")
+                and intent.get("sha256") == material["sha256"]
+            ]
+            draft = self.drafts.get(page)
+            if question.get("filename"):
+                if (
+                    question["filename"] != material["filename"]
+                    or question.get("file_sha256")
+                    and question["file_sha256"] != material["sha256"]
+                ):
+                    raise PortalDataError(
+                        "upload_mismatch", "当前必要附件与该字段材料版本不符。", 409
+                    )
+                if (
+                    not previous
+                    or not question.get("file_sha256")
+                    and not (draft and draft.file_verified(question, material))
+                ):
+                    raise PortalDataError(
+                        "upload_result_unknown", "必要附件结果尚未核验；不会自动重传。", 409
+                    )
+                continue
+            if previous:
+                raise PortalDataError(
+                    "recovered_result_not_visible", "已确认附件不可见；不会重复上传。", 409
+                )
+            if page in self.workable:
+                if not question["required"]:
+                    self.update(
+                        job,
+                        batch_id,
+                        cover_letter_delivery={
+                            **delivery,
+                            "status": "failed",
+                            "reason": "unsupported_attachment_transport",
+                        },
+                    )
+                    continue
+                raise PortalDataError(
+                    "unsupported_attachment_transport",
+                    "该平台的附稿发送路径尚未核验，保留当前原页。",
+                    409,
+                )
+            intent = {
+                "action": "upload",
+                "field_id": question["id"],
+                "draft_path": question.get("draft_path", ""),
+                "kind": material["kind"],
+                "material_id": material["id"],
+                "sha256": material["sha256"],
+            }
+            if not self.authorize(job, batch_id, intent):
+                return True
+            self.store.verify_material(material, job)
+            self.store.verify_material_source(material)
+            current_material = self.store.field_material(question, job)
+            if current_material is None or digest(current_material) != digest(material):
+                raise PortalDataError("material_changed", "发送前求职信材料版本已改变。", 409)
+            raw = Path(material["file_path"]).read_bytes()
+            if draft:
+                draft.begin(question, len(raw), intent, material=material)
+            with self.dispatch_current(job, batch_id, intent, observed=observed):
+                hosted_ats.control(page, question).set_input_files(
+                    {"name": material["filename"], "mimeType": "application/pdf", "buffer": raw}
+                )
+            if draft:
+                draft.wait(page)
+            after = self.observe(page, job)
+            if after.get("document_token") != observed.get("document_token"):
+                raise PortalDataError("upload_result_unknown", "上传期间原文档已变化。", 409)
+            actual = next(
+                row
+                for row in after["fields"]
+                if row["id"] == question["id"]
+                and row.get("draft_path", "") == question.get("draft_path", "")
+            )
+            if (
+                actual["filename"] != material["filename"]
+                or actual.get("file_sha256")
+                and actual["file_sha256"] != material["sha256"]
+                or not actual.get("file_sha256")
+                and not (draft and draft.file_verified(actual, material))
+            ):
+                raise PortalDataError(
+                    "upload_result_unknown", "必要附件选择或服务端回读结果未知。", 409
+                )
+            form_flow.note_write(
+                job,
+                actual,
+                actual.get("value"),
+                {
+                    "key": material["id"],
+                    "revision": material["sha256"],
+                    "source": "system_material",
+                },
+                observed=after,
+            )
+            self.update(
+                job,
+                batch_id,
+                form_state=job.get("form_state", {}),
+                completed_intent=intent,
+                intent=None,
+                observations=[
+                    *job["observations"],
+                    {
+                        "action": "select_file",
+                        "material_id": material["id"],
+                        "field_id": question["id"],
+                        "draft_path": question.get("draft_path", ""),
+                        "local_sha256": material["sha256"],
+                        "verified": True,
+                        "run_id": self.run_id,
+                        "page_id": self.page_ids.get(page),
+                        "at": time.time(),
+                    },
+                ],
+            )
+            return True
+        return False
+
+    def observe_pending(self, page, job):
+        intent = job.get("intent") or {}
+        target = intent.get("navigation", {}).get("to_step", "")
+        if (
+            self.live
+            and intent.get("form_protocol") == "form-state/v1"
+            and intent.get("action") == "advance"
+            and intent.get("run_id") == self.run_id
+            and intent.get("page_id") == self.page_ids.get(page)
+            and target.startswith("https://")
+            and page.url == target
+        ):
+            result = hosted_ats.observe(page, job, document_url=target)
+            self.document_urls[page] = target
+            return result
+        return self.observe(page, job)
+
+    def _readback_pending(self, page, job, batch_id):
+        """Classify a retained unknown intent by independent readback; never replay it."""
+        original_intent = deepcopy(job["intent"])
+        observed = self.observe_pending(page, job)
+        form_flow.capture(self, page, job, batch_id, observed)
+        form_flow.inspect_pending(self, page, job, observed)
+        with self.store.applications.write_lock():
+            state = self.store.load()
+            current = next(
+                row for row in state["jobs"] if row["application_id"] == job["application_id"]
+            )
+            if (
+                state["batch_id"] == batch_id
+                and current.get("intent") == original_intent
+                and current["status"] != "cancelled"
+            ):
+                for key in (
+                    "intent",
+                    "form_state",
+                    "action_resolutions",
+                    "pending_action_observations",
+                ):
+                    if key in job:
+                        current[key] = deepcopy(job[key])
+                current.update(
+                    status="queued" if job.get("intent") is None else "needs_recheck",
+                    reason="" if job.get("intent") is None else "action_result_unknown",
+                )
+                self.persist(state)
+
+    def process(self, job: dict, batch_id: str) -> None:
+        require_execution(
+            self.store.applications,
+            job["application_id"],
+            automated_owner(self.store.root, batch_id, job["application_id"]),
+            "automated",
+        )
+        if job["intent"]:
+            if job["intent"].get("form_protocol") != "form-state/v1":
+                self.update(job, batch_id, status="needs_recheck", reason="action_result_unknown")
+                return
+            page = self.pages.get(job["application_id"])
+            if page is None or page.is_closed():
+                self.update(job, batch_id, status="needs_recheck", reason="action_result_unknown")
+                return
+            self._readback_pending(page, job, batch_id)
+            return
+        identifier = job["application_id"]
+        form = None if self.live else form_for(job)
+        page = self.pages.get(identifier)
+        if page is None:
+            with self.store.applications.write_lock():
+                state = self.store.load()
+                explicit_current = "current_job_id" in state
+                if explicit_current and state["current_job_id"] != identifier:
+                    return
+                occupied = (
+                    sum(identifier == state["current_job_id"] for identifier in self.pages)
+                    if explicit_current
+                    else len(self.pages)
+                )
+                if occupied >= state["page_capacity"]:
+                    self.update(
+                        job,
+                        batch_id,
+                        reason="page_capacity",
+                        **({"status": "needs_input"} if explicit_current else {}),
+                    )
+                    return
+            intent = {"action": "open"}
+            if not self.authorize(job, batch_id, intent):
+                return
+            page = (
+                self.context.new_page()
+                if self.cua is None
+                else self.cua.new_page(self.context, keep_visible=bool(self.handed_off_pages))
+            )
+            self.pages[identifier] = page
+            self.page_ids[page] = uuid4().hex
+            page.on("close", lambda *_: self.event("page_closed", page, identifier))
+            page.on("crash", lambda *_: self.event("page_crashed", page, identifier))
+            if self.live and supports_ashby_drafts(job["job_url"]):
+                self.drafts[page] = DraftSession(job)
+            if self.live and job_shortcode(job["job_url"]):
+                self.workable[page] = ResumeUpload(job)
+            if self.live:
+                page.route_web_socket("**/*", lambda ws: self._websocket_guard(page, ws))
+            self.guards[identifier] = self._guard(identifier, job["platform"])
+            if not self.live:
+                page.route("**/*", self.guards[identifier])
+            page.goto(
+                hosted_ats.page_url(job) if self.live else self.origin + form.page_path(identifier),
+                wait_until="domcontentloaded",
+                timeout=20000 if self.live else 8000,
+            )
+            if self.live:
+                page.locator(
+                    "input[type=email],form,[role=form]"
+                    if job["platform"] == "generic"
+                    else "form#application-form,form#application_form"
+                ).first.wait_for(timeout=10000)
+            self.update(
+                job,
+                batch_id,
+                page_open=True,
+                page_observation={
+                    "run_id": self.run_id,
+                    "page_id": self.page_ids.get(page),
+                    "event": "observed",
+                    "at": time.time(),
+                },
+                intent=None,
+                completed_intent=intent,
+            )
+        from .application_bound_materials import verify_original_page
+
+        if verify_original_page(self, page, job):
+            self.update(
+                job,
+                batch_id,
+                material_update=deepcopy(job["material_update"]) | {"status": "complete"},
+            )
+            return
+        observed = self.observe(page, job)
+        unbound = self.has_unbound_completion(job)
+        history_jobs = []
+        if not unbound:
+            with self.store.applications.write_lock():
+                state = self.store.load()
+                # Stored job URLs are already canonicalized by preparation.
+                history_jobs = [
+                    previous
+                    for batch in state.get("batch_history", [])
+                    for previous in batch["jobs"]
+                    if previous["application_id"] == identifier
+                    or previous.get("job_url") == job["job_url"]
+                ]
+                unbound = any(self.has_unbound_completion(previous) for previous in history_jobs)
+        if unbound:
+            raise PortalDataError(
+                "recovery_completion_unbound",
+                "旧完成证据没有可靠的动作绑定。请人工核验并接管；不会重复动作。",
+                409,
+            )
+        resolutions = latest_action_resolutions(job.get("action_resolutions", []))
+        legacy_negative = {
+            ref
+            for ref, r in resolutions.items()
+            if "observation_count" not in r and r["conclusion"] != "current_matches"
+        }
+        if legacy_negative:
+            verified = self.verified_intents(job)
+            completed = self.verified_intents({**job, "action_resolutions": []})
+            if any(
+                (intent.get("attempt_id") or digest(intent)) in legacy_negative
+                and intent not in verified
+                for intent in completed
+            ):
+                raise PortalDataError(
+                    "recovery_order_unknown",
+                    "旧动作完成与处理结论的先后顺序无法确认。请人工核验并接管；不会重复动作。",
+                    409,
+                )
+        draft = self.drafts.get(page)
+        if draft:
+            draft.job = job
+        if self.live and any(q["multiple"] for q in observed["fields"]):
+            raise PortalDataError("unsupported_attachments", "多选附件需要人工核验。", 409)
+        if self.live:
+            from .application_materials import SupplementalMaterials
+
+            materials = SupplementalMaterials(
+                self.store,
+                allowed=lambda state, identifier: self.permitted(state, self.pages.get(identifier)),
+                update=self.update,
+                persist=self.persist,
+                model_context=pause_browser_deadline,
+            )
+            if not materials.prepare(
+                job,
+                batch_id,
+                observed,
+                temporary=self.temporary,
+                page_binding={"run_id": self.run_id, "page_id": self.page_ids.get(page)},
+            ):
+                return
+        if precision_preparation_pending(job):
+            from .application_bound_materials import document_token
+
+            with self.store.applications.write_lock():
+                state = self.store.load()
+                current = next(row for row in state["jobs"] if row["application_id"] == identifier)
+                if (
+                    not self.permitted(state, page)
+                    or current.get("intent")
+                    or current.get("handed_off")
+                    or not precision_preparation_pending(current)
+                    or material_edit_pending(current)
+                    or manual_submission_unresolved(
+                        {**current, "observations": [*current["observations"], *self.transports]}
+                    )
+                ):
+                    return
+                self.check_inputs(current)
+                current["precision_preparation"].update(
+                    status="ready",
+                    run_id=self.run_id,
+                    page_id=self.page_ids[page],
+                    document_token=document_token(page),
+                    observed=deepcopy(observed),
+                    materials=deepcopy(current.get("materials", [])),
+                )
+                current.update(status="needs_input", reason="precision_adjustment")
+                state["control"] = "paused"
+                self.persist(state)
+            return
+        form_state = form_flow.capture(self, page, job, batch_id, observed)
+        parser = form_state["parser"]
+        if parser["status"] == "failed" or form_state.get("intervention_pending"):
+            self.update(
+                job, batch_id, status="needs_recheck", reason=parser.get("reason") or "form_changed"
+            )
+            return
+        if parser.get("observed_status") == "active":
+            self.update(job, batch_id, reason="awaiting_parser")
+            return
+        if self.finish_materials(page, job, batch_id, observed, [], None, upload_only=True):
+            return
+        if parser["status"] != "stable":
+            self.update(job, batch_id, reason="awaiting_parser")
+            return
+        missing, resolved = [], []
+        with self.store.applications.write_lock():
+            for question in observed["fields"]:
+                if question["type"] == "file":
+                    continue
+                answer = self.store.resolve(question, job, self.temporary)
+                if answer is None:
+                    if question["required"] and (
+                        not question.get("value") or not question.get("valid")
+                    ):
+                        missing.append(
+                            {
+                                **question,
+                                "value": "",
+                                "scope": default_scope(fact_for(question["question"]), job),
+                            }
+                        )
+                else:
+                    resolved.append((question, *answer))
+        resolved, kept = form_flow.plan(
+            job,
+            observed,
+            resolved,
+            retry_intents=[
+                row["intent"]
+                for row in self.effective_action_results(job).values()
+                if row["conclusion"] == "not_applied"
+            ],
+        )
+        form_flow.save_plan(self, job, batch_id)
+        if not self.update(job, batch_id, questions=missing):
+            return
+
+        def expected_for(question, value):
+            if draft and question["type"] in {"radio", "select"}:
+                return draft.option_value(question, value)
+            if question["type"] in {"radio", "checkbox"}:
+                i = question["options"].index(value)
+                return hosted_ats.control(page, question, i).get_attribute("value")
+            return value
+
+        def matches(question, value):
+            return (
+                question["value"] == value
+                and question["valid"]
+                and (not draft or draft.saved(question, expected_for(question, value)))
+            )
+
+        verified_refs = [
+            {**ref, "field_id": question["id"]}
+            for question, value, ref in [*resolved, *kept]
+            if matches(question, value)
+        ]
+        self.update(job, batch_id, answer_refs=verified_refs)
+        for question, value, ref in resolved:
+            if matches(question, value):
+                continue
+            if any(
+                intent["action"] == "fill"
+                and intent.get("answer_ref") == ref
+                and (
+                    intent.get("field_id") == question["id"]
+                    or intent.get("draft_path")
+                    and intent["draft_path"] == question.get("draft_path")
+                    or (
+                        intent.get("run_id") != self.run_id
+                        or intent.get("page_id") != self.page_ids.get(page)
+                    )
+                    and intent.get("fact") == fact_for(question["question"])
+                )
+                for intent in self.verified_intents(job)
+            ):
+                raise PortalDataError(
+                    "recovered_result_not_visible",
+                    "已确认保存的结果在当前页面不可核验，请人工处理；不会重复保存。",
+                    409,
+                )
+            route = self._fill_route(page, question)
+            if route["executor"] != "manual":
+                conflict = next(
+                    (
+                        previous["intent"]
+                        for previous_job in [job, *history_jobs]
+                        for previous in self.effective_action_results(previous_job).values()
+                        if previous["conclusion"] != "current_matches"
+                        and previous["intent"].get("action") == "fill"
+                        and (
+                            previous["intent"].get("fact") == fact_for(question["question"])
+                            or question.get("draft_path")
+                            and previous["intent"].get("draft_path") == question["draft_path"]
+                            or previous["intent"].get("run_id") == self.run_id
+                            and previous["intent"].get("page_id") == self.page_ids.get(page)
+                            and previous["intent"].get("field_id") == question["id"]
+                            or not previous["intent"].get("fact")
+                            and not previous["intent"].get("draft_path")
+                        )
+                        and any(
+                            previous["intent"].get(key) != route[key]
+                            for key in ("executor", "input_route")
+                        )
+                    ),
+                    None,
+                )
+                if conflict is not None:
+                    route = {
+                        "executor": "manual",
+                        "input_route": None,
+                        "route_reason": "route_change_forbidden",
+                        "prior_intent_ref": conflict.get("attempt_id") or digest(conflict),
+                    }
+            if route["executor"] == "manual":
+                self.update(
+                    job,
+                    batch_id,
+                    status="needs_recheck",
+                    reason=route["route_reason"],
+                    observations=[
+                        {
+                            "action": "route_decision",
+                            "stage": "fill",
+                            "field_id": question["id"],
+                            "answer_ref": deepcopy(ref),
+                            "selected_executor": "manual",
+                            "executor": None,
+                            "route_reason": route["route_reason"],
+                            "dispatch": "not_sent",
+                            "dispatch_scope": "proposed_fill",
+                            **(
+                                {"prior_intent_ref": route["prior_intent_ref"]}
+                                if "prior_intent_ref" in route
+                                else {}
+                            ),
+                            "page_id": self.page_ids.get(page),
+                            "run_id": self.run_id,
+                            "at": time.time(),
+                        }
+                    ],
+                )
+                return
+            dom_target = route.get("dom_target", "")
+            use_cua = route["executor"] == "cua_driver"
+            intent = {
+                "action": "fill",
+                "field_id": question["id"],
+                "answer_ref": ref,
+                "fact": fact_for(question["question"]),
+                "draft_path": question.get("draft_path", ""),
+                "before_value": deepcopy(question.get("value")),
+                "expected_value": value,
+                "field_type": question["type"],
+                "expected_saved_value": expected_for(question, value),
+                "field_shape": digest(
+                    {
+                        key: question.get(key)
+                        for key in ("id", "type", "question", "options", "required")
+                    }
+                ),
+                **{key: route[key] for key in ("executor", "input_route", "route_reason")},
+            }
+            if not self.authorize(job, batch_id, intent):
+                return
+            # Recheck the actual answer revision after preparing the intent.
+            with self.store.applications.write_lock():
+                fresh = self.store.resolve(question, job, self.temporary)
+                if fresh is None or fresh[1] != ref:
+                    return
+            fresh_fields = self.observe(page, job)["fields"]
+            current_question = next(q for q in fresh_fields if q["id"] == question["id"])
+            shape = ("id", "type", "question", "options", "required", "max_length", "maxlength")
+            if any(current_question.get(k) != question.get(k) for k in shape) or (
+                self.live and select_fill_route(page, current_question, self.cua) != route
+            ):
+                raise PortalDataError("question_changed", "问题或选项已变更。", 409)
+            if current_question.get("value") != question.get("value") or current_question.get(
+                "valid"
+            ) != question.get("valid"):
+                raise PortalDataError("form_changed", "字段已被用户或网站修改，保留现场。", 409)
+            fresh_observed = self.observe(page, job)
+            if (
+                fresh_observed["fields"] != fresh_fields
+                or fresh_observed.get("document_token") != observed.get("document_token")
+                or fresh_observed.get("user_activity", {}) != observed.get("user_activity", {})
+                or fresh_observed.get("parser", {}).get("status") in {"active", "failed"}
+            ):
+                raise PortalDataError("form_changed", "解析或字段仍在变化，停止写入。", 409)
+            field = page.locator("#" + question["id"]) if not self.live else None
+            execution = {key: intent[key] for key in ("executor", "input_route", "route_reason")}
+            with self.dispatch_current(job, batch_id, intent, observed=fresh_observed):
+                if self.live:
+                    if draft:
+                        draft.begin(question, expected_for(question, value), intent)
+                        if question["type"] in {
+                            "text",
+                            "email",
+                            "tel",
+                            "url",
+                            "number",
+                            "date",
+                            "textarea",
+                        }:
+                            hosted_ats.control(page, question).focus()
+                    if use_cua or dom_target:
+                        if not dom_target and hosted_ats.control(page, question).is_editable():
+                            raise PortalDataError("question_changed", "控件已变更。", 409)
+                        original = hosted_ats.control(page, question).element_handle()
+                        if original is None:
+                            raise PortalDataError("question_changed", "控件已变更。", 409)
+
+                        def check_control(
+                            after_write=False,
+                            value=value,
+                            question=question,
+                            ref=ref,
+                            intent=intent,
+                            shape=shape,
+                            original=original,
+                            dom_target=dom_target,
+                        ):
+                            with self.store.applications.write_lock():
+                                state = self.store.load()
+                                current = next(
+                                    j for j in state["jobs"] if j["application_id"] == identifier
+                                )
+                                if (
+                                    state["batch_id"] != batch_id
+                                    or not self.permitted(state, page)
+                                    or current["handed_off"]
+                                    or current["status"] != "filling"
+                                    or current["intent"] != intent
+                                ):
+                                    raise PortalDataError(
+                                        "dom_action_invalidated"
+                                        if dom_target
+                                        else "cua_action_invalidated",
+                                        "当前动作许可已失效。",
+                                        409,
+                                    )
+                                self.check_inputs(current)
+                                answer = self.store.resolve(question, current, self.temporary)
+                                if answer is None or answer[1] != ref:
+                                    raise PortalDataError("answer_changed", "答案已变更。", 409)
+                            fresh = next(
+                                q
+                                for q in self.observe(page, job)["fields"]
+                                if q["id"] == question["id"]
+                            )
+                            # Compare in the saved handle's main world. Reacquiring an
+                            # ElementHandle adds a utility-to-main CDP adoption wait.
+                            if (
+                                dom_target
+                                and readonly_combobox_target(page, fresh) != dom_target
+                                or any(fresh.get(k) != question.get(k) for k in shape)
+                                or fresh.get("value")
+                                != (value if after_write else question.get("value"))
+                                or fresh.get("valid")
+                                != (True if after_write else question.get("valid"))
+                            ) or not hosted_ats.control(page, fresh).evaluate_all(
+                                "(nodes, original) => original.isConnected && "
+                                "nodes.length === 1 && nodes[0] === original",
+                                original,
+                            ):
+                                raise PortalDataError("question_changed", "控件已变更。", 409)
+
+                        try:
+                            if dom_target:
+                                fill_readonly_combobox(
+                                    page, original, value, dom_target, check=check_control
+                                )
+                                execution["input_route"] = "dom"
+                            else:
+                                execution.update(
+                                    self.cua.fill(
+                                        page, question, value, check=check_control, pump=self.pump
+                                    )
+                                )
+                        finally:
+                            original.dispose()
+                    else:
+                        hosted_ats.fill(page, question, value)
+                    if draft:
+                        if question["type"] in {
+                            "text",
+                            "email",
+                            "tel",
+                            "url",
+                            "number",
+                            "date",
+                            "textarea",
+                        }:
+                            hosted_ats.control(page, question).blur()
+                        draft.wait(page)
+                elif question["type"] == "select":
+                    field.select_option(label=value, timeout=3000)
+                else:
+                    field.fill(value, timeout=3000)
+                # Finish this control's native change event before acknowledging
+                # its readback; a later focus change must not impersonate a user edit.
+                if question["type"] in {
+                    "text",
+                    "email",
+                    "tel",
+                    "url",
+                    "number",
+                    "date",
+                    "textarea",
+                }:
+                    (hosted_ats.control(page, question) if self.live else field).blur()
+            after = self.observe(page, job)
+            actual = next(q for q in after["fields"] if q["id"] == question["id"])
+            if actual["value"] != value or not actual["valid"]:
+                raise PortalDataError("readback_failed", "字段回读不一致。", 409)
+            adopted = form_flow.record_fill(
+                self, job, batch_id, intent, actual, value, ref, execution, after
+            )
+            self.store.measurements.event(
+                "action_result",
+                stage=intent["action"],
+                attempt_id=intent["attempt_id"],
+                result="verified" if adopted else "late_readback",
+                run_id=self.run_id,
+                episode_id=job.get("measurement_id"),
+                application_id=identifier,
+            )
+            return
+        if missing:
+            self.update(
+                job,
+                batch_id,
+                questions=missing,
+                status="needs_input",
+                reason="missing_answers",
+                intent=None,
+            )
+            return
+        if job["form_state"].get("differences"):
+            self.update(job, batch_id, status="needs_input", reason="form_differences")
+            return
+        if self.live and self.upload_supplement(page, job, batch_id, observed):
+            return
+        form_flow.check_ready(job, observed)
+        self.finish_materials(page, job, batch_id, observed, [*resolved, *kept], expected_for)
+
+    def finish_materials(
+        self, page, job, batch_id, observed, resolved, expected_for, *, upload_only=False
+    ):
+        """Reuse the existing attachment transaction before filling or final handoff."""
+        from .application_bound_materials import verify_original_page
+
+        identifier = job["application_id"]
+        form = None if self.live else form_for(job)
+        draft = self.drafts.get(page)
+        workable = self.workable.get(page)
+        material_transition = (job.get("material_update") or {}).get("status") == "bound"
+        replacement = (
+            material_transition and job["material_update"].get("upload_mode") != "first_upload"
+        )
+        resolutions = latest_action_resolutions(job.get("action_resolutions", []))
+        if self.live:
+            file_field = next(
+                (q for q in observed["fields"] if q["type"] == "file" and q["resume"]), None
+            )
+            if file_field is None:
+                if upload_only:
+                    return False
+                if observed.get("navigation"):
+                    self.advance(page, job, batch_id, observed)
+                elif (
+                    observed.get("stage")
+                    and len(observed.get("retained_resume", [])) == 1
+                    and observed["retained_resume"][0]["valid"]
+                    and not observed["retained_resume"][0]["multiple"]
+                    and observed["retained_resume"][0]["filename"] == job["filename"]
+                    and observed["retained_resume"][0]["file_sha256"] == job["file_sha256"]
+                    and any(
+                        previous["action"] == "upload"
+                        and not previous.get("material_id")
+                        and previous.get("sha256") == job["file_sha256"]
+                        and previous.get("run_id") == self.run_id
+                        and previous.get("page_id") == self.page_ids.get(page)
+                        for previous in self.verified_intents(job)
+                    )
+                ):
+                    self.check_inputs(job)
+                    self.update(job, batch_id, status="ready_for_review", reason="", intent=None)
+                else:
+                    raise PortalDataError(
+                        "resume_control_missing", "当前页面尚无已核验的简历附件。", 409
+                    )
+                return True
+            # A local file selection can survive a failed upload. Retry only after
+            # explicit non-application and fresh server readback showing no attachment.
+            retry_upload = (
+                draft
+                and draft.fields.get(file_field.get("draft_path"), {}).get("fieldValue") is None
+                and not self.recovered_upload(job)
+                and any(
+                    row["conclusion"] == "not_applied"
+                    and row["intent"]["action"] == "upload"
+                    and row["intent"].get("sha256") == job["file_sha256"]
+                    and row["intent"].get("draft_path") == file_field.get("draft_path")
+                    for row in resolutions.values()
+                )
+            )
+            if not file_field["filename"] or retry_upload or replacement:
+                if self.recovered_upload(job) and not replacement:
+                    raise PortalDataError(
+                        "recovered_result_not_visible",
+                        "已确认上传的附件在当前页面不可核验；不会重复上传。",
+                        409,
+                    )
+                intent = {
+                    "action": "upload",
+                    "kind": "resume",
+                    "field_id": file_field["id"],
+                    "sha256": job["file_sha256"],
+                    "draft_path": file_field.get("draft_path", ""),
+                    **(
+                        {"material_update_id": job["material_update"]["id"]}
+                        if material_transition
+                        else {}
+                    ),
+                    **(
+                        {"replaces_sha256": job["material_update"]["old_sha256"]}
+                        if replacement
+                        else {}
+                    ),
+                }
+                if not self.authorize(job, batch_id, intent):
+                    return True
+                raw = Path(job["file_path"]).read_bytes()
+                if hashlib.sha256(raw).hexdigest() != job["file_sha256"]:
+                    raise PortalDataError("file_changed", "简历内容版本已变更。", 409)
+                self.upload_job = job
+                try:
+                    if material_transition:
+                        verify_original_page(self, page, job, expected_intent=intent)
+                        if workable and replacement:
+                            self.workable[page] = workable = ResumeUpload(job)
+                    if workable:
+                        workable.job = job
+                    if draft:
+                        draft.begin(file_field, len(raw), intent)
+                    if workable:
+                        workable.begin(file_field, intent, page)
+                    with self.dispatch_current(job, batch_id, intent, observed=observed):
+                        hosted_ats.control(page, file_field).set_input_files(
+                            {"name": job["filename"], "mimeType": "application/pdf", "buffer": raw}
+                        )
+                    if draft:
+                        draft.wait(page)
+                    if workable:
+                        workable.wait(page)
+                        remote = workable.readback(page)
+                        with self.store.applications.write_lock():
+                            latest = self.store.load()
+                            current = next(
+                                j for j in latest["jobs"] if j["application_id"] == identifier
+                            )
+                            if not self.permitted(latest, page) or current["intent"] != intent:
+                                raise PortalDataError(
+                                    "upload_result_unknown", "附件动作许可已变更，请人工核验。", 409
+                                )
+                            self.check_inputs(current)
+                    if job["platform"] == "lever":
+                        page.locator(".resume-upload-working").wait_for(
+                            state="hidden", timeout=12000
+                        )
+                        if page.locator(".resume-upload-failure").is_visible():
+                            raise PortalDataError(
+                                "upload_result_unknown", "网站解析结果不明，请人工核验附件。", 409
+                            )
+                finally:
+                    self.upload_job = None
+                after = self.observe(page, job)
+                if after.get("document_token") != observed.get("document_token"):
+                    raise PortalDataError("upload_result_unknown", "上传期间原文档已变化。", 409)
+                actual = next(q for q in after["fields"] if q["type"] == "file" and q["resume"])
+                if actual["filename"] != job["filename"] or (
+                    actual.get("file_sha256") and actual["file_sha256"] != job["file_sha256"]
+                ):
+                    raise PortalDataError(
+                        "upload_result_unknown", "附件选择结果不明，请人工核验。", 409
+                    )
+                if material_transition:
+                    replacement_receipt = deepcopy(job["material_update"]) | {
+                        "status": "complete",
+                        "upload_attempt_id": intent["attempt_id"],
+                        "new_attachment": {
+                            "field_id": actual["id"],
+                            "draft_path": actual.get("draft_path", ""),
+                            "sha256": job["file_sha256"],
+                            "attempt_id": intent["attempt_id"],
+                            **(
+                                {
+                                    "attachment_id": draft.files.get(
+                                        actual.get("draft_path"), {}
+                                    ).get("attachment_id")
+                                }
+                                if draft
+                                else {}
+                            ),
+                            **({"handle": deepcopy(workable.handle)} if workable else {}),
+                        },
+                    }
+                form_flow.note_activity(job, actual["id"], after)
+                self.update(
+                    job,
+                    batch_id,
+                    form_state=job.get("form_state", {}),
+                    completed_intent=intent,
+                    intent=None,
+                    **({"material_update": replacement_receipt} if material_transition else {}),
+                    observations=[
+                        *job["observations"],
+                        {
+                            "action": "select_file",
+                            "local_sha256": job["file_sha256"],
+                            "verified": True,
+                            "run_id": self.run_id,
+                            "page_id": self.page_ids.get(page),
+                            "at": time.time(),
+                        },
+                        *([remote] if workable else []),
+                    ],
+                )
+                return True
+            if file_field["filename"] != job["filename"]:
+                raise PortalDataError("upload_mismatch", "页面附件与所选版本不符。", 409)
+            selected_digest = file_field.get("file_sha256")
+            if selected_digest:
+                if selected_digest != job["file_sha256"]:
+                    raise PortalDataError("upload_mismatch", "页面附件内容版本不符。", 409)
+            elif not (
+                any(
+                    item.get("action") == "select_file"
+                    and not item.get("material_id")
+                    and item.get("local_sha256") == job["file_sha256"]
+                    and item.get("run_id") == self.run_id
+                    and item.get("page_id") == self.page_ids.get(page)
+                    for item in job["observations"]
+                )
+                or draft
+                and draft.uploaded
+                and draft.linked
+                and self.recovered_upload(job)
+            ):
+                raise PortalDataError("upload_result_unknown", "已有附件内容未核验。", 409)
+            with self.store.applications.write_lock():
+                self.check_inputs(
+                    next(j for j in self.store.load()["jobs"] if j["application_id"] == identifier)
+                )
+            if workable:
+                workable.attachment(page)
+                if workable.remote_sha256 != job["file_sha256"] or not self.recovered_upload(job):
+                    raise PortalDataError(
+                        "upload_result_unknown", "远端附件内容未核验，请人工核验。", 409
+                    )
+            if upload_only:
+                return False
+            verified = draft.verify(observed, resolved, expected_for) if draft else None
+            if observed.get("navigation"):
+                self.advance(page, job, batch_id, observed)
+                return True
+            if any(
+                material.get("origin") == "jd"
+                and material.get("required")
+                and not material.get("field_id")
+                for material in job.get("materials", [])
+            ):
+                self.update(
+                    job, batch_id, status="needs_input", reason="material_field_mapping_required"
+                )
+                return True
+            self.update(
+                job,
+                batch_id,
+                status="ready_for_review",
+                reason="",
+                intent=None,
+                **({"observations": [*job["observations"], verified]} if verified else {}),
+            )
+            return True
+        upload = observed["upload"]
+        file_field = next((q for q in observed["fields"] if q["type"] == "file"), None)
+        if file_field is None:
+            raise PortalDataError("resume_control_missing", "未识别简历控件。", 409)
+        if not (
+            upload.get("state") == "complete"
+            and upload.get("sha256") == job["file_sha256"]
+            and upload.get("name") == job["filename"]
+        ):
+            if self.recovered_upload(job) and not replacement:
+                raise PortalDataError(
+                    "recovered_result_not_visible",
+                    "已确认上传的附件在当前页面不可核验；不会重复上传。",
+                    409,
+                )
+            if upload.get("state") not in {"empty", None} and not replacement:
+                raise PortalDataError(
+                    "upload_result_unknown", "附件结果需要核验，不能自动重传。", 409
+                )
+            intent = {
+                "action": "upload",
+                "sha256": job["file_sha256"],
+                **(
+                    {
+                        "material_update_id": job["material_update"]["id"],
+                        "replaces_sha256": job["material_update"]["old_sha256"],
+                    }
+                    if replacement
+                    else {}
+                ),
+            }
+            if not self.authorize(job, batch_id, intent):
+                return True
+            self.observe(page, job)
+            raw = Path(job["file_path"]).read_bytes()
+            if hashlib.sha256(raw).hexdigest() != job["file_sha256"]:
+                raise PortalDataError("file_changed", "简历内容版本已变更。", 409)
+            with self.dispatch_current(job, batch_id, intent, observed=observed):
+                page.locator("#" + file_field["id"]).set_input_files(
+                    {"name": job["filename"], "mimeType": "application/pdf", "buffer": raw},
+                    timeout=3000,
+                )
+            page.locator(form.upload_status + '[data-state="complete"]').wait_for(timeout=5000)
+            after = self.observe(page, job)
+            if after.get("document_token") != observed.get("document_token"):
+                raise PortalDataError("upload_result_unknown", "上传期间原文档已变化。", 409)
+            result = after["upload"]
+            if result.get("sha256") != job["file_sha256"] or result.get("name") != job["filename"]:
+                raise PortalDataError("upload_mismatch", "上传附件与所选版本不符。", 409)
+            form_flow.note_activity(job, file_field["id"], after)
+            self.update(
+                job,
+                batch_id,
+                form_state=job.get("form_state", {}),
+                intent=None,
+                completed_intent=intent,
+                **(
+                    {
+                        "material_update": deepcopy(job["material_update"])
+                        | {"status": "complete", "upload_attempt_id": intent["attempt_id"]}
+                    }
+                    if replacement
+                    else {}
+                ),
+            )
+            return True
+        if upload_only:
+            return False
+        # No button click, Enter, form submission or final HTTP action exists here.
+        with self.store.applications.write_lock():
+            self.check_inputs(
+                next(j for j in self.store.load()["jobs"] if j["application_id"] == identifier)
+            )
+        self.update(job, batch_id, status="ready_for_review", reason="", intent=None)
+
+
+def main(argv: list[str] | None = None, *, expected_sources: dict | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Independent Lever / Greenhouse preview worker")
+    parser.add_argument("--applications", type=Path, required=True)
+    parser.add_argument("--runtime", type=Path, required=True)
+    parser.add_argument("--single-flow-root", type=Path)
+    parser.add_argument("--package-resources", type=Path)
+    parser.add_argument("--expected-package-manifest")
+    parser.add_argument("--expected-worker-revision")
+    parser.add_argument("--synthetic-browser", type=Path)
+    parser.add_argument("--fixture-origin", default="")
+    parser.add_argument("--live", action="store_true")
+    parser.add_argument("--headless", action="store_true")
+    parser.add_argument("--cdp-port", type=int, default=0)
+    parser.add_argument("--cua", action="store_true", help="Use a hidden worker-owned Cua browser")
+    parser.add_argument("--cua-click-route", choices=("trusted", "dom_event"), default="trusted")
+    parser.add_argument("--native-assistance-policy", help="Trusted native handover policy JSON")
+    parser.add_argument("--codex-assist-config", help="Trusted metadata-only adapter configuration")
+    args = parser.parse_args(argv)
+    if args.synthetic_browser is not None:
+        from .application_worker_fixtures import browser_fixture_configuration
+
+        try:
+            browser_fixture_configuration(args.synthetic_browser)
+            if (
+                not (args.live and args.cua)
+                or args.cua_click_route != "dom_event"
+                or args.headless
+                or args.cdp_port
+                or args.fixture_origin
+                or args.codex_assist_config is not None
+                or args.native_assistance_policy is not None
+                or args.applications != args.synthetic_browser / "applications"
+                or args.runtime != args.synthetic_browser / "runtime/single-job-worker"
+                or args.single_flow_root
+                not in (None, args.synthetic_browser / "runtime/single-job-flow")
+            ):
+                raise ValueError("synthetic-browser-overrides")
+        except (OSError, ValueError, TypeError):
+            parser.error("Choose the exact isolated synthetic browser configuration.")
+        os.environ.clear()
+        os.environ.update(
+            {
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "LANG": "en_US.UTF-8",
+                "HOME": str(args.synthetic_browser / "home"),
+                "TMPDIR": str(args.synthetic_browser / "tmp"),
+                "TOMORROWSTAR_CODEX_EXECUTABLE": str(args.synthetic_browser / "codex-fixture"),
+            }
+        )
+    if args.cua and (args.headless or args.cdp_port):
+        parser.error("Cua requires a windowed browser and owns its CDP endpoint.")
+    if not args.cua and args.cua_click_route != "trusted":
+        parser.error("Cua click route requires --cua.")
+    if args.live and (args.fixture_origin or args.headless):
+        parser.error("Live filling requires a visible browser without fixtures.")
+    if not args.live and not re.fullmatch(r"http://127\.0\.0\.1:[0-9]{1,5}", args.fixture_origin):
+        parser.error("This preview accepts only its explicit loopback fixture origin.")
+    native_policy = None
+    if args.native_assistance_policy is not None:
+        try:
+            if len(args.native_assistance_policy) > 4096 or not (args.cua and args.live):
+                raise ValueError("native handover requires the owned native browser")
+            native_policy = validate_native_assistance_policy(
+                json.loads(args.native_assistance_policy)
+            )
+        except (ValueError, TypeError):
+            parser.error("Choose the reviewed native handover policy and owned browser.")
+    assist_config = None
+    if args.codex_assist_config is not None:
+        try:
+            if len(args.codex_assist_config) > 16384:
+                raise ValueError("configuration too large")
+            assist_config = CodexAssistConfig.from_dict(json.loads(args.codex_assist_config))
+            if assist_config.native_assistance_policy != native_policy:
+                raise ValueError("native policy mismatch")
+            if assist_config.runtime != args.runtime.resolve() / "codex-assist":
+                raise ValueError("runtime mismatch")
+        except (OSError, ValueError, TypeError):
+            parser.error("Choose the trusted metadata-only configuration for this worker.")
+    if native_policy is not None and assist_config is None:
+        parser.error("Native handover requires its trusted Codex Adapter configuration.")
+    # Complete this executor's role before its one-time loaded-code measurement.
+    from . import (  # noqa: F401
+        application_bound_materials,
+        application_cover_letter,
+        application_experience_latex,
+        application_materials,
+        application_readiness,
+        application_single_binding,
+    )
+
+    store = WorkerStore(ApplicationStore(args.applications), args.runtime, live=args.live)
+    if args.synthetic_browser is not None:
+        from .application_worker_fixtures import browser_fixture_job_url
+
+        state = store.load()
+        config = browser_fixture_configuration(args.synthetic_browser)
+        job_url = browser_fixture_job_url(config["scenario"])
+        if not state.get("generic_enabled") or any(
+            job["job_url"] != job_url or job["platform"] != "generic" for job in state["jobs"]
+        ):
+            parser.error("Synthetic browser records must contain only the fixed synthetic job.")
+    descriptor = os.open(store.root / ".worker.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    previous_term = signal.getsignal(signal.SIGTERM)
+    stop_requested, runner = False, None
+    codex_assist = None
+    if args.cua:
+
+        def stop_cua(_signum, _frame):
+            nonlocal stop_requested
+            stop_requested = True
+            if runner is not None:
+                runner.event("worker_stopped")
+
+        signal.signal(signal.SIGTERM, stop_cua)
+    try:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print("worker_already_running", flush=True)
+            return 3
+        if assist_config is not None:
+            codex_assist = CodexAdapter(assist_config)
+        store.restore_single_context(args.single_flow_root)
+        store.worker_lock_descriptor = descriptor
+        initial = store.load()
+        for job in initial["jobs"]:
+            if (
+                "current_job_id" not in initial
+                or job["application_id"] == initial["current_job_id"]
+            ):
+                store.check_single(job, initial, material_required=False)
+        start_run(store, expected_sources=expected_sources)
+
+        # Only the executing worker can describe the code it has actually loaded.
+        with store.applications.write_lock():
+            state = store.load()
+            state["runtime"]["loaded_engine_revision"] = loaded_runtime_revision("worker")
+            state["runtime"]["capabilities"].append(CONTROLLER_HANDOFF_INSPECTION)
+            store.save(state)
+        os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", "0")
+        with sync_playwright() as playwright, ExitStack() as stack:
+            arguments = [f"--remote-debugging-port={args.cdp_port}"] if args.cdp_port else []
+            cua = None
+            with store.measurements.stage("runtime_start", batch_id=store.load()["batch_id"]):
+                if args.cua:
+                    context, cua = stack.enter_context(
+                        managed_cua_browser(
+                            playwright,
+                            store.root,
+                            click_route=args.cua_click_route,
+                            synthetic_keychain=args.synthetic_browser is not None,
+                            **({"native_handoff": True} if native_policy is not None else {}),
+                            origins=[
+                                args.fixture_origin,
+                                *(j["job_url"] for j in store.load()["jobs"]),
+                            ],
+                        )
+                    )
+                else:
+                    context = playwright.chromium.launch_persistent_context(
+                        str(store.root / "browser-profile"),
+                        headless=args.headless,
+                        args=arguments,
+                        service_workers="block",
+                        timeout=15000,
+                    )
+            if args.synthetic_browser is not None:
+                from .application_worker_fixtures import isolate_browser_fixture
+
+                context.set_offline(True)
+                isolate_browser_fixture(context)
+            if codex_assist is not None:
+                stack.callback(codex_assist.close)
+            context.set_default_timeout(4000)
+            with browser_deadline(5):
+                for blank in context.pages:
+                    if cua is None and blank.url == "about:blank":
+                        blank.close()
+                runner = ApplicationRunner(
+                    store,
+                    context,
+                    args.fixture_origin,
+                    cua=cua,
+                    **(
+                        {"native_assistance_policy": native_policy}
+                        if native_policy is not None
+                        else {}
+                    ),
+                )
+                runner.codex_assist = codex_assist
+                if args.synthetic_browser is not None:
+                    from .application_worker_fixtures import install_browser_fixture
+
+                    install_browser_fixture(context, runner, args.synthetic_browser)
+            while not stop_requested:
+                runner.tick()
+                # Context waiting pumps native events without depending on the first Page.
+                runner.pump()
+            with store.applications.write_lock():
+                state = store.load()
+                state.update(control="paused", worker_error="worker_stopped")
+                store.save(state)
+    except (
+        Error,
+        OSError,
+        StoreError,
+        ValueError,
+        PortalDataError,
+        subprocess.SubprocessError,
+        KeyboardInterrupt,
+    ) as exc:
+        if isinstance(exc, StoreError):
+            store.block_storage()
+        with (
+            suppress(OSError, StoreError, PortalDataError, ValueError),
+            store.applications.write_lock(),
+        ):
+            state = store.load()
+            state.update(control="paused", worker_error=type(exc).__name__)
+            store.save(state)
+        print("worker_stopped: " + type(exc).__name__, flush=True)
+        # This stream is retained only in the explicitly selected private runtime directory.
+        print(str(exc), flush=True)
+        return 2
+    finally:
+        if codex_assist is not None:
+            codex_assist.close()
+        if args.cua:
+            signal.signal(signal.SIGTERM, previous_term)
+        os.close(descriptor)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

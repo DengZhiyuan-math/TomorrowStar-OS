@@ -1,0 +1,48 @@
+[
+  {
+    "case_id": "planned-to-completed",
+    "schema_expected": "valid",
+    "semantic_review_expected": "reject",
+    "reason": "Fact is planned; completion is not supported.",
+    "payload": {
+      "schema_version": "experience-writing/v1",
+      "assignment_revision": "assignment-demo-1",
+      "experience_id": "experience-demo-1",
+      "candidate_id": "candidate-demo-1",
+      "status": "complete",
+      "items": [
+        {
+          "id": "item-demo-1",
+          "text": "Implemented and deployed the validation workflow.",
+          "fact_refs": [
+            "fact-demo-1"
+          ],
+          "inference_refs": []
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "team-to-leader",
+    "schema_expected": "valid",
+    "semantic_review_expected": "reject",
+    "reason": "Team participation does not establish leadership or sole responsibility.",
+    "payload": {
+      "schema_version": "experience-writing/v1",
+      "assignment_revision": "assignment-demo-1",
+      "experience_id": "experience-demo-1",
+      "candidate_id": "candidate-demo-1",
+      "status": "complete",
+      "items": [
+        {
+          "id": "item-demo-1",
+          "text": "Led the validation team and independently designed the workflow.",
+          "fact_refs": [
+            "fact-demo-1"
+          ],
+          "inference_refs": []
+        }
+      ]
+    }
+  }
+]

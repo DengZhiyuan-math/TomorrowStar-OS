@@ -52,6 +52,121 @@ def test_checkout_source_cli_inspects_snapshot_and_resumes_one_action_at_a_time(
     assert snapshot["coverage"]
 
 
+def test_audit_start_accepts_candidate_skill_context_as_unverified_reminder(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    links = tmp_path / "candidate-links.json"
+    links.write_text(
+        json.dumps(
+            [
+                {
+                    "schema_version": "candidate-skill-link/v1",
+                    "id": "candidate-skill-cli-testing",
+                    "experience_candidate_id": "experience-candidate-cli",
+                    "source_id": "source-cli-synthetic",
+                    "capture_hash": "sha256:" + "a" * 64,
+                    "source_locator": "resume.md#testing",
+                    "candidate_text": "Testing",
+                    "extraction_version": "synthetic-extractor/v1",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    probe_plan = tmp_path / "probe-plan.json"
+    probe_plan.write_text(
+        json.dumps(
+            {
+                "schema_version": "audit-probe-plan/v1",
+                "contribution_id": "contrib-stoa-authorization-boundary",
+                "areas": [
+                    {
+                        "schema_version": "audit-probe-area/v1",
+                        "area_id": "implementation",
+                        "inspected_fact_ids": ["evid-stoa-build-week"],
+                        "unverified_capability": "implementation boundary",
+                        "demanding_prompt": "Which testing trade-off did you make?",
+                        "intermediate_prompt": "Which test did you write?",
+                        "simple_prompt": "Which test step did you complete?",
+                        "immediately_higher_capability": "defending the test boundary",
+                        "candidate_skill_link_ids": ["candidate-skill-cli-testing"],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    started = run_cli(
+        "audit",
+        "start",
+        "--workspace",
+        str(workspace),
+        "--fixture",
+        str(FIXTURE),
+        "--contribution-id",
+        "contrib-stoa-authorization-boundary",
+        "--experience-candidate-id",
+        "experience-candidate-cli",
+        "--candidate-skill-links",
+        str(links),
+        "--recorded-probe-plan",
+        str(probe_plan),
+    )
+
+    assert started.returncode == 0, started.stderr
+    snapshot = json.loads(started.stdout)["snapshot"]
+    assert snapshot["schema_version"] == "audit-snapshot/v2"
+    assert snapshot["questions"][0]["recall_reminder"] == (
+        "Candidate skill reminder (unverified): Testing"
+    )
+
+
+def test_audit_start_rejects_non_array_candidate_skill_links_without_creating_an_audit(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    links = tmp_path / "candidate-links.json"
+    links.write_text('{"PRIVATE_SOURCE_KEY": "PRIVATE_SOURCE_BODY"}', encoding="utf-8")
+
+    started = run_cli(
+        "audit",
+        "start",
+        "--workspace",
+        str(workspace),
+        "--fixture",
+        str(FIXTURE),
+        "--contribution-id",
+        "contrib-stoa-authorization-boundary",
+        "--experience-candidate-id",
+        "experience-candidate-cli",
+        "--candidate-skill-links",
+        str(links),
+    )
+
+    assert started.returncode == 2
+    assert json.loads(started.stderr) == {
+        "valid": False,
+        "error": "input_validation_error",
+        "types": ["list_type"],
+    }
+    assert "PRIVATE_SOURCE" not in started.stdout + started.stderr
+    assert not (workspace / "audits").exists()
+
+
+def test_input_file_errors_do_not_expose_private_paths_or_bytes(tmp_path: Path) -> None:
+    source = tmp_path / "PRIVATE_SOURCE_PATH.json"
+    missing = run_cli("fixture", "validate", str(source))
+    source.write_bytes(b"\xffPRIVATE_SOURCE_BODY")
+    malformed = run_cli("fixture", "validate", str(source))
+
+    for result in (missing, malformed):
+        assert result.returncode == 2
+        assert json.loads(result.stderr) == {"valid": False, "error": "input_read_error"}
+        assert "PRIVATE_SOURCE" not in result.stdout + result.stderr
+
+
 def test_invalid_action_and_corrupt_snapshot_return_stable_errors_without_writes(
     tmp_path: Path,
 ) -> None:

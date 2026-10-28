@@ -92,12 +92,89 @@ class JDIntakeStore:
             raise JDIntakeError("jd-source-hash-invalid")
         return source_hash.removeprefix("sha256:")
 
-    def _prepared_path(self, source_hash: str) -> Path:
-        return self.root / "prepared" / self._bundle_name(source_hash)
+    def _version_name(self, source_hash: str, proposal_hash: str) -> str:
+        self._bundle_name(source_hash)
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", proposal_hash):
+            raise JDIntakeError("jd-proposal-hash-invalid")
+        return sha256_digest(
+            canonical_json_bytes({"source_hash": source_hash, "proposal_hash": proposal_hash})
+        ).removeprefix("sha256:")
+
+    def _bundles(self, kind: str) -> tuple[tuple[dict[str, object], AcceptedJDPacket], ...]:
+        """Reopen immutable versions, including the original source-only layout."""
+        directory = self.root / kind
+        for parent in (self.workspace / ".career-evidence", self.root, directory):
+            if parent.is_symlink() or (parent.exists() and not parent.is_dir()):
+                raise JDIntakeError("jd-private-root-unsafe")
+            if not parent.exists():
+                return ()
+        accepted = kind == "accepted"
+        label = "accepted" if accepted else "prepared"
+        bundles = []
+        for path in sorted(directory.iterdir()):
+            if path.name.startswith("."):
+                continue
+            manifest_path = path / "manifest.json"
+            packet_path = path / "packet.json"
+            if path.is_symlink() or manifest_path.is_symlink() or packet_path.is_symlink():
+                raise JDIntakeError(f"jd-{label}-unsafe")
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                packet = AcceptedJDPacket.model_validate_json(packet_path.read_bytes())
+            except (OSError, UnicodeError, json.JSONDecodeError, ValidationError) as exc:
+                raise JDIntakeError(f"jd-{label}-invalid") from exc
+            source_hash = packet.raw_source.source_hash
+            proposal_hash = packet.recorded_proposal.proposal_hash
+            schema_version = "accepted-jd-intake/v1" if accepted else "jd-prepared-intake/v1"
+            if (
+                not isinstance(manifest, dict)
+                or manifest.get("schema_version") != schema_version
+                or manifest.get("source_hash") != source_hash
+                or manifest.get("proposal_hash") != proposal_hash
+                or manifest.get("accepted") is not accepted
+                or path.name
+                not in {
+                    self._bundle_name(source_hash),
+                    self._version_name(source_hash, proposal_hash),
+                }
+                or (accepted and manifest.get("packet_id") != packet.packet_id)
+                or (not accepted and manifest.get("source_id") != packet.raw_source.source_id)
+            ):
+                raise JDIntakeError(f"jd-{label}-invalid")
+            bundles.append((manifest, packet))
+        return tuple(bundles)
+
+    def _prepared_bundle(
+        self, source_hash: str, proposal_hash: str | None = None
+    ) -> tuple[dict[str, object], AcceptedJDPacket]:
+        self._bundle_name(source_hash)
+        if proposal_hash is not None:
+            self._version_name(source_hash, proposal_hash)
+        matches = [
+            item
+            for item in self._bundles("prepared")
+            if item[1].raw_source.source_hash == source_hash
+        ]
+        if not matches:
+            raise JDIntakeError("jd-prepared-missing")
+        if proposal_hash is not None:
+            matches = [item for item in matches if item[0]["proposal_hash"] == proposal_hash]
+            if not matches:
+                raise JDIntakeError("jd-acceptance-hash-mismatch")
+        if len(matches) != 1:
+            raise JDIntakeError("jd-prepared-version-required")
+        return matches[0]
 
     def prepare(self, intake: PreparedJDIntake) -> dict[str, object]:
         self._root_for_write()
-        destination = self._prepared_path(intake.source_hash)
+        proposal_hash = intake.packet.recorded_proposal.proposal_hash
+        if any(
+            packet.raw_source.source_hash == intake.source_hash
+            and packet.recorded_proposal.proposal_hash == proposal_hash
+            for _manifest, packet in self._bundles("prepared")
+        ):
+            raise JDIntakeError("jd-prepared-already-exists")
+        destination = self.root / "prepared" / self._version_name(intake.source_hash, proposal_hash)
         destination.parent.mkdir(exist_ok=True)
         if destination.exists() or destination.is_symlink():
             raise JDIntakeError("jd-prepared-already-exists")
@@ -120,27 +197,12 @@ class JDIntakeStore:
             )
         except FormalRunStorageError as exc:
             raise JDIntakeError("jd-prepared-already-exists") from exc
-        return self.inspect_prepared(intake.source_hash)
+        return self.inspect_prepared(intake.source_hash, proposal_hash)
 
-    def inspect_prepared(self, source_hash: str) -> dict[str, object]:
-        path = self._prepared_path(source_hash)
-        if path.is_symlink() or not path.is_dir():
-            raise JDIntakeError("jd-prepared-missing")
-        manifest_path = path / "manifest.json"
-        packet_path = path / "packet.json"
-        if manifest_path.is_symlink() or packet_path.is_symlink():
-            raise JDIntakeError("jd-prepared-unsafe")
-        try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            packet = AcceptedJDPacket.model_validate_json(packet_path.read_bytes())
-        except (OSError, json.JSONDecodeError, ValidationError) as exc:
-            raise JDIntakeError("jd-prepared-invalid") from exc
-        if (
-            manifest.get("source_hash") != source_hash
-            or manifest.get("proposal_hash") != packet.recorded_proposal.proposal_hash
-            or manifest.get("accepted") is not False
-        ):
-            raise JDIntakeError("jd-prepared-invalid")
+    def inspect_prepared(
+        self, source_hash: str, proposal_hash: str | None = None
+    ) -> dict[str, object]:
+        manifest, packet = self._prepared_bundle(source_hash, proposal_hash)
         return {
             "accepted": False,
             "disclosures": manifest.get("disclosures", []),
@@ -152,19 +214,17 @@ class JDIntakeStore:
 
     def accept(self, source_hash: str, proposal_hash: str) -> dict[str, object]:
         """Create one immutable accepted packet only after exact hash confirmation."""
-        prepared = self.inspect_prepared(source_hash)
-        if prepared["proposal_hash"] != proposal_hash:
-            raise JDIntakeError("jd-acceptance-hash-mismatch")
+        _manifest, packet = self._prepared_bundle(source_hash, proposal_hash)
         root = self._root_for_write()
-        source_path = self._prepared_path(source_hash)
-        packet_path = source_path / "packet.json"
-        try:
-            packet = AcceptedJDPacket.model_validate_json(packet_path.read_bytes())
-        except (OSError, ValidationError) as exc:
-            raise JDIntakeError("jd-prepared-invalid") from exc
+        if any(
+            stored.raw_source.source_hash == source_hash
+            and stored.recorded_proposal.proposal_hash == proposal_hash
+            for _manifest, stored in self._bundles("accepted")
+        ):
+            raise JDIntakeError("jd-accepted-already-exists")
         accepted_root = root / "accepted"
         accepted_root.mkdir(exist_ok=True)
-        destination = accepted_root / self._bundle_name(source_hash)
+        destination = accepted_root / self._version_name(source_hash, proposal_hash)
         if destination.exists() or destination.is_symlink():
             raise JDIntakeError("jd-accepted-already-exists")
         try:
@@ -191,21 +251,27 @@ class JDIntakeStore:
             "source_hash": source_hash,
         }
 
+    def verify_accepted(self, packet: AcceptedJDPacket) -> None:
+        """Require this exact packet's acceptance in the current workspace."""
+        matches = [
+            stored
+            for _manifest, stored in self._bundles("accepted")
+            if stored.raw_source.source_hash == packet.raw_source.source_hash
+            and stored.recorded_proposal.proposal_hash == packet.recorded_proposal.proposal_hash
+        ]
+        if not matches:
+            raise JDIntakeError("jd-accepted-missing")
+        if any(stored != packet for stored in matches):
+            raise JDIntakeError("jd-accepted-packet-mismatch")
+
+    def _source_count(self, kind: str) -> int:
+        return len({packet.raw_source.source_hash for _manifest, packet in self._bundles(kind)})
+
     def expectation_met(self, expectation: str) -> bool:
         if expectation == "prepared-exact-three":
-            prepared = self.root / "prepared"
-            return (
-                prepared.is_dir()
-                and not prepared.is_symlink()
-                and len(tuple(prepared.iterdir())) == 3
-            )
+            return self._source_count("prepared") == 3
         if expectation == "accepted-corpus-and-graph":
-            accepted = self.root / "accepted"
-            if not (
-                accepted.is_dir()
-                and not accepted.is_symlink()
-                and len(tuple(accepted.iterdir())) == 3
-            ):
+            if self._source_count("accepted") != 3:
                 return False
             try:
                 load_reviewed_user_graph(self.workspace)
@@ -233,21 +299,11 @@ class JDIntakeStore:
         if self.root.is_symlink() or not self.root.is_dir():
             raise JDIntakeError("jd-private-root-unsafe")
 
-        def bundle_count(name: str) -> int:
-            directory = self.root / name
-            if not directory.exists():
-                return 0
-            if directory.is_symlink() or not directory.is_dir():
-                raise JDIntakeError("jd-private-root-unsafe")
-            return sum(
-                1 for entry in directory.iterdir() if entry.is_dir() and not entry.is_symlink()
-            )
-
         manifest = self.root / "evaluation" / "manifest.json"
         return {
-            "accepted_count": bundle_count("accepted"),
+            "accepted_count": self._source_count("accepted"),
             "evaluation_present": manifest.is_file() and not manifest.is_symlink(),
-            "prepared_count": bundle_count("prepared"),
+            "prepared_count": self._source_count("prepared"),
         }
 
 
@@ -522,7 +578,12 @@ def load_reviewed_user_graph(
         if (
             proposal.source_envelope is None
             or proposal.source_envelope.authority_label != "reviewed-user-truth"
-            or proposal.assessment_status == "derived-counterfactual"
+            or proposal.assessment_status != "reviewed"
+            or proposal.origin_status == "derived-counterfactual"
+            or not proposal.substantive_review_complete
+            or not record.reviews
+            or len(record.versions) < 2
+            or record.reviews[-1].outcome not in {"confirm", "edit"}
             or record.admission.admission_status != "admitted"
             or not record.version_hash
         ):
@@ -599,6 +660,37 @@ def _judgment_for(
             skill_ids=requirement.skill_ids,
             limitation="Exact-Skill result lacks admitted Contribution evidence.",
         )
+    unverified_conditions = []
+    for name in (
+        "stated_strength",
+        "responsibility_expectation",
+        "context_expectation",
+        "seniority_expectation",
+        "duration_expectation",
+        "experience_expectation",
+    ):
+        expectation = getattr(requirement, name)
+        if not expectation or not expectation.strip():
+            continue
+        if name == "context_expectation" and all(
+            expectation in result.supporting_contexts for result in resolved
+        ):
+            continue
+        unverified_conditions.append(f"{name}: {expectation}")
+    if unverified_conditions:
+        return JDRequirementJudgment(
+            requirement_id=requirement.requirement_id,
+            status="uncertain",
+            skill_ids=requirement.skill_ids,
+            contribution_ids=contribution_ids,
+            evidence_ids=evidence_ids,
+            evidence_skill_ids=requirement.skill_ids,
+            established_capability=(
+                "Admitted reviewed-user-truth evidence exists for every exact Skill."
+            ),
+            limitation="JD conditions require separate verification: "
+            + "; ".join(unverified_conditions),
+        )
     if all(result.mastery >= requirement.minimum_mastery for result in resolved):
         return JDRequirementJudgment(
             requirement_id=requirement.requirement_id,
@@ -650,13 +742,18 @@ def _gap_for(
         return None
     if judgment.status == "unsupported":
         kind = "missing-capability"
-    elif judgment.status == "uncertain":
-        kind = "missing-evidence"
-    elif requirement.context_expectation and all(
-        requirement.context_expectation not in results_by_skill[skill_id].supporting_contexts
-        for skill_id in requirement.skill_ids
+    elif (
+        requirement.context_expectation
+        and requirement.context_expectation.strip()
+        and judgment.evidence_ids
+        and any(
+            requirement.context_expectation not in results_by_skill[skill_id].supporting_contexts
+            for skill_id in requirement.skill_ids
+        )
     ):
         kind = "context-mismatch"
+    elif judgment.status == "uncertain":
+        kind = "missing-evidence"
     else:
         kind = "uncertainty"
     return JDGap(

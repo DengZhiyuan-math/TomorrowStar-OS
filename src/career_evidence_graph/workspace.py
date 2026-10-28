@@ -51,9 +51,21 @@ def open_private_workspace(path: Path, *, public_root: Path | None = None) -> Pa
     """Return a separate private Git worktree without reading its Git history."""
     if path.is_symlink() or not path.is_dir():
         raise WorkspaceError("private-workspace-invalid")
-    root = _git_root(path)
-    public = _git_root(public_root or Path(__file__).resolve().parents[2])
-    if root == public or root.is_relative_to(public) or public.is_relative_to(root):
+    root, common_dir = _git_identity(path)
+    system = public_root or Path(__file__).resolve().parents[2]
+    try:
+        public, public_common_dir = _git_identity(system)
+    except WorkspaceError:
+        # An explicitly selected installed App has no source checkout or Git storage.
+        if public_root is None or system.is_symlink() or not system.is_dir():
+            raise
+        public, public_common_dir = system.resolve(strict=True), None
+    if (
+        root == public
+        or root.is_relative_to(public)
+        or public.is_relative_to(root)
+        or common_dir == public_common_dir
+    ):
         raise WorkspaceError("private-workspace-not-separate")
     return root
 
@@ -78,43 +90,66 @@ def record_self_report_source_successor(
     captured_at: str,
 ) -> dict[str, object]:
     """Append one captured self-report through an immutable Source-universe successor."""
+    return record_captured_source_successor(
+        workspace,
+        parent_registry_hash=parent_registry_hash,
+        source_id=source_id,
+        category="self-reports",
+        source_type="self-reported",
+        payload=statement,
+        captured_at=captured_at,
+    )
+
+
+def record_captured_source_successor(
+    workspace: Path,
+    *,
+    parent_registry_hash: str,
+    source_id: str,
+    category: str,
+    source_type: str,
+    payload: bytes,
+    captured_at: str,
+) -> dict[str, object]:
+    """Append one captured source without changing the base or parent registry."""
     root = open_private_workspace(workspace)
-    parent = _load_registry_by_hash(root, parent_registry_hash)
+    parent = load_source_universe_snapshot(root, registry_hash=parent_registry_hash)["registry"]
+    assert isinstance(parent, dict)
     if not isinstance(source_id, str) or not _ID.fullmatch(source_id):
         raise WorkspaceError("source-not-declared")
-    if not isinstance(statement, bytes) or not statement:
+    if not isinstance(payload, bytes) or not payload:
         raise WorkspaceError("capture-invalid")
     _parse_datetime(captured_at)
     if any(source.get("source_id") == source_id for source in parent["sources"]):
         raise WorkspaceError("source-already-declared")
 
-    digest = sha256_digest(statement)
-    raw_path = _raw_vault(root) / digest.removeprefix("sha256:")
-    if raw_path.exists() or raw_path.is_symlink():
-        raise WorkspaceError("raw-already-exists")
-    try:
-        with raw_path.open("xb") as handle:
-            handle.write(statement)
-    except OSError as exc:
-        raise WorkspaceError("raw-write-failed") from exc
-
+    digest = sha256_digest(payload)
     successor = deepcopy(parent)
     categories = successor["categories"]
     assert isinstance(categories, list)
-    if "self-reports" not in categories:
-        categories.append("self-reports")
+    if category not in categories:
+        categories.append(category)
     sources = successor["sources"]
     assert isinstance(sources, list)
     sources.append(
         {
             "source_id": source_id,
-            "category": "self-reports",
-            "source_type": "self-reported",
+            "category": category,
+            "source_type": source_type,
             "availability": "available",
             "capture": {"content_hash": digest, "captured_at": captured_at},
         }
     )
     _validate_declaration(successor)
+    raw_name = digest.removeprefix("sha256:")
+    raw_path = _raw_vault(root, raw_name) / raw_name
+    if raw_path.exists() or raw_path.is_symlink():
+        raise WorkspaceError("raw-already-exists")
+    try:
+        with raw_path.open("xb") as handle:
+            handle.write(payload)
+    except OSError as exc:
+        raise WorkspaceError("raw-write-failed") from exc
     successor_hash = _registry_hash(successor)
     _write_source_universe_successor(
         root,
@@ -140,6 +175,7 @@ def capture_source(
     """Create raw bytes once, then publish their hash and capture time on one source."""
     root = open_private_workspace(workspace)
     registry = _load_registry(root)
+    _ensure_registry_mutable(root)
     source = _source(registry, source_id)
     if source.get("availability") != "available":
         raise WorkspaceError("source-unavailable")
@@ -148,9 +184,9 @@ def capture_source(
     if not isinstance(payload, bytes) or not payload:
         raise WorkspaceError("capture-invalid")
     _parse_datetime(captured_at)
-    raw_root = _raw_vault(root)
     digest = sha256_digest(payload)
-    raw_path = raw_root / digest.removeprefix("sha256:")
+    raw_name = digest.removeprefix("sha256:")
+    raw_path = _raw_vault(root, raw_name) / raw_name
     if raw_path.exists() or raw_path.is_symlink():
         raise WorkspaceError("raw-already-exists")
     try:
@@ -176,6 +212,7 @@ def record_derived_mapping(
     """Record optional caller-supplied derivation lineage without creating output bytes."""
     root = open_private_workspace(workspace)
     registry = _load_registry(root)
+    _ensure_registry_mutable(root)
     source = _source(registry, source_id)
     capture = source.get("capture")
     if not isinstance(capture, dict) or capture.get("content_hash") != input_hash:
@@ -259,20 +296,30 @@ def load_source_universe_snapshot(
     }
 
 
-def _git_root(path: Path) -> Path:
+def _git_identity(path: Path) -> tuple[Path, Path]:
     try:
         result = subprocess.run(
-            ["git", "-C", str(path), "rev-parse", "--show-toplevel"],
+            [
+                "git",
+                "-C",
+                str(path),
+                "rev-parse",
+                "--path-format=absolute",
+                "--show-toplevel",
+                "--git-common-dir",
+            ],
             check=True,
             capture_output=True,
             text=True,
         )
-        root = Path(result.stdout.strip()).resolve(strict=True)
+        root_text, common_dir_text = result.stdout.splitlines()
+        root = Path(root_text).resolve(strict=True)
+        common_dir = Path(common_dir_text).resolve(strict=True)
     except (OSError, subprocess.CalledProcessError, ValueError) as exc:
         raise WorkspaceError("private-workspace-not-git") from exc
     if root.is_symlink() or not root.is_dir():
         raise WorkspaceError("private-workspace-invalid")
-    return root
+    return root, common_dir
 
 
 def _registry_path(root: Path) -> Path:
@@ -294,6 +341,18 @@ def _source_universe_revision_path(root: Path, registry_hash: str) -> Path:
 
 def _registry_hash(registry: dict[str, object]) -> str:
     return sha256_digest(canonical_json_bytes(registry))
+
+
+def _ensure_registry_mutable(root: Path) -> None:
+    """Keep the current registry available as the root of published successors."""
+    revisions = root / ".career-evidence" / "source-universe-revisions"
+    if revisions.is_symlink():
+        raise WorkspaceError("private-path-invalid")
+    try:
+        if revisions.exists() and any(revisions.iterdir()):
+            raise WorkspaceError("registry-frozen")
+    except OSError as exc:
+        raise WorkspaceError("private-path-invalid") from exc
 
 
 def _load_registry_by_hash(root: Path, registry_hash: str | None) -> dict[str, object]:
@@ -346,7 +405,7 @@ def _write_source_universe_successor(
         raise WorkspaceError("source-universe-revision-write-failed") from exc
 
 
-def _raw_vault(root: Path) -> Path:
+def _raw_vault(root: Path, raw_name: str) -> Path:
     ignored = root / ".gitignore"
     try:
         ignored_lines = ignored.read_text(encoding="utf-8").splitlines()
@@ -358,6 +417,29 @@ def _raw_vault(root: Path) -> Path:
     raw = evidence / "raw"
     if any(path.is_symlink() for path in (evidence, raw)):
         raise WorkspaceError("private-path-invalid")
+    try:
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(root),
+                "check-ignore",
+                "--quiet",
+                "--",
+                f".career-evidence/raw/{raw_name}",
+            ],
+            check=True,
+            capture_output=True,
+        )
+        tracked = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "--cached", "-z", "--", ".career-evidence/raw/"],
+            check=True,
+            capture_output=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise WorkspaceError("raw-vault-not-ignored") from exc
+    if tracked.stdout:
+        raise WorkspaceError("raw-vault-not-ignored")
     try:
         raw.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
@@ -439,9 +521,9 @@ def _validate_declaration(value: dict[str, object]) -> None:
                 raise ValueError
             reason = source.get("unavailability_reason")
             if availability == "available":
-                if reason is not None:
+                if "unavailability_reason" in source:
                     raise ValueError
-            elif not isinstance(reason, str) or not reason:
+            elif "unavailability_reason" in source and (not isinstance(reason, str) or not reason):
                 raise ValueError
             _validate_capture(source.get("capture"))
             _validate_derived(source.get("derived"))

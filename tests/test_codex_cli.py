@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -143,7 +145,8 @@ def test_runner_uses_shell_false_redacts_secrets_and_retains_raw_jsonl(tmp_path)
     )
 
     assert all(kwargs["shell"] is False for _, kwargs in runner.calls)
-    assert runner.calls[-1][0][-1] == prompt
+    assert runner.calls[-1][0][-1] == "-"
+    assert runner.calls[-1][1]["input"] == prompt
     assert "UNRELATED_SECRET" not in runner.calls[-1][1]["env"]
     assert secret not in result.model_dump_json()
     assert "<redacted:OPENAI_API_KEY>" in result.redacted_stderr
@@ -152,6 +155,147 @@ def test_runner_uses_shell_false_redacts_secrets_and_retains_raw_jsonl(tmp_path)
     assert result.model_identity.model_alias == "gpt-5.6-luna"
     assert result.model_drift_limitation is not None
     assert result.sanitized_argv[-1].startswith("<prompt:sha256:")
+
+
+def test_prompt_larger_than_argument_limit_uses_dedicated_subprocess_input(tmp_path):
+    prompt = "Synthetic large prompt\n" + "中文" * os.sysconf("SC_ARG_MAX")
+    runner = FakeRunner(_success_process())
+    result = run_codex_exec(_config(tmp_path), prompt, runner=runner)
+
+    version_argv, version_options = runner.calls[0]
+    argv, options = runner.calls[1]
+    assert version_argv == ["codex", "--version"]
+    assert "input" not in version_options
+    assert len(prompt.encode()) > os.sysconf("SC_ARG_MAX")
+    assert argv[-1] == "-" and prompt not in argv
+    assert sum(len(argument.encode()) + 1 for argument in argv) < os.sysconf("SC_ARG_MAX")
+    assert options["input"] == prompt and options["text"] is True
+    assert "stdin" not in options
+    assert result.sanitized_argv[-1] == f"<prompt:{result.prompt_hash}>"
+    assert result.structured_result == {"status": "ok"}
+
+
+@pytest.mark.parametrize("change", ["edit", "delete", "symlink", "snapshot-edit"])
+def test_schema_changed_during_call_cannot_be_sealed_with_success(tmp_path, change):
+    config = _config(tmp_path)
+    schema_before = config.output_schema.read_bytes()
+    used_schemas = []
+    raw = (
+        '{"type":"turn.completed","usage":{"input_tokens":37,"output_tokens":11}}\n'
+        '{"type":"structured_result","result":{"status":"ok"}}\n'
+    )
+
+    def changing_schema(argv, **kwargs):
+        if argv[-1] == "--version":
+            return subprocess.CompletedProcess(argv, 0, "codex-cli synthetic\n", "")
+        selected = Path(argv[argv.index("--output-schema") + 1])
+        used_schemas.append(selected.read_bytes())
+        if change == "edit":
+            config.output_schema.write_text('{"type":"object","required":["changed"]}')
+            assert selected.read_bytes() == schema_before
+        elif change == "snapshot-edit":
+            selected.chmod(0o600)
+            selected.write_text("{}")
+        else:
+            config.output_schema.unlink()
+            if change == "symlink":
+                config.output_schema.symlink_to(selected)
+        return subprocess.CompletedProcess(argv, 0, raw, "Synthetic diagnostic openai-secret")
+
+    with pytest.raises(CodexCLIError, match="schema changed") as raised:
+        run_codex_exec(
+            config,
+            "Synthetic prompt",
+            runner=changing_schema,
+            environment={"OPENAI_API_KEY": "openai-secret"},
+        )
+
+    assert used_schemas == [schema_before]
+    assert raised.value.raw_stdout_jsonl == raw
+    assert raised.value.redacted_stderr == "Synthetic diagnostic <redacted:OPENAI_API_KEY>"
+    assert not list(tmp_path.glob(".codex-schema-*"))
+
+
+@pytest.mark.parametrize("outcome", ["timeout", "nonzero"])
+def test_failed_schema_drift_call_retains_partial_usage_and_cleans_snapshot(tmp_path, outcome):
+    config = _config(tmp_path)
+    raw = (
+        '{"type":"turn.completed","usage":{"input_tokens":37,"output_tokens":11}}\n'
+        '{"type":"error","message":"Synthetic openai-secret"}\n'
+    )
+
+    def failing_call(argv, **kwargs):
+        if argv[-1] == "--version":
+            return subprocess.CompletedProcess(argv, 0, "codex-cli synthetic\n", "")
+        config.output_schema.write_text("{}")
+        if outcome == "timeout":
+            raise subprocess.TimeoutExpired(
+                argv, kwargs["timeout"], output=raw.encode(), stderr=b"openai-secret"
+            )
+        return subprocess.CompletedProcess(argv, 1, raw, "openai-secret")
+
+    with pytest.raises(CodexCLIError) as raised:
+        run_codex_exec(
+            config,
+            "Synthetic prompt",
+            runner=failing_call,
+            environment={"OPENAI_API_KEY": "openai-secret"},
+        )
+
+    assert raised.value.raw_stdout_jsonl == raw.replace(
+        "openai-secret", "<redacted:OPENAI_API_KEY>"
+    )
+    assert raised.value.redacted_stderr == "<redacted:OPENAI_API_KEY>"
+    assert not list(tmp_path.glob(".codex-schema-*"))
+
+
+@pytest.mark.parametrize("change", ["edit", "delete", "symlink"])
+def test_schema_drift_before_exec_stops_the_call(tmp_path, change):
+    config = _config(tmp_path)
+    calls = []
+
+    def changing_before_exec(argv, **kwargs):
+        calls.append(argv)
+        if change == "edit":
+            config.output_schema.write_text("{}")
+        else:
+            original = config.output_schema.read_bytes()
+            config.output_schema.unlink()
+            if change == "symlink":
+                replacement = tmp_path / "replacement.schema.json"
+                replacement.write_bytes(original)
+                config.output_schema.symlink_to(replacement)
+        return subprocess.CompletedProcess(argv, 0, "codex-cli synthetic\n", "")
+
+    with pytest.raises(CodexCLIError, match="schema changed"):
+        run_codex_exec(config, "Synthetic prompt", runner=changing_before_exec)
+
+    assert calls == [["codex", "--version"]]
+    assert not list(tmp_path.glob(".codex-schema-*"))
+
+
+def test_success_hash_binds_to_the_actual_private_schema_snapshot(tmp_path):
+    config = _config(tmp_path)
+    snapshots = []
+
+    def checking_schema(argv, **kwargs):
+        if argv[-1] == "--version":
+            return subprocess.CompletedProcess(argv, 0, "codex-cli synthetic\n", "")
+        selected = Path(argv[argv.index("--output-schema") + 1])
+        assert selected != config.output_schema
+        assert selected.is_relative_to(config.workspace)
+        assert selected.read_bytes() == b'{"type": "object", "required": ["status"]}'
+        assert selected.stat().st_mode & 0o777 == 0o400
+        snapshots.append(selected)
+        return _success_process()
+
+    result = run_codex_exec(config, "Synthetic prompt", runner=checking_schema)
+
+    assert result.output_schema_hash == (
+        "sha256:54ae0f996c6b27bd8a2b46ba66366b5819b658462c2c2abedf06ba7509f8d450"
+    )
+    assert not snapshots[0].exists()
+    assert config.output_schema.read_bytes() == b'{"type": "object", "required": ["status"]}'
 
 
 def test_untrusted_event_cannot_claim_an_immutable_model_snapshot(tmp_path):
@@ -174,8 +318,175 @@ def test_untrusted_event_cannot_claim_an_immutable_model_snapshot(tmp_path):
     ),
 )
 def test_nonzero_malformed_or_missing_result_never_succeeds(tmp_path, process):
-    with pytest.raises(CodexCLIError):
+    with pytest.raises(CodexCLIError) as raised:
         run_codex_exec(_config(tmp_path), "prompt", runner=FakeRunner(process))
+    assert raised.value.raw_stdout_jsonl == process.stdout
+
+
+def test_failed_structured_call_retains_redacted_error_events(tmp_path):
+    secret = "sentinel-failed-call-secret"
+    stdout = json.dumps({"type": "error", "message": f"invalid schema {secret}"}) + "\n"
+    process = subprocess.CompletedProcess(["codex"], 1, stdout, f"diagnostic {secret}")
+    with pytest.raises(CodexCLIError) as raised:
+        run_codex_exec(
+            _config(tmp_path),
+            "prompt",
+            runner=FakeRunner(process),
+            environment={"OPENAI_API_KEY": secret},
+        )
+    assert "invalid schema" in raised.value.raw_stdout_jsonl
+    assert secret not in raised.value.raw_stdout_jsonl + raised.value.redacted_stderr
+
+
+@pytest.mark.parametrize("phase", ["version", "exec"])
+@pytest.mark.parametrize("output_type", ["text", "bytes", "none"])
+def test_timeout_retains_decoded_redacted_partial_output(tmp_path, phase, output_type):
+    raw = (
+        '{"type":"error","message":"Synthetic 模型输出 openai-secret codex-secret"}\n'
+        '{"type":"turn.completed","usage":{"input_tokens":37,"output_tokens":11}}\n'
+    )
+    stderr = "Synthetic 诊断 openai-secret codex-secret"
+    calls = []
+
+    def timed_out(argv, **kwargs):
+        calls.append(argv)
+        if phase == "exec" and argv[-1] == "--version":
+            return subprocess.CompletedProcess(argv, 0, "codex-cli synthetic\n", "")
+        output = raw if output_type == "text" else raw.encode() if output_type == "bytes" else None
+        error = (
+            stderr if output_type == "text" else stderr.encode() if output_type == "bytes" else None
+        )
+        raise subprocess.TimeoutExpired(argv, kwargs["timeout"], output=output, stderr=error)
+
+    with pytest.raises(CodexCLIError, match="timed out") as raised:
+        run_codex_exec(
+            _config(tmp_path),
+            "Synthetic private prompt",
+            runner=timed_out,
+            environment={"OPENAI_API_KEY": "openai-secret", "CODEX_API_KEY": "codex-secret"},
+        )
+
+    expected_raw = raw.replace("openai-secret", "<redacted:OPENAI_API_KEY>").replace(
+        "codex-secret", "<redacted:CODEX_API_KEY>"
+    )
+    expected_stderr = stderr.replace("openai-secret", "<redacted:OPENAI_API_KEY>").replace(
+        "codex-secret", "<redacted:CODEX_API_KEY>"
+    )
+    assert raised.value.raw_stdout_jsonl == (expected_raw if output_type != "none" else "")
+    assert raised.value.redacted_stderr == (expected_stderr if output_type != "none" else "")
+    assert "Synthetic private prompt" not in str(raised.value)
+    assert len(calls) == (2 if phase == "exec" else 1)
+
+
+def test_explicit_codex_executable_works_without_terminal_path(tmp_path):
+    executable = tmp_path / "installed-cli"
+    executable.write_text(
+        '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "codex-cli synthetic"; '
+        'else echo \'{"type":"structured_result","result":{"status":"ok"}}\'; fi\n'
+    )
+    executable.chmod(0o700)
+
+    result = run_codex_exec(
+        _config(tmp_path),
+        "Synthetic prompt",
+        environment={
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "TOMORROWSTAR_CODEX_EXECUTABLE": str(executable),
+        },
+    )
+
+    assert result.structured_result == {"status": "ok"}
+    assert result.cli_version == "codex-cli synthetic"
+    assert result.sanitized_argv[0] == str(executable)
+
+
+def test_exec_completes_without_consuming_the_native_parent_input_pipe(tmp_path):
+    config = _config(tmp_path)
+    cli_script = tmp_path / "synthetic-cli.py"
+    cli_script.write_text(
+        "import json, os, sys\n"
+        "if sys.argv[1:] == ['--version']:\n"
+        "    print('codex-cli synthetic')\n"
+        "else:\n"
+        "    prompt = sys.stdin.read()\n"
+        "    assert sys.argv[-1] == '-'\n"
+        "    assert len(prompt.encode()) > os.sysconf('SC_ARG_MAX')\n"
+        "    assert prompt == 'Synthetic stdin prompt\\n' + '中文' * os.sysconf('SC_ARG_MAX')\n"
+        "    print(json.dumps({'type': 'structured_result', 'result': {'status': 'ok'}}))\n"
+    )
+    executable = tmp_path / "synthetic-cli"
+    executable.write_text(
+        f'#!/bin/sh\nexec {shlex.quote(sys.executable)} {shlex.quote(str(cli_script))} "$@"\n'
+    )
+    executable.chmod(0o700)
+    parent_script = (
+        "import json, os, sys\n"
+        f"sys.path.insert(0, {str(Path(__file__).resolve().parents[1] / 'src')!r})\n"
+        "from career_evidence_graph.codex_cli import "
+        "CodexCLIConfig, CodexCLIError, run_codex_exec\n"
+        f"config = CodexCLIConfig.model_validate_json({config.model_dump_json()!r})\n"
+        "try:\n"
+        "    prompt = 'Synthetic stdin prompt\\n' + '中文' * os.sysconf('SC_ARG_MAX')\n"
+        "    result = run_codex_exec(config, prompt, timeout_seconds=1)\n"
+        "except CodexCLIError as exc:\n"
+        "    print(json.dumps({'error': str(exc), 'stdout': exc.raw_stdout_jsonl, "
+        "'stderr': exc.redacted_stderr}))\n"
+        "else:\n"
+        "    print(json.dumps({'result': result.structured_result, "
+        "'parent_input': sys.stdin.readline().strip()}))\n"
+    )
+
+    # Keep the native host's input pipe open throughout the CLI invocation.
+    with subprocess.Popen(
+        [sys.executable, "-c", parent_script],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env={
+            **os.environ,
+            "TOMORROWSTAR_CODEX_EXECUTABLE": str(executable),
+        },
+    ) as parent:
+        assert parent.stdin is not None
+        parent.stdin.write("Synthetic parent monitor input\n")
+        parent.stdin.flush()
+        try:
+            parent.wait(timeout=5)
+        finally:
+            if parent.poll() is None:
+                parent.kill()
+                parent.wait(timeout=5)
+        assert parent.stdout is not None
+        assert parent.stderr is not None
+        assert parent.returncode == 0, parent.stderr.read()
+        report = json.loads(parent.stdout.read())
+
+    assert report == {
+        "result": {"status": "ok"},
+        "parent_input": "Synthetic parent monitor input",
+    }
+
+
+@pytest.mark.parametrize("target", ["relative", "missing", "directory", "not-executable"])
+def test_invalid_configured_codex_is_rejected_before_any_process(tmp_path, target):
+    selected = tmp_path / target
+    if target == "directory":
+        selected.mkdir()
+    elif target == "not-executable":
+        selected.write_text("Synthetic data")
+        selected.chmod(0o600)
+    runner = FakeRunner(_success_process())
+    with pytest.raises(CodexCLIError, match="executable is unavailable"):
+        run_codex_exec(
+            _config(tmp_path),
+            "Synthetic prompt",
+            runner=runner,
+            environment={
+                "TOMORROWSTAR_CODEX_EXECUTABLE": "codex" if target == "relative" else str(selected)
+            },
+        )
+    assert runner.calls == []
 
 
 def test_schema_and_workspace_symlink_escapes_are_rejected(tmp_path):
@@ -316,8 +627,8 @@ def test_live_store_rejects_raw_jsonl_mismatch(tmp_path, charter_path):
 def test_operator_documentation_keeps_live_claims_bounded_and_commands_separate():
     document = Path("docs/validation-runs.md").read_text(encoding="utf-8")
 
-    assert "uv run --locked career-evidence run create" in document
-    assert "uv run --locked career-evidence replay" in document
+    assert "uv run --locked python scripts/run_career_evidence.py run create" in document
+    assert "uv run --locked python scripts/run_career_evidence.py replay" in document
     assert "CAREER_EVIDENCE_ENABLE_LIVE_MODEL=1" in document
     assert "--model gpt-5.6-luna" in document
     assert 'model_reasoning_effort="medium"' in document

@@ -5,7 +5,8 @@
   "required": ["contribution_id", "areas"],
   "properties": {
     "schema_version": {"const": "audit-probe-plan/v1"},
-    "contribution_id": {"type": "string", "pattern": "^contrib-stoa-[a-z0-9-]+$"},
+    "contribution_id": {"type": "string", "pattern": "^contrib-[a-z0-9-]+$"},
+    "question_layer": {"enum": ["project-depth", "transfer"]},
     "areas": {
       "type": "array",
       "minItems": 1,
@@ -21,7 +22,18 @@
           "demanding_prompt": {"type": "string", "minLength": 1},
           "intermediate_prompt": {"type": "string", "minLength": 1},
           "simple_prompt": {"type": "string", "minLength": 1},
-          "immediately_higher_capability": {"type": "string", "minLength": 1}
+          "immediately_higher_capability": {"type": "string", "minLength": 1},
+          "changed_condition": {"type": "string", "minLength": 1},
+          "evaluation_criteria": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["hard", "intermediate", "simple"],
+            "properties": {
+              "hard": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+              "intermediate": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+              "simple": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+            }
+          }
         }
       }
     }

@@ -37,7 +37,7 @@ def _payload() -> dict[str, object]:
         "raw_source_id": "source-schema-only",
         "proposal_kind": "schema-only-contract-probe",
     }
-    return {
+    payload = {
         "schema_version": "accepted-jd-packet/v1",
         "packet_id": "packet-schema-only",
         "raw_source": {
@@ -85,6 +85,11 @@ def _payload() -> dict[str, object]:
             },
         ],
     }
+    proposal["requirements"] = payload["requirements"]
+    recorded = json.dumps(proposal, sort_keys=True)
+    payload["recorded_proposal"]["proposal_json"] = recorded
+    payload["recorded_proposal"]["proposal_hash"] = sha256_digest(recorded.encode("utf-8"))
+    return payload
 
 
 def _packet() -> AcceptedJDPacket:
@@ -136,6 +141,58 @@ def test_accepted_packet_fails_closed_on_empty_or_duplicate_or_extra_input() -> 
     extra["unexpected"] = True
     with pytest.raises(ValidationError):
         AcceptedJDPacket.model_validate(extra)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("requirement_id", "changed-requirement"),
+        ("skill_ids", ["skill.changed"]),
+        ("decision_critical", False),
+        ("priority", "preferred"),
+        ("core_hard", False),
+        ("evidence_strong_eligible", True),
+        ("linked_requirement_group_id", "changed-group"),
+        ("minimum_mastery", 99),
+        ("stated_strength", "Expert knowledge is required."),
+        ("responsibility_expectation", "Own the release decision."),
+        ("context_expectation", "Production operations."),
+        ("seniority_expectation", "Senior engineer."),
+        ("duration_expectation", "Five verified years."),
+        ("experience_expectation", "Two completed migrations."),
+    ),
+)
+def test_every_accepted_requirement_field_is_bound_to_the_recorded_proposal(
+    field: str, value: object
+) -> None:
+    payload = _payload()
+    payload["requirements"][0][field] = value
+
+    with pytest.raises(ValidationError, match="requirements must match the recorded proposal"):
+        AcceptedJDPacket.model_validate(payload)
+
+
+def test_requirement_spans_and_order_cannot_reuse_a_recorded_proposal() -> None:
+    changed_span = _payload()
+    changed_span["requirements"][0]["source_span"] = changed_span["requirements"][1]["source_span"]
+    reordered = _payload()
+    reordered["requirements"].reverse()
+
+    for payload in (changed_span, reordered):
+        with pytest.raises(ValidationError, match="requirements must match the recorded proposal"):
+            AcceptedJDPacket.model_validate(payload)
+
+
+def test_a_valid_hash_of_metadata_alone_cannot_confirm_requirements() -> None:
+    payload = _payload()
+    proposal = json.loads(payload["recorded_proposal"]["proposal_json"])
+    del proposal["requirements"]
+    recorded = json.dumps(proposal, sort_keys=True)
+    payload["recorded_proposal"]["proposal_json"] = recorded
+    payload["recorded_proposal"]["proposal_hash"] = sha256_digest(recorded.encode("utf-8"))
+
+    with pytest.raises(ValidationError, match="requirements must match the recorded proposal"):
+        AcceptedJDPacket.model_validate(payload)
 
 
 def test_positive_and_partial_judgments_require_evidence_and_limitation() -> None:

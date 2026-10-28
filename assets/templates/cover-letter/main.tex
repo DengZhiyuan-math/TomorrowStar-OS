@@ -1,0 +1,47 @@
+% Cover Letter template with placeholders; the filled personal copy lives in the private workspace.
+\documentclass[11pt,a4paper]{article}
+\usepackage[left=24mm,right=24mm,top=25mm,bottom=23mm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{xcolor}
+\usepackage[hidelinks]{hyperref}
+\hypersetup{pdftitle={[Full name] - Cover Letter},pdfauthor={[Full name]}}
+\definecolor{LetterAccent}{HTML}{253F54}
+\definecolor{LetterMuted}{HTML}{58636B}
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.8em}
+\linespread{1.06}
+\raggedright
+\newcommand{\LetterRoleTitle}{[Position title]}
+\begin{document}
+% Fixed identity and contact links; fill from the confirmed resume in the private copy.
+{\sffamily\bfseries\fontsize{24}{28}\selectfont\color{LetterAccent} [Full name]}%
+\hfill{\sffamily\fontsize{8}{10}\selectfont\color{LetterMuted} COVER LETTER}\par
+\vspace{-0.35em}
+{\sffamily\fontsize{9}{11}\selectfont\color{LetterMuted}
+\href{mailto:name@example.invalid}{name@example.invalid}\enspace\textbar{}\enspace
+\href{https://example.invalid/}{Website}\enspace\textbar{}\enspace
+\href{https://example.invalid/github}{GitHub}}
+
+\vspace{0.35em}
+{\color{LetterAccent}\hrule height 0.6pt}
+\vspace{1em}
+
+% Add the actual date, recipient and role for each application when needed.
+% BEGIN LETTER OPENING
+Dear Hiring Team,
+
+My name is [Full name], and I am writing to apply for \LetterRoleTitle{}. [Fixed self-introduction: current status, institution and focus, reused from confirmed records.]
+% END LETTER OPENING
+
+% BEGIN LETTER BODY
+% END LETTER BODY
+
+\vspace{0.15em}
+Thank you for your time and consideration.
+
+\vspace{0.25em}
+\nopagebreak[4]
+Sincerely,\\
+[Full name]
+\end{document}

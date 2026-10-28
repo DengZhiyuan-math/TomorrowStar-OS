@@ -1,0 +1,225 @@
+{
+  "policy_version": "documentary-match/v1",
+  "cases": [
+    {
+      "id": "fully-supported",
+      "requirements": [
+        [
+          "Python",
+          "required",
+          "supported",
+          false
+        ],
+        [
+          "Rust",
+          "preferred",
+          "supported",
+          false
+        ]
+      ],
+      "expected": {
+        "lower": 100,
+        "upper": 100,
+        "coverage": 100,
+        "eligibility": "not_specified"
+      }
+    },
+    {
+      "id": "partial-support",
+      "requirements": [
+        [
+          "Python",
+          "required",
+          "partial",
+          false
+        ],
+        [
+          "Rust",
+          "preferred",
+          "supported",
+          false
+        ]
+      ],
+      "expected": {
+        "lower": 62.5,
+        "upper": 62.5,
+        "coverage": 100,
+        "eligibility": "not_specified"
+      }
+    },
+    {
+      "id": "missing-evidence",
+      "requirements": [
+        [
+          "Python",
+          "required",
+          "unknown",
+          false
+        ],
+        [
+          "Rust",
+          "preferred",
+          "supported",
+          false
+        ]
+      ],
+      "expected": {
+        "lower": 25,
+        "upper": 100,
+        "coverage": 25,
+        "eligibility": "not_specified"
+      }
+    },
+    {
+      "id": "known-gap",
+      "requirements": [
+        [
+          "Python",
+          "required",
+          "gap",
+          false
+        ],
+        [
+          "Rust",
+          "preferred",
+          "supported",
+          false
+        ]
+      ],
+      "expected": {
+        "lower": 25,
+        "upper": 25,
+        "coverage": 100,
+        "eligibility": "not_specified"
+      }
+    },
+    {
+      "id": "hard-unknown",
+      "requirements": [
+        [
+          "Work permission",
+          "required",
+          "unknown",
+          true
+        ],
+        [
+          "Rust",
+          "preferred",
+          "supported",
+          false
+        ]
+      ],
+      "expected": {
+        "lower": 25,
+        "upper": 100,
+        "coverage": 25,
+        "eligibility": "needs_input"
+      }
+    },
+    {
+      "id": "hard-conflict",
+      "requirements": [
+        [
+          "Work permission",
+          "required",
+          "gap",
+          true
+        ],
+        [
+          "Rust",
+          "preferred",
+          "supported",
+          false
+        ]
+      ],
+      "expected": {
+        "lower": 25,
+        "upper": 25,
+        "coverage": 100,
+        "eligibility": "conflict"
+      }
+    },
+    {
+      "id": "all-unknown",
+      "requirements": [
+        [
+          "Python",
+          "required",
+          "unknown",
+          false
+        ],
+        [
+          "Rust",
+          "preferred",
+          "unknown",
+          false
+        ]
+      ],
+      "expected": {
+        "lower": 0,
+        "upper": 100,
+        "coverage": 0,
+        "eligibility": "not_specified"
+      }
+    },
+    {
+      "id": "same-career-python-jd",
+      "requirements": [
+        [
+          "Python",
+          "required",
+          "supported",
+          false
+        ]
+      ],
+      "expected": {
+        "lower": 100,
+        "upper": 100,
+        "coverage": 100,
+        "eligibility": "not_specified"
+      }
+    },
+    {
+      "id": "same-career-rust-jd",
+      "requirements": [
+        [
+          "Rust",
+          "required",
+          "unknown",
+          false
+        ]
+      ],
+      "expected": {
+        "lower": 0,
+        "upper": 100,
+        "coverage": 0,
+        "eligibility": "not_specified"
+      }
+    },
+    {
+      "id": "hard-partial",
+      "requirements": [["Work permission", "required", "partial", true]],
+      "expected": {"lower": 50, "upper": 50, "coverage": 100, "eligibility": "needs_input"}
+    },
+    {
+      "id": "hard-supported",
+      "requirements": [["Work permission", "required", "supported", true]],
+      "expected": {"lower": 100, "upper": 100, "coverage": 100, "eligibility": "supported"}
+    },
+    {
+      "id": "duplicate-requirement",
+      "requirements": [["Python", "required", "supported", false], ["  PYTHON. ", "required", "supported", false], ["Rust", "preferred", "gap", false]],
+      "expected": {"lower": 75, "upper": 75, "coverage": 100, "eligibility": "not_specified"}
+    },
+    {
+      "id": "no-requirements",
+      "requirements": [],
+      "expected": {
+        "lower": null,
+        "upper": null,
+        "coverage": null,
+        "eligibility": "not_specified"
+      }
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "date": "2026-10-10",
+  "mode": "synthetic_independent_worker",
+  "playwright": "1.63.0",
+  "chromium_build": "1243",
+  "source_sha256": {
+    "src/career_evidence_graph/application_worker.py": "81cd6b021ea4d6ef4305b60b35bc9b7eacb54ff6fb30e7d4f94a54b410249407",
+    "src/career_evidence_graph/application_worker_browser.py": "95aa2faffbd6e6ca86b6d5dcc9a74c2bdaeee60d1d7ba063e7d08c3865dd1bd2",
+    "src/career_evidence_graph/ats_forms.py": "25b5f990e1f511425c45d0b2c124c5d7bd4bafb78099100dd21faf726c365723",
+    "src/career_evidence_graph/lever_worker.py": "88c2d532ca9366477f7641d0fd4a2a9f938702f89c5f4b43d92bcf5d6d424183",
+    "src/career_evidence_graph/application_worker_fixtures.py": "8d9abb55f449ef1b1ed9a4106ca1a7e1e8c6df154998bf26c4ef4ed330448dc6",
+    "src/career_evidence_graph/career_portal.py": "e93cac7170314f04814c526b7ca34989182954013eb7717d9c7debf614f40ca6",
+    "src/career_evidence_graph/career_portal_data.py": "952f23331083fd9892840bd4b83a6e2e54faf2b050d7b511947237b280d31248",
+    "src/career_evidence_graph/portal_static/worker.js": "45dbb305f583edffcb9e9f9e7bbd5899deee1b75bd496b89dc6044255bc19e37",
+    "src/career_evidence_graph/portal_static/index.html": "356416e1bb32f1913ed1f9d23f9e40e5c26f4c523500dd667f68dd516319090f",
+    "src/career_evidence_graph/_vendor/job_apply_store.py": "aeff412145497a87929c04b712a2f87bf4521256c67c98f6b4bc0271c5655d03",
+    "scripts/run_application_worker.py": "7e4bbbe4e2c01a9ff92367e34fadd92aafc760141d6dc35ee8d2e8ffebc0c1b7",
+    "scripts/run_application_preview.py": "b52e50b57ab47ac8ef5feb813b18d32c00877210d6803bc57af10e3c757e97f1",
+    "scripts/run_lever_preview.py": "b6e7c4332ec7563b9247e70b431bab7c9a7c4a1423b62946bad65f7ace353086",
+    "tests/test_application_worker.py": "18337c9173ddf4f71229db539b9c4a016aac807093f42823faf678352efb3d52",
+    "tests/test_lever_worker_browser.py": "320ed0c43714a400f8fa65f2eab4ef4e2d970a8f2fdff63daf3319c3f3020bd8",
+    "tests/test_greenhouse_worker_browser.py": "dd995f5e75c44792aa3d195b50b4339d694e1886103b031c80a27324966494f9",
+    "tests/worker_preview_support.py": "8826afe7d430dfbeb60a86c70df3f7740c5372409cd9ab0aeede4ceff29b6dad",
+    "pyproject.toml": "62546f2a1e7dbbf1f5f4a0fb7c351d2066fbd74c7c893c194e9e16fa34e329be",
+    "uv.lock": "8cc53c5f479e664641bb533d242271c9564bab0efde7104795eeae7b5bcb2dbe"
+  }
+}

@@ -1,0 +1,34 @@
+version = 1
+name = "TomorrowStar OS"
+
+[setup]
+script = "uv sync --locked --group dev"
+
+[[actions]]
+name = "CLI help"
+icon = "tool"
+command = "uv run --locked python scripts/run_career_evidence.py --help"
+
+[[actions]]
+name = "Career portal"
+icon = "run"
+command = "uv run --locked python scripts/run_career_portal.py"
+
+[[actions]]
+name = "Offline tests"
+icon = "test"
+command = "uv run --locked python scripts/run_pytest.py -q"
+
+[[actions]]
+name = "Lint and format check"
+icon = "debug"
+command = '''
+set -e
+uv run --locked ruff check --no-cache --extend-exclude .scratch .
+uv run --locked ruff format --check --no-cache --extend-exclude .scratch .
+'''
+
+[[actions]]
+name = "Build wheel"
+icon = "tool"
+command = "uv build --wheel"
