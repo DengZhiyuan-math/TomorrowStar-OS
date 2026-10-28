@@ -147,6 +147,45 @@ _RUNTIME_MODULES = {
         "resume_presentation",
         "url_safety",
         "validation.hashing",
+        # MC-20: the rest of the role's static import closure (module-level and function-local),
+        # e.g. the delivered-material check's lazy imports. load_worker_modules imports them all
+        # before the identity is recorded; controller-side paths are covered, not executed.
+        "application_benchmark",
+        "application_career_library",
+        "application_content_reconcile",
+        "application_existing_handoff",
+        "application_existing_materials",
+        "application_experience_content",
+        "application_explanations",
+        "application_group_review",
+        "application_handoff",
+        "application_inference",
+        "application_input_limits",
+        "application_job_brief",
+        "application_match",
+        "application_match_recheck",
+        "application_match_refresh",
+        "application_match_scoring",
+        "application_matching_pipeline",
+        "application_material_batch",
+        "application_material_consistency",
+        "application_material_packet",
+        "application_material_sources",
+        "application_pdf_reuse",
+        "application_preparation",
+        "application_prism_review",
+        "application_proofread",
+        "application_resume",
+        "application_resume_author",
+        "application_resume_versions",
+        "application_retrieval",
+        "application_source_reuse",
+        "application_writing",
+        "career_experience_import",
+        "career_experiences",
+        "chrome_registration",
+        "resume_template",
+        "validation.store",
     ),
 }
 _NAMESPACE = "python-loaded-code/v1"
@@ -332,6 +371,12 @@ def _revision(role, module_names):
 def load_controller_modules() -> None:
     """Explicit startup loading; status reads need only inspect sys.modules."""
     for name in _RUNTIME_MODULES["controller"]:
+        import_module(f".{name}", __package__)
+
+
+def load_worker_modules() -> None:
+    """Load lazily imported worker code before the worker records its identity."""
+    for name in _RUNTIME_MODULES["worker"]:
         import_module(f".{name}", __package__)
 
 

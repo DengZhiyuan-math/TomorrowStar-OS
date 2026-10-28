@@ -70,6 +70,55 @@ print(json.dumps({
     assert runtime["loaded_engine_revision"] == measured["loaded_identity"]
     assert measured["readiness_loaded"] and measured["single_binding_loaded"]
     assert measured["fixed_source_loaded"]
-    assert not measured["controller_loaded"] and not measured["preparation_loaded"]
+    assert not measured["controller_loaded"]
+    # MC-20: the worker role covers its full static import closure, so preparation code
+    # is loaded (measured, not run) before the identity is recorded.
+    assert measured["preparation_loaded"]
     assert "current_build" not in runtime
     assert not (tmp_path / "runtime/browser-profile").exists()
+
+
+def test_recorded_worker_identity_matches_the_packaged_build_measurement(tmp_path):
+    # MC-20: the installed App compares the running worker's recorded identity with the build
+    # measurement (macos/build.py), so the two separate processes must agree. Stop at
+    # Playwright's own context manager: rebinding a worker module name would change the identity.
+    source = Path(__file__).resolve().parents[1] / "src"
+    worker = """
+import sys
+from pathlib import Path
+
+sys.path.insert(0, sys.argv[1])
+from playwright.sync_api._context_manager import PlaywrightContextManager
+from career_evidence_graph import application_worker_browser as browser
+
+def stop_before_browser(self):
+    raise browser.Error("bounded_startup_probe")
+
+PlaywrightContextManager.__enter__ = stop_before_browser
+applications = Path(sys.argv[2]) / "applications"
+applications.mkdir()
+runtime = Path(sys.argv[2]) / "runtime"
+browser.main(["--applications", str(applications), "--runtime", str(runtime),
+              "--fixture-origin", "http://127.0.0.1:9999"])
+state = browser.WorkerStore(browser.ApplicationStore(applications), runtime).load()
+print(state["runtime"]["loaded_engine_revision"])
+"""
+    build = (
+        "import sys; sys.path.insert(0, sys.argv[1]); "
+        "from career_evidence_graph.loaded_code import measure_packaged_roles; "
+        "print(measure_packaged_roles(worker_first=sys.argv[2] == 'worker-first')['worker'])"
+    )
+
+    def run(*arguments):
+        return subprocess.run(
+            [sys.executable, "-I", "-B", "-c", *arguments],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=True,
+        ).stdout.splitlines()[-1]
+
+    recorded = run(worker, str(source), str(tmp_path))
+    assert recorded.startswith("python-loaded-code/v1:worker:")
+    assert recorded == run(build, str(source), "worker-first") == run(build, str(source), "")

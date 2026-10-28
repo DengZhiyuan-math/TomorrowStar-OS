@@ -1,8 +1,8 @@
-"""MC-15: every package module a role can execute is measured by its loaded role.
+"""MC-15/MC-20: package modules a process can load are measured by its loaded role.
 
-The subprocess probes cover what startup and the status reads load; the static scan
-covers module-level and function-local package imports, so a lazily imported write-path
-module cannot fall outside every role.
+The subprocess probes cover what startup and the status reads load. The static scan
+requires each role to contain every package module its modules import, module-level or
+function-local, so a lazily imported module cannot run outside the role's startup identity.
 """
 
 import ast
@@ -35,6 +35,8 @@ EXEMPT = {
     "domain.invariants": "research domain invariants for the audit harness",
     "domain.models": "research domain contracts for the audit harness",
     "application_worker_fixtures": "synthetic ATS pages served only by fixture test runs",
+    "application_preparation_fixtures": "synthetic Gmail/JD captures; macos/server.py loads it "
+    "only for the isolated synthetic preparation journey",
     # Open point: python-loaded-code/v1 cannot normalize frozen Pydantic __hash__ closures.
     # application_resume imports Profile/PublicSiteSource at module level, so their policy
     # is measured there; the unmeasured functions (load_public_site,
@@ -136,8 +138,10 @@ def test_controller_modules_are_in_the_controller_role_or_exempt(tmp_path):
 def test_worker_process_modules_are_in_the_worker_role_or_exempt(tmp_path):
     _, roles = _roles()
     loaded = _loaded(WORKER_PROBE, tmp_path)
-    assert "career_portal" not in loaded and "application_preparation" not in loaded
+    assert "career_portal" not in loaded
     assert sorted(loaded - roles["worker"] - set(EXEMPT)) == []
+    # MC-20: startup preloads the whole role before recording the worker identity.
+    assert sorted(roles["worker"] - loaded) == []
 
 
 def test_exemptions_stay_reasoned_and_outside_every_role():
@@ -225,12 +229,11 @@ def test_the_scan_sees_function_local_write_path_imports():
     assert "application_form_state" in _package_imports("application_worker")
 
 
-def test_statically_reachable_modules_are_in_a_role_or_exempt():
-    preparation, roles = _roles()
-    measured = preparation.union(*roles.values())
-    controller = _reachable(roles["controller"])
-    assert sorted(controller - roles["controller"] - set(EXEMPT)) == []
-    # The worker role's modules also name controller-only preparation paths (for example
-    # application_flow -> application_preparation) that the worker probe shows it never
-    # loads; those must still be measured by some role.
-    assert sorted(_reachable(roles["worker"]) - measured - set(EXEMPT)) == []
+def test_statically_reachable_modules_are_in_their_role_or_exempt():
+    _, roles = _roles()
+    for role in ("controller", "worker"):
+        # MC-20: each role is closed under its package imports, module-level and
+        # function-local. Which lazy paths a process will actually run is not decided here
+        # (calls through other objects defeat a call-graph walk), so the worker role also
+        # covers controller-side paths such as application_flow -> application_preparation.
+        assert sorted(_reachable(roles[role]) - roles[role] - set(EXEMPT)) == [], role

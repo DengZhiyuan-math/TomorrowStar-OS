@@ -1,15 +1,10 @@
 """Loaded identities describe actual code, independently of mutable source files."""
 
-from career_evidence_graph import (
-    application_bound_materials,  # noqa: F401
-    application_cover_letter,  # noqa: F401
-    application_experience_latex,  # noqa: F401
-    application_materials,  # noqa: F401
-    application_readiness,  # noqa: F401
-    application_single_binding,  # noqa: F401
-    application_worker_browser,
-    owned_browser_cdp,
-)
+from career_evidence_graph import application_worker_browser, owned_browser_cdp
+from career_evidence_graph.loaded_code import load_worker_modules
+
+# The worker records its identity after preloading the whole role (MC-20).
+load_worker_modules()
 
 
 def test_worker_revision_changes_when_actual_loaded_function_changes(monkeypatch):

@@ -47,7 +47,7 @@ JSON交接不要求截图解释进度，原Page单控制者接续与unknown/撤�
 ## 当前票据与硬依赖
 
 本轮票据位于 `issues/`，由现有 `scripts/query_tickets.py` 自动读取。共 **23 张：
-1 张已关闭的基线登记、15 张已结案工作票（含 2026-10-27/28 结案的 MC-06/07/08/09/14/15/17/18/19）、1 张已认领工作票（MC-10，仅规划）、6 张 open/none 的未领取工作票（含 2026-10-28 新增 MC-20–22）**
+1 张已关闭的基线登记、16 张已结案工作票（含 2026-10-27/28 结案的 MC-06/07/08/09/14/15/17/18/19/20）、1 张已认领工作票（MC-10，仅规划）、5 张 open/none 的未领取工作票（含 2026-10-28 新增 MC-21/22）**
 （其中 MC-17–19 为 2026-10-27 架构审计补充）。MC 编号只属于本轮，
 不与旧稳定性测试的 T 编号混用。T01–T05 已交付内容登记在 MC-00，不重复建实现票。
 M1/M2 当前归属核对及条件采用由 MC-01 结案，后续统一控制/调度按具体方法承接到
@@ -81,7 +81,7 @@ MC-02/04 结案，完整 Resume 生命周期已按本票源码/合成范围结�
 | [MC-17 登记核心 Module 公开入口与当前有效索引](issues/17-public-entry-index.md) | 文档：入口清单/当前有效索引 | closed；文档验收 | 无 |
 | [MC-18 依赖棘轮测试，禁止新增循环导入与跨模块私有访问](issues/18-dependency-ratchet.md) | 新增离线检查测试 | closed；默认离线测试验收 | 无 |
 | [MC-19 收回 Flow / Resume 的外部私有访问并迁移内部状态测试](issues/19-narrow-flow-resume-surface.md) | 接口收窄 | closed；源码/合成验收（剩余测试迁移见 fog） | MC-14、MC-17 |
-| [MC-20 补齐 worker 运行身份对材料核验代码的覆盖](issues/20-worker-role-coverage.md) | 运行身份 | open；未领取 | 无 |
+| [MC-20 补齐 worker 运行身份对材料核验代码的覆盖](issues/20-worker-role-coverage.md) | 运行身份 | closed；源码/合成验收（native 未运行：无驱动层改动） | 无 |
 | [MC-21 正式 App 的 Codex 使用专用目录而非用户本人 HOME](issues/21-app-codex-home.md) | 模型上下文边界 | open；未领取；用户需在专用目录登录 | 无 |
 | [MC-22 决定并接通产品中的自动接管开关](issues/22-product-native-assistance-policy.md) | 产品开关 | open；未领取；需用户决定 | 无 |
 
@@ -89,6 +89,8 @@ MC-02/04 结案，完整 Resume 生命周期已按本票源码/合成范围结�
 标“MC-11 前处理”的两项，以及 MC-08 默认关闭后无人负责的产品开关），均加入 MC-11 的 Blocked by。原状态、认领和验收不变。
 
 ## Decisions so far
+
+- [补齐 worker 运行身份对材料核验代码的覆盖](issues/20-worker-role-coverage.md#comments)：每个角色须含其全部静态包导入闭包，worker 记录身份前预载整个角色；运行时身份与构建测量跨进程一致。
 
 - [M6 后端投影、调用兼容与运行身份](issues/15-m6-ui-compatibility-identity.md#comments)：页面状态投影移入 `application_flow_view`，接管提示在窗口内显示，老调用方经测试锁定，运行身份按角色覆盖（worker 缺口记入 fog）。
 - [收回 Flow / Resume 的外部私有访问](issues/19-narrow-flow-resume-surface.md#comments)：外部私有访问改用公开入口或登记 Module 内部理由，内部状态断言改走公开视图，新增私有调用计数棘轮。
@@ -163,6 +165,10 @@ MC-02/04 结案，完整 Resume 生命周期已按本票源码/合成范围结�
   私有调用计数只覆盖指定接收者名。是否另开票及顺序，待 MC-16 前视剩余量决定。
 - **页面仍自行判断的阶段规则与 MC-15 开放点**（2026-10-28 MC-15 结案记录）：`application_flow.js` 剩余的本地阶段状态读取、`app.js` 概览卡读旧通知字段、
   App 不识别 `single-flow-required`、`public_site`/`validation.models` 不可规范化。（worker 角色覆盖缺口已于 2026-10-28 升为 [MC-20](issues/20-worker-role-coverage.md)。）
+- **worker 安装身份未在 worker 内强制**（2026-10-28 MC-20 审查发现，早于 MC-20）：`application_worker_browser.py` 解析但从不校验
+  `--expected-worker-revision`，`require_packaged_worker_identity` 无生产调用方；安装身份目前只在 `application_readiness` 中比较。MC-11 前应确认是否需要在 worker 内拒绝不符身份。
+- **MC-20 冻结字节内留下的 P3**：闭包扫描未识别 `from career_evidence_graph import X`（当前无此用法）；`loaded_code.py` 注释“covered, not executed”应为“无论是否执行”；
+  `application_preparation_fixtures` 豁免理由漏写 `--synthetic-mail`；跨进程身份测试未覆盖带岗位启动。下次改动这些文件时一并处理。
 
 ### 不在本地图范围
 

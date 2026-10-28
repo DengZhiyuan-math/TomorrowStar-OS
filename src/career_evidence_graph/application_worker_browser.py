@@ -71,7 +71,7 @@ from .ashby_drafts import supports as supports_ashby_drafts
 from .ats_forms import FORMS, form_for
 from .career_portal_data import ApplicationStore, PortalDataError
 from .cua_driver import managed_cua_browser
-from .loaded_code import loaded_runtime_revision
+from .loaded_code import load_worker_modules, loaded_runtime_revision
 from .owned_browser_cdp import OwnedCDP, browser_budget, pause_browser_budget, pump_events
 from .owned_browser_cdp import screenshot as owned_screenshot
 from .owned_page_observation import INSPECT as INSPECT_OWNED_PAGE
@@ -5658,6 +5658,7 @@ def main(argv: list[str] | None = None, *, expected_sources: dict | None = None)
         start_run(store, expected_sources=expected_sources)
 
         # Only the executing worker can describe the code it has actually loaded.
+        load_worker_modules()
         with store.applications.write_lock():
             state = store.load()
             state["runtime"]["loaded_engine_revision"] = loaded_runtime_revision("worker")

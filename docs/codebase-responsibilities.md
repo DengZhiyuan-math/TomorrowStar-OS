@@ -252,6 +252,10 @@ MC-15 结案（2026-10-28）：页面状态投影由 Portal 移入 `application_
 `notification` 与 App 协议不变。`open_runtime`/`create_server` 新增仅合成用 `resume_model_mode`、`flow_automatic_latex_base`，`macos/server.py` 创建后不再修改服务；
 删除 `career_portal._external_directory`。新增 FlowView 入口见下表。`loaded_code` 角色覆盖由 `tests/test_loaded_role_coverage.py` 强制：
 实际加载的包模块（含应用写路径中延迟导入的模块）须在某个角色中，或列入带理由的豁免表；角色内容以 `loaded_code.py` 与该测试为准。
+MC-20 起每个角色须包含其模块的全部静态包导入闭包（模块级与函数内惰性导入），不再只要求“在某个角色中”：
+worker 角色因此也覆盖控制器侧准备路径（无论 worker 是否执行）；worker 在记录启动身份前调用 `loaded_code.load_worker_modules()`
+预载整个角色（与 `load_controller_modules()` 对称），并由跨进程测试核对运行时记录的身份与源码上 `measure_packaged_roles`
+（`macos/build.py` 使用的同一函数，不含打包 Python 与构建环境）两种加载顺序的结果一致。
 默认页面已读取 `preparation_activity` 与 Pipeline `notice`，仍保留的本地阶段状态规则与未决事项见 [MC-15 结案记录](../.scratch/module-completion-2026-10-26/issues/15-m6-ui-compatibility-identity.md)。
 
 MC-19 结案（2026-10-28）：Flow 新增/调整公开入口 `valid_material_acceptance`（`application_source_reuse`、`application_pdf_reuse` 调用）与
