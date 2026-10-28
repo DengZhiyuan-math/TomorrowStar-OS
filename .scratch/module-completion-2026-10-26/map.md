@@ -47,7 +47,7 @@ JSON交接不要求截图解释进度，原Page单控制者接续与unknown/撤�
 ## 当前票据与硬依赖
 
 本轮票据位于 `issues/`，由现有 `scripts/query_tickets.py` 自动读取。共 **23 张：
-1 张已关闭的基线登记、16 张已结案工作票（含 2026-10-27/28 结案的 MC-06/07/08/09/14/15/17/18/19/20）、1 张已认领工作票（MC-10 仅规划）、4 张 open/none 的未领取工作票（MC-11/12/16/22）；MC-20/21 已于 2026-10-28 结案**
+1 张已关闭的基线登记、16 张已结案工作票（含 2026-10-27/28 结案的 MC-06/07/08/09/14/15/17/18/19/20）、1 张已认领工作票（MC-10 仅规划）、4 张 open/none 的未领取工作票（MC-11/12/16/23）；MC-20/21/22 已于 2026-10-28/29 结案**
 （其中 MC-17–19 为 2026-10-27 架构审计补充）。MC 编号只属于本轮，
 不与旧稳定性测试的 T 编号混用。T01–T05 已交付内容登记在 MC-00，不重复建实现票。
 M1/M2 当前归属核对及条件采用由 MC-01 结案，后续统一控制/调度按具体方法承接到
@@ -72,7 +72,7 @@ MC-02/04 结案，完整 Resume 生命周期已按本票源码/合成范围结�
 | [MC-08 T09 App 自动派发与统一控制](issues/08-t09-app-dispatch-controls.md) | 剩余工作 | closed；源码/合成验收（产品默认关闭，开启见 MC-22；App 内接管提示经 MC-15 实现，安装版待 MC-11） | MC-07 |
 | [MC-09 T10 新产品路径合成整链与故障验收](issues/09-t10-synthetic-chain.md) | 剩余工作 | closed；源码/合成/native 验收 | MC-08 |
 | [MC-10 T11.1 实际 Codex 与同一合成原页验收](issues/10-t11-model-synthetic-page.md) | 剩余工作 | claimed；离线准备完成，真实运行暂停（用户稍后统一测试） | MC-09 |
-| [MC-11 T11.2 唯一签名 App 新接管链验收](issues/11-t11-signed-gui.md) | 剩余工作 | open；未领取；分层运行范围另核 | MC-10、MC-15、MC-20、MC-21、MC-22 |
+| [MC-11 T11.2 唯一签名 App 新接管链验收](issues/11-t11-signed-gui.md) | 剩余工作 | open；未领取；分层运行范围另核 | MC-10、MC-15、MC-20、MC-21、MC-22、MC-23 |
 | [MC-12 T11.3 获授权真实 ATS 新接管链验收](issues/12-t11-real-ats.md) | 剩余工作 | open；未领取；分层运行范围另核 | MC-11 |
 | [MC-13 M4 收拢剩余准备与岗位调度职责](issues/13-m4-preparation-scheduling.md) | 常规准备/调度 | closed；源码/合成验收 | MC-01、MC-03、MC-04 |
 | [MC-14 M5 收拢 Runtime 装配与 Portal 传输](issues/14-m5-runtime-portal.md) | 剩余工作 | closed；源码/合成验收（测试按 Module 迁移延后至 MC-19） | MC-08、MC-13 |
@@ -83,12 +83,15 @@ MC-02/04 结案，完整 Resume 生命周期已按本票源码/合成范围结�
 | [MC-19 收回 Flow / Resume 的外部私有访问并迁移内部状态测试](issues/19-narrow-flow-resume-surface.md) | 接口收窄 | closed；源码/合成验收（剩余测试迁移见 fog） | MC-14、MC-17 |
 | [MC-20 补齐 worker 运行身份对材料核验代码的覆盖](issues/20-worker-role-coverage.md) | 运行身份 | closed；源码/合成验收（native 未运行：无驱动层改动） | 无 |
 | [MC-21 正式 App 的 Codex 使用专用目录而非用户本人 HOME](issues/21-app-codex-home.md) | 模型上下文边界 | closed；源码/合成验收，用户已在专用目录登录 | 无 |
-| [MC-22 决定并接通产品中的自动接管开关](issues/22-product-native-assistance-policy.md) | 产品开关 | open；未领取；需用户决定 | 无 |
+| [MC-22 决定并接通产品中的自动接管开关](issues/22-product-native-assistance-policy.md) | 产品开关 | closed；源码/合成验收，安装版随 MC-11 生效 | 无 |
+| [MC-23 Claude 作为接管执行者](issues/23-claude-takeover-executor.md) | 第二执行者 | open；未领取 | MC-10、MC-22 |
 
 **2026-10-28 工作审计补充：** 依据[工作审计](../work-audit-2026-10-28/README.md)，经用户同意新增 MC-20–22（原 fog 中已可精确陈述、
 标“MC-11 前处理”的两项，以及 MC-08 默认关闭后无人负责的产品开关），均加入 MC-11 的 Blocked by。原状态、认领和验收不变。
 
 ## Decisions so far
+
+- [产品中的自动接管开关](issues/22-product-native-assistance-policy.md#comments)：默认开、设置可关；先过 MC-10 再随 MC-11 打开；不可用即停下说明原因、不重试不换执行者；执行者可选 Codex 或 Claude（Claude 经 `claude -p`、订阅登录于专用目录、版本固定，另开 MC-23）。
 
 - [正式 App 的 Codex 使用专用目录](issues/21-app-codex-home.md#comments)：模型调用与接管共用专用 HOME，按条目名拒绝个人上下文、未登录即停止且不回退到 `~/.codex`；用户已登录。
 
@@ -205,6 +208,9 @@ flowchart LR
     W["MC-20 worker身份覆盖"] --> G
     CH["MC-21 App专用Codex目录"] --> G
     NP["MC-22 产品自动接管开关"] --> G
+    CL["MC-23 Claude执行者"] --> G
+    X --> CL
+    NP --> CL
     G --> ATS["MC-12 T11.3真实ATS"]
     ATS --> AC["MC-16 最终AC审计"]
     UI --> AC

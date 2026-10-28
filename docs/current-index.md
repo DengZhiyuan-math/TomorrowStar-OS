@@ -1,6 +1,6 @@
 # 当前有效索引
 
-更新：2026-10-28，Europe/Zurich（MC-17；MC-14 Runtime 行；MC-22 自动接管开关）。本页只做导航，回答“现在什么有效、契约在哪一节”；
+更新：2026-10-28，Europe/Zurich（MC-17；MC-14 Runtime 行；MC-22 自动接管默认开启）。本页只做导航，回答“现在什么有效、契约在哪一节”；
 不新增规则。被取代段落保留其历史含义，不删除。每张 MC 票结案时，若改变入口约定、契约位置
 或取代关系，同步更新本页和[入口清单](codebase-responsibilities.md#public-entry-points)。
 
@@ -13,8 +13,8 @@ Submit 前并返回“填写完成”。Codex 是 App 调用的执行能力，�
 依据：[Module 设计](module-interfaces-and-migration-design.md)文首“日常用户入口是 App”段（2026-10-26），
 以及[已确认的设计决定](module-interfaces-and-migration-design.md#已确认的设计决定)的“用户入口”行。
 
-实现现状：默认页面写入与自动接管仍关闭；App 自动派发与统一控制已由 MC-08（T09）在开关打开时实现，
-产品中何时及如何打开由 MC-22 决定，状态见
+实现现状：App 自动派发与统一控制由 MC-08（T09）实现；MC-22 起自动接管在 App 设置中默认开启、可关闭，
+安装版随 MC-11（在 MC-10 真实模型验收之后）生效，状态见
 [剩余开发地图](../.scratch/module-completion-2026-10-26/map.md#当前票据与硬依赖)。这是“约定已定、能力未全部启用”，
 不表示回到 10-22 的使用方式。
 

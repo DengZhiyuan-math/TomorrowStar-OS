@@ -319,3 +319,118 @@ def test_sign_in_check_names_the_actual_executable(tmp_path):
         require_codex_sign_in(str(executable), home)
     assert f"HOME='{home.resolve()}' '{executable}' login" in str(raised.value)
     assert "Not logged in" in raised.value.redacted_stderr
+
+
+def _automatic_takeover_backend(tmp_path, monkeypatch, *, sign_in=None, executable=True, flags=()):
+    from test_macos_portal import synthetic_native_root
+
+    from career_evidence_graph.codex_cli import CodexCLIError
+
+    root = synthetic_native_root(tmp_path)
+    monkeypatch.setenv("TOMORROWSTAR_CODEX_EXECUTABLE", str(root / "codex-fixture"))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("TOMORROWSTAR_CODEX_HOME", "replaced-by-backend")
+    backend = runpy.run_path(str(Path(__file__).parents[1] / "macos/server.py"))
+    namespace = backend["main"].__globals__
+    observed = {}
+
+    def inspect_server(*args, **kwargs):
+        observed.update(kwargs)
+        return SimpleNamespace(
+            server_port=12345, application_flow_service=object(), worker_service=object()
+        )
+
+    def find(configured):
+        if not executable:
+            raise CodexCLIError("configured Codex CLI executable is unavailable")
+        return str(root / "codex-fixture")
+
+    monkeypatch.setitem(namespace, "create_server", inspect_server)
+    monkeypatch.setitem(namespace, "find_codex_executable", find)
+    monkeypatch.setitem(namespace, "serve_with_parent_pipe", lambda *args, **kwargs: None)
+    monkeypatch.setitem(namespace, "require_codex_sign_in", sign_in or (lambda *args: None))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "server.py",
+            "--applications",
+            str(root / "applications"),
+            "--career-workspace",
+            str(root / "career"),
+            "--single-job-flow",
+            *flags,
+        ],
+    )
+    assert backend["main"]() == 0
+    return observed
+
+
+def test_automatic_takeover_configures_the_reviewed_native_policy(tmp_path, monkeypatch):
+    from career_evidence_graph.cua_driver import reviewed_native_assistance_policy
+
+    observed = _automatic_takeover_backend(
+        tmp_path, monkeypatch, flags=("--automatic-takeover", "--takeover-executor=codex")
+    )
+    policy = reviewed_native_assistance_policy()
+    assert observed["worker_native_assistance_policy"] == policy
+    assert observed["worker_codex_assist_config"]["native_assistance_policy"] == policy
+    assert observed.get("takeover_unavailable_reason") is None
+
+
+def test_automatic_takeover_off_configures_nothing_and_says_nothing(tmp_path, monkeypatch):
+    observed = _automatic_takeover_backend(tmp_path, monkeypatch)
+    assert "worker_native_assistance_policy" not in observed
+    assert "worker_codex_assist_config" not in observed
+    assert observed.get("takeover_unavailable_reason") is None
+
+
+@pytest.mark.parametrize(("case", "phrase"), [("signed_out", "未登录"), ("no_cli", "找不到 Codex")])
+def test_unavailable_automatic_takeover_is_not_configured_and_keeps_a_reason(
+    tmp_path, monkeypatch, case, phrase
+):
+    from career_evidence_graph.codex_cli import CodexCLIError
+
+    def signed_out(*args):
+        raise CodexCLIError("dedicated Codex home is not signed in")
+
+    observed = _automatic_takeover_backend(
+        tmp_path,
+        monkeypatch,
+        sign_in=signed_out if case == "signed_out" else None,
+        executable=case != "no_cli",
+        flags=("--automatic-takeover",),
+    )
+    assert "worker_native_assistance_policy" not in observed
+    assert "worker_codex_assist_config" not in observed
+    assert phrase in observed["takeover_unavailable_reason"]
+
+
+def test_reviewed_native_policy_is_the_only_accepted_policy():
+    from career_evidence_graph.cua_driver import (
+        reviewed_native_assistance_policy,
+        validate_native_assistance_policy,
+    )
+
+    policy = reviewed_native_assistance_policy()
+    assert validate_native_assistance_policy(policy) == policy
+
+
+def test_unknown_executor_or_failed_sign_in_check_keeps_the_backend_running(tmp_path, monkeypatch):
+    import subprocess
+
+    observed = _automatic_takeover_backend(
+        tmp_path, monkeypatch, flags=("--automatic-takeover", "--takeover-executor=claude")
+    )
+    assert "worker_native_assistance_policy" not in observed
+    assert "不支持" in observed["takeover_unavailable_reason"]
+
+    def timeout(*args):
+        raise subprocess.TimeoutExpired("codex", 5)
+
+    (tmp_path / "second").mkdir()
+    observed = _automatic_takeover_backend(
+        tmp_path / "second", monkeypatch, sign_in=timeout, flags=("--automatic-takeover",)
+    )
+    assert "worker_native_assistance_policy" not in observed
+    assert "无法核对" in observed["takeover_unavailable_reason"]

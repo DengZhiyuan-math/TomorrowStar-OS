@@ -311,19 +311,25 @@ struct Workspace: Codable {
     let cover_letter_template: String?
     let preparation_root: String?
     let application_processed_label: String?
+    // Absent means on; an unreadable value turns automatic takeover off.
+    let automatic_takeover: Bool?
+    let takeover_executor: String?
 
     init(applications: String, career_workspace: String, preparation_root: String? = nil,
          application_processed_label: String? = nil, career_library_manifest: String? = nil,
-         cover_letter_template: String? = nil) {
+         cover_letter_template: String? = nil, automatic_takeover: Bool? = nil,
+         takeover_executor: String? = nil) {
         self.applications = applications
         self.career_workspace = career_workspace
         self.career_library_manifest = career_library_manifest
         self.cover_letter_template = cover_letter_template
         self.preparation_root = preparation_root
         self.application_processed_label = application_processed_label
+        self.automatic_takeover = automatic_takeover
+        self.takeover_executor = takeover_executor
     }
 
-    enum CodingKeys: String, CodingKey { case applications, career_workspace, career_library_manifest, cover_letter_template, preparation_root, application_processed_label }
+    enum CodingKeys: String, CodingKey { case applications, career_workspace, career_library_manifest, cover_letter_template, preparation_root, application_processed_label, automatic_takeover, takeover_executor }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -337,6 +343,9 @@ struct Workspace: Codable {
         } else {
             application_processed_label = (try? values.decode(String.self, forKey: .application_processed_label)) ?? ""
         }
+        automatic_takeover = values.contains(.automatic_takeover)
+            ? (try? values.decode(Bool.self, forKey: .automatic_takeover)) ?? false : nil
+        takeover_executor = try? values.decodeIfPresent(String.self, forKey: .takeover_executor)
         if decoder.userInfo[Self.preparationRootRequired] as? Bool == false {
             preparation_root = try? values.decode(String.self, forKey: .preparation_root)
         } else {
@@ -348,13 +357,21 @@ struct Workspace: Codable {
     func selectingFolders(applications: String, careerWorkspace: String) -> Workspace {
         Workspace(applications: applications, career_workspace: careerWorkspace, preparation_root: preparation_root,
                   application_processed_label: application_processed_label, career_library_manifest: career_library_manifest,
-                  cover_letter_template: cover_letter_template)
+                  cover_letter_template: cover_letter_template, automatic_takeover: automatic_takeover,
+                  takeover_executor: takeover_executor)
     }
 
     func selectingMailProcessingLabel(_ label: String) -> Workspace {
         Workspace(applications: applications, career_workspace: career_workspace, preparation_root: preparation_root,
                   application_processed_label: label.isEmpty ? nil : label, career_library_manifest: career_library_manifest,
-                  cover_letter_template: cover_letter_template)
+                  cover_letter_template: cover_letter_template, automatic_takeover: automatic_takeover,
+                  takeover_executor: takeover_executor)
+    }
+
+    func selectingAutomaticTakeover(_ enabled: Bool) -> Workspace {
+        Workspace(applications: applications, career_workspace: career_workspace, preparation_root: preparation_root,
+                  application_processed_label: application_processed_label, career_library_manifest: career_library_manifest,
+                  cover_letter_template: cover_letter_template, automatic_takeover: enabled, takeover_executor: "codex")
     }
 }
 
@@ -365,6 +382,7 @@ struct NativeLaunch {
     private let workerRoot: URL?
     var canChangeWorkspace: Bool { syntheticRoot == nil }
     var canChangeMailProcessing: Bool { syntheticRoot == nil || mode == ["--synthetic-mail"] }
+    var canChangeAutomaticTakeover: Bool { syntheticRoot == nil && mode == ["--single-job-flow"] }
     var nativeHostReceiptsEnabled: Bool { mode != ["--synthetic-mail"] }
     var backgroundPipelineEnabled: Bool {
         (syntheticRoot == nil && mode == ["--single-job-flow"]) || mode == ["--synthetic-mail"]
@@ -488,6 +506,12 @@ struct NativeLaunch {
         try writeWorkspace(current.selectingMailProcessingLabel(label))
     }
 
+    func saveAutomaticTakeover(_ enabled: Bool) throws {
+        guard canChangeAutomaticTakeover else { throw CocoaError(.fileWriteNoPermission) }
+        let current = try loadWorkspace()
+        try writeWorkspace(current.selectingAutomaticTakeover(enabled))
+    }
+
     private func writeWorkspace(_ workspace: Workspace) throws {
         let manager = FileManager.default
         if (try? configURL.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
@@ -526,6 +550,10 @@ struct NativeLaunch {
             // Retain the original config value; send the existing invalid sentinel.
             let value = label.contains("\0") || label.utf8.count > 65_536 ? "" : label
             arguments.append("--application-processed-label=" + value)
+        }
+        // On by default; only Codex is an executor so far (MC-22, MC-23).
+        if canChangeAutomaticTakeover && workspace.automatic_takeover != false {
+            arguments += ["--automatic-takeover", "--takeover-executor=" + (workspace.takeover_executor ?? "codex")]
         }
         return arguments
     }
@@ -669,6 +697,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         folders.isEnabled = launch?.canChangeWorkspace == true
         let mail = appMenu.addItem(withTitle: "邮件处理…", action: #selector(changeMailProcessing), keyEquivalent: "")
         mail.isEnabled = launch?.canChangeMailProcessing == true
+        let takeover = appMenu.addItem(withTitle: "自动接管…", action: #selector(changeAutomaticTakeover), keyEquivalent: "")
+        takeover.isEnabled = launch?.canChangeAutomaticTakeover == true
         appMenu.addItem(.separator())
         let permissionCheck = appMenu.addItem(withTitle: "检查当前宿主权限",
             action: #selector(checkCurrentHostPermissions), keyEquivalent: "")
@@ -740,6 +770,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
                   !self.checkingChanges else { return }
             do {
                 try launch.saveMailProcessingLabel(field.stringValue)
+            } catch {
+                self.settingsSaveFailed()
+            }
+        }
+    }
+    @objc private func changeAutomaticTakeover() {
+        guard let launch = launch, launch.canChangeAutomaticTakeover, let address = address,
+              !checkingChanges, window.attachedSheet == nil else { return }
+        let workspace: Workspace
+        do {
+            guard let saved = try launch.loadWorkspaceIfPresent() else { return }
+            workspace = saved
+        } catch { invalidConfiguration(); return }
+        let alert = NSAlert()
+        alert.messageText = "自动接管"
+        alert.informativeText = "脚本处理不了当前岗位时，交给执行者在原申请页接续（执行者：Codex）。最终 Submit 仍由你手动。关闭后这类岗位会停下等你。保存后重新打开工作台生效。"
+        let toggle = NSButton(checkboxWithTitle: "开启自动接管", target: nil, action: nil)
+        toggle.state = workspace.automatic_takeover == false ? .off : .on
+        alert.accessoryView = toggle
+        alert.addButton(withTitle: "保存")
+        alert.addButton(withTitle: "取消")
+        alert.beginSheetModal(for: window) { response in
+            guard response == .alertFirstButtonReturn, self.address == address,
+                  !self.checkingChanges else { return }
+            do {
+                try launch.saveAutomaticTakeover(toggle.state == .on)
             } catch {
                 self.settingsSaveFailed()
             }

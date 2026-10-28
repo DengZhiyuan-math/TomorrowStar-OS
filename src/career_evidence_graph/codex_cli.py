@@ -258,17 +258,19 @@ def output_validation_marker(result, prompt, schema_path, error_code):
     }
 
 
-def require_codex_sign_in(executable: str, home: str | Path, *, runner=subprocess.run) -> None:
+def require_codex_sign_in(
+    executable: str, home: str | Path, *, runner=subprocess.run, timeout: int = 5
+) -> None:
     """Check once that the dedicated home is signed in (the takeover's startup check)."""
     environment = {
         "HOME": validate_codex_home(home),
         "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
         "LANG": "en_US.UTF-8",
     }
-    _require_signed_in(runner, executable, environment["HOME"], environment)
+    _require_signed_in(runner, executable, environment["HOME"], environment, timeout=timeout)
 
 
-def _require_signed_in(runner, executable, workspace, environment) -> None:
+def _require_signed_in(runner, executable, workspace, environment, *, timeout=30) -> None:
     """Stop before the model call when the dedicated home has no sign-in; never fall back."""
     status = runner(
         [executable, "login", "status"],
@@ -278,7 +280,7 @@ def _require_signed_in(runner, executable, workspace, environment) -> None:
         capture_output=True,
         text=True,
         check=False,
-        timeout=30,
+        timeout=timeout,
     )
     if status.returncode != 0:
         home = environment["HOME"]

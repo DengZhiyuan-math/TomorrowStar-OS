@@ -537,3 +537,38 @@ def test_lost_start_ack_keeps_one_claim_and_never_redispatches(chain, monkeypatc
     assert state["status"] == "needs_recheck"
     time.sleep(0.2)
     assert calls == [first["claim_request_id"]] and starts == [first["claim_request_id"]]
+
+
+def test_unavailable_automatic_takeover_waits_with_its_reason(chain):
+    # MC-22: takeover is on but could not be configured at startup (e.g. the dedicated Codex
+    # home is not signed in): the job stops and says why, instead of the generic recheck text.
+    ctx = chain
+    worker, pipeline = ctx.service, ctx.pipeline
+    worker.native_assistance_policy = None
+    pipeline.takeover_unavailable_reason = "Codex 专用目录未登录"
+    with worker.store.applications.write_lock():
+        block(worker, "unsupported_control", field="country")
+    state = _until(lambda: pipeline.snapshot()["status"] == "needs_recheck" and pipeline.snapshot())
+    message = state["notification"]["message"]
+    assert "自动接管不可用" in message and "Codex 专用目录未登录" in message
+    # The configuration is fixed at startup, like every App setting.
+    assert "重新打开工作台" in message
+    assert "assistance" not in _job(ctx)
+
+
+def test_unavailable_reason_is_not_shown_for_a_blocker_takeover_would_not_handle(chain):
+    # A blocker with an unresolved script intent never dispatches a takeover, so the
+    # ordinary stop text applies even while takeover is on but unavailable.
+    ctx = chain
+    worker, pipeline = ctx.service, ctx.pipeline
+    worker.native_assistance_policy = None
+    pipeline.takeover_unavailable_reason = "Codex 专用目录未登录"
+    with worker.store.applications.write_lock():
+        block(
+            worker,
+            "unsupported_control",
+            field="country",
+            intent={"field_id": "country", "action": "fill", "attempt_id": "pending-write"},
+        )
+    state = _until(lambda: pipeline.snapshot()["status"] == "needs_recheck" and pipeline.snapshot())
+    assert "自动接管不可用" not in state["notification"]["message"]

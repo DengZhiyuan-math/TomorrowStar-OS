@@ -873,6 +873,10 @@ do {
         try launch.saveMailProcessingLabel(label)
         workspace = try launch.loadWorkspace()
     }
+    if let takeover = ProcessInfo.processInfo.environment["TOMORROWSTAR_TEST_TAKEOVER"] {
+        try launch.saveAutomaticTakeover(takeover == "on")
+        workspace = try launch.loadWorkspace()
+    }
     let result: [String: Any] = ["config": launch.configURL.path,
         "arguments": launch.backendArguments(workspace), "canSave": launch.canChangeWorkspace,
         "flowTitle": launch.flowTitle, "canSaveMail": launch.canChangeMailProcessing,
@@ -1287,6 +1291,8 @@ def test_native_normal_launch_defaults_to_application_and_keeps_explicit_modes(
         "--career-workspace",
         str(root / "career"),
         *(["--" + expected_mode] if mode != "prepare-materials" else []),
+        # MC-22: automatic takeover is on by default in the single-job flow.
+        *(TAKEOVER_FLAGS if expected_mode == "single-job-flow" else []),
     ]
 
 
@@ -1340,6 +1346,7 @@ def test_native_single_job_launch_forwards_explicit_worker_root(tmp_path, native
         "--single-job-flow",
         "--worker-root",
         str(worker),
+        *TAKEOVER_FLAGS,
     ]
     assert not worker.exists()
 
@@ -1366,7 +1373,11 @@ def test_native_single_job_launch_accepts_existing_unlinked_worker_root(
             timeout=5,
         )
         assert result.returncode == 0, result.stderr
-        assert json.loads(result.stdout)["arguments"][-2:] == ["--worker-root", str(worker)]
+        assert json.loads(result.stdout)["arguments"][-4:] == [
+            "--worker-root",
+            str(worker),
+            *TAKEOVER_FLAGS,
+        ]
         assert worker.is_dir()
         assert list(worker.iterdir()) == []
 
@@ -1950,3 +1961,74 @@ def test_native_server_passes_synthetic_settings_and_mutates_nothing_after_creat
         os.environ.update(saved)
     assert observed["resume_model_mode"] == "synthetic"
     assert observed["flow_automatic_latex_base"] is None
+
+
+TAKEOVER_FLAGS = ["--automatic-takeover", "--takeover-executor=codex"]
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param("absent", TAKEOVER_FLAGS, id="default-on"),
+        pytest.param(True, TAKEOVER_FLAGS, id="on"),
+        pytest.param(False, [], id="off"),
+        pytest.param("yes", [], id="unreadable-off"),
+    ],
+)
+def test_native_automatic_takeover_setting_controls_backend_flags(
+    tmp_path, native_launch_executable, value, expected
+):
+    # MC-22: on by default in the single-job flow; off or unreadable passes nothing.
+    root = synthetic_native_root(tmp_path)
+    config = root / "portal.json"
+    data = json.loads(config.read_text())
+    if value != "absent":
+        data["automatic_takeover"] = value
+    config.write_text(json.dumps(data))
+    result = subprocess.run(
+        [str(native_launch_executable), "--config", str(config)],
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    assert result.returncode == 0, result.stderr
+    arguments = json.loads(result.stdout)["arguments"]
+    assert [arg for arg in arguments if arg.startswith("--") and "takeover" in arg] == expected
+
+
+def test_native_automatic_takeover_saves_without_replacing_other_settings(
+    tmp_path, native_launch_executable
+):
+    root = synthetic_native_root(tmp_path)
+    config = root / "portal.json"
+    data = json.loads(config.read_text())
+    data["application_processed_label"] = "Processed"
+    config.write_text(json.dumps(data))
+    result = subprocess.run(
+        [str(native_launch_executable), "--config", str(config)],
+        env=os.environ | {"TOMORROWSTAR_TEST_TAKEOVER": "off"},
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    assert result.returncode == 0, result.stderr
+    saved = json.loads(config.read_text())
+    assert saved["automatic_takeover"] is False and saved["takeover_executor"] == "codex"
+    assert saved["application_processed_label"] == "Processed"
+    assert saved["applications"] == data["applications"]
+    assert not [
+        a for a in json.loads(result.stdout)["arguments"] if a.startswith("--") and "takeover" in a
+    ]
+
+
+def test_synthetic_modes_never_pass_automatic_takeover(tmp_path, native_launch_executable):
+    root = synthetic_native_root(tmp_path)
+    result = subprocess.run(
+        [str(native_launch_executable), "--synthetic-flow", str(root)],
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    assert not [
+        a for a in json.loads(result.stdout)["arguments"] if a.startswith("--") and "takeover" in a
+    ]

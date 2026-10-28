@@ -52,8 +52,10 @@ MATERIAL_EDIT_STOPPING = {
 class ApplicationPipeline:
     """A persistent mail queue with one current job and manual final submission."""
 
-    def __init__(self, flow, intake, worker, *, interval=1):
+    def __init__(self, flow, intake, worker, *, interval=1, takeover_unavailable_reason=None):
         self.flow, self.intake, self.worker = flow, intake, worker
+        # Automatic takeover is on but could not be configured at startup (MC-22).
+        self.takeover_unavailable_reason = takeover_unavailable_reason
         self.path = Path(flow.root) / "pipeline.json"
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         lock_path = self.path.with_suffix(".lock")
@@ -2820,8 +2822,9 @@ class ApplicationPipeline:
     def _request_takeover(self, state, task, job, runtime_id, current):
         """True while this job's one system takeover runs; an error message keeps its reason.
 
-        Missing facts, default-off policy and recorded capability failures have no
-        candidate, so the ordinary needs_recheck stop applies unchanged.
+        Missing facts and a switched-off takeover have no candidate, so the ordinary
+        needs_recheck stop applies; a recorded capability failure or a takeover that is
+        on but could not be configured keeps its own reason.
         """
         if self._takeover_live((state.get("takeover_request") or {}).get("request_id"), job):
             return True
@@ -2840,6 +2843,16 @@ class ApplicationPipeline:
             if blocker is None and failed and job.get("reason") == failed:
                 # A capability failure is not retried; its own reason stays visible.
                 return f"Codex 接管暂不可用（{failed}），已保留原页与资料；不会自动重试。"
+            if (
+                blocker is None
+                and self.takeover_unavailable_reason
+                and reader(task["application_id"], **expected, hypothetical=True) is not None
+            ):
+                # The configuration is fixed at startup, like every App setting.
+                return (
+                    f"自动接管不可用：{self.takeover_unavailable_reason}。"
+                    "已保留原页与资料；处理后重新打开工作台，再点一次 Continue 继续。"
+                )
             if blocker is None:
                 return None
             key = {k: v for k, v in blocker.items() if k != "observed_at"}

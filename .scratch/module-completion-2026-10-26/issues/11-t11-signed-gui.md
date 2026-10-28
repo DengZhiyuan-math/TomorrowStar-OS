@@ -8,7 +8,7 @@ Interaction: HITL
 Assignee: none
 Created: 2026-10-26
 Parent: [Module 剩余开发地图](../map.md)
-Blocked by: [MC-10](10-t11-model-synthetic-page.md), [MC-15](15-m6-ui-compatibility-identity.md), [MC-20](20-worker-role-coverage.md), [MC-21](21-app-codex-home.md), [MC-22](22-product-native-assistance-policy.md)
+Blocked by: [MC-10](10-t11-model-synthetic-page.md), [MC-15](15-m6-ui-compatibility-identity.md), [MC-20](20-worker-role-coverage.md), [MC-21](21-app-codex-home.md), [MC-22](22-product-native-assistance-policy.md), [MC-23](23-claude-takeover-executor.md)
 Triage: awaiting-authorized-layered-acceptance
 
 ## 问题与范围
@@ -28,6 +28,7 @@ macos/App.swift、macos/main_app.py、macos/build.py、loaded_code.py 仅查明�
 - [ ] 包身份和实际加载源码对应；新链的退出/重开、停写和原占用均实测，不用 shell 仿真或摘要吻合代证 GUI。
 - [ ] 核对 MC-10 的实际模型/工具策略证据仍适用于本次最终候选；相关装配、配置、入口、工具或运行身份变化时补验受影响层，不能只凭 MC-10 已关闭跳过核对。
 - [ ] 必要更新仅沿 main_app.py 的唯一主 App 流程，保留配置、私人资料、历史、回退；不例行重置 TCC。
+- [ ] 自动接管（MC-22）：安装版“自动接管…”菜单开关默认开启；脚本受阻时自动接管一次；关闭后岗位停下等待；接管不可用时岗位显示具体原因。
 - [ ] 实际未运行项与失败明确记录，第一层模型验证不外推 GUI；旧安装票的原成果与负责人保持。
 
 ## 既有证据与限制

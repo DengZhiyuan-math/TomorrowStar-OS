@@ -473,3 +473,14 @@ Re-establishing the conditions for safe application preparation after an interru
 using retained progress and freshly verified application facts and outcomes.
 It does not imply preservation of the original employer page or automatic continuation of a paused Application Batch.
 _Avoid_: Browser restart, preserved original page, application submission
+
+**Automatic Takeover (自动接管)**:
+Handing the current job's original application page to the configured Takeover Executor when the
+fill script cannot continue, at most once per Continue and never including final Submit. When the
+takeover is unavailable, the job waits with the stated reason instead of retrying or switching executor.
+_Avoid_: Retry, fallback to another executor, background autofill
+
+**Takeover Executor (接管执行者)**:
+The one AI agent the user selects to perform Automatic Takeover, running with a dedicated, isolated
+configuration and sign-in rather than the user's personal agent context.
+_Avoid_: Fallback chain, personal Codex or Claude session

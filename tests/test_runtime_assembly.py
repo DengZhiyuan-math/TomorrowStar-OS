@@ -534,3 +534,53 @@ def test_flow_offers_checked_task_reads_for_admission(roots):
             assert (changed.value.code, changed.value.status) == ("conflict", 409)
     finally:
         server.server_close()
+
+
+def test_automatic_takeover_policy_and_reason_reach_worker_and_pipeline(roots, tmp_path):
+    # MC-22: the backend's reviewed policy reaches the Worker, and an unavailable reason
+    # reaches the Pipeline, through the real assembly rather than a stubbed server.
+    from career_evidence_graph.cua_driver import reviewed_native_assistance_policy
+
+    applications, career, flow_root, worker_root = roots
+    executable = tmp_path / "synthetic-codex"
+    executable.write_text("#!/bin/sh\nexit 0\n")
+    executable.chmod(0o700)
+    home = tmp_path / "codex-home"
+    home.mkdir()
+    policy = reviewed_native_assistance_policy()
+    server = create_server(
+        applications,
+        career,
+        flow_root=flow_root,
+        worker_root=worker_root,
+        worker_live=True,
+        worker_cua=True,
+        worker_codex_assist_config={
+            "executable": str(executable),
+            "runtime": str(worker_root / "codex-assist"),
+            "home": str(home),
+            "native_assistance_policy": policy,
+        },
+        worker_native_assistance_policy=policy,
+        write_admission_policy="development",
+    )
+    try:
+        assert server.worker_service.native_assistance_policy == policy
+        assert server.application_pipeline_service.takeover_unavailable_reason is None
+    finally:
+        server.server_close()
+    server = create_server(
+        applications,
+        career,
+        flow_root=tmp_path / "second-flow",
+        worker_root=tmp_path / "second-worker",
+        takeover_unavailable_reason="Codex 专用目录未登录",
+        write_admission_policy="development",
+    )
+    try:
+        assert server.worker_service.native_assistance_policy is None
+        assert server.application_pipeline_service.takeover_unavailable_reason == (
+            "Codex 专用目录未登录"
+        )
+    finally:
+        server.server_close()

@@ -12,6 +12,7 @@ import re
 import shutil
 import signal
 import stat
+import subprocess
 import sys
 import tempfile
 import threading
@@ -36,6 +37,7 @@ from career_evidence_graph.codex_cli import (  # noqa: E402
     validate_codex_executable,
     validate_codex_home,
 )
+from career_evidence_graph.cua_driver import reviewed_native_assistance_policy  # noqa: E402
 
 
 def native_permission_tools(resources):
@@ -704,6 +706,13 @@ def main() -> int:
         help="Configure the dormant metadata-only Codex adapter; does not start a model turn.",
     )
     parser.add_argument(
+        "--automatic-takeover",
+        action="store_true",
+        help="Let the Worker hand a page the script cannot continue to the takeover executor.",
+    )
+    # Unknown values stay a stated takeover reason rather than a failed launch.
+    parser.add_argument("--takeover-executor", default="codex")
+    parser.add_argument(
         "--information-library-root",
         type=Path,
         help="Read existing applicant information in preparation mode without starting a worker.",
@@ -746,7 +755,7 @@ def main() -> int:
     if preparation_only and args.worker_root is not None:
         print(json.dumps({"status": "error", "code": "worker-mode-required"}), flush=True)
         return 2
-    if args.codex_assist and (preparation_only or legacy):
+    if (args.codex_assist or args.automatic_takeover) and (preparation_only or legacy):
         print(json.dumps({"status": "error", "code": "single-flow-required"}), flush=True)
         return 2
     try:
@@ -768,6 +777,7 @@ def main() -> int:
                     args.handoff_root,
                     args.codex_executable,
                     args.codex_assist,
+                    args.automatic_takeover,
                     args.information_library_root,
                     args.application_processed_label is not None,
                 )
@@ -854,21 +864,46 @@ def main() -> int:
             or support
             / ("application-automation-lab" if args.automation_lab else "single-job-worker")
         )
-        if args.codex_assist and executable is not None and codex_home_usable:
+        takeover = args.codex_assist or args.automatic_takeover
+        # MC-22: automatic takeover that is on but cannot be configured says why on the job.
+        takeover_unavailable_reason = None
+        if args.automatic_takeover and args.takeover_executor != "codex":
+            takeover = False
+            takeover_unavailable_reason = f"暂不支持的接管执行者：{args.takeover_executor[:40]}"
+        elif takeover and executable is None:
+            takeover_unavailable_reason = "找不到 Codex 命令行"
+        elif takeover and not codex_home_usable:
+            takeover_unavailable_reason = f"Codex 专用目录不可用（{codex_home}）"
+        elif takeover:
             # Without sign-in the takeover is not configured; model calls check on each use.
             try:
                 require_codex_sign_in(executable, codex_home)
             except CodexCLIError:
                 codex_home_usable = False
+                takeover_unavailable_reason = (
+                    "Codex 专用目录未登录；请运行 "
+                    f"env -u CODEX_HOME HOME='{codex_home}' '{executable}' login"
+                )
+            except (OSError, subprocess.SubprocessError):
+                codex_home_usable = False
+                takeover_unavailable_reason = "无法核对 Codex 登录状态"
+        native_policy = (
+            reviewed_native_assistance_policy()
+            if args.automatic_takeover and takeover_unavailable_reason is None
+            else None
+        )
         assist_config = (
             {
                 "executable": executable,
                 "runtime": str(worker_root / "codex-assist"),
                 "home": str(codex_home),
             }
-            if args.codex_assist and executable is not None and codex_home_usable
+            | ({"native_assistance_policy": native_policy} if native_policy else {})
+            if takeover and takeover_unavailable_reason is None
             else None
         )
+        if not args.automatic_takeover:
+            takeover_unavailable_reason = None
         synthetic_latex_base = None
         if args.synthetic_mail:
             from career_evidence_graph.application_prism import source_snapshot
@@ -888,6 +923,12 @@ def main() -> int:
             else None,
             worker_root=worker_root,
             **({"worker_codex_assist_config": assist_config} if assist_config else {}),
+            **({"worker_native_assistance_policy": native_policy} if native_policy else {}),
+            **(
+                {"takeover_unavailable_reason": takeover_unavailable_reason}
+                if takeover_unavailable_reason
+                else {}
+            ),
             flow_root=None
             if legacy
             else (

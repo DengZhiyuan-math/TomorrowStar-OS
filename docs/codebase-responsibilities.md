@@ -35,7 +35,7 @@ Seam、Adapter 术语审计当前代码。原则是：每个流程消费明确�
 仅落地元数据：Worker 拥有接管引用、条件采用与写者占用，browser 的脚本准入和排队
 命令遵守该占用。`application_codex_assist` 只拥有专用进程与元数据协议，不提供模型
 turn、原页工具或业务完成判断；页面权限始终为 false。后端仅传窄配置，Worker 内
-构造休眠 Adapter，既有材料 `codex_cli` 的职责不变。MC-21 起两者共用 App 专用 Codex HOME：后端设置 `TOMORROWSTAR_CODEX_HOME`，`codex_cli.validate_codex_home` 按条目名拒绝个人上下文（含 `config.toml`、`AGENTS.override.md`、符号链接），`codex exec` 先核对该目录已登录、并以 `--ignore-user-config`/`--ignore-rules` 禁用 memories/apps/plugins/hooks；接管禁用 `memories`；目录不可用或未登录时后端不配置接管（启动时核对一次）；合成模式不设置该目录。原页操作、活动停写和可靠恢复仍
+构造休眠 Adapter，既有材料 `codex_cli` 的职责不变。MC-21 起两者共用 App 专用 Codex HOME：后端设置 `TOMORROWSTAR_CODEX_HOME`，`codex_cli.validate_codex_home` 按条目名拒绝个人上下文（含 `config.toml`、`AGENTS.override.md`、符号链接），`codex exec` 先核对该目录已登录、并以 `--ignore-user-config`/`--ignore-rules` 禁用 memories/apps/plugins/hooks；接管禁用 `memories`；目录不可用或未登录时后端不配置接管（启动时核对一次）；合成模式不设置该目录。MC-22 起 App 设置“自动接管…”（`portal.json` 的 `automatic_takeover`，缺省为开，`takeover_executor` 目前只有 `codex`）在单岗位真实模式下传 `--automatic-takeover`；后端按 `cua_driver.reviewed_native_assistance_policy()` 构造唯一审查过的策略交给 Worker，接管配置不成时把原因交给 Pipeline，岗位停下时显示“自动接管不可用：原因”。原页操作、活动停写和可靠恢复仍
 属于后续任务，源码验收不代表安装 App 已具备这些能力。
 
 后续 [T03 原页只读工具](../.scratch/codex-assist-t03-2026-10-25/implementation.md)

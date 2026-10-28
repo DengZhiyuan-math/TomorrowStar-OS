@@ -259,6 +259,18 @@ def validate_native_assistance_policy(value):
     return {**value, "tools": list(value["tools"])}
 
 
+def reviewed_native_assistance_policy():
+    """The one native policy the product may pass: the reviewed driver and fixed tools."""
+    return validate_native_assistance_policy(
+        {
+            "protocol": NATIVE_HANDOFF_PROTOCOL,
+            "driver_sha256": _NATIVE_HANDOFF_DRIVER_SHA256,
+            "tools": list(NATIVE_HANDOFF_TOOLS),
+            "type_mode": "insert_text",
+        }
+    )
+
+
 def _name(value: str) -> str:
     return " ".join(re.sub(r"[✱*]", "", value).split())
 

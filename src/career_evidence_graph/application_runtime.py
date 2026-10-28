@@ -193,6 +193,8 @@ def open_runtime(
     worker_cua: bool = False,
     worker_cua_click_route: str = "trusted",
     worker_codex_assist_config: dict | None = None,
+    worker_native_assistance_policy: dict | None = None,
+    takeover_unavailable_reason: str | None = None,
     worker_synthetic_browser_root: Path | None = None,
     package_resources: Path | None = None,
     native_host_identity=None,
@@ -264,6 +266,8 @@ def open_runtime(
             worker_cua=worker_cua,
             worker_cua_click_route=worker_cua_click_route,
             worker_codex_assist_config=worker_codex_assist_config,
+            worker_native_assistance_policy=worker_native_assistance_policy,
+            takeover_unavailable_reason=takeover_unavailable_reason,
             worker_synthetic_browser_root=worker_synthetic_browser_root,
             package_resources=package_resources,
             native_host_identity=native_host_identity,
@@ -309,6 +313,8 @@ def _assemble(
     worker_cua,
     worker_cua_click_route,
     worker_codex_assist_config,
+    worker_native_assistance_policy,
+    takeover_unavailable_reason,
     worker_synthetic_browser_root,
     package_resources,
     native_host_identity,
@@ -359,6 +365,11 @@ def _assemble(
                 **(
                     {"codex_assist_config": worker_codex_assist_config}
                     if worker_codex_assist_config is not None
+                    else {}
+                ),
+                **(
+                    {"native_assistance_policy": worker_native_assistance_policy}
+                    if worker_native_assistance_policy is not None
                     else {}
                 ),
                 **(
@@ -703,7 +714,12 @@ def _assemble(
 
         try:
             # The Pipeline registers its preparation permit before its thread starts.
-            runtime.pipeline = ApplicationPipeline(flow, runtime.intake, worker)
+            runtime.pipeline = ApplicationPipeline(
+                flow,
+                runtime.intake,
+                worker,
+                takeover_unavailable_reason=takeover_unavailable_reason,
+            )
         except (PortalDataError, OSError, ValueError, KeyError, TypeError) as error:
             runtime.pipeline_unavailable = (
                 error.code if isinstance(error, PortalDataError) else "pipeline_unavailable"

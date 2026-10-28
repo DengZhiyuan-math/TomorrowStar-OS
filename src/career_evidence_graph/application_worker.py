@@ -2908,16 +2908,9 @@ class WorkerStore:
                 and 0 <= now - page.get("at", 0) < 6
             )
             if phase == "prepared":
-                from . import cua_driver
+                from .cua_driver import reviewed_native_assistance_policy
 
-                policy = validate_native_assistance_policy(
-                    {
-                        "protocol": cua_driver.NATIVE_HANDOFF_PROTOCOL,
-                        "driver_sha256": cua_driver._NATIVE_HANDOFF_DRIVER_SHA256,
-                        "tools": list(cua_driver.NATIVE_HANDOFF_TOOLS),
-                        "type_mode": "insert_text",
-                    }
-                )
+                policy = reviewed_native_assistance_policy()
                 if (
                     not current
                     or not isinstance(expected_worker_source, str)
@@ -5384,9 +5377,19 @@ class WorkerService:
         return job["assistance"]
 
     def takeover_candidate(
-        self, application_id, *, expected_batch_id, expected_run_id, expected_task_id=None
+        self,
+        application_id,
+        *,
+        expected_batch_id,
+        expected_run_id,
+        expected_task_id=None,
+        hypothetical=False,
     ):
-        """Read one current technical blocker without reserving a writer."""
+        """Read one current technical blocker without reserving a writer.
+
+        ``hypothetical`` asks whether the reviewed policy would take this blocker over,
+        for a takeover that is on but could not be configured (MC-22).
+        """
         with self.store.applications.write_lock():
             state = self.store.load()
             job = self._bound_execution_job(
@@ -5398,6 +5401,10 @@ class WorkerService:
             )
             if self._backend_closed or self.store.stop_reason():
                 return None
+            if hypothetical:
+                from .cua_driver import reviewed_native_assistance_policy
+
+                return technical_blocker(state, job, reviewed_native_assistance_policy())
             return technical_blocker(state, job, self.native_assistance_policy)
 
     def request_takeover(
