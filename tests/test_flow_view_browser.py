@@ -118,3 +118,39 @@ def test_wait_notice_keeps_the_notification_text(portal, browser_page, tmp_path)
         browser_page.route("**/api/pipeline/state", read)
         browser_page.goto(active.origin + "/#flow")
         expect(browser_page.locator("#flow-automation")).to_contain_text(message)
+
+
+@pytest.mark.parametrize(("queue_mode", "action"), [(True, "continue"), (None, "start")])
+def test_continue_current_uses_the_flow_record_s_own_resume(
+    portal, browser_page, tmp_path, queue_mode, action
+):
+    # A flow saved before the queue (no queue_mode) resumes through start;
+    # its continue request is refused as "请使用当前岗位操作".
+    from playwright.sync_api import expect
+
+    with _flow_portal(portal, tmp_path) as active:
+        posted = []
+
+        def read(route):
+            state = json.loads(route.fetch().body())
+            state.update(id="synthetic-pipeline", control="paused", status="blocked")
+            if queue_mode:
+                state["queue_mode"] = True
+            route.fulfill(json=state)
+
+        def record(route):
+            posted.append(route.request.url.rsplit("/", 1)[-1])
+            route.fulfill(status=409, json={"error": "synthetic", "message": "synthetic"})
+
+        browser_page.route("**/api/pipeline/state", read)
+        browser_page.route("**/api/pipeline/continue", record)
+        browser_page.route("**/api/pipeline/start", record)
+        browser_page.goto(active.origin + "/#flow")
+        start = browser_page.locator("#flow-pipeline-start")
+        expect(start).to_have_text("继续当前岗位")
+        start.click()
+        for _ in range(50):
+            if posted:
+                break
+            browser_page.wait_for_timeout(100)
+        assert posted == [action]

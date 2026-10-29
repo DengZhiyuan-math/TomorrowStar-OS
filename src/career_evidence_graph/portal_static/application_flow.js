@@ -321,7 +321,8 @@
     status.setAttribute("role", "status"); automation.append(status);
     automation.append(node("p", "flow-muted", "开启后，系统持续收录推荐邮件，并按顺序处理当前岗位的 JD、匹配、完整材料、填写和上传。等待你处理信息或最终确认时，仍可收录新邮件；最终 Submit 由你操作。"));
     const actions = node("div", "flow-actions");
-    const startPipeline = button(pipeline?.id ? "继续当前岗位" : "开启自动流程", () => pipelineAction(pipeline?.id ? "continue" : "start"), "flow-pipeline-start");
+    // A flow saved before the queue (no queue_mode) resumes through start.
+    const startPipeline = button(pipeline?.id ? "继续当前岗位" : "开启自动流程", () => pipelineAction(pipeline?.queue_mode ? "continue" : "start"), "flow-pipeline-start");
     startPipeline.dataset.blocked = String(!pipeline?.enabled || pipeline.control === "running");
     const pausePipeline = button("暂停自动流程", () => mutate(async () => {
       pipeline = await api("/api/pipeline/pause", { method: "POST", body: "{}" });

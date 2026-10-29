@@ -92,3 +92,15 @@ macos/App.swift、macos/main_app.py、macos/build.py、loaded_code.py 仅查明�
 （辅助功能、屏幕录制已授权，责任链验证，未建浏览器）。安装版现含回报规则修正（`application_codex_assist.py` `423b1aaa…`）与 driver `ba1541e7…`。
 剩余：GUI 实际使用核对。
 
+### 2026-10-29 GUI 试用发现：旧流程上“继续当前岗位”无效（`claude-code-4ca66ce5/root`）
+
+用户试用报告：App 启动／退出／重开正常；自动接管默认开启、关闭后重开保留；点“继续当前岗位”两次均提示“请使用当前岗位操作”，流程未恢复。
+
+- 核实：本机流程为 2026-10-20 建立的旧流程（`pipeline.json` 无 `queue_mode`，`blocked`／`paused`）。界面只要流程有 id 就调用 `continue`，
+  而 `continue` 只接受队列流程（`_current_request` 要求 `queue_mode`）。旧流程应走 `start`（可重启时归档旧流程并开新队列流程，否则说明原因）。
+- 修复（未提交）：`application_flow.js` 按 `pipeline.queue_mode` 选 `continue`／`start`；新浏览器测试 RED→GREEN；两个模拟队列流程的旧测试补 `queue_mode`。
+  冻结 `d9c26e8f…`：离线 8494/3/0、浏览器 382/8/0。
+- **另一真实阻塞（需用户处理，未改动其数据）**：只读查明 `single-job-worker` 中 2026-10-17 的岗位仍为 `needs_recheck／checkpoint_unavailable` 且带结果未知的动作；
+  `_can_restart` 因此拒绝重启。修复后按钮会显示“原自动流程仍有记录，请先核验其进度”。（更正：并非任选结论即可解锁——`manual_stop` 只记录结论、保留未知 `intent`，重启仍被挡。）唯一现有路径须有证据：取消该岗位 → 为未知 `fill` 保存 `current_matches` 或 `not_applied` 及已核验来源 → “结算已取消岗位”（清除 intent、留作历史）→ 之后 `start` 归档旧流程并开始新周期（不续填旧岗位）。该岗位为 Workable 上的旧申请，原页已关闭、未人工提交；能否给出 `not_applied` 的证据由用户核验，不改 JSON、不宣称动作成功。
+- 实际 Codex 接管、关闭后停写、不可用原因提示仍未测到。
+

@@ -214,6 +214,7 @@ def test_current_pipeline_uses_one_continue_skip_and_direct_return(portal, brows
     page = browser_page
     pipeline = pipeline_state(
         id="synthetic-pipeline",
+        queue_mode=True,
         status="needs_input",
         current_recommendation_id="rec-one",
         items=[{"recommendation_id": "rec-one", "company": "First", "status": "needs_input"}],
@@ -317,6 +318,7 @@ def test_unknown_old_job_does_not_lock_next_job_after_explicit_skip(portal, brow
     page = browser_page
     pipeline = pipeline_state(
         id="synthetic-pipeline",
+        queue_mode=True,
         status="needs_input",
         current_recommendation_id="rec-one",
     )
