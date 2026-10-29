@@ -1975,15 +1975,12 @@ class ApplicationPipeline:
         """Capture alone may run while a job waits; source work stays sequential."""
         # Selection runs right after a capture completes; a real capture outlasts the
         # 60 s poll, so restarting one here would hold selection behind it indefinitely.
+        # A paused step resuming into selection or a source would wait on it too; a
+        # stopped mail read is the one wait this capture recovers.
+        after_mail = {"selecting_job", "starting_source", "acquiring_source"}
         if (
-            state["status"]
-            in {
-                "reading_email",
-                "starting_email",
-                "selecting_job",
-                "starting_source",
-                "acquiring_source",
-            }
+            state["status"] in after_mail | {"reading_email", "starting_email"}
+            or state.get("resume_status") in after_mail
             or state.get("mail_capture_error")
             or time.time() < state.get("mail_poll_at", 0)
         ):

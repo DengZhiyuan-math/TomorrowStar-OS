@@ -143,3 +143,13 @@ macos/App.swift、macos/main_app.py、macos/build.py、loaded_code.py 仅查明�
 配置与权限未改、未启动 GUI）、`check_main_permissions.py` 均 exit 0。安装版 `application_pipeline.py` 为修复版（`da1f4a60…`），driver `ba1541e7…`。
 下一步由用户：“继续当前岗位”从暂停的 `selecting_job` 恢复，确认选中岗位并进入 JD／匹配／材料／填写；再测实际接管、关闭后停写与不可用原因提示。
 
+### 2026-10-29 GUI 试用：“继续当前岗位”后停在岗位选择（`claude-code-4ca66ce5/root`）
+
+用户报告点击“继续当前岗位”后页面卡住。只读核对（App 启停诊断、intake runs）：App 23:38:21 启动时流程暂停在 `resume_status=selecting_job`，
+3 s 后后台轮询从首页开始完整收录（每页 3 封、约 17 s，约 9 页）；继续后 `selecting_job` 等这次收录，界面无进度；用户 23:40:07 退出，收录在第 6 页中断。
+
+- 根因：`e4d89e3f` 只排除状态 `selecting_job`，暂停时状态是 `paused`，轮询照常启动。
+- 修复：`_poll_mail` 在 `resume_status` 为选择或取 JD 时也不启动后台收录；`reading_email` 的停止仍由下一次收录恢复（合成邮件测试覆盖，首版误排除后已收窄）。
+  新测试 RED→GREEN（撤掉修复复核仍失败）。全量离线在收窄前 8495/3/2（两项失败均已修，所在文件 36 passed）；收窄后未重跑全量。
+- 留存：岗位结束时若恰有收录在跑，选择仍最多等约 2.5 min；后台每 60 s 重读 7 天窗口（真实模型调用）；每页 3 封、页面无收录进度。
+

@@ -113,6 +113,24 @@ def test_completed_capture_selects_a_job_before_any_new_background_capture(queue
         gate.set()
 
 
+def test_paused_selection_starts_no_background_capture_that_continue_would_wait_on(
+    queue_environment,
+):
+    # Installed MC-11: the App opened paused at selection, the poll began a full
+    # capture within seconds, and Continue then waited minutes behind it.
+    pipeline, _flow, intake, _worker, reads, _fetches, _messages = queue_environment
+    pipeline.start(request_id="paused-selection")
+    drive(pipeline, "selecting_job")
+    pipeline.pause()
+    poll_due(pipeline)
+    before = len(reads)
+    drive(pipeline, "paused")
+    assert intake.snapshot()["status"] != "running" and len(reads) == before
+    pipeline.continue_current(request_id="continue-paused-selection")
+    assert drive(pipeline, "acquiring_source")["current_recommendation_id"]
+    assert len(reads) == before
+
+
 def test_all_mail_pages_captured_but_only_first_job_acquired_and_processed(queue_environment):
     pipeline, flow, intake, worker, reads, fetches, _messages = queue_environment
     pipeline.start(request_id="persistent-queue")
