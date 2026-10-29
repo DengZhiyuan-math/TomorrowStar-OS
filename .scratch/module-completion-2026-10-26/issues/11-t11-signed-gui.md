@@ -153,3 +153,9 @@ macos/App.swift、macos/main_app.py、macos/build.py、loaded_code.py 仅查明�
   新测试 RED→GREEN（撤掉修复复核仍失败）。全量离线在收窄前 8495/3/2（两项失败均已修，所在文件 36 passed）；收窄后未重跑全量。
 - 留存：岗位结束时若恰有收录在跑，选择仍最多等约 2.5 min；后台每 60 s 重读 7 天窗口（真实模型调用）；每页 3 封、页面无收录进度。
 
+### 2026-10-30 安装版第六次更新（`claude-code-4ca66ce5/root`）
+
+用户“提交并更新 App”。以 `1fce9463` 构建，App 已退出（私人证据 `maintenance-2026-10-30-mc11-r6/`）：构建、`verify.py`、`main_app.py check`、`update`（回退副本已验证、
+配置与权限未改、未启动 GUI）、`check_main_permissions.py` 均 exit 0。安装版 `application_pipeline.py` 为修复版（`f0d57d19…`），driver `ba1541e7…`。
+下一步由用户：打开 App 后“继续当前岗位”，确认很快选中岗位并进入 JD／匹配／材料／填写；再测实际接管、关闭后停写与不可用原因提示。
+
