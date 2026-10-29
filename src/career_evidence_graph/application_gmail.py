@@ -277,6 +277,22 @@ def _verified_capture(
     return emails, provenance
 
 
+def _connector_argv(argv, overrides):
+    """Enable only the Gmail connector for one exec call.
+
+    The generic exec passes "--disable apps", which would override these overrides
+    and leave the call without any Gmail tool; other disabled features stay disabled.
+    """
+    if len(argv) < 2 or argv[1] != "exec":
+        return argv
+    rest = list(argv[2:])
+    for index in range(len(rest) - 1):
+        if rest[index : index + 2] == ["--disable", "apps"]:
+            del rest[index : index + 2]
+            break
+    return [argv[0], argv[1], *[part for value in overrides for part in ("--config", value)], *rest]
+
+
 def _read_mailbox_identity(directory: Path, runner) -> str:
     """Verify the active connector profile before any mailbox search is admitted."""
     directory.mkdir(mode=0o700)
@@ -303,14 +319,7 @@ def _read_mailbox_identity(directory: Path, runner) -> str:
     )
 
     def transport(argv, **kwargs):
-        if len(argv) > 1 and argv[1] == "exec":
-            argv = [
-                argv[0],
-                argv[1],
-                *[part for value in _PROFILE_OVERRIDES for part in ("--config", value)],
-                *argv[2:],
-            ]
-        return runner(argv, **kwargs)
+        return runner(_connector_argv(argv, _PROFILE_OVERRIDES), **kwargs)
 
     raw, payload = "", {"status": "failed"}
     try:
@@ -470,14 +479,7 @@ def read_recommendation_emails(
     )
 
     def transport(argv, **kwargs):
-        if len(argv) > 1 and argv[1] == "exec":
-            argv = [
-                argv[0],
-                argv[1],
-                *[part for value in _OVERRIDES for part in ("--config", value)],
-                *argv[2:],
-            ]
-        return runner(argv, **kwargs)
+        return runner(_connector_argv(argv, _OVERRIDES), **kwargs)
 
     result = {
         "status": "unavailable",
@@ -664,14 +666,7 @@ def process_recommendation_email(
     )
 
     def transport(argv, **kwargs):
-        if len(argv) > 1 and argv[1] == "exec":
-            argv = [
-                argv[0],
-                argv[1],
-                *[part for value in overrides for part in ("--config", value)],
-                *argv[2:],
-            ]
-        return runner(argv, **kwargs)
+        return runner(_connector_argv(argv, overrides), **kwargs)
 
     raw, result = "", {"status": "needs_recheck", "reason": "gmail_processing_unknown"}
     try:

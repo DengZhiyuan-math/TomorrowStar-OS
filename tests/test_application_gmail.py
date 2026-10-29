@@ -793,6 +793,28 @@ def test_transport_enables_only_two_gmail_read_tools_with_bare_keys_and_no_shell
     assert argv[argv.index("--sandbox") + 1] == "read-only"
 
 
+def test_gmail_calls_keep_their_one_app_enabled_and_the_rest_disabled(tmp_path):
+    # The generic exec disables account apps; a Gmail call enables only its connector,
+    # so "--disable apps" would override that and leave no Gmail tool (installed MC-11).
+    from career_evidence_graph.application_gmail import (
+        _read_mailbox_identity,
+        read_recommendation_emails,
+    )
+
+    calls = []
+    read_recommendation_emails(tmp_path / "capture", runner=_process(_mail_events(), calls=calls))
+    with pytest.raises(Exception, match="mailbox_identity_unavailable"):
+        _read_mailbox_identity(tmp_path / "profile", _process([], calls=calls))
+    execs = [argv for argv, _ in calls if len(argv) > 1 and argv[1] == "exec"]
+    assert len(execs) == 2  # the mail search, then a profile verification
+    for argv in execs:
+        flags = [argv[index + 1] for index, value in enumerate(argv) if value == "--config"]
+        disabled = {argv[index + 1] for index, value in enumerate(argv) if value == "--disable"}
+        assert "features.apps=true" in flags
+        assert "apps" not in disabled
+        assert {"memories", "plugins", "hooks"} <= disabled
+
+
 @pytest.mark.parametrize(
     "mutation,reason",
     [

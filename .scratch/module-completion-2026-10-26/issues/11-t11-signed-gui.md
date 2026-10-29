@@ -110,3 +110,13 @@ macos/App.swift、macos/main_app.py、macos/build.py、loaded_code.py 仅查明�
 `update`（回退副本已验证、配置与权限未改、未启动 GUI）、`check_main_permissions.py` 均 exit 0。安装版 `application_flow.js` 为修复版（`d5042395…`），driver `ba1541e7…`。
 下一步由用户：按证据处理 Workable 旧岗位（取消 → 有来源的结论 → 结算）后，用“继续当前岗位”开始新流程，再测实际接管。
 
+### 2026-10-29 GUI 试用：Gmail 收录被 MC-21 的 `--disable apps` 挡住（`claude-code-4ca66ce5/root`）
+
+用户试用报告（私人：`~/Library/Application Support/TomorrowStar/test-reports/2026-10-29-mc11-gmail-intake/`）：旧岗位按证据取消并结算（复用同一 intent 的历史 `current_matches`），
+修复版“继续当前岗位”归档旧流程、新队列启动；随后 Gmail profile 返回 `unavailable / mailbox_identity_unavailable`，流程停在 `needs_input / mail_capture_incomplete`，后续接管用例未执行。
+
+- 根因：`fdc403f1`（MC-21）让所有 `codex exec` 带 `--disable apps`；Gmail 调用经 `--config features.apps=true` 只开放其连接器，被后附的 `--disable apps` 覆盖，模型无 Gmail 工具。
+- 修复（未提交）：`application_gmail.py` 三处相同的参数包装合并为 `_connector_argv`，插入连接器覆盖并去掉 `--disable apps`；其余调用仍关闭 apps，Gmail 调用仍关闭 memories／plugins／hooks。
+  新测试 RED→GREEN（search 与 profile 两次 exec）；本地 `codex features list`（无模型）对照：修复后 apps true、其余 false。冻结 `babfa6d6…`：离线 8495/3/0、浏览器 382/8/0。
+- 要生效需更新安装版；真实 Gmail 读取须在 App 中由用户重测。
+
