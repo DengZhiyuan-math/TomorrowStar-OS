@@ -6,6 +6,12 @@ materials, form filling and upload. **The user performs final Submit.**
 
 ## Current product and development
 
+**2026-10-29:** MC-06–MC-10 are closed. Real Codex takeover passed on the general path (MC-10:
+four tools only, fills confirmed answers on the original page, never submits); the single installed
+App was updated with one signed native driver and passed verify, signing and permission checks.
+GUI use (MC-11), real ATS (MC-12) and the final audit (MC-16) remain. Current tickets:
+[module map](.scratch/module-completion-2026-10-26/map.md). The paragraph below is the 2026-10-27 state.
+
 [MC05 original-page takeover](.scratch/remaining-tickets-2026-10-26/mc05-native/final-acceptance-r5.md)
 is accepted for controlled-agent, synthetic-page and actual native-tool scope. The same
 1799-file snapshot passed7843 default offline cases (2 explicit benchmark skips),224

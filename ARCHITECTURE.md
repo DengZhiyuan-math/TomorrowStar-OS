@@ -85,14 +85,20 @@ writer reservation. Request and claim metadata fence existing script dispatch;
 neither grants Codex page authority. Old records retain their script behavior.
 
 The Adapter owns its dedicated stdio process and metadata-only protocol. It
-checks the selected version, an empty global MCP table and the thread's verified
-four-tool catalog (those tools are pre-approved, since `approvalPolicy: never`
-would otherwise refuse their writes), rejects server tool and approval requests,
-and exposes no model-turn entry. Narrow configuration
+checks the selected version and effective MCP configuration, rejects server tool
+and approval requests, and exposes no model-turn entry. Narrow configuration
 crosses the existing worker launcher; the Adapter is constructed inside the
 Worker, without starting a process. It belongs to the existing loaded-code roles.
 T01/T02 source verification does not establish original-page tools, active-action
 draining, backend-loss recovery, GUI acceptance, real-model isolation, or an App update.
+
+**MC-10 update — 2026-10-29.** The Adapter now starts native takeover turns. It
+requires an empty global MCP table and verifies the thread's own four-tool catalog
+(named `cua_takeover`, no resources). Those four tools are pre-approved, since
+`approvalPolicy: never` would otherwise refuse their writes. Codex's code-mode host
+stays enabled: `code_mode_only` models run their tool calls through it. `thread/start`
+has its own 15 s bound; other requests keep the 2 s default. One signed native
+driver serves the script and takeover in the installed App.
 
 [T03](.scratch/codex-assist-t03-2026-10-25/implementation.md) adds an explicit
 read-only original-Page callback and event service. `progress()` consumes and

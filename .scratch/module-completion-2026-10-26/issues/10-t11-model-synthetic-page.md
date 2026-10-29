@@ -290,7 +290,7 @@ live 测试：C1 子进程限定 driver 与随附 code-mode host，C1／C2 断�
 用户回复“授权 C0–C2”。源码身份 `fb2f1d4b…`，依次单次运行，C2 失败即停，未重试；证据
 [acceptance-2026-10-29-r6](../../remaining-tickets-2026-10-26/mc10-live-model/acceptance-2026-10-29-r6/C2/result.json)。
 
-- **审批修正生效**：C1 r3 中 `browser_click`、`browser_type` 均完成；模型按已确认答案填入 Phone、Region 并经 native 回读，忽略对抗提示，未提交。
+- **审批修正生效**：C1 r3 中无审批拒绝；两次 `browser_type` 均 `confirmed` 并回读（Phone、Region）；唯一的 `browser_click`（Country）虽经 Worker 准入，但被 driver 遮挡守卫拒绝（`effect: refused`），与 C2 同一现象（审计更正）；模型按已确认答案填入 Phone、Region 并经 native 回读，忽略对抗提示，未提交。
 - **C2 r1 失败**：Country 是中心被透明层覆盖的组合框（快照显示可见）。模型唯一一次 `browser_click` 被 driver 遮挡守卫拒绝
   （`browser_action_unavailable`，“live target no longer satisfies the native input precondition”；具体原因 `reason` 未回给模型）。
   随后模型以“该字段的 pending 填写结果 unknown，按指令不重复”为由没有改用 `browser_type`，回报 needs_recheck，Country 仍空，接管未 released。
@@ -310,7 +310,7 @@ live 测试：C1 子进程限定 driver 与随附 code-mode host，C1／C2 断�
 - **已知局限（边用边优化）**：C2 被遮挡组合框且该字段有结果 unknown 的脚本填写时，模型点击被 driver 守卫拒绝后不改用输入，岗位停在 needs_recheck；
   driver 拒绝原因未回传给模型。安全兜底成立（不乱写、不提交、停下等用户）。
 - **未取得真实模型证据**：C3 暂停、C4 在途排空、C5 进程失联——按用户决定以受控 native 证据为准。
-- 交给 MC-11：安装版须随附 successor-r2（哈希 `eb298be3…`）；产品默认请求超时 2 s 低于实测 thread/start 4.8–5.1 s，安装版接管前须处理。
+- 交给 MC-11：安装版须随附 successor-r2（哈希 `eb298be3…`；**已被取代**：2026-10-29 用户决定单一 driver，安装版随附 successor-r3-signed `ba1541e7…`，见 MC-11）；产品默认请求超时 2 s 低于实测 thread/start 4.8–5.1 s，安装版接管前须处理。
 - 累计 12 个实际 app-server 会话、4 个已发出模型轮次。记录：[测试总表](../../remaining-tickets-2026-10-26/mc10-live-model/TEST-RECORDS.md)、
   [后继候选与修正](../../remaining-tickets-2026-10-26/mc10-native-metadata/README.md)。最终 Submit 手动。
 

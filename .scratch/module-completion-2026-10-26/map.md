@@ -1,8 +1,8 @@
 # Module 设计剩余开发与最终验证
 
-更新：2026-10-29，Europe/Zurich（MC-20/21/22 已结案，MC-10 验收准备对接）。原 10-27 记载：**R6 本轮全量离线与隔离合成浏览器验收已完成；
+更新：2026-10-29，Europe/Zurich（MC-10 按一般场景结案；MC-11 安装版已更新、待 GUI 实际使用核对；MC-23 暂缓至 MC-11 之后）。原 10-27 记载：**R6 本轮全量离线与隔离合成浏览器验收已完成；
 剩余开发和最终 AC01–AC27 整体验收未完成。** 当前交接见
-[current-handoff.md](current-handoff.md)。
+[ACTIVE-HANDOFF.md](../remaining-tickets-2026-10-26/ACTIVE-HANDOFF.md)（[current-handoff.md](current-handoff.md) 为 2026-10-27 历史）。
 
 **此前三票后继已按源码/合成范围结案。** 同一 665 文件快照完整默认离线
 7,722 passed、2 skipped，随后相关隔离浏览器 89 passed；JUnit 精确覆盖，源码
@@ -10,7 +10,7 @@
 [本轮实施与验收](../mc01-mc02-mc04-implementation-2026-10-26/README.md)。
 
 目标：完成正式设计的剩余开发，再做完整测试和独立审计。此前 T01–T03 的证据保留，
-不把它们重新命名为全库已完成。没有真实申请、安装 App 更新或默认页面写入授权。
+不把它们重新命名为全库已完成。没有真实申请、安装 App 更新或默认页面写入授权（2026-10-29 用户为 MC-11 授权并完成安装版更新）。
 
 权威需求：[Module 设计](../../docs/module-interfaces-and-migration-design.md)、
 [产品规则](../../docs/single-job-flow.md)、[开发计划](../../docs/development-plan.md)。
@@ -46,8 +46,8 @@ JSON交接不要求截图解释进度，原Page单控制者接续与unknown/撤�
 
 ## 当前票据与硬依赖
 
-本轮票据位于 `issues/`，由现有 `scripts/query_tickets.py` 自动读取。共 **23 张：
-1 张已关闭的基线登记、17 张已结案工作票（含 2026-10-27/28 结案的 MC-06/07/08/09/14/15/17/18/19/20，及 2026-10-29 按一般场景结案的 MC-10）、4 张 open/none 的未领取工作票（MC-11/12/16/23）；MC-20/21/22 已于 2026-10-28/29 结案**
+本轮票据位于 `issues/`，由现有 `scripts/query_tickets.py` 自动读取。共 **24 张（MC-00–23）：
+1 张已关闭的基线登记、19 张已结案工作票（MC-01–10、13–15、17–22；MC-10 于 2026-10-29 按一般场景结案）、4 张 open（MC-11 已领取并安装；MC-12/16/23 未领取）；MC-20/21/22 已于 2026-10-28/29 结案**
 （其中 MC-17–19 为 2026-10-27 架构审计补充）。MC 编号只属于本轮，
 不与旧稳定性测试的 T 编号混用。T01–T05 已交付内容登记在 MC-00，不重复建实现票。
 M1/M2 当前归属核对及条件采用由 MC-01 结案，后续统一控制/调度按具体方法承接到
@@ -91,6 +91,8 @@ MC-02/04 结案，完整 Resume 生命周期已按本票源码/合成范围结�
 
 ## Decisions so far
 
+- [跳过 MC-23](issues/23-claude-takeover-executor.md#comments)：Claude 执行者不阻塞 MC-11，改到 MC-11 之后。
+- [安装版单一 driver 并安装](issues/11-t11-signed-gui.md#comments)：只带新版 driver（release、keychain 补丁、固定身份签名），脚本与接管共用；用户授权构建并更新唯一主 App。
 - [实际 Codex 一般场景验收](issues/10-t11-model-synthetic-page.md#2026-10-29-结案一般场景跑通claude-code-4ca66ce5root)：真实模型在合成原页读页、按确认答案填写、不提交；为此换受限元数据 driver、回报 schema 改 strict、四个工具预批准；边角场景边用边优化。
 - [产品中的自动接管开关](issues/22-product-native-assistance-policy.md#comments)：默认开、设置可关；先过 MC-10 再随 MC-11 打开；不可用即停下说明原因、不重试不换执行者；执行者可选 Codex 或 Claude（Claude 经 `claude -p`、订阅登录于专用目录、版本固定，另开 MC-23）。
 
@@ -175,7 +177,7 @@ MC-02/04 结案，完整 Resume 生命周期已按本票源码/合成范围结�
   `--expected-worker-revision`，`require_packaged_worker_identity` 无生产调用方；安装身份目前只在 `application_readiness` 中比较。MC-11 前应确认是否需要在 worker 内拒绝不符身份。
 - **MC-21 留存项**（2026-10-28 结案记录）：界面仍是通用失败文案（登录命令只在错误记录与文档中）；研究/校准 CLI 亦受新 exec 参数影响；检出版 `career_portal`
   启动器不设专用目录；后端启动登录检查只捕获 `CodexCLIError`；MC-10 的 `mc10-codex-home` 需另行登录。2026-10-29 已让 `tests/codex_live_guards.py` 复用 `validate_codex_home`。
-- **MC-10 留存（2026-10-29 结案，边用边优化）**：C2 被遮挡且 pending unknown 的字段模型不补填、driver 拒绝原因未回传；C3–C5 无真实模型证据；产品默认请求超时 2 s 低于实测 thread/start 约 5 s——已于 2026-10-29 改为 thread/start 单独 15 s（MC-11 前置）；`codex --version` 冷启动仍 2 s（P3）；安装版随附单一 driver successor-r3-signed `ba1541e7…`（脚本与接管共用，2026-10-29）；脚本路径“最小化”测试期望过时、worker 停止退出较慢（待安装后观察）。
+- **MC-10 留存（2026-10-29 结案，边用边优化）**：C2 被遮挡且 pending unknown 的字段模型不补填、driver 拒绝原因未回传；C3–C5 无真实模型证据；产品默认请求超时 2 s 低于实测 thread/start 约 5 s——已于 2026-10-29 改为 thread/start 单独 15 s（MC-11 前置）；`codex --version` 冷启动仍 2 s（P3）；安装版随附单一 driver successor-r3-signed `ba1541e7…`（脚本与接管共用，2026-10-29）；实际 Codex 运行均用 debug `eb298be3…` 与源码 `c98544fe`，`ba1541e7…` 尚无实际 Codex 运行；脚本路径“最小化”测试期望过时、worker 停止退出较慢（待安装后观察）。
 - **Playwright 驱动死亡后 worker 空转**（2026-10-29 脚本路径真实 driver 测试发现，与 cua-driver 无关）：测试以 `killpg(SIGTERM)` 停 worker，连带杀死 Playwright 驱动；worker 主循环 `runner.pump()`→`owned_browser_cdp.pump_events`→Playwright `_sync` 的 `while not task.done(): switch()` 永久空转（100% CPU，孤儿进程不退出，faulthandler 栈见 [记录](../remaining-tickets-2026-10-26/mc10-native-metadata/script-path-diag/stop3/worker.log)）。App 正常经控制连接停止不走此路径，但 Playwright／Chrome 意外死亡时可能出现。需决定修法（如检测连接断开即退出）。
 - **交回核验失败不记录原因**（2026-10-29 MC-10 后继候选验收发现）：`_service_assistance_return` 的 `except (PortalDataError, Error)` 只置等待原因（如 `assistance_return_unverified`），不记录异常。受控 native 整轮中第一次接管交回间歇失败 2 次（successor-r2 52 次中 1 次、candidate-r1 26 次中 1 次；单独重跑 successor-r2 的 01 10/10、candidate-r1 的 03 3/3 通过；诊断插件下尚无失败用例的整轮观测），原因无法读出；见 [后继候选记录](../remaining-tickets-2026-10-26/mc10-native-metadata/README.md#未定位的间歇失败未计为通过)。需决定是否持久化失败原因并再查根因。
 - **MC-20 冻结字节内留下的 P3**：闭包扫描未识别 `from career_evidence_graph import X`（当前无此用法）；`loaded_code.py` 注释“covered, not executed”应为“无论是否执行”；
@@ -212,7 +214,7 @@ flowchart LR
     W["MC-20 worker身份覆盖"] --> G
     CH["MC-21 App专用Codex目录"] --> G
     NP["MC-22 产品自动接管开关"] --> G
-    G -.后续.-> CL["MC-23 Claude执行者"]
+    G --> CL["MC-23 Claude执行者"]
     X --> CL
     NP --> CL
     G --> ATS["MC-12 T11.3真实ATS"]
@@ -238,7 +240,7 @@ flowchart LR
 MC-03 在 MC-02 的人工后继/模板契约修复后实施；MC-13 收拢常规准备与调度，
 MC-08 专门收拢新接管控制，两部分均交付后才进入 MC-14，避免循环依赖。
 
-MC-10/11/12 分别记录真实模型、GUI、ATS；MC-11 等 MC-10 与 MC-15 均完成后才验收，
+MC-10/11/12 分别记录真实模型、GUI、ATS；MC-11 等 MC-10、MC-15、MC-20、MC-21、MC-22 均完成后才验收（MC-23 已改到 MC-11 之后），
 GUI 实测不是 UI 实现的前置。MC-16 可提前只读整理 AC 证据，但前置未齐不能关闭。
 MC-11 与 MC-16 还须核对较早 MC-10 的实际模型证据适用于最终候选；若后续装配、
 工具或运行身份改变其证明前提，补验受影响层，不能只用历史 closed 状态放行。

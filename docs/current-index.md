@@ -1,22 +1,21 @@
 # 当前有效索引
 
-更新：2026-10-28，Europe/Zurich（MC-17；MC-14 Runtime 行；MC-22 自动接管默认开启）。本页只做导航，回答“现在什么有效、契约在哪一节”；
+更新：2026-10-29，Europe/Zurich（MC-10 结案；安装版已更新）。本页只做导航，回答“现在什么有效、契约在哪一节”；
 不新增规则。被取代段落保留其历史含义，不删除。每张 MC 票结案时，若改变入口约定、契约位置
 或取代关系，同步更新本页和[入口清单](codebase-responsibilities.md#public-entry-points)。
 
 ## 日常产品入口
 
 **日常用户入口是 App**（唯一的 `~/Applications/TomorrowStar.app`）。用户从 App 启动和控制申请；
-脚本遇阻时由 App 经 Worker 调用 Codex computer use 接管，可接续时交回脚本，否则处理到
+脚本遇阻时由 App 经 Worker 调用 Codex 接管（只用产品提供的四个原页工具，不是 Codex 自带的 computer use），可接续时交回脚本，否则处理到
 Submit 前并返回“填写完成”。Codex 是 App 调用的执行能力，不是用户须先进入的入口。最终 Submit 手动。
 
 依据：[Module 设计](module-interfaces-and-migration-design.md)文首“日常用户入口是 App”段（2026-10-26），
 以及[已确认的设计决定](module-interfaces-and-migration-design.md#已确认的设计决定)的“用户入口”行。
 
-实现现状：App 自动派发与统一控制由 MC-08（T09）实现；MC-22 起自动接管在 App 设置中默认开启、可关闭，
-安装版随 MC-11（在 MC-10 真实模型验收之后）生效，状态见
-[剩余开发地图](../.scratch/module-completion-2026-10-26/map.md#当前票据与硬依赖)。这是“约定已定、能力未全部启用”，
-不表示回到 10-22 的使用方式。
+实现现状：App 自动派发与统一控制由 MC-08（T09）实现；MC-22 起自动接管在 App 设置中默认开启、可关闭。
+MC-10 真实模型一般场景验收已于 2026-10-29 结案，安装版同日更新；GUI 实际使用核对属 MC-11，状态见
+[剩余开发地图](../.scratch/module-completion-2026-10-26/map.md#当前票据与硬依赖)。不表示回到 10-22 的使用方式。
 
 ### 10-22 与 10-26 两处入口说法以哪处为准
 

@@ -8,8 +8,8 @@ Interaction: HITL
 Assignee: none
 Created: 2026-10-28
 Parent: [Module 剩余开发地图](../map.md)
-Blocked by: [MC-10](10-t11-model-synthetic-page.md), [MC-22](22-product-native-assistance-policy.md)
-Triage: needs-implementation
+Blocked by: [MC-10](10-t11-model-synthetic-page.md), [MC-22](22-product-native-assistance-policy.md), [MC-11](11-t11-signed-gui.md)
+Triage: deferred-after-MC-11 (user decision 2026-10-29)
 
 ## 问题与范围
 

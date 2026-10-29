@@ -5,11 +5,11 @@ Label: wayfinder:task
 Status: open
 Priority: P2
 Interaction: HITL
-Assignee: none
+Assignee: claude-code-4ca66ce5/root
 Created: 2026-10-26
 Parent: [Module 剩余开发地图](../map.md)
 Blocked by: [MC-10](10-t11-model-synthetic-page.md), [MC-15](15-m6-ui-compatibility-identity.md), [MC-20](20-worker-role-coverage.md), [MC-21](21-app-codex-home.md), [MC-22](22-product-native-assistance-policy.md)
-Triage: awaiting-authorized-layered-acceptance
+Triage: installed; awaiting-GUI-checks
 
 ## 问题与范围
 
@@ -29,12 +29,12 @@ macos/App.swift、macos/main_app.py、macos/build.py、loaded_code.py 仅查明�
 - [ ] 核对 MC-10 的实际模型/工具策略证据仍适用于本次最终候选；相关装配、配置、入口、工具或运行身份变化时补验受影响层，不能只凭 MC-10 已关闭跳过核对。
 - [ ] 必要更新仅沿 main_app.py 的唯一主 App 流程，保留配置、私人资料、历史、回退；不例行重置 TCC。
 - [ ] 自动接管（MC-22）：安装版“自动接管…”菜单开关默认开启；脚本受阻时自动接管一次；关闭后岗位停下等待；接管不可用时岗位显示具体原因。
-- [ ] MC-10 交接：安装版随附 native driver successor-r2（SHA256 `eb298be3…`，与产品固定哈希一致）；Codex 请求超时足以覆盖实测约 5 s 的 thread/start。
+- [ ] MC-10 交接：安装版随附单一 native driver successor-r3-signed（SHA256 `ba1541e7…`，脚本与接管共用，与产品固定哈希一致；2026-10-29 用户决定，取代原写的 successor-r2 `eb298be3…`）；`thread/start` 单独 15 s 上限（已实现）。
 - [ ] 实际未运行项与失败明确记录，第一层模型验证不外推 GUI；旧安装票的原成果与负责人保持。
 
 ## 既有证据与限制
 
-[T11 第二层](../../../docs/module-interfaces-and-migration-design.md#t11-实际-codex签名-gui-与安装身份分层验收)。当前任务只建票，不授权或执行安装。
+[T11 第二层](../../../docs/module-interfaces-and-migration-design.md#t11-实际-codex签名-gui-与安装身份分层验收)。建票时不授权或执行安装（2026-10-29 用户已授权并完成安装，见 Comments）。
 
 需求以[正式设计](../../../docs/module-interfaces-and-migration-design.md)为准。R6 只证明原冻结源码与合成测试范围；本票如有新实现，
 须记录实际改动、对应回归和审查，不能复用 R6 关闭新行为。未知结果、人工内容、原页、
@@ -71,4 +71,11 @@ macos/App.swift、macos/main_app.py、macos/build.py、loaded_code.py 仅查明�
 
 本票剩余：从 Finder 启动后的真实使用核对（Codex 专用目录登录、自动接管开关默认开、脚本受阻时自动接管一次、关闭时停下、不可用时显示原因）、
 退出／重开与停写实测；`codex --version` 冷启动 2 s 是否足够待观察。最终 Submit 手动。
+
+### 2026-10-29 审计补记（`claude-code-4ca66ce5/root`）
+
+已领取（此前已改 `macos/build.py` 并安装）。依[工作审计](../../work-audit-2026-10-29/README.md)：
+- MC-10 的实际 Codex 运行全部用 debug driver `eb298be3…` 与源码 `c98544fe`；安装版的 `ba1541e7…`（release、keychain 补丁、签名）与 `0da8c1b6` 的 thread/start 改动只有受控 native（25/1/0）证据，
+  尚无实际 Codex 运行。按criterion 3，GUI 实际使用中的接管即为其首个实际证据；若接管异常，先核对这一差异。
+- MC-14 要求的“更新 App 前原生跑 `test_worker_native_chain_browser.py`”已满足：native-r10 的 01–03 在冻结 `ae37d4a9…`（= `49924cd5`）上通过。
 
