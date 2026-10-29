@@ -59,3 +59,16 @@ macos/App.swift、macos/main_app.py、macos/build.py、loaded_code.py 仅查明�
   `macos/build.py` 记录其来源。冻结 `ae37d4a9…`：离线 8475/3/0、浏览器 380/8/0、受控 native 25/1/0；审查 r1 NOT-READY（缺 keychain 补丁、ad-hoc 签名）→ r2 READY。
   脚本路径真实 driver：填写到 ready_for_review 成功；“最小化”断言新旧 driver 同样失败（测试期望过时）；worker 停止退出 >10 s（无旧基线）。安装时观察。
 
+### 2026-10-29 安装版已更新（`claude-code-4ca66ce5/root`）
+
+用户回复“授权构建并安装”。按 `docs/macos-app.md` 流程（主 App 运行前已确认退出；证据在私人 `~/Library/Application Support/TomorrowStar/maintenance-2026-10-29-mc11/`，不进仓库）：
+
+1. `macos/build.py --cua-driver successor-r3-signed` → `builds.noindex/TomorrowStar.bundle-candidate`（构建时工作区与提交 `49924cd5` 一致、干净）。
+2. `macos/verify.py`：exit 0；签名、重定位、捆绑运行时与入口、CSRF、父进程 EOF 关闭等全部 passed，未用个人数据；包内 driver 记录为 `ba1541e7…` 及后继来源。
+3. `main_app.py check`：主 App 指定要求与固定身份均验证通过，未改 App。
+4. `main_app.py update`：回退副本已验证、配置不变、权限未改、未启动 GUI，`main_app_updated: true`；安装版 driver 为 `ba1541e7…`，`codesign --verify --deep --strict` 通过。
+5. `check_main_permissions.py`：exit 0；辅助功能、屏幕录制均为实际已授权，责任链验证通过，仅非提示检查，未建浏览器，进程全部退出。
+
+本票剩余：从 Finder 启动后的真实使用核对（Codex 专用目录登录、自动接管开关默认开、脚本受阻时自动接管一次、关闭时停下、不可用时显示原因）、
+退出／重开与停写实测；`codex --version` 冷启动 2 s 是否足够待观察。最终 Submit 手动。
+
