@@ -120,3 +120,9 @@ macos/App.swift、macos/main_app.py、macos/build.py、loaded_code.py 仅查明�
   新测试 RED→GREEN（search 与 profile 两次 exec）；本地 `codex features list`（无模型）对照：修复后 apps true、其余 false。冻结 `babfa6d6…`：离线 8495/3/0、浏览器 382/8/0。
 - 要生效需更新安装版；真实 Gmail 读取须在 App 中由用户重测。
 
+### 2026-10-29 安装版第四次更新（`claude-code-4ca66ce5/root`）
+
+用户“授权更新 App”。以 `380c5f43` 构建，用户退出 App 后更新（私人证据 `maintenance-2026-10-29-mc11-r4/`）：构建、`verify.py`、`main_app.py check`、
+`update`（回退副本已验证、配置与权限未改、未启动 GUI）、`check_main_permissions.py` 均 exit 0。安装版 `application_gmail.py` 为修复版（`fed71921…`），driver `ba1541e7…`。
+下一步由用户：在 App 中重新收录推荐邮件，确认 Gmail 身份核验与读取恢复；之后测实际接管、关闭后停写与不可用原因提示。
+
