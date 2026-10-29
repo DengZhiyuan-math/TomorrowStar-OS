@@ -62,7 +62,7 @@ def _turn_started(case):
     path = case / "outbound.jsonl"
     if not path.is_file():
         return False
-    rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    rows = [json.loads(line) for line in path.read_text().split("\n") if line.strip()]
     return any((row.get("frame") or {}).get("method") == "turn/start" for row in rows)
 
 

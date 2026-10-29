@@ -12,6 +12,7 @@ import json
 import math
 import os
 import queue
+import re
 import selectors
 import signal
 import stat
@@ -54,7 +55,28 @@ _MAX_FRAME_BYTES = 1_048_576
 _MAX_REPORT_CHARS = 65_536
 # Actual 0.165 thread/start took 4.8-5.1 s; other requests keep the short default.
 _THREAD_START_TIMEOUT = 15.0
-_ID = {"type": "string", "maxLength": 128}
+# Report text limits live in the schema itself. Strict outputs enforce `pattern`
+# while generating; they reject `maxLength`, so the model reads each bound from its
+# `description` and `_matches` enforces it, no looser than the Worker's adoption check.
+# Excludes controls and the invisible separators copied page text carries; `isprintable`
+# below remains the final check for any rarer unprintable character.
+# Non-ASCII members are literal characters (JSON escapes them), not regex `\\u` escapes,
+# which some regex dialects lack.
+_LINE = (
+    "^[^\\x00-\\x1f\x7f-\xa0\xad\u1680\u180e\u2000-\u200f\u2028-\u202f\u205f-\u206f\u3000\ufeff]+$"
+)
+
+
+def _text(limit):
+    return {
+        "type": "string",
+        "maxLength": limit,
+        "pattern": _LINE,
+        "description": f"Non-empty single-line printable text, at most {limit} characters.",
+    }
+
+
+_ID = _text(128)
 _REPORT_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -68,7 +90,11 @@ _REPORT_SCHEMA = {
                 "needs_recheck",
             ],
         },
-        "summary": {"type": "string", "maxLength": 2000},
+        "summary": {
+            "type": "string",
+            "maxLength": 2000,
+            "description": "At most 2000 characters.",
+        },
         "unresolved_action_ids": {"type": "array", "items": _ID, "maxItems": 1000},
         "fields": {
             "type": "array",
@@ -76,7 +102,7 @@ _REPORT_SCHEMA = {
             "items": {
                 "type": "object",
                 "additionalProperties": False,
-                "properties": {"field_id": _ID, "state": {"type": "string", "maxLength": 64}},
+                "properties": {"field_id": _ID, "state": _text(64)},
                 "required": ["field_id", "state"],
             },
         },
@@ -86,8 +112,13 @@ _REPORT_SCHEMA = {
                     "type": "object",
                     "additionalProperties": False,
                     "properties": {
-                        "kind": {"type": "string", "maxLength": 64},
-                        "field_id": {"type": ["string", "null"], "maxLength": 128},
+                        "kind": _text(64),
+                        "field_id": dict(
+                            _ID,
+                            type=["string", "null"],
+                            description="Null when no next field is named; otherwise "
+                            "non-empty single-line printable text, at most 128 characters.",
+                        ),
                     },
                     "required": ["kind", "field_id"],
                 },
@@ -127,6 +158,11 @@ def _matches(value, schema):
             isinstance(value, str)
             and value in schema.get("enum", (value,))
             and len(value) <= schema.get("maxLength", len(value))
+            and (
+                "pattern" not in schema
+                or bool(re.fullmatch(schema["pattern"], value))
+                and value.isprintable()
+            )
         )
     if schema["type"] == "array":
         return (
@@ -667,11 +703,11 @@ class CodexAdapter:
                                 "screenshots before actions. Reuse supplied confirmed answers; "
                                 "never invent user facts or overwrite existing human text. "
                                 "Never Submit, press Enter or invoke final sending. If an "
-                                "action result is unknown, do not repeat it. Return a bounded "
-                                "JSON report (summary at most 2000 characters, ids and "
-                                "field_id non-empty and at most 128 characters; next_step "
-                                "null, or its field_id null, when no next field is named); "
-                                "turn completion is not verified application completion."
+                                "action result is unknown, do not repeat it. Return the JSON "
+                                "report within the limits each output schema field describes; "
+                                "next_step is null, or its field_id null, when no next field "
+                                "is named. Turn completion is not verified application "
+                                "completion."
                             )
                         }
                         if native
@@ -1457,7 +1493,7 @@ class CodexAdapter:
         if not _matches(claimed, _REPORT_SCHEMA):
             return
         canonical = json.dumps(claimed, sort_keys=True, separators=(",", ":"))
-        run.report = {
+        report = {
             "protocol": "assistance-report/v1",
             "request_id": "report-" + run.run_id,
             "native_turn_id": run.native_turn_id,
@@ -1465,6 +1501,10 @@ class CodexAdapter:
             "claimed": claimed,
             "claimed_sha256": hashlib.sha256(canonical.encode()).hexdigest(),
         }
+        # The Worker bounds the escaped, wrapped report; keep no report it would refuse.
+        if len(json.dumps(report, sort_keys=True, separators=(",", ":"))) > _MAX_REPORT_CHARS:
+            return
+        run.report = report
 
     @staticmethod
     def _native_event(run, message):

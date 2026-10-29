@@ -123,11 +123,8 @@ def read_peer(root):
     if not path.exists():
         return []
     # Only complete lines are evidence while the controlled peer is still writing.
-    return [
-        json.loads(line)
-        for line in path.read_text().splitlines(keepends=True)
-        if line.endswith("\n")
-    ]
+    # JSONL lines end only at "\n"; frames may carry U+2028, which splitlines() breaks on.
+    return [json.loads(line) for line in path.read_text().split("\n")[:-1]]
 
 
 def page_identity(page):

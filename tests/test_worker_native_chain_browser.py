@@ -89,11 +89,8 @@ def read_peer(root):
     path = root / "native-peer.jsonl"
     if not path.exists():
         return []
-    return [
-        json.loads(line)
-        for line in path.read_text().splitlines(keepends=True)
-        if line.endswith("\n")
-    ]
+    # JSONL lines end only at "\n"; frames may carry U+2028, which splitlines() breaks on.
+    return [json.loads(line) for line in path.read_text().split("\n")[:-1]]
 
 
 def chrome_sockets(pid):

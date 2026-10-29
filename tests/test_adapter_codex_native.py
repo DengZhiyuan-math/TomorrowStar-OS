@@ -1344,6 +1344,91 @@ def assert_strict_output_schema(schema, *, root=True):
         assert_strict_output_schema(schema["items"], root=False)
 
 
+def report_nodes(report_schema, output_schema, path="$"):
+    """Pair each node of the local report schema with the one sent to the model."""
+    yield path, report_schema, output_schema
+    for name, node in report_schema.get("properties", {}).items():
+        yield from report_nodes(node, output_schema["properties"][name], f"{path}.{name}")
+    if "items" in report_schema:
+        yield from report_nodes(report_schema["items"], output_schema["items"], path + "[]")
+    for index, option in enumerate(report_schema.get("anyOf", ())):
+        yield from report_nodes(option, output_schema["anyOf"][index], f"{path}|{index}")
+
+
+def test_every_report_text_limit_is_stated_in_the_model_schema():
+    from career_evidence_graph.application_codex_assist import _OUTPUT_SCHEMA, _REPORT_SCHEMA
+
+    texts = 0
+    for path, local, sent in report_nodes(_REPORT_SCHEMA, _OUTPUT_SCHEMA):
+        if "maxLength" not in local:
+            continue
+        texts += 1
+        # Strict outputs reject maxLength; the model reads the bound instead.
+        assert "maxLength" not in sent and str(local["maxLength"]) in sent["description"], path
+        if not path.endswith(".summary"):
+            assert sent["pattern"] == local["pattern"], path
+    assert texts == 6
+
+
+def test_the_model_pattern_excludes_common_unprintable_page_text():
+    # Copied labels carry these; the Adapter drops them, so generation must not emit them.
+    import re
+
+    from career_evidence_graph.application_codex_assist import _LINE
+
+    for character in "\x85\xa0\xad\u1680\u2000\u200b\u2028\u2029\u202f\u2060\u3000\ufeff":
+        assert not character.isprintable()
+        assert re.fullmatch(_LINE, "label" + character) is None, hex(ord(character))
+    assert re.fullmatch(_LINE, "Zürich 国家 ok") is not None
+    # Only ASCII control escapes remain; other members travel as literal characters.
+    assert "\\u" not in _LINE and _LINE.count("\\x") == 2
+
+
+def adapter_keeps(claimed):
+    """The report the Adapter stores from one final message of the active turn."""
+    run = SimpleNamespace(
+        native_turn_id="native-turn", native_turn_status="running", run_id="run", report=None
+    )
+    text = json.dumps(claimed, ensure_ascii=False)
+    item = {"type": "agentMessage", "id": "item-1", "text": text}
+    CodexAdapter._native_report(run, {"turnId": "native-turn", "item": item})
+    return run.report
+
+
+KEPT = [
+    {},
+    {"next_step": None, "fields": []},
+    {"next_step": {"kind": "complete_remaining_fields", "field_id": None}},
+    {"summary": ""},
+    {"summary": "Two\nlines are fine in a summary."},
+    {"fields": [{"field_id": "country", "state": "   "}]},
+]
+EDGES = [
+    {"next_step": {"kind": "", "field_id": "phone"}},
+    {"next_step": {"kind": "return_to_script", "field_id": ""}},
+    {"fields": [{"field_id": "", "state": "filled"}]},
+    {"fields": [{"field_id": "country", "state": "line\nbreak"}]},
+    {"fields": [{"field_id": "country", "state": "line\u2028separator"}]},
+    {"fields": [{"field_id": "country", "state": "x" * 65}]},
+    {"fields": [{"field_id": "c" * 129, "state": "filled"}]},
+    {"unresolved_action_ids": [""]},
+    {"unresolved_action_ids": ["no\u00a0break"]},
+    {"unresolved_action_ids": ["lone\ud800"]},
+    # Escaped by the Worker's size check, each CJK character takes six characters.
+    {"fields": [{"field_id": "国" * 100 + str(n), "state": "filled"} for n in range(200)]},
+]
+
+
+@pytest.mark.parametrize("change", KEPT + EDGES)
+def test_a_report_the_adapter_keeps_is_one_the_worker_adopts(change):
+    claimed = dict(CLAIMED, **change)
+    report = adapter_keeps(claimed)
+    if change in KEPT:
+        assert report is not None and report["claimed"] == claimed, change
+    if report is not None:
+        assert valid_assistance_report(report), change
+
+
 def test_native_final_report_is_bound_to_the_active_turn(tmp_path, monkeypatch):
     other = dict(CLAIMED, summary="other")
     config, adapter, run = report_case(
@@ -1366,7 +1451,7 @@ def test_native_final_report_is_bound_to_the_active_turn(tmp_path, monkeypatch):
         thread = next(m for m in recorded(config) if m.get("method") == "thread/start")
         instructions = thread["params"]["developerInstructions"]
         assert "next_step" in instructions and "null" in instructions
-        assert "2000" in instructions and "128" in instructions
+        assert "schema" in instructions
         current = settle(adapter, run, config)
         assert current.native_turn_status == "completed"
         report = current.report

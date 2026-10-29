@@ -946,7 +946,11 @@ def test_c3_pause_interrupts_the_active_model_turn(live_chain):
         ns.page.wait_for_timeout(25)
     stop = assistance(ns)["stop"]
     turn_id = inbound(ns, "turn/started")[0]["params"]["turn"]["id"]
-    rows = [json.loads(line) for line in (ns.evidence / "outbound.jsonl").read_text().splitlines()]
+    rows = [
+        json.loads(line)
+        for line in (ns.evidence / "outbound.jsonl").read_text().split("\n")
+        if line.strip()
+    ]
     interrupts = [
         row["frame"] for row in rows if (row.get("frame") or {}).get("method") == "turn/interrupt"
     ]
