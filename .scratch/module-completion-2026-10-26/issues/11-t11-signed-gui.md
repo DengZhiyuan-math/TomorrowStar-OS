@@ -104,3 +104,9 @@ macos/App.swift、macos/main_app.py、macos/build.py、loaded_code.py 仅查明�
   `_can_restart` 因此拒绝重启。修复后按钮会显示“原自动流程仍有记录，请先核验其进度”。（更正：并非任选结论即可解锁——`manual_stop` 只记录结论、保留未知 `intent`，重启仍被挡。）唯一现有路径须有证据：取消该岗位 → 为未知 `fill` 保存 `current_matches` 或 `not_applied` 及已核验来源 → “结算已取消岗位”（清除 intent、留作历史）→ 之后 `start` 归档旧流程并开始新周期（不续填旧岗位）。该岗位为 Workable 上的旧申请，原页已关闭、未人工提交；能否给出 `not_applied` 的证据由用户核验，不改 JSON、不宣称动作成功。
 - 实际 Codex 接管、关闭后停写、不可用原因提示仍未测到。
 
+### 2026-10-29 安装版第三次更新（`claude-code-4ca66ce5/root`）
+
+用户“提交并更新 App”。修复提交为 `736116aa`；用户退出 App 后按同一流程更新（私人证据 `maintenance-2026-10-29-mc11-r3/`）：构建、`verify.py`、`main_app.py check`、
+`update`（回退副本已验证、配置与权限未改、未启动 GUI）、`check_main_permissions.py` 均 exit 0。安装版 `application_flow.js` 为修复版（`d5042395…`），driver `ba1541e7…`。
+下一步由用户：按证据处理 Workable 旧岗位（取消 → 有来源的结论 → 结算）后，用“继续当前岗位”开始新流程，再测实际接管。
+
