@@ -239,6 +239,8 @@ def main():
             fragment = tomllib.loads(sys.argv[index + 1])
             if "web_search" in fragment:
                 config["web_search"] = fragment["web_search"]
+            if "mcp_servers" in fragment:
+                config.setdefault("mcp_servers", {})
             for name, value in fragment.get("mcp_servers", {}).items():
                 config.setdefault("mcp_servers", {}).setdefault(name, {}).update(value)
 
@@ -256,7 +258,7 @@ def main():
             elif method == "config/read":
                 result = {"config": config, "origins": {}}
             elif method == "thread/start":
-                native = config["mcp_servers"]["cua_takeover"]
+                native = message["params"]["config"]["mcp_servers"]["cua_takeover"]
                 command = [native["command"], *native["args"]]
                 with (root / "native-proxy.log").open("w", encoding="utf-8") as log:
                     proxy = subprocess.Popen(
@@ -286,6 +288,9 @@ def main():
                 )
                 proxy.stdin.flush()
                 catalog = rpc("tools/list", {})["tools"]
+                # Report the real driver metadata, as the app-server does.
+                resources = rpc("resources/list", {})["resources"]
+                templates = rpc("resources/templates/list", {})["resourceTemplates"]
                 result = {"thread": {"id": "controlled-native-thread"}}
             elif method == "mcpServerStatus/list":
                 result = {
@@ -296,8 +301,8 @@ def main():
                             "authStatus": "unsupported",
                             "pluginId": None,
                             "httpOrigin": None,
-                            "resources": [],
-                            "resourceTemplates": [],
+                            "resources": resources,
+                            "resourceTemplates": templates,
                             "tools": {row["name"]: row for row in catalog},
                         }
                     ],

@@ -1279,10 +1279,14 @@ def valid_assistance_report(report):
                 for key in ("attachments", "optional_failures")
             )
             and (
-                "next_step" not in claimed
+                claimed.get("next_step") is None
                 or isinstance(claimed["next_step"], dict)
                 and {"kind"} <= set(claimed["next_step"]) <= {"kind", "field_id"}
-                and all(_bounded_text(v, 512) for v in claimed["next_step"].values())
+                and _bounded_text(claimed["next_step"]["kind"], 512)
+                and (
+                    claimed["next_step"].get("field_id") is None
+                    or _bounded_text(claimed["next_step"]["field_id"], 512)
+                )
             )
             and report["claimed_sha256"] == _canonical_sha256(claimed)
             and len(json.dumps(report, sort_keys=True, separators=(",", ":"))) <= 65_536

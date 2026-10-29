@@ -37,7 +37,7 @@ from .worker_process_identity import (
 # Reviewed local upstream build. A version string alone cannot admit this repair.
 _OWNED_DRIVER_SHA256 = "89de4b9399e60d6cc9e8a1d59bf02505a2aa27082171b6556a45e3ddebbcfdc9"
 # Separately reviewed native candidate; the installed legacy build stays unchanged.
-_NATIVE_HANDOFF_DRIVER_SHA256 = "550d4621ea486372601832b5dc495713b04482d367fccf7bb51a3075a32d8684"
+_NATIVE_HANDOFF_DRIVER_SHA256 = "eb298be33009ecba307456e5c395989d26eeb7732651a95175fd7031b0534968"
 NATIVE_HANDOFF_PROTOCOL = "cua-trusted-handoff/v1"
 NATIVE_HANDOFF_TOOLS = (
     "get_browser_state",

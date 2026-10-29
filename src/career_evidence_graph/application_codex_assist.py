@@ -79,18 +79,47 @@ _REPORT_SCHEMA = {
             },
         },
         "next_step": {
-            "type": "object",
-            "additionalProperties": False,
-            "properties": {"kind": {"type": "string", "maxLength": 64}, "field_id": _ID},
-            "required": ["kind", "field_id"],
+            "anyOf": [
+                {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "kind": {"type": "string", "maxLength": 64},
+                        "field_id": {"type": ["string", "null"], "maxLength": 128},
+                    },
+                    "required": ["kind", "field_id"],
+                },
+                {"type": "null"},
+            ]
         },
     },
-    "required": ["status", "summary", "unresolved_action_ids"],
+    # Strict structured outputs require every property; optional ones are nullable.
+    "required": ["status", "summary", "unresolved_action_ids", "fields", "next_step"],
 }
+
+
+def _without_length_bounds(schema):
+    """Strict structured outputs reject string length bounds; `_matches` keeps them."""
+    if isinstance(schema, list):
+        return [_without_length_bounds(item) for item in schema]
+    if not isinstance(schema, dict):
+        return schema
+    return {key: _without_length_bounds(item) for key, item in schema.items() if key != "maxLength"}
+
+
+_OUTPUT_SCHEMA = _without_length_bounds(_REPORT_SCHEMA)
 
 
 def _matches(value, schema):
     """Check the small JSON Schema subset used by `_REPORT_SCHEMA`."""
+    if "anyOf" in schema:
+        return any(_matches(value, option) for option in schema["anyOf"])
+    if schema["type"] == "null":
+        return value is None
+    if isinstance(schema["type"], list):
+        # Only nullable scalars use a type list.
+        (kind,) = set(schema["type"]) - {"null"}
+        return value is None or _matches(value, dict(schema, type=kind))
     if schema["type"] == "string":
         return (
             isinstance(value, str)
@@ -258,8 +287,6 @@ class CodexAdapter:
         argv.extend(["--config", "mcp_servers={}"])
         if run is not None and run.native is not None:
             argv.extend(["--config", 'web_search="disabled"'])
-            for key, value in run.native["mcp"].items():
-                argv.extend(["--config", f"mcp_servers.cua_takeover.{key}=" + json.dumps(value)])
         return argv
 
     @staticmethod
@@ -588,7 +615,7 @@ class CodexAdapter:
             if (
                 not isinstance(effective_config, dict)
                 or not isinstance(effective.get("origins"), dict)
-                or not self._effective_mcp(run, effective_config.get("mcp_servers"))
+                or effective_config.get("mcp_servers") != {}
                 or native is not None
                 and effective_config.get("web_search") != "disabled"
             ):
@@ -639,8 +666,10 @@ class CodexAdapter:
                                 "never invent user facts or overwrite existing human text. "
                                 "Never Submit, press Enter or invoke final sending. If an "
                                 "action result is unknown, do not repeat it. Return a bounded "
-                                "JSON report; turn completion is not verified "
-                                "application completion."
+                                "JSON report (summary at most 2000 characters, ids and "
+                                "field_id non-empty and at most 128 characters; next_step "
+                                "null, or its field_id null, when no next field is named); "
+                                "turn completion is not verified application completion."
                             )
                         }
                         if native
@@ -654,18 +683,19 @@ class CodexAdapter:
                 raise _ProtocolFailure("thread_shape_invalid")
             run.thread_id = thread_id
             if native is not None:
+                # Thread-local MCP startup can be lazy; this request pumps the
+                # pending native recipient before a model turn is permitted.
+                self._native_catalog(run)
                 self._pump(run, force=True)
                 if not native["granted"]:
                     raise _ProtocolFailure("native_handoff_unavailable")
-                self._native_catalog(run)
-                self._pump(run, force=True)
                 result = self._request(
                     run,
                     "turn/start",
                     {
                         "threadId": thread_id,
                         "input": [{"type": "text", "text": native["delivery"]}],
-                        "outputSchema": _REPORT_SCHEMA,
+                        "outputSchema": _OUTPUT_SCHEMA,
                     },
                 )
                 turn = result.get("turn")
@@ -749,35 +779,9 @@ class CodexAdapter:
             "startup_timeout_sec": 30,
             "tool_timeout_sec": 15,
             "enabled_tools": list(NATIVE_HANDOFF_TOOLS),
+            # approvalPolicy "never" otherwise refuses every non-read-only tool call.
+            "tools": {name: {"approval_mode": "approve"} for name in NATIVE_HANDOFF_TOOLS},
         }
-
-    @staticmethod
-    def _effective_mcp(run, servers):
-        if run.native is None:
-            return servers == {}
-        if not isinstance(servers, dict) or set(servers) != {"cua_takeover"}:
-            return False
-        selected = servers["cua_takeover"]
-        if not isinstance(selected, dict) or any(
-            selected.get(k) != v for k, v in run.native["mcp"].items()
-        ):
-            return False
-        # Harmless serialized defaults may be present, but no inherited launch/auth surface.
-        return all(
-            selected.get(k) in (None, {}, [])
-            for k in (
-                "env",
-                "env_vars",
-                "cwd",
-                "url",
-                "bearer_token_env_var",
-                "http_headers",
-                "env_http_headers",
-                "disabled_tools",
-                "oauth",
-                "tools",
-            )
-        )
 
     @staticmethod
     def _native_metadata(value, *, initial=False):
@@ -1208,8 +1212,11 @@ class CodexAdapter:
             native["revoking"] = False
 
     def _native_catalog(self, run):
+        # Unscoped full discovery creates a new MCP client even with a thread ID.
         result = self._request(
-            run, "mcpServerStatus/list", {"threadId": run.thread_id, "detail": "full"}
+            run,
+            "mcpServerStatus/list",
+            {"threadId": run.thread_id, "serverName": "cua_takeover", "detail": "full"},
         )
         data = result.get("data")
         if not isinstance(data, list) or len(data) != 1 or result.get("nextCursor") is not None:

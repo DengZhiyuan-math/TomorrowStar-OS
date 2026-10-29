@@ -12,6 +12,7 @@ import pytest
 
 from career_evidence_graph import cua_driver
 from career_evidence_graph.application_codex_assist import CodexAdapter, CodexAssistConfig
+from career_evidence_graph.application_worker import valid_assistance_report
 from career_evidence_graph.validation.hashing import record_digest as digest
 
 
@@ -79,6 +80,21 @@ def record(value):
     with log.open('a') as out: out.write(json.dumps(value)+'\n')
 def send(value):
     print(json.dumps(value),flush=True)
+def await_native_grant(native):
+    ready=Path(native['args'][-1])
+    initial=json.loads(ready.read_text())
+    initial.update(status='pending',connection_id='native-connection',peer_pid=os.getpid(),
+                   proxy_pid=os.getpid())
+    if settings.get('ready_mode')=='world_readable': ready.chmod(0o644)
+    elif settings.get('ready_mode') in ('symlink','hardlink'):
+        replacement=ready.with_suffix('.replacement')
+        ready.rename(replacement)
+        if settings['ready_mode']=='symlink': ready.symlink_to(replacement)
+        else: os.link(replacement,ready)
+    ready.write_text(json.dumps(initial))
+    until=time.monotonic()+3
+    while not ready.with_suffix('.granted').exists() and time.monotonic()<until:
+        time.sleep(.005)
 if sys.argv[1:]==['--version']:
     print('codex-cli 0.165.0-alpha.1.2');sys.exit(0)
 record({'argv':sys.argv[1:]})
@@ -88,6 +104,7 @@ for n,part in enumerate(sys.argv[:-1]):
         fragment=tomllib.loads(sys.argv[n+1])
         if 'web_search' in fragment: config['web_search']=fragment['web_search']
         if 'mcp_servers' in fragment:
+            config.setdefault('mcp_servers',{})
             for name, value in fragment['mcp_servers'].items():
                 config.setdefault('mcp_servers',{}).setdefault(name,{}).update(value)
 for line in sys.stdin:
@@ -98,25 +115,28 @@ for line in sys.stdin:
               'platformFamily':'unix','platformOs':'macos'}})
     elif method=='config/read':
         if settings.get('force_web_search'): config['web_search']=settings['force_web_search']
+        if 'force_mcp_servers' in settings: config['mcp_servers']=settings['force_mcp_servers']
         send({'id':msg['id'],'result':{'config':config,'origins':{}}})
     elif method=='thread/start':
-        native=config['mcp_servers']['cua_takeover']
-        ready=Path(native['args'][-1])
-        initial=json.loads(ready.read_text())
-        initial.update(status='pending',connection_id='native-connection',peer_pid=os.getpid(),
-                       proxy_pid=os.getpid())
-        ready.write_text(json.dumps(initial))
-        until=time.monotonic()+3
-        while not ready.with_suffix('.granted').exists() and time.monotonic()<until:
-            time.sleep(.005)
+        native=msg['params']['config']['mcp_servers']['cua_takeover']
+        if not settings.get('lazy_catalog') and not settings.get('no_native_recipient'):
+            await_native_grant(native)
         send({'id':msg['id'],'result':{'thread':{'id':'thread-native'}}})
     elif method=='mcpServerStatus/list':
-        send({'id':msg['id'],'result':{'data':[{'name':'cua_takeover','runtimeStatus':'connected',
+        if settings.get('lazy_catalog') and not settings.get('no_native_recipient'):
+            await_native_grant(native)
+        catalog={'data':[{'name':'cua_takeover','runtimeStatus':'connected',
              'authStatus':'unsupported','pluginId':None,'httpOrigin':None,'resources':[],
              'resourceTemplates':[],'tools':{name:{'name':name,'inputSchema':{'type':'object'}}
              for name in (['get_browser_state','browser_click','browser_type',
                            'browser_deliver_material']
-                          + settings.get('extra_tools',[]))}}], 'nextCursor':None}})
+                          + settings.get('extra_tools',[]))}}], 'nextCursor':None}
+        catalog['data'][0].update(settings.get('catalog_extra',{}))
+        if (settings.get('require_thread_catalog')
+                and msg['params'].get('serverName')!='cua_takeover'):
+            catalog['data'][0].update(
+                tools={},toolsError='MCP startup failed: initialize response: connection closed')
+        send({'id':msg['id'],'result':catalog})
     elif method=='turn/start':
         if settings.get('lose_turn_ack'): time.sleep(10)
         if settings.get('terminal_before_ack'):
@@ -229,21 +249,87 @@ def test_native_takeover_hands_json_to_verified_native_tool_catalog(tmp_path, mo
         assert run.page_write_allowed is True and run.model_turn_allowed is True
         assert run.native_turn_id == "native-turn"
         messages = recorded(config)
+        argv = messages[0]["argv"]
+        assert [
+            argv[index + 1]
+            for index, argument in enumerate(argv[:-1])
+            if argument == "--config" and argv[index + 1].startswith("mcp_servers")
+        ] == ["mcp_servers={}"]
         start = next(m for m in messages if m.get("method") == "thread/start")
         assert start["params"]["dynamicTools"] == []
         assert start["params"]["config"]["web_search"] == "disabled"
+        ready_path = next((config.runtime / "native-handoffs").rglob("*.json"))
+        assert start["params"]["config"]["mcp_servers"] == {
+            "cua_takeover": {
+                "command": str(driver),
+                "args": [
+                    "mcp",
+                    "--embedded",
+                    "--socket",
+                    native.socket_path,
+                    "--trusted-handoff",
+                    str(ready_path),
+                ],
+                "enabled": True,
+                "required": True,
+                "startup_timeout_sec": 30,
+                "tool_timeout_sec": 15,
+                "enabled_tools": [
+                    "get_browser_state",
+                    "browser_click",
+                    "browser_type",
+                    "browser_deliver_material",
+                ],
+                # Without per-tool approve, approvalPolicy "never" refuses every
+                # non-read-only call (actual C1 r2); only the four tools are approved.
+                "tools": {
+                    name: {"approval_mode": "approve"}
+                    for name in (
+                        "get_browser_state",
+                        "browser_click",
+                        "browser_type",
+                        "browser_deliver_material",
+                    )
+                },
+            }
+        }
         turn = next(m for m in messages if m.get("method") == "turn/start")
         assert turn["params"]["input"] == [
             {"type": "text", "text": json.dumps(packet, ensure_ascii=False, allow_nan=False)}
         ]
         assert events[:3] == ["before", "yield", "after"]
-        assert (
-            next(m for m in messages if m.get("method") == "mcpServerStatus/list")["params"][
-                "threadId"
-            ]
-            == "thread-native"
-        )
+        assert next(m for m in messages if m.get("method") == "mcpServerStatus/list")["params"] == {
+            "threadId": "thread-native",
+            "serverName": "cua_takeover",
+            "detail": "full",
+        }
         assert not any(m.get("method") == "item/tool/call" for m in messages)
+    finally:
+        adapter.close()
+
+
+def test_native_takeover_reuses_the_named_thread_mcp_connection(tmp_path, monkeypatch):
+    config, ref, scope, packet, driver, native, events = native_case(tmp_path, monkeypatch)
+    # Fixed-CLI D1 observed a fresh connection for unscoped full discovery.
+    config.executable.with_suffix(".settings").write_text(
+        json.dumps({"require_thread_catalog": True})
+    )
+    adapter = CodexAdapter(config)
+    try:
+        run = adapter.start_takeover(
+            ref,
+            request_id="native-named-catalog",
+            delivery=packet,
+            native_client=native,
+            native_scope=scope,
+            driver_executable=driver,
+            before_yield=lambda intent: None,
+            after_yield=lambda receipt: None,
+            before_native_call=lambda call: True,
+            pump=lambda: True,
+        )
+        assert run.status == "ready"
+        assert run.model_turn_allowed is True and run.native_turn_id == "native-turn"
     finally:
         adapter.close()
 
@@ -269,6 +355,97 @@ def test_native_model_input_omits_backend_process_identity(tmp_path, monkeypatch
         model_ref = {key: value for key, value in ref.items() if key != "backend_authority"}
         assert "backend_authority" not in text and "/Users/" not in text
         assert json.loads(text) == packet | {"assistance_ref": model_ref}
+    finally:
+        adapter.close()
+
+
+def test_lazy_native_recipient_is_granted_during_catalog_before_the_model_turn(
+    tmp_path, monkeypatch
+):
+    config, ref, scope, packet, driver, native, events = native_case(tmp_path, monkeypatch)
+    config.executable.with_suffix(".settings").write_text(json.dumps({"lazy_catalog": True}))
+    granted_after = []
+    adapter, run = start_case(
+        config,
+        ref,
+        scope,
+        packet,
+        driver,
+        native,
+        after_yield=lambda _: granted_after.append(
+            [m["method"] for m in recorded(config) if "method" in m]
+        ),
+    )
+    try:
+        assert run.status == "ready", run
+        assert run.model_turn_allowed is True and run.page_write_allowed is True
+        assert granted_after and all(
+            methods
+            == ["initialize", "initialized", "config/read", "thread/start", "mcpServerStatus/list"]
+            for methods in granted_after
+        )
+        methods = [m["method"] for m in recorded(config) if "method" in m]
+        assert methods[-1] == "turn/start"
+        assert native.granted
+        assert events.count("yield") == 1
+    finally:
+        adapter.close()
+
+
+@pytest.mark.parametrize("name", ["cua_takeover", "unrelated_server"])
+def test_nonempty_global_mcp_table_stops_before_thread_creation(tmp_path, monkeypatch, name):
+    config, ref, scope, packet, driver, native, events = native_case(tmp_path, monkeypatch)
+    config.executable.with_suffix(".settings").write_text(
+        json.dumps({"force_mcp_servers": {name: {"command": str(driver)}}})
+    )
+    adapter, run = start_case(config, ref, scope, packet, driver, native)
+    try:
+        assert run.status == "failed" and run.error_code == "tool_policy_unverified"
+        methods = [m["method"] for m in recorded(config) if "method" in m]
+        assert methods == ["initialize", "initialized", "config/read"]
+        assert not native.granted and events == []
+    finally:
+        adapter.close()
+
+
+def test_verified_catalog_without_a_native_grant_never_starts_a_model_turn(tmp_path, monkeypatch):
+    config, ref, scope, packet, driver, native, events = native_case(tmp_path, monkeypatch)
+    config.executable.with_suffix(".settings").write_text(json.dumps({"no_native_recipient": True}))
+    adapter, run = start_case(config, ref, scope, packet, driver, native)
+    try:
+        assert run.status == "unknown" and run.error_code == "native_handoff_unavailable"
+        methods = [m["method"] for m in recorded(config) if "method" in m]
+        assert methods[-1] == "mcpServerStatus/list" and "turn/start" not in methods
+        assert not native.granted and events == []
+        assert not run.page_write_allowed and not run.model_turn_allowed
+    finally:
+        adapter.close()
+
+
+@pytest.mark.parametrize(
+    "unverified",
+    [
+        {"extra_tools": ["browser_navigate"]},
+        # Driver skill documents are model-readable context outside the four tools.
+        {"catalog_extra": {"resources": [{"uri": "skill://cua-driver/SKILL.md", "name": "SKILL"}]}},
+        {"catalog_extra": {"resourceTemplates": [{"uriTemplate": "skill://cua-driver/{name}"}]}},
+    ],
+    ids=["extra_tool", "resource", "resource_template"],
+)
+def test_unverified_lazy_catalog_revokes_the_grant_without_starting_a_model_turn(
+    tmp_path, monkeypatch, unverified
+):
+    config, ref, scope, packet, driver, native, events = native_case(tmp_path, monkeypatch)
+    config.executable.with_suffix(".settings").write_text(
+        json.dumps({"lazy_catalog": True} | unverified)
+    )
+    adapter, run = start_case(config, ref, scope, packet, driver, native)
+    try:
+        assert run.status == "unknown" and run.error_code == "native_tool_policy_unverified"
+        assert native.granted and native.revoked
+        assert "yield" in events and "revoke" in events
+        assert not any(m.get("method") == "turn/start" for m in recorded(config))
+        assert not run.page_write_allowed and not run.model_turn_allowed
     finally:
         adapter.close()
 
@@ -677,19 +854,6 @@ def test_source_changes_before_dispatch_deny_native_admission(tmp_path, monkeypa
 @pytest.mark.parametrize("mode", ["symlink", "hardlink", "world_readable"])
 def test_private_rendezvous_replacement_is_refused_before_yield(tmp_path, monkeypatch, mode):
     config, ref, scope, packet, driver, native, events = native_case(tmp_path, monkeypatch)
-    script = config.executable.read_text()
-    inserted = """
-        if settings.get('ready_mode')=='world_readable': ready.chmod(0o644)
-        elif settings.get('ready_mode') in ('symlink','hardlink'):
-            replacement=ready.with_suffix('.replacement')
-            ready.rename(replacement)
-            if settings['ready_mode']=='symlink': ready.symlink_to(replacement)
-            else: os.link(replacement,ready)
-"""
-    script = script.replace(
-        "        until=time.monotonic()+3", inserted + "        until=time.monotonic()+3"
-    )
-    config.executable.write_text(script)
     config.executable.with_suffix(".settings").write_text(json.dumps({"ready_mode": mode}))
     adapter, run = start_case(config, ref, scope, packet, driver, native)
     try:
@@ -1127,6 +1291,43 @@ CLAIMED = {
 }
 
 
+# Strict structured outputs (provider "Supported schemas"): every object closes its
+# properties and requires all of them; optional values are nullable; strings take
+# only pattern/format. A real C1 turn failed with 400 invalid_json_schema otherwise.
+STRICT_KEYWORDS = {
+    "type",
+    "properties",
+    "required",
+    "additionalProperties",
+    "items",
+    "enum",
+    "minItems",
+    "maxItems",
+    "pattern",
+    "format",
+    "description",
+    "anyOf",
+}
+
+
+def assert_strict_output_schema(schema, *, root=True):
+    assert set(schema) <= STRICT_KEYWORDS, set(schema) - STRICT_KEYWORDS
+    assert ("type" in schema) != ("anyOf" in schema), schema
+    if root:
+        assert schema["type"] == "object"
+    for option in schema.get("anyOf", ()):
+        assert_strict_output_schema(option, root=False)
+    if "properties" in schema:
+        # Only scalars use a type list; a nullable object is an anyOf with null.
+        assert schema["type"] == "object"
+        assert schema["additionalProperties"] is False
+        assert set(schema["required"]) == set(schema["properties"])
+        for value in schema["properties"].values():
+            assert_strict_output_schema(value, root=False)
+    if "items" in schema:
+        assert_strict_output_schema(schema["items"], root=False)
+
+
 def test_native_final_report_is_bound_to_the_active_turn(tmp_path, monkeypatch):
     other = dict(CLAIMED, summary="other")
     config, adapter, run = report_case(
@@ -1144,9 +1345,12 @@ def test_native_final_report_is_bound_to_the_active_turn(tmp_path, monkeypatch):
         assert run.report is None
         turn = next(m for m in recorded(config) if m.get("method") == "turn/start")
         schema = turn["params"]["outputSchema"]
-        assert schema["additionalProperties"] is False
         assert {"fields", "next_step"} <= set(schema["properties"])
-        assert schema["required"] == ["status", "summary", "unresolved_action_ids"]
+        assert_strict_output_schema(schema)
+        thread = next(m for m in recorded(config) if m.get("method") == "thread/start")
+        instructions = thread["params"]["developerInstructions"]
+        assert "next_step" in instructions and "null" in instructions
+        assert "2000" in instructions and "128" in instructions
         current = settle(adapter, run, config)
         assert current.native_turn_status == "completed"
         report = current.report
@@ -1186,6 +1390,8 @@ def test_success_prose_or_schema_violation_is_not_a_report(tmp_path, monkeypatch
                 json.dumps(dict(CLAIMED, next_step={"kind": "return_to_script", "x": 1}))
             ),
             agent_message(json.dumps(dict(CLAIMED, unresolved_action_ids=[1]))),
+            agent_message(json.dumps({k: v for k, v in CLAIMED.items() if k != "next_step"})),
+            agent_message(json.dumps({k: v for k, v in CLAIMED.items() if k != "fields"})),
         ],
     )
     try:
@@ -1196,6 +1402,22 @@ def test_success_prose_or_schema_violation_is_not_a_report(tmp_path, monkeypatch
         assert stopped.local_tools_drained is True and stopped.process_stopped is True
         assert stopped.native_turn_status == "interrupted"
         assert stopped.report is None
+    finally:
+        adapter.close()
+
+
+@pytest.mark.parametrize(
+    "next_step", [None, {"kind": "complete_remaining_fields", "field_id": None}]
+)
+def test_strict_report_without_a_next_step_or_fields_is_a_report(tmp_path, monkeypatch, next_step):
+    claimed = dict(CLAIMED, status="ready_for_review", fields=[], next_step=next_step)
+    config, adapter, run = report_case(
+        tmp_path, monkeypatch, [agent_message(json.dumps(claimed)), turn_completed()]
+    )
+    try:
+        report = settle(adapter, run, config).report
+        assert report["claimed"] == claimed
+        assert valid_assistance_report(report)
     finally:
         adapter.close()
 

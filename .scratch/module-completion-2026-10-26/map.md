@@ -1,6 +1,6 @@
 # Module 设计剩余开发与最终验证
 
-更新：2026-10-28，Europe/Zurich（MC-20 结案、MC-21 进行中）。原 10-27 记载：**R6 本轮全量离线与隔离合成浏览器验收已完成；
+更新：2026-10-29，Europe/Zurich（MC-20/21/22 已结案，MC-10 验收准备对接）。原 10-27 记载：**R6 本轮全量离线与隔离合成浏览器验收已完成；
 剩余开发和最终 AC01–AC27 整体验收未完成。** 当前交接见
 [current-handoff.md](current-handoff.md)。
 
@@ -47,7 +47,7 @@ JSON交接不要求截图解释进度，原Page单控制者接续与unknown/撤�
 ## 当前票据与硬依赖
 
 本轮票据位于 `issues/`，由现有 `scripts/query_tickets.py` 自动读取。共 **23 张：
-1 张已关闭的基线登记、16 张已结案工作票（含 2026-10-27/28 结案的 MC-06/07/08/09/14/15/17/18/19/20）、1 张已认领工作票（MC-10 仅规划）、4 张 open/none 的未领取工作票（MC-11/12/16/23）；MC-20/21/22 已于 2026-10-28/29 结案**
+1 张已关闭的基线登记、17 张已结案工作票（含 2026-10-27/28 结案的 MC-06/07/08/09/14/15/17/18/19/20，及 2026-10-29 按一般场景结案的 MC-10）、4 张 open/none 的未领取工作票（MC-11/12/16/23）；MC-20/21/22 已于 2026-10-28/29 结案**
 （其中 MC-17–19 为 2026-10-27 架构审计补充）。MC 编号只属于本轮，
 不与旧稳定性测试的 T 编号混用。T01–T05 已交付内容登记在 MC-00，不重复建实现票。
 M1/M2 当前归属核对及条件采用由 MC-01 结案，后续统一控制/调度按具体方法承接到
@@ -71,7 +71,7 @@ MC-02/04 结案，完整 Resume 生命周期已按本票源码/合成范围结�
 | [MC-07 T08 可靠交回与填写完成](issues/07-t08-return-and-completion.md) | 剩余工作 | closed；源码/合成/native 验收（自定义下拉框见 fog） | MC-06 |
 | [MC-08 T09 App 自动派发与统一控制](issues/08-t09-app-dispatch-controls.md) | 剩余工作 | closed；源码/合成验收（产品默认关闭，开启见 MC-22；App 内接管提示经 MC-15 实现，安装版待 MC-11） | MC-07 |
 | [MC-09 T10 新产品路径合成整链与故障验收](issues/09-t10-synthetic-chain.md) | 剩余工作 | closed；源码/合成/native 验收 | MC-08 |
-| [MC-10 T11.1 实际 Codex 与同一合成原页验收](issues/10-t11-model-synthetic-page.md) | 剩余工作 | claimed；离线准备完成，真实运行暂停（用户稍后统一测试） | MC-09 |
+| [MC-10 T11.1 实际 Codex 与同一合成原页验收](issues/10-t11-model-synthetic-page.md) | 剩余工作 | closed；一般场景实际验收（C0/C1 真实通过；C2 已知局限；C3–C5 以受控证据为准，用户决定） | MC-09 |
 | [MC-11 T11.2 唯一签名 App 新接管链验收](issues/11-t11-signed-gui.md) | 剩余工作 | open；未领取；分层运行范围另核 | MC-10、MC-15、MC-20、MC-21、MC-22、MC-23 |
 | [MC-12 T11.3 获授权真实 ATS 新接管链验收](issues/12-t11-real-ats.md) | 剩余工作 | open；未领取；分层运行范围另核 | MC-11 |
 | [MC-13 M4 收拢剩余准备与岗位调度职责](issues/13-m4-preparation-scheduling.md) | 常规准备/调度 | closed；源码/合成验收 | MC-01、MC-03、MC-04 |
@@ -91,6 +91,7 @@ MC-02/04 结案，完整 Resume 生命周期已按本票源码/合成范围结�
 
 ## Decisions so far
 
+- [实际 Codex 一般场景验收](issues/10-t11-model-synthetic-page.md#2026-10-29-结案一般场景跑通claude-code-4ca66ce5root)：真实模型在合成原页读页、按确认答案填写、不提交；为此换受限元数据 driver、回报 schema 改 strict、四个工具预批准；边角场景边用边优化。
 - [产品中的自动接管开关](issues/22-product-native-assistance-policy.md#comments)：默认开、设置可关；先过 MC-10 再随 MC-11 打开；不可用即停下说明原因、不重试不换执行者；执行者可选 Codex 或 Claude（Claude 经 `claude -p`、订阅登录于专用目录、版本固定，另开 MC-23）。
 
 - [正式 App 的 Codex 使用专用目录](issues/21-app-codex-home.md#comments)：模型调用与接管共用专用 HOME，按条目名拒绝个人上下文、未登录即停止且不回退到 `~/.codex`；用户已登录。
@@ -173,7 +174,9 @@ MC-02/04 结案，完整 Resume 生命周期已按本票源码/合成范围结�
 - **worker 安装身份未在 worker 内强制**（2026-10-28 MC-20 审查发现，早于 MC-20）：`application_worker_browser.py` 解析但从不校验
   `--expected-worker-revision`，`require_packaged_worker_identity` 无生产调用方；安装身份目前只在 `application_readiness` 中比较。MC-11 前应确认是否需要在 worker 内拒绝不符身份。
 - **MC-21 留存项**（2026-10-28 结案记录）：界面仍是通用失败文案（登录命令只在错误记录与文档中）；研究/校准 CLI 亦受新 exec 参数影响；检出版 `career_portal`
-  启动器不设专用目录；后端启动登录检查只捕获 `CodexCLIError`；`tests/codex_live_guards.py` 宜改调 `validate_codex_home`；MC-10 的 `mc10-codex-home` 需另行登录。
+  启动器不设专用目录；后端启动登录检查只捕获 `CodexCLIError`；MC-10 的 `mc10-codex-home` 需另行登录。2026-10-29 已让 `tests/codex_live_guards.py` 复用 `validate_codex_home`。
+- **MC-10 留存（2026-10-29 结案，边用边优化）**：C2 被遮挡且 pending unknown 的字段模型不补填、driver 拒绝原因未回传；C3–C5 无真实模型证据；产品默认请求超时 2 s 低于实测 thread/start 约 5 s（MC-11 安装版接管前须处理）；安装版须随附 successor-r2 driver。
+- **交回核验失败不记录原因**（2026-10-29 MC-10 后继候选验收发现）：`_service_assistance_return` 的 `except (PortalDataError, Error)` 只置等待原因（如 `assistance_return_unverified`），不记录异常。受控 native 整轮中第一次接管交回间歇失败 2 次（successor-r2 52 次中 1 次、candidate-r1 26 次中 1 次；单独重跑 successor-r2 的 01 10/10、candidate-r1 的 03 3/3 通过；诊断插件下尚无失败用例的整轮观测），原因无法读出；见 [后继候选记录](../remaining-tickets-2026-10-26/mc10-native-metadata/README.md#未定位的间歇失败未计为通过)。需决定是否持久化失败原因并再查根因。
 - **MC-20 冻结字节内留下的 P3**：闭包扫描未识别 `from career_evidence_graph import X`（当前无此用法）；`loaded_code.py` 注释“covered, not executed”应为“无论是否执行”；
   `application_preparation_fixtures` 豁免理由漏写 `--synthetic-mail`；跨进程身份测试未覆盖带岗位启动。下次改动这些文件时一并处理。
 

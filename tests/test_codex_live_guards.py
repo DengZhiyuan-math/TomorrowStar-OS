@@ -37,7 +37,7 @@ def test_isolated_home_refuses_user_context_entries_by_name(tmp_path, entry, ins
         target.write_text("synthetic")
     else:
         target.mkdir()
-    with pytest.raises(AssertionError, match=entry):
+    with pytest.raises(AssertionError, match="personal context"):
         assert_isolated_codex_home(home)
 
 
@@ -62,6 +62,15 @@ def test_isolated_home_accepts_a_clean_directory_and_refuses_the_user_home(tmp_p
         assert_isolated_codex_home(Path.home())
     with pytest.raises(AssertionError, match="absolute"):
         assert_isolated_codex_home(Path("relative-home"))
+
+
+@pytest.mark.parametrize("entry", ["config.toml", "AGENTS.override.md", "hooks.json", "prompts"])
+def test_isolated_home_refuses_all_product_context_sources(tmp_path, entry):
+    home = tmp_path / "codex-home"
+    (home / ".codex").mkdir(parents=True)
+    (home / ".codex" / entry).write_text("synthetic")
+    with pytest.raises(AssertionError):
+        assert_isolated_codex_home(home)
 
 
 def test_frame_violations_flag_user_paths_private_roots_and_real_domains(tmp_path):

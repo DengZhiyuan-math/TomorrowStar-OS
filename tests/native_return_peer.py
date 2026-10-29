@@ -4,6 +4,8 @@ The test copies this source behind a Python shebang into its private workspace.
 Only the app-server protocol and the model's final message are synthetic. The
 direct child is the exact native MCP command supplied by the production Adapter,
 with its real lease and tools; page effects come only from those native tools.
+The thread records its MCP configuration; its first catalog request starts the
+native proxy so these controlled runs cover lazy thread-local MCP startup.
 
 The final structured message shape lives in ``emit_final_message`` only, so it
 can follow the event shape confirmed against the installed app-server schema.
@@ -35,6 +37,7 @@ def main():
     proxy = operation = None
     sequence = 0
     catalog = []
+    native = None
     terminal = []
 
     def record(value):
@@ -89,6 +92,7 @@ def main():
                 "summary": summary,
                 "unresolved_action_ids": [],
                 "fields": [{"field_id": field, "state": "filled"} for field in field_ids],
+                "next_step": None,
                 **extra,
                 **settings.get("claimed_extra", {}),
             },
@@ -324,6 +328,8 @@ def main():
             fragment = tomllib.loads(sys.argv[index + 1])
             if "web_search" in fragment:
                 config["web_search"] = fragment["web_search"]
+            if "mcp_servers" in fragment:
+                config.setdefault("mcp_servers", {})
             for name, value in fragment.get("mcp_servers", {}).items():
                 config.setdefault("mcp_servers", {}).setdefault(name, {}).update(value)
     try:
@@ -340,38 +346,43 @@ def main():
             elif method == "config/read":
                 result = {"config": config, "origins": {}}
             elif method == "thread/start":
-                native = config["mcp_servers"]["cua_takeover"]
-                command = [native["command"], *native["args"]]
-                with (root / "native-proxy.log").open("a", encoding="utf-8") as log:
-                    proxy = subprocess.Popen(
-                        command,
-                        stdin=subprocess.PIPE,
-                        stdout=subprocess.PIPE,
-                        stderr=log,
-                        text=True,
-                        encoding="utf-8",
-                        env={
-                            **os.environ,
-                            "CUA_DRIVER_RS_UPDATE_CHECK": "false",
-                            "CUA_DRIVER_RS_TELEMETRY_ENABLED": "0",
-                        },
-                    )
-                record({"kind": "proxy_started", "pid": proxy.pid, "command": command})
-                rpc(
-                    "initialize",
-                    {
-                        "protocolVersion": "2025-06-18",
-                        "capabilities": {},
-                        "clientInfo": {"name": "native-return-peer", "version": "1"},
-                    },
-                )
-                proxy.stdin.write(
-                    json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n"
-                )
-                proxy.stdin.flush()
-                catalog = rpc("tools/list", {})["tools"]
+                native = message["params"]["config"]["mcp_servers"]["cua_takeover"]
                 result = {"thread": {"id": THREAD}}
             elif method == "mcpServerStatus/list":
+                record({"kind": "mcp_catalog_requested"})
+                if proxy is None:
+                    command = [native["command"], *native["args"]]
+                    with (root / "native-proxy.log").open("a", encoding="utf-8") as log:
+                        proxy = subprocess.Popen(
+                            command,
+                            stdin=subprocess.PIPE,
+                            stdout=subprocess.PIPE,
+                            stderr=log,
+                            text=True,
+                            encoding="utf-8",
+                            env={
+                                **os.environ,
+                                "CUA_DRIVER_RS_UPDATE_CHECK": "false",
+                                "CUA_DRIVER_RS_TELEMETRY_ENABLED": "0",
+                            },
+                        )
+                    record({"kind": "proxy_started", "pid": proxy.pid, "command": command})
+                    rpc(
+                        "initialize",
+                        {
+                            "protocolVersion": "2025-06-18",
+                            "capabilities": {},
+                            "clientInfo": {"name": "native-return-peer", "version": "1"},
+                        },
+                    )
+                    proxy.stdin.write(
+                        json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n"
+                    )
+                    proxy.stdin.flush()
+                    catalog = rpc("tools/list", {})["tools"]
+                    # Report the real driver metadata, as the app-server does.
+                    resources = rpc("resources/list", {})["resources"]
+                    templates = rpc("resources/templates/list", {})["resourceTemplates"]
                 result = {
                     "data": [
                         {
@@ -380,8 +391,8 @@ def main():
                             "authStatus": "unsupported",
                             "pluginId": None,
                             "httpOrigin": None,
-                            "resources": [],
-                            "resourceTemplates": [],
+                            "resources": resources,
+                            "resourceTemplates": templates,
                             "tools": {row["name"]: row for row in catalog},
                         }
                     ],

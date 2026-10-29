@@ -18,6 +18,7 @@ import time
 from pathlib import Path
 
 from career_evidence_graph.application_codex_assist import CodexAdapter
+from career_evidence_graph.codex_cli import CodexCLIError, validate_codex_home
 
 ALLOWED_JOB = "jobs.lever.co/synthetic-1"
 _USER_PATH = re.compile(r"/Users/[^\s\"'\\]*")
@@ -31,10 +32,6 @@ _BARE_HOST = re.compile(
 _EMAIL_HOST = re.compile(r"@((?:[a-z0-9-]+\.)+[a-z]{2,})\b", re.I)
 _RESERVED = (".invalid", ".test", ".example", ".localhost")
 _LOOPBACK = {"127.0.0.1", "localhost", "[::1]", "::1"}
-# Context the user's own Codex home would add to every model turn.
-_USER_CONTEXT = ("AGENTS.md", "skills", "memories", "rules", ".agents")
-# Codex installs its bundled system skills into $CODEX_HOME/skills/.system at startup.
-_BUNDLED_SKILLS = {".system"}
 _INBOUND_FULL = ("turn/", "item/", "thread/", "mcpServer", "error", "serverRequest/")
 
 
@@ -44,18 +41,10 @@ def assert_isolated_codex_home(home):
     assert home.is_absolute(), "Codex home must be an absolute path"
     assert home.resolve() != Path.home().resolve(), "Codex home must not be the user home"
     assert home.is_dir() and not home.is_symlink(), "Codex home must be an existing directory"
-    for folder in (home, home / ".codex"):
-        assert folder.resolve() != (Path.home() / ".codex").resolve(), "user ~/.codex"
-        for name in _USER_CONTEXT:
-            entry = folder / name
-            if name == "skills" and entry.is_dir() and not entry.is_symlink():
-                extra = sorted({child.name for child in entry.iterdir()} - _BUNDLED_SKILLS)
-                assert not extra, f"isolated Codex home contains skills {extra}"
-                continue
-            assert not entry.exists() and not entry.is_symlink(), (
-                f"isolated Codex home contains {name}"
-            )
-    return home.resolve()
+    try:
+        return Path(validate_codex_home(home))
+    except CodexCLIError as error:
+        raise AssertionError(str(error)) from error
 
 
 def codex_home_names(home):
