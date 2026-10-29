@@ -72,7 +72,7 @@ MC-02/04 结案，完整 Resume 生命周期已按本票源码/合成范围结�
 | [MC-08 T09 App 自动派发与统一控制](issues/08-t09-app-dispatch-controls.md) | 剩余工作 | closed；源码/合成验收（产品默认关闭，开启见 MC-22；App 内接管提示经 MC-15 实现，安装版待 MC-11） | MC-07 |
 | [MC-09 T10 新产品路径合成整链与故障验收](issues/09-t10-synthetic-chain.md) | 剩余工作 | closed；源码/合成/native 验收 | MC-08 |
 | [MC-10 T11.1 实际 Codex 与同一合成原页验收](issues/10-t11-model-synthetic-page.md) | 剩余工作 | closed；一般场景实际验收（C0/C1 真实通过；C2 已知局限；C3–C5 以受控证据为准，用户决定） | MC-09 |
-| [MC-11 T11.2 唯一签名 App 新接管链验收](issues/11-t11-signed-gui.md) | 剩余工作 | open；未领取；分层运行范围另核 | MC-10、MC-15、MC-20、MC-21、MC-22、MC-23 |
+| [MC-11 T11.2 唯一签名 App 新接管链验收](issues/11-t11-signed-gui.md) | 剩余工作 | open；未领取；分层运行范围另核（2026-10-29 用户决定不再等 MC-23） | MC-10、MC-15、MC-20、MC-21、MC-22 |
 | [MC-12 T11.3 获授权真实 ATS 新接管链验收](issues/12-t11-real-ats.md) | 剩余工作 | open；未领取；分层运行范围另核 | MC-11 |
 | [MC-13 M4 收拢剩余准备与岗位调度职责](issues/13-m4-preparation-scheduling.md) | 常规准备/调度 | closed；源码/合成验收 | MC-01、MC-03、MC-04 |
 | [MC-14 M5 收拢 Runtime 装配与 Portal 传输](issues/14-m5-runtime-portal.md) | 剩余工作 | closed；源码/合成验收（测试按 Module 迁移延后至 MC-19） | MC-08、MC-13 |
@@ -84,7 +84,7 @@ MC-02/04 结案，完整 Resume 生命周期已按本票源码/合成范围结�
 | [MC-20 补齐 worker 运行身份对材料核验代码的覆盖](issues/20-worker-role-coverage.md) | 运行身份 | closed；源码/合成验收（native 未运行：无驱动层改动） | 无 |
 | [MC-21 正式 App 的 Codex 使用专用目录而非用户本人 HOME](issues/21-app-codex-home.md) | 模型上下文边界 | closed；源码/合成验收，用户已在专用目录登录 | 无 |
 | [MC-22 决定并接通产品中的自动接管开关](issues/22-product-native-assistance-policy.md) | 产品开关 | closed；源码/合成验收，安装版随 MC-11 生效 | 无 |
-| [MC-23 Claude 作为接管执行者](issues/23-claude-takeover-executor.md) | 第二执行者 | open；未领取 | MC-10、MC-22 |
+| [MC-23 Claude 作为接管执行者](issues/23-claude-takeover-executor.md) | 第二执行者 | open；未领取；暂缓至 MC-11 之后（用户决定，不阻塞 MC-11） | MC-10、MC-22 |
 
 **2026-10-28 工作审计补充：** 依据[工作审计](../work-audit-2026-10-28/README.md)，经用户同意新增 MC-20–22（原 fog 中已可精确陈述、
 标“MC-11 前处理”的两项，以及 MC-08 默认关闭后无人负责的产品开关），均加入 MC-11 的 Blocked by。原状态、认领和验收不变。
@@ -175,7 +175,7 @@ MC-02/04 结案，完整 Resume 生命周期已按本票源码/合成范围结�
   `--expected-worker-revision`，`require_packaged_worker_identity` 无生产调用方；安装身份目前只在 `application_readiness` 中比较。MC-11 前应确认是否需要在 worker 内拒绝不符身份。
 - **MC-21 留存项**（2026-10-28 结案记录）：界面仍是通用失败文案（登录命令只在错误记录与文档中）；研究/校准 CLI 亦受新 exec 参数影响；检出版 `career_portal`
   启动器不设专用目录；后端启动登录检查只捕获 `CodexCLIError`；MC-10 的 `mc10-codex-home` 需另行登录。2026-10-29 已让 `tests/codex_live_guards.py` 复用 `validate_codex_home`。
-- **MC-10 留存（2026-10-29 结案，边用边优化）**：C2 被遮挡且 pending unknown 的字段模型不补填、driver 拒绝原因未回传；C3–C5 无真实模型证据；产品默认请求超时 2 s 低于实测 thread/start 约 5 s（MC-11 安装版接管前须处理）；安装版须随附 successor-r2 driver。
+- **MC-10 留存（2026-10-29 结案，边用边优化）**：C2 被遮挡且 pending unknown 的字段模型不补填、driver 拒绝原因未回传；C3–C5 无真实模型证据；产品默认请求超时 2 s 低于实测 thread/start 约 5 s——已于 2026-10-29 改为 thread/start 单独 15 s（MC-11 前置）；`codex --version` 冷启动仍 2 s（P3）；安装版须随附 successor-r2 driver。
 - **交回核验失败不记录原因**（2026-10-29 MC-10 后继候选验收发现）：`_service_assistance_return` 的 `except (PortalDataError, Error)` 只置等待原因（如 `assistance_return_unverified`），不记录异常。受控 native 整轮中第一次接管交回间歇失败 2 次（successor-r2 52 次中 1 次、candidate-r1 26 次中 1 次；单独重跑 successor-r2 的 01 10/10、candidate-r1 的 03 3/3 通过；诊断插件下尚无失败用例的整轮观测），原因无法读出；见 [后继候选记录](../remaining-tickets-2026-10-26/mc10-native-metadata/README.md#未定位的间歇失败未计为通过)。需决定是否持久化失败原因并再查根因。
 - **MC-20 冻结字节内留下的 P3**：闭包扫描未识别 `from career_evidence_graph import X`（当前无此用法）；`loaded_code.py` 注释“covered, not executed”应为“无论是否执行”；
   `application_preparation_fixtures` 豁免理由漏写 `--synthetic-mail`；跨进程身份测试未覆盖带岗位启动。下次改动这些文件时一并处理。
@@ -211,7 +211,7 @@ flowchart LR
     W["MC-20 worker身份覆盖"] --> G
     CH["MC-21 App专用Codex目录"] --> G
     NP["MC-22 产品自动接管开关"] --> G
-    CL["MC-23 Claude执行者"] --> G
+    G -.后续.-> CL["MC-23 Claude执行者"]
     X --> CL
     NP --> CL
     G --> ATS["MC-12 T11.3真实ATS"]

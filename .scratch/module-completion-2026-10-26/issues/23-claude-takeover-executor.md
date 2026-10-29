@@ -41,3 +41,8 @@ Claude 经 Claude Code 命令行 `claude -p` 接入，复用现有执行者无�
 不调用真实模型、不安装 App、不访问真实 ATS，除非用户另行授权。最终 Submit 手动。
 
 ## Comments
+
+### 2026-10-29 用户决定：暂缓，不阻塞 MC-11（`claude-code-4ca66ce5/root`）
+
+用户回复“跳过 MC-23”。本票保持 open、未领取，改为 MC-11 之后的后续工作；MC-11 不再以本票为前置。
+

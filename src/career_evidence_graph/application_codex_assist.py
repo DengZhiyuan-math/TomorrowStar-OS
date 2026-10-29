@@ -52,6 +52,8 @@ _DISABLED_FEATURES = (
 )
 _MAX_FRAME_BYTES = 1_048_576
 _MAX_REPORT_CHARS = 65_536
+# Actual 0.165 thread/start took 4.8-5.1 s; other requests keep the short default.
+_THREAD_START_TIMEOUT = 15.0
 _ID = {"type": "string", "maxLength": 128}
 _REPORT_SCHEMA = {
     "type": "object",
@@ -676,6 +678,7 @@ class CodexAdapter:
                         else {}
                     ),
                 },
+                timeout=max(self.config.request_timeout, _THREAD_START_TIMEOUT),
             )
             thread = result.get("thread")
             thread_id = thread.get("id") if isinstance(thread, dict) else None

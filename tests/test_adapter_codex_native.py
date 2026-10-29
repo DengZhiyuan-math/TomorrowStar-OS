@@ -118,6 +118,7 @@ for line in sys.stdin:
         if 'force_mcp_servers' in settings: config['mcp_servers']=settings['force_mcp_servers']
         send({'id':msg['id'],'result':{'config':config,'origins':{}}})
     elif method=='thread/start':
+        time.sleep(settings.get('thread_start_delay', 0))
         native=msg['params']['config']['mcp_servers']['cua_takeover']
         if not settings.get('lazy_catalog') and not settings.get('no_native_recipient'):
             await_native_grant(native)
@@ -388,6 +389,21 @@ def test_lazy_native_recipient_is_granted_during_catalog_before_the_model_turn(
         assert methods[-1] == "turn/start"
         assert native.granted
         assert events.count("yield") == 1
+    finally:
+        adapter.close()
+
+
+def test_slow_thread_start_within_its_own_bound_still_reaches_the_model_turn(tmp_path, monkeypatch):
+    # Actual 0.165 thread/start took 4.8-5.1 s against the 2 s request default.
+    config, ref, scope, packet, driver, native, events = native_case(tmp_path, monkeypatch)
+    assert config.request_timeout == 2.0
+    config.executable.with_suffix(".settings").write_text(
+        json.dumps({"lazy_catalog": True, "thread_start_delay": 2.5})
+    )
+    adapter, run = start_case(config, ref, scope, packet, driver, native)
+    try:
+        assert run.status == "ready", run
+        assert [m["method"] for m in recorded(config) if "method" in m][-1] == "turn/start"
     finally:
         adapter.close()
 

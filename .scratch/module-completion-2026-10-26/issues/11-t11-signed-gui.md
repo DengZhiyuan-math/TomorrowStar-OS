@@ -8,7 +8,7 @@ Interaction: HITL
 Assignee: none
 Created: 2026-10-26
 Parent: [Module 剩余开发地图](../map.md)
-Blocked by: [MC-10](10-t11-model-synthetic-page.md), [MC-15](15-m6-ui-compatibility-identity.md), [MC-20](20-worker-role-coverage.md), [MC-21](21-app-codex-home.md), [MC-22](22-product-native-assistance-policy.md), [MC-23](23-claude-takeover-executor.md)
+Blocked by: [MC-10](10-t11-model-synthetic-page.md), [MC-15](15-m6-ui-compatibility-identity.md), [MC-20](20-worker-role-coverage.md), [MC-21](21-app-codex-home.md), [MC-22](22-product-native-assistance-policy.md)
 Triage: awaiting-authorized-layered-acceptance
 
 ## 问题与范围
@@ -49,3 +49,10 @@ macos/App.swift、macos/main_app.py、macos/build.py、loaded_code.py 仅查明�
 依据 [2026-10-28 工作审计](../../work-audit-2026-10-28/README.md) 问题 3、4，经用户同意，把原记在地图 fog、标“建议在 MC-11 前处理”的三项建为票并加入 Blocked by：
 [MC-20 worker 运行身份覆盖](20-worker-role-coverage.md)、[MC-21 正式 App 专用 Codex 目录](21-app-codex-home.md)、
 [MC-22 产品自动接管开关](22-product-native-assistance-policy.md)。原状态、认领与验收条件不变。
+
+### 2026-10-29 依赖调整（`claude-code-4ca66ce5/root`）
+
+用户决定“跳过 MC-23”：Claude 执行者不再阻塞本票，Codex 一条接管路线先装入安装版使用（一般场景先跑通、边用边优化）。
+进入本票前先修 Codex 请求超时（thread/start 实测约 5 s，产品默认 2 s）。实际安装／更新 App 前另行取得用户授权。
+- 前置已完成：`thread/start` 单独 15 s 上限（其余请求 2 s），离线 8473/3/0、浏览器 380/8/0、受控 native 25/1/0，审查 READY。安装时仍须核对 `codex --version` 冷启动是否超出 2 s。
+
