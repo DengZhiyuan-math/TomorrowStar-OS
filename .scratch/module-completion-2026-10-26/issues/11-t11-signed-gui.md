@@ -137,3 +137,9 @@ macos/App.swift、macos/main_app.py、macos/build.py、loaded_code.py 仅查明�
   新测试 RED→GREEN（撤掉修复复核仍失败）；依赖棘轮：抽出 `poll_due` 辅助，此文件私有属性使用 11→9 并收紧基线。冻结 `7b181b4d…`：离线 8496/3/0、浏览器 382/8/0。
 - 要生效需更新安装版；之后由用户“继续当前岗位”，从暂停的 `selecting_job` 恢复。
 
+### 2026-10-29 安装版第五次更新（`claude-code-4ca66ce5/root`）
+
+用户“授权更新 App”。以 `e4d89e3f` 构建，App 已退出（私人证据 `maintenance-2026-10-29-mc11-r5/`）：构建、`verify.py`、`main_app.py check`、`update`（回退副本已验证、
+配置与权限未改、未启动 GUI）、`check_main_permissions.py` 均 exit 0。安装版 `application_pipeline.py` 为修复版（`da1f4a60…`），driver `ba1541e7…`。
+下一步由用户：“继续当前岗位”从暂停的 `selecting_job` 恢复，确认选中岗位并进入 JD／匹配／材料／填写；再测实际接管、关闭后停写与不可用原因提示。
+
