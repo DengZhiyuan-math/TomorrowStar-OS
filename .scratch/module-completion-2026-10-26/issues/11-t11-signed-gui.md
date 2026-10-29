@@ -55,4 +55,7 @@ macos/App.swift、macos/main_app.py、macos/build.py、loaded_code.py 仅查明�
 用户决定“跳过 MC-23”：Claude 执行者不再阻塞本票，Codex 一条接管路线先装入安装版使用（一般场景先跑通、边用边优化）。
 进入本票前先修 Codex 请求超时（thread/start 实测约 5 s，产品默认 2 s）。实际安装／更新 App 前另行取得用户授权。
 - 前置已完成：`thread/start` 单独 15 s 上限（其余请求 2 s），离线 8473/3/0、浏览器 380/8/0、受控 native 25/1/0，审查 READY。安装时仍须核对 `codex --version` 冷启动是否超出 2 s。
+- 2026-10-29 单一 driver（用户决定“只带新版 driver”）：安装版随附 successor-r3-signed `ba1541e7…`（release、keychain 补丁、固定私有身份签名），脚本与接管共用；
+  `macos/build.py` 记录其来源。冻结 `ae37d4a9…`：离线 8475/3/0、浏览器 380/8/0、受控 native 25/1/0；审查 r1 NOT-READY（缺 keychain 补丁、ad-hoc 签名）→ r2 READY。
+  脚本路径真实 driver：填写到 ready_for_review 成功；“最小化”断言新旧 driver 同样失败（测试期望过时）；worker 停止退出 >10 s（无旧基线）。安装时观察。
 

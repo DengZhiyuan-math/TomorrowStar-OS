@@ -34,10 +34,11 @@ from .worker_process_identity import (
     valid_process_identity,
 )
 
-# Reviewed local upstream build. A version string alone cannot admit this repair.
-_OWNED_DRIVER_SHA256 = "89de4b9399e60d6cc9e8a1d59bf02505a2aa27082171b6556a45e3ddebbcfdc9"
-# Separately reviewed native candidate; the installed legacy build stays unchanged.
-_NATIVE_HANDOFF_DRIVER_SHA256 = "eb298be33009ecba307456e5c395989d26eeb7732651a95175fd7031b0534968"
+# Reviewed release build of the restricted-metadata native successor, signed with the
+# pinned private identity. A version string alone cannot admit it.
+_NATIVE_HANDOFF_DRIVER_SHA256 = "ba1541e7862df48c8eff5101276223e543093a66bc17b6c1033dce3a1d9f3256"
+# The App bundles one cua-driver, so the script route admits the same reviewed bytes.
+_OWNED_DRIVER_SHA256 = _NATIVE_HANDOFF_DRIVER_SHA256
 NATIVE_HANDOFF_PROTOCOL = "cua-trusted-handoff/v1"
 NATIVE_HANDOFF_TOOLS = (
     "get_browser_state",

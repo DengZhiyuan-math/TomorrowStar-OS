@@ -175,7 +175,7 @@ MC-02/04 结案，完整 Resume 生命周期已按本票源码/合成范围结�
   `--expected-worker-revision`，`require_packaged_worker_identity` 无生产调用方；安装身份目前只在 `application_readiness` 中比较。MC-11 前应确认是否需要在 worker 内拒绝不符身份。
 - **MC-21 留存项**（2026-10-28 结案记录）：界面仍是通用失败文案（登录命令只在错误记录与文档中）；研究/校准 CLI 亦受新 exec 参数影响；检出版 `career_portal`
   启动器不设专用目录；后端启动登录检查只捕获 `CodexCLIError`；MC-10 的 `mc10-codex-home` 需另行登录。2026-10-29 已让 `tests/codex_live_guards.py` 复用 `validate_codex_home`。
-- **MC-10 留存（2026-10-29 结案，边用边优化）**：C2 被遮挡且 pending unknown 的字段模型不补填、driver 拒绝原因未回传；C3–C5 无真实模型证据；产品默认请求超时 2 s 低于实测 thread/start 约 5 s——已于 2026-10-29 改为 thread/start 单独 15 s（MC-11 前置）；`codex --version` 冷启动仍 2 s（P3）；安装版须随附 successor-r2 driver。
+- **MC-10 留存（2026-10-29 结案，边用边优化）**：C2 被遮挡且 pending unknown 的字段模型不补填、driver 拒绝原因未回传；C3–C5 无真实模型证据；产品默认请求超时 2 s 低于实测 thread/start 约 5 s——已于 2026-10-29 改为 thread/start 单独 15 s（MC-11 前置）；`codex --version` 冷启动仍 2 s（P3）；安装版随附单一 driver successor-r3-signed `ba1541e7…`（脚本与接管共用，2026-10-29）；脚本路径“最小化”测试期望过时、worker 停止退出较慢（待安装后观察）。
 - **交回核验失败不记录原因**（2026-10-29 MC-10 后继候选验收发现）：`_service_assistance_return` 的 `except (PortalDataError, Error)` 只置等待原因（如 `assistance_return_unverified`），不记录异常。受控 native 整轮中第一次接管交回间歇失败 2 次（successor-r2 52 次中 1 次、candidate-r1 26 次中 1 次；单独重跑 successor-r2 的 01 10/10、candidate-r1 的 03 3/3 通过；诊断插件下尚无失败用例的整轮观测），原因无法读出；见 [后继候选记录](../remaining-tickets-2026-10-26/mc10-native-metadata/README.md#未定位的间歇失败未计为通过)。需决定是否持久化失败原因并再查根因。
 - **MC-20 冻结字节内留下的 P3**：闭包扫描未识别 `from career_evidence_graph import X`（当前无此用法）；`loaded_code.py` 注释“covered, not executed”应为“无论是否执行”；
   `application_preparation_fixtures` 豁免理由漏写 `--synthetic-mail`；跨进程身份测试未覆盖带岗位启动。下次改动这些文件时一并处理。

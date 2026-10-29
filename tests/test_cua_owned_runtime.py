@@ -38,6 +38,11 @@ def test_app_selects_its_verified_bundled_driver_without_environment(tmp_path, m
     assert "TS_CUA_DRIVER_BINARY" not in module.os.environ
 
 
+def test_one_reviewed_driver_serves_the_script_and_native_takeover():
+    # The App bundles a single cua-driver; both routes must admit its bytes.
+    assert module._OWNED_DRIVER_SHA256 == module._NATIVE_HANDOFF_DRIVER_SHA256
+
+
 @pytest.mark.parametrize("opt_in", [None, False, True, "1", 1])
 def test_mock_keychain_requires_explicit_synthetic_opt_in(tmp_path, monkeypatch, opt_in):
     binary = tmp_path / "verified-helper"

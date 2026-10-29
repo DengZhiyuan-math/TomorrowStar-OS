@@ -65,10 +65,18 @@ def copy_cua_driver(resources: Path, driver: Path) -> dict:
         "upstream": "https://github.com/trycua/cua",
         "revision": "c6cb386cf371fed3580ea1c5a238940ce4911641",
         "license": "MIT",
-        "local_divergence": "windowless ownership, scope retention, snapshot and exit repairs",
-        "baseline_patch_manifest_sha256": (
-            "57a266f8441a42c1a6512276b7f87b4d39987725d5e87923e10fdbc8f142ec27"
+        "local_divergence": (
+            "windowless ownership, scope retention, snapshot and exit repairs; trusted native "
+            "handoff and bound material delivery; restricted handoff metadata"
         ),
+        # MC-10 successor source tree and its divergence from the sealed MC-06 source.
+        "source_manifest_sha256": (
+            "20292ad5cbe07219957881b90ece74534e6b798dfbdccc4b14e35e87812bf559"
+        ),
+        "source_divergence_patch_sha256": (
+            "8447c47fb294ac58711a48e3946ccb0f5a61785615a6603bac370fca4fbd0c6b"
+        ),
+        "build_profile": "release, signed with the pinned private identity",
         "additional_local_divergence": (
             "bounded cleanup retry; exact opt-in mock keychain for new synthetic macOS profiles; "
             "ownership guard unchanged"

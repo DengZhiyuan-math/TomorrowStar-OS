@@ -522,6 +522,36 @@ def test_bundle_rejects_unreviewed_helper_before_copying(tmp_path):
     assert not (tmp_path / "cua-driver").exists()
 
 
+def test_bundled_helper_records_the_native_successor_provenance(tmp_path, monkeypatch):
+    import hashlib
+    import importlib.util
+
+    from career_evidence_graph import cua_driver
+
+    spec = importlib.util.spec_from_file_location(
+        "macos_build", Path(__file__).parents[1] / "macos/build.py"
+    )
+    builder = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(builder)
+    driver = tmp_path / "reviewed-driver"
+    driver.write_bytes(b"Synthetic reviewed executable")
+    digest = hashlib.sha256(driver.read_bytes()).hexdigest()
+    monkeypatch.setattr(cua_driver, "_OWNED_DRIVER_SHA256", digest)
+    monkeypatch.setattr(builder.subprocess, "run", lambda *args, **kwargs: None)
+    resources = tmp_path / "Resources"
+    resources.mkdir()
+    record = builder.copy_cua_driver(resources, driver)
+    assert record["sha256"] == digest
+    # One bundled driver serves the script and native takeover (MC-10 successor).
+    assert record["source_manifest_sha256"] == (
+        "20292ad5cbe07219957881b90ece74534e6b798dfbdccc4b14e35e87812bf559"
+    )
+    assert "trusted native handoff" in record["local_divergence"]
+    assert record["synthetic_keychain_patch_sha256"] == (
+        "c9ac461bfbf6dcc106ebe7d4cba527a0ed06e6fb5260427b9b3c44ad60a0184a"
+    )
+
+
 def test_explicit_installed_system_root_accepts_only_a_separate_private_git_repo(tmp_path):
     installed = tmp_path / "TomorrowStar.app" / "Contents" / "Resources" / "system"
     installed.mkdir(parents=True)
