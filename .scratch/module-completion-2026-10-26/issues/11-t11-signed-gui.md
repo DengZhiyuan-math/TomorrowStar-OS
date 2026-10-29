@@ -85,3 +85,10 @@ macos/App.swift、macos/main_app.py、macos/build.py、loaded_code.py 仅查明�
 服务接受新回报 schema，回报经 Adapter 留下且 Worker 采纳。补上了审计 E4 指出的“安装版 driver 无实际运行”缺口。
 **安装版仍是 `49924cd5` 构建，不含 `35acdbb9` 的回报规则修正**；要生效需重新构建并更新（另需授权）。
 
+### 2026-10-29 晚：安装版第二次更新（`claude-code-4ca66ce5/root`）
+
+用户“授权更新 App”。同一流程（私人证据 `maintenance-2026-10-29-mc11-r2/`）：上次的候选包（与当时安装版相同）移入废纸篓后，以 `09f1249f`（代码同 `35acdbb9`）构建；
+`verify.py` 全部通过、未用个人数据；`main_app.py check` 通过；`update` 成功（回退副本已验证、配置与权限未改、未启动 GUI）；`check_main_permissions.py` exit 0
+（辅助功能、屏幕录制已授权，责任链验证，未建浏览器）。安装版现含回报规则修正（`application_codex_assist.py` `423b1aaa…`）与 driver `ba1541e7…`。
+剩余：GUI 实际使用核对。
+

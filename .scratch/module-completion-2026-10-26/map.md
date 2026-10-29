@@ -72,7 +72,7 @@ MC-02/04 结案，完整 Resume 生命周期已按本票源码/合成范围结�
 | [MC-08 T09 App 自动派发与统一控制](issues/08-t09-app-dispatch-controls.md) | 剩余工作 | closed；源码/合成验收（产品默认关闭，开启见 MC-22；App 内接管提示经 MC-15 实现，安装版待 MC-11） | MC-07 |
 | [MC-09 T10 新产品路径合成整链与故障验收](issues/09-t10-synthetic-chain.md) | 剩余工作 | closed；源码/合成/native 验收 | MC-08 |
 | [MC-10 T11.1 实际 Codex 与同一合成原页验收](issues/10-t11-model-synthetic-page.md) | 剩余工作 | closed；一般场景实际验收（C0/C1 真实通过；C2 已知局限；C3–C5 以受控证据为准，用户决定） | MC-09 |
-| [MC-11 T11.2 唯一签名 App 新接管链验收](issues/11-t11-signed-gui.md) | 剩余工作 | open；2026-10-29 安装版已更新（单一 driver `ba1541e7…`，verify／签名／权限检查通过），待 GUI 实际使用核对 | MC-10、MC-15、MC-20、MC-21、MC-22 |
+| [MC-11 T11.2 唯一签名 App 新接管链验收](issues/11-t11-signed-gui.md) | 剩余工作 | open；2026-10-29 安装版已更新两次（单一 driver `ba1541e7…`；第二次含回报规则修正 `35acdbb9`），verify／签名／权限检查通过，待 GUI 实际使用核对 | MC-10、MC-15、MC-20、MC-21、MC-22 |
 | [MC-12 T11.3 获授权真实 ATS 新接管链验收](issues/12-t11-real-ats.md) | 剩余工作 | open；未领取；分层运行范围另核 | MC-11 |
 | [MC-13 M4 收拢剩余准备与岗位调度职责](issues/13-m4-preparation-scheduling.md) | 常规准备/调度 | closed；源码/合成验收 | MC-01、MC-03、MC-04 |
 | [MC-14 M5 收拢 Runtime 装配与 Portal 传输](issues/14-m5-runtime-portal.md) | 剩余工作 | closed；源码/合成验收（测试按 Module 迁移延后至 MC-19） | MC-08、MC-13 |
