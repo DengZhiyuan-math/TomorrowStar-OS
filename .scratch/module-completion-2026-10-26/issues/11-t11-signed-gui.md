@@ -79,3 +79,9 @@ macos/App.swift、macos/main_app.py、macos/build.py、loaded_code.py 仅查明�
   尚无实际 Codex 运行。按criterion 3，GUI 实际使用中的接管即为其首个实际证据；若接管异常，先核对这一差异。
 - MC-14 要求的“更新 App 前原生跑 `test_worker_native_chain_browser.py`”已满足：native-r10 的 01–03 在冻结 `ae37d4a9…`（= `49924cd5`）上通过。
 
+### 2026-10-29 晚：安装版 driver 的首次实际运行（`claude-code-4ca66ce5/root`）
+
+用户“提交并跑 C0+C1”。源码 `35acdbb9`（回报规则统一到 JSON Schema），driver `ba1541e7…`（与安装版相同字节）：实际 C0 r7、C1 r4 均通过；
+服务接受新回报 schema，回报经 Adapter 留下且 Worker 采纳。补上了审计 E4 指出的“安装版 driver 无实际运行”缺口。
+**安装版仍是 `49924cd5` 构建，不含 `35acdbb9` 的回报规则修正**；要生效需重新构建并更新（另需授权）。
+
