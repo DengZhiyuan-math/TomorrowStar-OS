@@ -72,6 +72,13 @@ def queue_environment(tmp_path):
         intake.close()
 
 
+def poll_due(pipeline):
+    """Make the background mail poll due on the next tick."""
+    state = pipeline._load()
+    state["mail_poll_at"] = 0
+    pipeline._save(state)
+
+
 def drive(pipeline, status):
     for _ in range(100):
         pipeline._tick()
@@ -79,6 +86,31 @@ def drive(pipeline, status):
             return pipeline.snapshot()
         time.sleep(0.005)
     pytest.fail(str(pipeline.snapshot()))
+
+
+def test_completed_capture_selects_a_job_before_any_new_background_capture(queue_environment):
+    # Installed MC-11: a real capture outlasts the 60 s poll, so the poll restarted it
+    # in the very tick selection ran, and selection waited on it again and again.
+    import threading
+
+    pipeline, _flow, intake, _worker, reads, _fetches, _messages = queue_environment
+    pipeline.start(request_id="select-after-capture")
+    drive(pipeline, "selecting_job")
+    gate, original = threading.Event(), intake.reader
+
+    def held(directory, **options):
+        gate.wait(5)
+        return original(directory, **options)
+
+    intake.reader = held
+    try:
+        poll_due(pipeline)
+        before = len(reads)
+        current = drive(pipeline, "acquiring_source")
+        assert current["current_recommendation_id"]
+        assert intake.snapshot()["status"] != "running" and len(reads) == before
+    finally:
+        gate.set()
 
 
 def test_all_mail_pages_captured_but_only_first_job_acquired_and_processed(queue_environment):
@@ -120,9 +152,7 @@ def test_new_mail_captured_automatically_during_submit_wait_without_changing_pag
     waiting = drive(pipeline, "ready_for_review")
     before = deepcopy(worker.state), deepcopy(flow.tasks), deepcopy(flow.calls)
     messages.append(message("new-mail", ["https://www.linkedin.com/jobs/view/99999"]))
-    state = pipeline._load()
-    state["mail_poll_at"] = 0
-    pipeline._save(state)
+    poll_due(pipeline)
     pipeline._tick()
     assert len(ready(intake)["recommendations"]) == 17
     after = pipeline.snapshot()
@@ -131,9 +161,7 @@ def test_new_mail_captured_automatically_during_submit_wait_without_changing_pag
     assert (worker.state, flow.tasks, flow.calls) == before
     assert len(fetches) == 1
     # Duplicate mail changes neither queue length nor execution.
-    state = pipeline._load()
-    state["mail_poll_at"] = 0
-    pipeline._save(state)
+    poll_due(pipeline)
     pipeline._tick()
     assert len(ready(intake)["recommendations"]) == 17 and len(fetches) == 1
 

@@ -126,3 +126,14 @@ macos/App.swift、macos/main_app.py、macos/build.py、loaded_code.py 仅查明�
 `update`（回退副本已验证、配置与权限未改、未启动 GUI）、`check_main_permissions.py` 均 exit 0。安装版 `application_gmail.py` 为修复版（`fed71921…`），driver `ba1541e7…`。
 下一步由用户：在 App 中重新收录推荐邮件，确认 Gmail 身份核验与读取恢复；之后测实际接管、关闭后停写与不可用原因提示。
 
+### 2026-10-29 GUI 重测：Gmail 通过，岗位选择被后台收录饿死（`claude-code-4ca66ce5/root`）
+
+用户重测报告（私人：`~/Library/Application Support/TomorrowStar/test-reports/2026-10-29-mc11-gmail-retest/`）：真实 Gmail 账号核验通过，两轮各读 24 封推荐邮件至末页；
+流程一直停在 `selecting_job`（候选 64，未选中岗位），后台又从首页开始新的收录；接管等用例未执行。
+
+- 根因：`_tick` 先 `_poll_mail` 后 `_queue`。真实收录约 2.3 min，长于 60 s 轮询；收录刚完成进入 `selecting_job` 的同一 tick 里轮询已到期，立刻启动新收录，
+  `_queue` 看到收录在跑就返回，选择永远轮不到。
+- 修复（未提交）：`_poll_mail` 在 `selecting_job` 时不启动后台收录（选择是瞬时步骤；无新候选即进入 `waiting_for_mail`，轮询照常）。
+  新测试 RED→GREEN（撤掉修复复核仍失败）；依赖棘轮：抽出 `poll_due` 辅助，此文件私有属性使用 11→9 并收紧基线。冻结 `7b181b4d…`：离线 8496/3/0、浏览器 382/8/0。
+- 要生效需更新安装版；之后由用户“继续当前岗位”，从暂停的 `selecting_job` 恢复。
+

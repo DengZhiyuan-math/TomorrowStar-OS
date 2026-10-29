@@ -191,7 +191,7 @@
     "tests/test_pipeline_matching_routes.py": 3,
     "tests/test_pipeline_polling_performance.py": 3,
     "tests/test_pipeline_preparation_gate.py": 1,
-    "tests/test_pipeline_recommendation_queue.py": 11,
+    "tests/test_pipeline_recommendation_queue.py": 9,
     "tests/test_pipeline_source_retry.py": 8,
     "tests/test_pipeline_tex_conflict_recovery.py": 1,
     "tests/test_portal_saved_job_brief.py": 1,

@@ -1973,9 +1973,17 @@ class ApplicationPipeline:
 
     def _poll_mail(self, state):
         """Capture alone may run while a job waits; source work stays sequential."""
+        # Selection runs right after a capture completes; a real capture outlasts the
+        # 60 s poll, so restarting one here would hold selection behind it indefinitely.
         if (
             state["status"]
-            in {"reading_email", "starting_email", "starting_source", "acquiring_source"}
+            in {
+                "reading_email",
+                "starting_email",
+                "selecting_job",
+                "starting_source",
+                "acquiring_source",
+            }
             or state.get("mail_capture_error")
             or time.time() < state.get("mail_poll_at", 0)
         ):
