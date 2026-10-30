@@ -429,9 +429,16 @@ def analyze_with_retrieval(
             or saved.get("revision") != digest({k: v for k, v in saved.items() if k != "revision"})
             or not _same_upstream_binding(saved, binding)
         ):
-            if not known_reading_failure(previous_directory, saved):
+            rejected_evaluation = (
+                saved.get("phase") == "evaluation"
+                and saved.get("evaluation_error")
+                in {"match_model_invalid", "match_inference_invalid"}
+                and not saved.get("evaluations")
+            )
+            if not (rejected_evaluation or known_reading_failure(previous_directory, saved)):
                 raise PortalDataError("match_resume_invalid", "原分析与本轮输入不符，未复用。", 409)
-            # A proven size refusal hides no result; changed inputs are read from the start.
+            # A proven size refusal or a complete output the program rejected hides no
+            # result; changed inputs are read from the start (installed MC-11).
             previous_directory, saved = None, {}
             binding["job_brief_revision"] = (job_brief or {}).get("revision")
         revalidate_recorded = bool(saved) and (

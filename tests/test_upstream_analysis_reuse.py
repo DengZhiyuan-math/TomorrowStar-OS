@@ -302,3 +302,41 @@ def test_a_packet_refused_for_size_after_every_read_is_a_known_failure(
     packet = root / ("1" * 32) / "material-packet-1" / "material-packet.json"
     packet.write_text(packet.read_text().replace('"failed"', '"needs_recheck"', 1))
     assert analysis.progress("1" * 32)["status"] == "needs_recheck"
+
+
+def test_a_rejected_evaluation_with_changed_inputs_is_analysed_again_from_the_start(
+    canonical, tmp_path, monkeypatch
+):
+    from test_application_match import model_runner
+
+    from career_evidence_graph import application_matching_pipeline
+
+    library, _, _, base, *_ = canonical
+    snapshot = thin(canonical)
+    initial = RecordedPipeline([requirement("Scientific collaboration")])
+
+    def invalid(config, prompt, **kwargs):
+        result = initial(config, prompt, **kwargs)
+        if config.output_schema.name == "match-schema.json":
+            output = deepcopy(result.structured_result)
+            output["requirements"][0]["inference"].update(type="deterministic", calculation=None)
+            return model_runner(output, [])(config, prompt, **kwargs)
+        return result
+
+    old = tmp_path / "rejected-evaluation"
+    options = {
+        "source_loader": lambda ids: library.snapshot_for_analysis(base, ids),
+        "information_library": {"status": "unconfigured"},
+    }
+    with pytest.raises(PortalDataError) as caught:
+        application_match.analyze_job(APPLICATION, snapshot, old, runner=invalid, **options)
+    assert caught.value.code == "match_inference_invalid"
+    # Installed MC-11: the Education Record changed the information binding, so the
+    # rejected attempt could not be resumed and every retry was refused.
+    monkeypatch.setattr(application_matching_pipeline, "_same_upstream_binding", lambda *_: False)
+    retry = RecordedPipeline(initial.requirements)
+    result = application_match.analyze_job(
+        APPLICATION, snapshot, tmp_path / "fresh", runner=retry, resume_from=old, **options
+    )
+    assert len(retry.brief_calls) == 1
+    assert result["material_packet"]["status"] == "complete"
