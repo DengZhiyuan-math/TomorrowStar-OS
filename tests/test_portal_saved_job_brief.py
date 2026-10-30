@@ -13,6 +13,8 @@ from career_evidence_graph.career_experiences import ExperienceStore
 from career_evidence_graph.career_portal import create_server
 from career_evidence_graph.career_portal_data import ApplicationStore, PortalDataError
 
+pytestmark = pytest.mark.usefixtures("planner_path")
+
 
 def test_portal_reuses_completed_jd_from_legacy_failure_after_source_change(
     canonical, portal, tmp_path

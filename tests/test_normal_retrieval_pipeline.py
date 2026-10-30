@@ -13,6 +13,8 @@ from career_evidence_graph.application_match import analyze_job
 from career_evidence_graph.application_worker import digest
 from career_evidence_graph.career_portal_data import PortalDataError
 
+pytestmark = pytest.mark.usefixtures("planner_path")
+
 APPLICATION = {
     "id": "normal-analysis",
     "revision": "job-v1",

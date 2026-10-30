@@ -64,13 +64,14 @@ def test_modern_failed_analysis_delivers_certainty_without_retry(
 @pytest.mark.parametrize(
     ("attempt_status", "certainty"), [("failed", "rejected"), ("needs_recheck", "unknown")]
 )
+@pytest.mark.parametrize("code", ["retrieval_execution_incomplete", "retrieval_model_failed"])
 def test_a_saved_size_refusal_is_rejected_only_when_its_attempt_proves_it(
-    application, tmp_path, attempt_status, certainty
+    application, tmp_path, attempt_status, certainty, code
 ):
     applications, job = application
 
     def analyze(_task):
-        raise PortalDataError("retrieval_execution_incomplete", "Synthetic reading failure", 409)
+        raise PortalDataError(code, "Synthetic reading or planner failure", 409)
 
     class Attempts:
         def progress(self, attempt_id):

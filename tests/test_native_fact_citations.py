@@ -14,6 +14,8 @@ from career_evidence_graph.application_match import analyze_job
 from career_evidence_graph.application_material_packet import prepare_material_packet
 from career_evidence_graph.application_worker import digest
 
+pytestmark = pytest.mark.usefixtures("reading_limits")
+
 
 def allowed_ids(schema, field):
     if "$ref" in field:
@@ -50,6 +52,10 @@ def saved_context(directory):
     real = _real_ids(directory)
     prompt = json.loads((directory / "context-input.json").read_text())["prompt"]
     context = json.loads(prompt.rsplit("\n", 1)[1])
+    # Grouped experiences list their facts and background under one header.
+    for experience in context.pop("experiences", []):
+        for entry in experience.get("facts", []) + experience.get("context", []):
+            context.setdefault("sources", []).append(entry)
     for source in context.get("sources", []):
         source["source_id"] = real.get(source["source_id"], source["source_id"])
     return context

@@ -15,6 +15,7 @@ from ._vendor import job_apply_store as helper
 from .application_input_limits import MAX_MATCH_CONTEXT_BYTES, context_limits
 from .application_input_limits import MAX_MATCH_CONTEXT_BYTES as MAX_READING_PROMPT_BYTES
 from .application_input_limits import MAX_MATERIAL_CONTEXT_BYTES as MAX_MATERIAL_BYTES  # noqa: F401
+from .application_material_sources import matching_view as _matching_view
 from .application_material_sources import model_source as _model_source
 from .application_material_sources import model_sources as _model_sources
 from .application_material_sources import quoted_source as _quoted_source
@@ -84,12 +85,10 @@ def _encoded(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True)
 
 
-def _size(sources):
-    projection = _model_sources(sources.values())
+def packet_size(sources):
+    projection = _matching_view(sources.values())
     return len(
-        _encoded(
-            projection if "experience_contexts" in projection else projection["sources"]
-        ).encode()
+        _encoded(projection if "experiences" in projection else projection["sources"]).encode()
     )
 
 
@@ -715,11 +714,11 @@ def prepare_material_packet(
             for key, row in sources.items()
             if row.get("source_kind") == "confirmed_information"
         }
-        if _size(confirmed) > material_limit:
+        if packet_size(confirmed) > material_limit:
             raise PortalDataError(
                 "match_information_too_large", "已确认事实超出完整读取范围，未截断。", 409
             )
-        direct = _size(sources) <= material_limit
+        direct = packet_size(sources) <= material_limit
         # Validate all selected inputs before spending any reading calls.
         for source in sources.values():
             if not source.get("available"):
@@ -826,7 +825,7 @@ def prepare_material_packet(
             )
 
         def check_packet_budget():
-            if _size(packet["sources"]) > material_limit:
+            if packet_size(packet["sources"]) > material_limit:
                 raise ValueError(_BUDGET_FAILURE)
 
         check_packet_budget()

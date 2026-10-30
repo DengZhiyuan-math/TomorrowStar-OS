@@ -20,6 +20,8 @@ from career_evidence_graph.application_resume import career_source_snapshot
 from career_evidence_graph.career_portal import create_server
 from career_evidence_graph.career_portal_data import ApplicationStore, CareerCatalog
 
+pytestmark = pytest.mark.usefixtures("planner_path")
+
 
 @pytest.fixture
 def analyzed_omitted_source(tmp_path, request):

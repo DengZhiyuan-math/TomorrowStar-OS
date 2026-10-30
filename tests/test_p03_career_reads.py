@@ -9,6 +9,8 @@ from career_evidence_graph.application_career_library import CareerLibrary
 from career_evidence_graph.career_experiences import ExperienceStore
 from career_evidence_graph.career_portal_data import PortalDataError
 
+pytestmark = pytest.mark.usefixtures("reading_limits")
+
 
 def library(tmp_path, rows, evidence=()):
     root = tmp_path / "career"

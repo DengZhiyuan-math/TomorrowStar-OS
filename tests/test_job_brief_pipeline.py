@@ -16,6 +16,8 @@ from career_evidence_graph.application_match_refresh import _requirements
 from career_evidence_graph.application_worker import digest
 from career_evidence_graph.career_portal_data import PortalDataError
 
+pytestmark = pytest.mark.usefixtures("planner_path")
+
 
 def test_brief_is_published_before_source_reads_and_reused_for_every_followup(canonical, tmp_path):
     library, _, _, base, *_ = canonical
@@ -39,7 +41,13 @@ def test_brief_is_published_before_source_reads_and_reused_for_every_followup(ca
     )
     assert len(runner.brief_calls) == 1
     assert set(runner.brief_calls[0]) == {"company", "role_title", "location", "job_description"}
-    assert all(context["job_brief"] == report["job_brief"] for context in runner.contexts)
+    # Matching reads the brief without the JD copy and revisions the program keeps.
+    shared = {"business_object", "role_understanding", "groups"}
+    assert all(
+        {key: context["job_brief"][key] for key in shared}
+        == {key: report["job_brief"][key] for key in shared}
+        for context in runner.contexts
+    )
     assert _requirements(report) == brief_requirements(report["job_brief"])
 
     refreshed = RecordedPipeline(runner.requirements)

@@ -11,6 +11,8 @@ from test_structured_career_library import content
 from career_evidence_graph.application_match import analyze_job, reuse_analysis
 from career_evidence_graph.career_experiences import ExperienceStore
 
+pytestmark = pytest.mark.usefixtures("planner_path")
+
 
 @pytest.fixture
 def completed(library, tmp_path):

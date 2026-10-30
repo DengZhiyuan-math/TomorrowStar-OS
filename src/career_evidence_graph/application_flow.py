@@ -85,7 +85,17 @@ def legacy_analysis_failure(task):
     )
 
 
-def _analysis_outcome(task, *, known_budget_failure=False):
+# Codes that also wrap unknown outcomes; only the saved attempt can prove them known.
+_ATTEMPT_PROVEN_CODES = {
+    "retrieval_execution_incomplete",
+    "retrieval_model_failed",
+    "match_model_timeout",
+    "match_model_unavailable",
+    "job_brief_unavailable",
+}
+
+
+def _analysis_outcome(task, *, known_attempt_failure=False):
     """Interpret Flow-owned attempt metadata without authorizing a new attempt."""
     stage = task.get("stages", {}).get("analysis", {})
     legacy_skippable = legacy_analysis_failure(task)
@@ -93,12 +103,13 @@ def _analysis_outcome(task, *, known_budget_failure=False):
     # Modern validation failures only classify a same-job input wait.
     # retrieval_execution_incomplete also wraps reader timeouts; its code alone
     # cannot establish a known rejected result. Only the saved attempt can prove
-    # a size refusal after every reading call was receipted.
+    # it ended on a known failure (a size refusal, or a call that timed out with no
+    # output) after every call it made was receipted.
     modern_rejected = bool(
         task.get("status") == stage.get("status") == "failed"
         and stage.get("error_code")
         in {
-            *(["retrieval_execution_incomplete"] if known_budget_failure else []),
+            *([stage.get("error_code")] if known_attempt_failure else []),
             "match_model_invalid",
             "match_requirement_conflict",
             "match_source_invalid",
@@ -5122,9 +5133,9 @@ class ApplicationFlowService:
             "created_at": time.time(),
         }
 
-    def _known_budget_failure(self, task):
+    def _known_attempt_failure(self, task):
         stage, analysis = task["stages"]["analysis"], getattr(self, "analysis", None)
-        if stage.get("error_code") != "retrieval_execution_incomplete" or analysis is None:
+        if stage.get("error_code") not in _ATTEMPT_PROVEN_CODES or analysis is None:
             return False
         try:
             return analysis.progress(stage["attempt_id"])["status"] == "failed"
@@ -5135,7 +5146,7 @@ class ApplicationFlowService:
         """Deliver saved analysis certainty; never project, refresh or retry work."""
         with self.applications.write_lock():
             task = self._task(self._load(), task_id)
-            return _analysis_outcome(task, known_budget_failure=self._known_budget_failure(task))
+            return _analysis_outcome(task, known_attempt_failure=self._known_attempt_failure(task))
 
     def progress(self, task_id):
         """Read preparation progress without dispatching or inspecting execution."""
@@ -5143,7 +5154,7 @@ class ApplicationFlowService:
             task = self._task(self._load(), task_id)
             return _preparation_progress(
                 task,
-                _analysis_outcome(task, known_budget_failure=self._known_budget_failure(task)),
+                _analysis_outcome(task, known_attempt_failure=self._known_attempt_failure(task)),
             )
 
     def prepare(self, task_id, task_revision, *, request_id=None, analysis_only=False):

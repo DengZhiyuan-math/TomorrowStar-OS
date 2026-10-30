@@ -9,6 +9,8 @@ from test_matching_stage_recovery import terminal_model_failure
 from career_evidence_graph import application_material_packet as material
 from career_evidence_graph.career_portal_data import PortalDataError
 
+pytestmark = pytest.mark.usefixtures("reading_limits")
+
 APPLICATION = {"company": "Example", "role_title": "Researcher", "job_description": "Risk."}
 REQUIREMENTS = [{"text": "Validate risk", "importance": "required", "hard_condition": False}]
 

@@ -23,8 +23,8 @@ from .application_input_limits import MAX_MATCH_CONTEXT_BYTES as MAX_PROMPT_BYTE
 from .application_input_limits import context_limits as context_limits
 from .application_match_scoring import calculate_match_score as calculate_match_score
 from .application_match_scoring import normalize_requirements
+from .application_material_sources import matching_view as _matching_view
 from .application_material_sources import model_source as _model_source
-from .application_material_sources import model_sources as _model_sources
 from .application_material_sources import quoted_source as _quoted_source
 from .application_material_sources import source_records as _sources
 from .application_material_sources import structured_fact
@@ -119,13 +119,21 @@ def _known_failed_model_result(directory, receipt):
                 == digest({key: value for key, value in stopped.items() if key != "revision"})
             )
         return False
-    if receipt["error_type"] != "CodexCLIError":
+    if receipt["error_type"] not in {"CodexCLIError", "TimeoutExpired"}:
         return False
     try:
         events = [
             json.loads(line) for line in receipt["raw_stdout_jsonl"].splitlines() if line.strip()
         ]
     except ValueError:
+        return False
+    if all(isinstance(event, dict) for event in events) and {
+        event.get("type") for event in events
+    } <= {"thread.started", "turn.started"}:
+        # A read-only analysis call that ended without any output has nothing to adopt;
+        # the user's Continue may run it again (approved 2026-10-31).
+        return True
+    if receipt["error_type"] != "CodexCLIError":
         return False
     if len(events) != 4 or not all(isinstance(event, dict) for event in events):
         return False
@@ -141,6 +149,31 @@ def _known_failed_model_result(directory, receipt):
         and events[2] == {"type": "error", "message": message}
         and events[3] == {"type": "turn.failed", "error": {"message": message}}
     )
+
+
+_CALL_RECEIPTS = {
+    "prompt.json": "result.json",
+    "job-brief-prompt.json": "job-brief-result.json",
+}
+
+
+def _ended_on_known_failure(directory):
+    """Every saved call has its result, and the attempt stopped on a known failed call."""
+    failed = False
+    for prompt_name, result_name in _CALL_RECEIPTS.items():
+        for prompt in directory.rglob(prompt_name):
+            path = prompt.with_name(result_name)
+            if prompt.is_symlink() or path.is_symlink() or not path.is_file():
+                return False
+            try:
+                receipt = helper.read_json_object(path, "analysis call receipt")
+            except (OSError, ValueError, helper.StoreError):
+                return False
+            if receipt.get("status") == "failed":
+                if not _known_failed_model_result(prompt.parent, receipt):
+                    return False
+                failed = True
+    return failed
 
 
 class _Citation(BaseModel):
@@ -398,6 +431,23 @@ def match_configuration_revision(environment=None) -> str:
     return digest(match_configuration(environment))
 
 
+def _prompt_requirements(requirements):
+    """Each requirement names its job_brief group instead of repeating the whole group."""
+    if not requirements:
+        return requirements
+    rows = []
+    for requirement in requirements:
+        row = deepcopy(requirement)
+        framework = row.get("scoring_framework")
+        if isinstance(framework, dict) and isinstance(framework.get("group"), dict):
+            row["scoring_framework"] = {
+                "requirement_id": framework.get("requirement_id"),
+                "group_id": framework["group"].get("id"),
+            }
+        rows.append(row)
+    return rows
+
+
 def _prompt_context(job, sources, snapshot):
     context_limit = context_limits()["match_context_bytes"]
     native_citations = _native_fact_source_ids(snapshot, sources)
@@ -618,13 +668,24 @@ def _prompt_context(job, sources, snapshot):
                 for fact in snapshot.get("information_context", {}).get("facts", [])
             ]
         },
-        "match_requirements": snapshot.get("match_requirements"),
-        **({"job_brief": snapshot["job_brief"]} if snapshot.get("job_brief") is not None else {}),
+        "match_requirements": _prompt_requirements(snapshot.get("match_requirements")),
+        **(
+            {
+                # The JD is stated once above; revisions stay with the program.
+                "job_brief": {
+                    key: value
+                    for key, value in snapshot["job_brief"].items()
+                    if key in {"business_object", "role_understanding", "groups"}
+                }
+            }
+            if snapshot.get("job_brief") is not None
+            else {}
+        ),
         **({"inference_policy": INFERENCE_POLICY} if controlled else {}),
         "retrieval_coverage": {
             "index_candidates": snapshot.get("retrieval_coverage", {}).get("index_candidates"),
-            "selected_candidate_ids": snapshot.get("retrieval_coverage", {}).get(
-                "selected_candidate_ids", []
+            "selected_candidates": len(
+                snapshot.get("retrieval_coverage", {}).get("selected_candidate_ids", [])
             ),
             "unavailable_sources": [
                 {
@@ -644,17 +705,18 @@ def _prompt_context(job, sources, snapshot):
     )
     if compact_models:
         instructions += (
-            "Resolve each record_context.experience_context_ref in experience_contexts and "
-            "scope_ref in scope_contexts. These tables share exact metadata and scope values; "
-            "each fact retains its own responsibility, status and source_id.\n"
+            "experiences lists each experience once with its header. Its facts carry their own "
+            "source_id, responsibility and status; its context entries are background about the "
+            "experience, never the applicant's own activity; a fact's note number refers to "
+            "that experience's notes, which state its recorded boundaries.\n"
         )
     remaining = context_limit - len((instructions + encode(context)).encode()) - 2048
     included, omitted, truncated = {}, [], []
-    included_size = len(encode(_model_sources([])).encode())
+    included_size = len(encode(_matching_view([])).encode())
 
     def model_size(row):
         if compact_models:
-            return len(encode(_model_sources([*included.values(), row])).encode()) - included_size
+            return len(encode(_matching_view([*included.values(), row])).encode()) - included_size
         return len(encode(_model_source(row)).encode()) + 1
 
     for source_id, source in sorted(
@@ -745,7 +807,7 @@ def _prompt_context(job, sources, snapshot):
     prompt = instructions + encode(
         {
             **context,
-            **_model_sources(
+            **_matching_view(
                 row | {"source_id": aliases[source_id]} for source_id, row in included.items()
             ),
             "coverage": {
@@ -1647,6 +1709,10 @@ class Analysis:
                         "status": "failed",
                         "error_code": "retrieval_execution_incomplete",
                     }
+                if checkpoint["phase"] not in {"evaluation", "evaluated"} and (
+                    _ended_on_known_failure(directory)
+                ):
+                    return result | {"status": "failed", "error_code": "match_model_timeout"}
                 if checkpoint["phase"] == "evaluation" and checkpoint.get("evaluation_error"):
                     checked = self._saved_evaluation_progress(result, checkpoint)
                     if checked["status"] == "failed":

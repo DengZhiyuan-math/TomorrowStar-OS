@@ -3,9 +3,12 @@
 import json
 from copy import deepcopy
 
+import pytest
 from test_application_material_packet import batch_reader, snapshot
 
 from career_evidence_graph import application_material_packet as material
+
+pytestmark = pytest.mark.usefixtures("reading_limits")
 
 APPLICATION = {"company": "Example", "role_title": "Researcher", "job_description": "Risk."}
 REQUIREMENTS = [{"text": "Validate risk", "importance": "required", "hard_condition": False}]

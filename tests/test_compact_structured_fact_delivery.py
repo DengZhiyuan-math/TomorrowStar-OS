@@ -8,6 +8,8 @@ from test_application_material_packet import snapshot
 
 from career_evidence_graph import application_material_packet as material
 
+pytestmark = pytest.mark.usefixtures("reading_limits")
+
 APPLICATION = {"company": "Example", "role_title": "Researcher", "job_description": "Risk."}
 REQUIREMENTS = [{"text": "Validate risk", "importance": "required", "hard_condition": False}]
 
@@ -150,7 +152,7 @@ def test_batched_canonical_selection_shares_context_and_keeps_exact_fact_semanti
 def test_context_limits_defaults_and_explicit_budget_bind_match_configuration():
     from career_evidence_graph.application_match import context_limits, match_configuration
 
-    assert context_limits({}) == {"match_context_bytes": 128_000, "material_context_bytes": 60_000}
+    assert context_limits({}) == {"match_context_bytes": 256_000, "material_context_bytes": 200_000}
     environment = {
         "TOMORROWSTAR_MATCH_CONTEXT_BYTES": "384000",
         "TOMORROWSTAR_MATERIAL_CONTEXT_BYTES": "300000",
@@ -285,7 +287,15 @@ def test_explicit_large_context_reaches_matching_with_all_original_facts(tmp_pat
     context = json.loads((tmp_path / "match/context-input.json").read_text())["prompt"].rsplit(
         "\n", 1
     )[1]
-    assert len(json.loads(context)["sources"]) == 200
+    grouped = json.loads(context)
+    assert (
+        len(grouped["sources"])
+        + sum(
+            len(row.get("facts", [])) + len(row.get("context", []))
+            for row in grouped.get("experiences", [])
+        )
+        == 200
+    )
     assert result["selected_source_ids"] == ["source-0"]
 
 

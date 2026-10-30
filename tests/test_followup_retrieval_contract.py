@@ -14,6 +14,8 @@ from career_evidence_graph import application_match
 from career_evidence_graph import application_retrieval as retrieval
 from career_evidence_graph.career_portal_data import PortalDataError
 
+pytestmark = pytest.mark.usefixtures("planner_path")
+
 
 def test_followup_schema_requires_a_requested_requirement_or_no_selection(inputs, tmp_path):
     app, snapshot = inputs

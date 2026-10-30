@@ -338,6 +338,28 @@ def _discovery_with_bodies(snapshot, source_loader, directory):
     return result
 
 
+def _whole_library_plan(application, binding_snapshot, source_loader, library, stable):
+    """Select every experience when the whole library fits one matching call."""
+    from .application_input_limits import context_limits
+    from .application_material_packet import packet_size
+    from .application_material_sources import source_records
+
+    records = binding_snapshot["career_library"]["records"]
+    every = [row["candidate_id"] for row in records]
+    whole = information_source_snapshot(application, library, source_loader(every))
+    for item in whole["items"]:
+        item["application_trusted"] = True
+    if packet_size(source_records(whole)) > context_limits()["material_context_bytes"]:
+        return None
+    return {
+        "policy_version": "whole-library/v1",
+        "status": "complete",
+        "requirements": stable,
+        "selected_candidate_ids": every,
+        "coverage": {"total_records": len(records), "mode": "whole_library"},
+    }
+
+
 def analyze_with_retrieval(
     application,
     binding_snapshot,
@@ -505,7 +527,9 @@ def analyze_with_retrieval(
             raise
 
     if canonical and not plans:
-        plan = retrieve("initial")
+        plan = _whole_library_plan(
+            application, binding_snapshot, source_loader, library, stable
+        ) or retrieve("initial")
         stable = stable if stable is not None else plan["requirements"]
         plans.append(plan)
         selected = list(plan["selected_candidate_ids"])

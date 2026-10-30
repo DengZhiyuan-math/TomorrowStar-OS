@@ -11,6 +11,8 @@ from career_evidence_graph.application_match import analyze_job
 from career_evidence_graph.career_portal_data import PortalDataError
 from career_evidence_graph.codex_cli import CodexCLIError
 
+pytestmark = pytest.mark.usefixtures("planner_path")
+
 
 def terminal_model_failure(message):
     import json

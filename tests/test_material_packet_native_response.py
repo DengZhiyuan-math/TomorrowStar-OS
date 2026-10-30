@@ -11,6 +11,8 @@ from career_evidence_graph import application_material_packet as material
 from career_evidence_graph.career_portal_data import PortalDataError
 from career_evidence_graph.codex_cli import run_codex_exec
 
+pytestmark = pytest.mark.usefixtures("reading_limits")
+
 APPLICATION = {"company": "Example", "role_title": "Researcher", "job_description": "Risk."}
 REQUIREMENTS = [{"text": "Validate risk", "importance": "required", "hard_condition": False}]
 
@@ -56,7 +58,7 @@ def test_many_complete_sources_bound_selection_output_and_keep_complete_coverage
     original = snapshot(
         "An unrelated source.", *(f"I validated risk. Source {i}." for i in range(64))
     )
-    source_bytes = material._size(material._sources(original))
+    source_bytes = material.packet_size(material._sources(original))
     monkeypatch.setenv("TOMORROWSTAR_MATERIAL_CONTEXT_BYTES", str(source_bytes - 1))
     calls = []
     _, packet = material.prepare_material_packet(

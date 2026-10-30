@@ -14,6 +14,8 @@ from career_evidence_graph.application_match import MAX_PROMPT_BYTES, analyze_jo
 from career_evidence_graph.application_worker import digest
 from career_evidence_graph.career_portal_data import PortalDataError
 
+pytestmark = pytest.mark.usefixtures("reading_limits")
+
 
 class _BudgetReadingPipeline(RecordedPipeline):
     """Read every range; the explicitly unrelated fixture prose supplies no evidence."""

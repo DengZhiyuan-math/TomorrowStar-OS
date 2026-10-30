@@ -12,6 +12,8 @@ from career_evidence_graph import application_match
 from career_evidence_graph.application_job_brief import create_job_brief
 from career_evidence_graph.career_portal_data import PortalDataError
 
+pytestmark = pytest.mark.usefixtures("planner_path")
+
 
 @pytest.mark.parametrize("implementation_changed", [False, True])
 def test_saved_explicit_brief_and_plan_resume_without_reading_them_again(

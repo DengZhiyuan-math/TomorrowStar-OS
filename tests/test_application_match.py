@@ -15,6 +15,8 @@ from career_evidence_graph.application_worker import digest
 from career_evidence_graph.career_portal_data import CareerCatalog, PortalDataError
 from career_evidence_graph.codex_cli import CodexCLIError, run_codex_exec
 
+pytestmark = pytest.mark.usefixtures("reading_limits")
+
 
 def policy_case(identifier):
     document = json.loads(

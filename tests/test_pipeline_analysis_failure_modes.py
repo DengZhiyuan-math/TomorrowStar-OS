@@ -18,6 +18,8 @@ from career_evidence_graph.application_pipeline import ApplicationPipeline
 from career_evidence_graph.career_portal_data import ApplicationStore, PortalDataError
 from career_evidence_graph.codex_cli import CodexCLIError
 
+pytestmark = pytest.mark.usefixtures("reading_limits")
+
 
 @pytest.mark.parametrize(
     ("error_code", "expected_status"),

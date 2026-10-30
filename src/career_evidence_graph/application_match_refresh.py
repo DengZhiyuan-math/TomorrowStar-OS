@@ -618,7 +618,7 @@ def _other_reading_unreceipted(origin, packet, proved_failed):
 
 def _reading_budget_failure(directory, intent, original):
     """Prove a saved reading capacity failure with no unknown calls."""
-    from .application_material_packet import _size, _unreceipted_reading
+    from .application_material_packet import _unreceipted_reading, packet_size
     from .application_material_sources import source_records
 
     progress = _read(directory / "analysis" / "analysis-progress.json")
@@ -670,7 +670,7 @@ def _reading_budget_failure(directory, intent, original):
         "message": "Relevant evidence exceeds the complete packet budget",
     }:
         _require(
-            _size(packet.get("sources", {}))
+            packet_size(packet.get("sources", {}))
             > packet.get("context_limits", {}).get("material_context_bytes", float("inf"))
             and not _unreceipted_reading(origin, packet),
             "原容量失败或其他调用回执尚不能核验。",

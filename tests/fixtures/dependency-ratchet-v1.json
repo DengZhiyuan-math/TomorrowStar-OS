@@ -58,7 +58,6 @@
     "career_evidence_graph.application_match_refresh imports career_evidence_graph.application_match._ModelOutput",
     "career_evidence_graph.application_match_refresh imports career_evidence_graph.application_material_packet._reading_prompt",
     "career_evidence_graph.application_match_refresh imports career_evidence_graph.application_material_packet._reading_spans",
-    "career_evidence_graph.application_match_refresh imports career_evidence_graph.application_material_packet._size",
     "career_evidence_graph.application_match_refresh imports career_evidence_graph.application_material_packet._unreceipted_reading",
     "career_evidence_graph.application_match_refresh imports career_evidence_graph.codex_cli._parse_jsonl",
     "career_evidence_graph.application_matching_pipeline imports career_evidence_graph.application_match._analyze_loaded_job",

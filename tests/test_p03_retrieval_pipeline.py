@@ -12,6 +12,8 @@ from career_evidence_graph.application_match import analyze_job
 from career_evidence_graph.career_experiences import ExperienceStore
 from career_evidence_graph.career_portal_data import PortalDataError
 
+pytestmark = pytest.mark.usefixtures("planner_path")
+
 
 class ContentPipeline(RecordedPipeline):
     """Select concrete source context independently of arbitrary project labels."""

@@ -11,8 +11,10 @@ import re
 
 from .career_portal_data import PortalDataError
 
-MAX_MATCH_CONTEXT_BYTES = 128_000
-MAX_MATERIAL_CONTEXT_BYTES = 60_000
+# One matching call reads the whole grouped library when it fits (2026-10-30: about
+# 160 KB of the 200 KB library budget; a 245 KB prompt answered in 31 seconds).
+MAX_MATCH_CONTEXT_BYTES = 256_000
+MAX_MATERIAL_CONTEXT_BYTES = 200_000
 
 
 def context_limits(environment=None) -> dict:

@@ -334,6 +334,52 @@ def model_sources(sources):
     )
 
 
+_DEFAULT_NOTES = {"Recorded experience fact.", "Experience background; not the user's activity."}
+
+
+def matching_view(sources):
+    """Group facts under their Experience: one header, its facts, background and notes."""
+    projected = model_sources(sources)
+    if "experience_contexts" not in projected:
+        return projected
+    experiences = {
+        name: {
+            key: value
+            for key, value in context.items()
+            if key in {"title", "role", "organization", "location", "start", "end"}
+            and value is not None
+        }
+        | {"facts": [], "context": [], "notes": []}
+        for name, context in projected["experience_contexts"].items()
+    }
+    others = []
+    for row in projected["sources"]:
+        context = row.pop("record_context", {})
+        name = context.get("experience_context_ref")
+        if name not in experiences:
+            others.append(row | ({"record_context": context} if context else {}))
+            continue
+        experience = experiences[name]
+        entry = {key: value for key, value in row.items() if key != "text"}
+        if context.get("responsibility") != "third_party":
+            entry["responsibility"] = context.get("responsibility")
+        entry |= {"status": context.get("status"), "text": row["text"]}
+        note = projected["scope_contexts"].get(context.get("scope_ref"))
+        if note and note not in _DEFAULT_NOTES:
+            if note not in experience["notes"]:
+                experience["notes"].append(note)
+            entry["note"] = experience["notes"].index(note) + 1
+        bucket = "context" if context.get("responsibility") == "third_party" else "facts"
+        experience[bucket].append(entry)
+    return {
+        "experiences": [
+            {key: value for key, value in experience.items() if value != []}
+            for experience in experiences.values()
+        ],
+        "sources": others,
+    }
+
+
 _PRESENTATION_WRAPPER = re.compile(
     r"(?<!\\)\\(?:textbf|textit|emph|textrm|texttt|textnormal)\{([^\\{}$%\n]+)\}"
 )

@@ -18,6 +18,8 @@ from career_evidence_graph.career_portal_data import PortalDataError
 from career_evidence_graph.codex_cli import CodexCLIError
 from career_evidence_graph.validation.hashing import record_digest as digest
 
+pytestmark = pytest.mark.usefixtures("planner_path")
+
 
 def test_missing_progress_and_reconcile_do_not_create_the_selected_root(tmp_path):
     root = tmp_path / "not-created"
@@ -637,13 +639,14 @@ def test_invalid_snapshot_is_rejected_before_reserving_an_execution(match_inputs
     assert not root.exists()
 
 
+PARTIAL = '{"type":"turn.started"}\n{"type":"item.completed","item":{"type":"agent_message"}}\n'
+
+
 @pytest.mark.parametrize(
     "message,raw",
     [
-        ("Codex CLI timed out", '{"type":"turn.started","turn_id":"synthetic-unknown"}\n'),
-        ("Codex CLI timed out", ""),
-        ("Codex exec failed with exit code 1: ", '{"type":"turn.started"}\n'),
-        ("Codex exec failed with exit code 1: ", ""),
+        ("Codex CLI timed out", PARTIAL),
+        ("Codex exec failed with exit code 1: ", PARTIAL),
         ("Codex returned malformed events", "incomplete JSONL"),
     ],
 )
@@ -685,10 +688,44 @@ def test_unknown_failed_evaluation_shell_never_authorizes_implicit_or_explicit_r
     }
 
 
+@pytest.mark.parametrize(
+    "message,raw",
+    [
+        ("Codex CLI timed out", '{"type":"turn.started","turn_id":"synthetic-unknown"}\n'),
+        ("Codex CLI timed out", ""),
+        ("Codex exec failed with exit code 1: ", ""),
+    ],
+)
+def test_evaluation_that_ended_without_output_is_retried_only_by_a_new_request(
+    canonical, tmp_path, message, raw
+):
+    library, _, _, base, *_ = canonical
+    snapshot = thin(canonical)
+    recorded = RecordedPipeline([requirement("Interdisciplinary research")])
+
+    def failed(config, prompt, **kwargs):
+        if config.output_schema.name == "match-schema.json":
+            raise CodexCLIError(message, raw_stdout_jsonl=raw)
+        return recorded(config, prompt, **kwargs)
+
+    root = tmp_path / "analyses"
+    options = {"source_loader": lambda ids: library.snapshot_for_analysis(base, ids)}
+    with pytest.raises(PortalDataError):
+        Analysis(root, runner=failed, **options).prepare(APPLICATION, snapshot, request_id="1" * 32)
+    # Installed MC-11 (approved 2026-10-31): a read-only call that ended with no output
+    # has nothing to adopt, so the user's Continue may run it again; it never replays itself.
+    retry = RecordedPipeline(recorded.requirements)
+    module = Analysis(root, runner=retry, **options)
+    assert module.progress("1" * 32)["status"] == "failed"
+    assert module.prepare(APPLICATION, snapshot, request_id="1" * 32)["status"] == "failed"
+    assert retry.calls == []
+    assert module.prepare(APPLICATION, snapshot, request_id="2" * 32)["status"] == "complete"
+
+
 @pytest.mark.parametrize("phase", ["brief", "planning", "reading"])
-@pytest.mark.parametrize("terminal", [False, True])
+@pytest.mark.parametrize("outcome", ["partial_output", "no_output", "terminal"])
 def test_upstream_failure_requires_a_terminal_turn_or_stays_unknown(
-    canonical, tmp_path, monkeypatch, phase, terminal
+    canonical, tmp_path, monkeypatch, phase, outcome
 ):
     import json
 
@@ -724,9 +761,15 @@ def test_upstream_failure_requires_a_terminal_turn_or_stays_unknown(
         )
         if current == phase:
             failures.append(current)
-            if terminal:
+            if outcome == "terminal":
                 raise terminal_model_failure("Synthetic fully terminated stage")
-            raise CodexCLIError("Codex CLI timed out", raw_stdout_jsonl='{"type":"turn.started"}\n')
+            # A call that ended without output has nothing to adopt (approved 2026-10-31).
+            raise CodexCLIError(
+                "Codex CLI timed out",
+                raw_stdout_jsonl=PARTIAL
+                if outcome == "partial_output"
+                else '{"type":"turn.started"}\n',
+            )
         return recorded(config, prompt, **kwargs)
 
     options = {"source_loader": lambda ids: library.snapshot_for_analysis(base, ids)}
@@ -753,7 +796,7 @@ def test_upstream_failure_requires_a_terminal_turn_or_stays_unknown(
         return retry(config, prompt, **kwargs)
 
     module = Analysis(root, runner=retry_stage, **options)
-    if terminal:
+    if outcome != "partial_output":
         assert (
             module.prepare(APPLICATION, snapshot, request_id="2" * 32, resume_from="1" * 32)[
                 "status"
