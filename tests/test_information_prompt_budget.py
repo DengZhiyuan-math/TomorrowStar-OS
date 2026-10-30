@@ -207,7 +207,8 @@ def test_selected_canonical_capture_precedes_large_unselected_career_text(canoni
         source_loader=lambda ids: library.snapshot_for_analysis(base, ids),
         information_library=library_with(),
     )
-    supplied = {source["source_id"]: source for source in runner.contexts[1]["sources"]}
+    real = {alias: source_id for source_id, alias in report["coverage"]["source_aliases"].items()}
+    supplied = {real[source["source_id"]]: source for source in runner.contexts[1]["sources"]}
     for item in selected_items:
         assert supplied[item["source_id"]]["text"] == item["text"]
         assert supplied[item["source_id"]]["context_range"] == {
@@ -313,15 +314,16 @@ def test_many_selected_bodies_fit_when_internal_receipts_stay_outside_prompt():
     assert coverage["omitted_source_ids"] == []
     assert coverage["truncated_sources"] == []
     assert coverage["context_bytes"] <= MAX_PROMPT_BYTES
+    real = {alias: source_id for source_id, alias in coverage["source_aliases"].items()}
     for row in rows:
-        original = sources[row["source_id"]]
+        original = sources[real[row["source_id"]]]
         assert row["text"] == original["text"]
         assert row["boundaries"] == original["boundaries"]
         assert row["rewrite_allowed"] is False
         assert "source_revision" not in row
         assert "evidence_id" not in row
         assert "internal_receipt" not in row
-        receipt = included[row["source_id"]]
+        receipt = included[real[row["source_id"]]]
         assert receipt["source_revision"] == original["source_revision"]
         assert receipt["internal_receipt"] == original["internal_receipt"]
     assert sources == before
@@ -344,9 +346,9 @@ def test_fixed_education_is_read_before_large_selected_project_bodies():
             "available": True,
         },
     }
-    prompt, *_ = _prompt_context(
+    prompt, _, coverage = _prompt_context(
         APPLICATION, sources, {"application_library_policy": "trusted-library/v1", "coverage": {}}
     )
     context = json.loads(prompt.rsplit("\n", 1)[1])
-    assert context["sources"][0]["source_id"] == "degree"
+    assert context["sources"][0]["source_id"] == coverage["source_aliases"]["degree"]
     assert context["sources"][0]["text"] == sources["degree"]["text"]

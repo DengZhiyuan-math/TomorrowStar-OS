@@ -23,6 +23,38 @@ def allowed_ids(schema, field):
     return set(field["enum"])
 
 
+def _real_ids(directory):
+    aliases = json.loads((directory / "context-coverage.json").read_text())["source_aliases"]
+    return {alias: source_id for source_id, alias in aliases.items()}
+
+
+def saved_schema(directory):
+    """The saved schema with call-local source handles mapped back to source IDs."""
+    real = _real_ids(directory)
+
+    def mapped(node):
+        if isinstance(node, list):
+            return [mapped(item) for item in node]
+        if not isinstance(node, dict):
+            return node
+        return {
+            key: sorted(real.get(item, item) for item in value) if key == "enum" else mapped(value)
+            for key, value in node.items()
+        }
+
+    return mapped(json.loads((directory / "match-schema.json").read_text()))
+
+
+def saved_context(directory):
+    """The saved prompt context with call-local source handles mapped back."""
+    real = _real_ids(directory)
+    prompt = json.loads((directory / "context-input.json").read_text())["prompt"]
+    context = json.loads(prompt.rsplit("\n", 1)[1])
+    for source in context.get("sources", []):
+        source["source_id"] = real.get(source["source_id"], source["source_id"])
+    return context
+
+
 @pytest.fixture
 def native_case(tmp_path):
     application = {
@@ -164,7 +196,7 @@ def test_native_request_schema_only_allows_supplied_source_ids_and_no_quote(nati
     application, prepared, output = native_case
     directory = tmp_path / "schema"
     analyze_job(application, prepared, directory, runner=model_runner(output, []))
-    schema = json.loads((directory / "match-schema.json").read_text())
+    schema = saved_schema(directory)
     definitions = schema["$defs"]
     requirement = next(
         value for value in definitions.values() if "citations" in value.get("properties", {})
@@ -276,7 +308,7 @@ def test_raw_or_mixed_controlled_sources_keep_literal_quote_validation(
         analyze_job(application, prepared, directory, runner=model_runner(output, []))
     assert caught.value.code == "retrieval_execution_incomplete"
     assert not (directory / "analysis.json").exists()
-    schema = json.loads((directory / "match-schema.json").read_text())
+    schema = saved_schema(directory)
     assert "quote" in schema["$defs"]["_Citation"]["required"]
     prompt = json.loads((directory / "context-input.json").read_text())["prompt"]
     assert "exact literal" in prompt
@@ -344,15 +376,13 @@ def test_mixed_sources_use_native_ids_and_retain_precise_raw_quotes(mixed_case, 
         "worked with a research team",
     ]
     assert row["sources"][2]["quote_start"] == 2
-    context = json.loads(
-        json.loads((directory / "context-input.json").read_text())["prompt"].rsplit("\n", 1)[1]
-    )
+    context = saved_context(directory)
     assert {source["source_id"] for source in context["sources"]} == {
         "source-0",
         "confirmed-language",
         "raw-profile",
     }
-    schema = json.loads((directory / "match-schema.json").read_text())
+    schema = saved_schema(directory)
     requirement = next(
         value for value in schema["$defs"].values() if "citations" in value.get("properties", {})
     )
@@ -398,7 +428,7 @@ def test_native_inference_binding_and_unknown_expression_are_program_owned(
     assert result["score"]["lower"] == 0
     assert result["score"]["upper"] == 100
     assert json.loads((directory / "model-result.json").read_text())["structured_result"] == output
-    schema = json.loads((directory / "match-schema.json").read_text())
+    schema = saved_schema(directory)
     inference = next(
         value
         for value in schema["$defs"].values()
@@ -426,14 +456,12 @@ def test_mixed_resume_selection_uses_canonical_facts_but_keeps_raw_matching(mixe
         "confirmed-language",
         "raw-profile",
     ]
-    schema = json.loads((directory / "match-schema.json").read_text())
+    schema = saved_schema(directory)
     assert allowed_ids(schema, schema["properties"]["selected_source_ids"]["items"]) == {"source-0"}
     assert allowed_ids(
         schema, schema["$defs"]["_SelectionRationale"]["properties"]["source_id"]
     ) == {"source-0"}
-    context = json.loads(
-        json.loads((directory / "context-input.json").read_text())["prompt"].rsplit("\n", 1)[1]
-    )
+    context = saved_context(directory)
     assert "resume_selection_source_ids" not in context
 
 
@@ -501,7 +529,7 @@ def test_all_raw_controlled_dataset_keeps_legacy_quotes_and_inference_bindings(
     with pytest.raises(PortalDataError) as caught:
         analyze_job(application, prepared, directory, runner=model_runner(output, []))
     assert caught.value.code == "match_inference_invalid"
-    schema = json.loads((directory / "match-schema.json").read_text())
+    schema = saved_schema(directory)
     assert "quote" in schema["$defs"]["_Citation"]["required"]
     assert "requirement_id" in schema["$defs"]["Inference"]["required"]
     assert not (directory / "analysis.json").exists()
@@ -511,7 +539,7 @@ def test_mixed_schema_encodes_each_source_identity_once(mixed_case, tmp_path):
     application, prepared, output = mixed_case
     directory = tmp_path / "deduplicated-schema"
     analyze_job(application, prepared, directory, runner=model_runner(output, []))
-    schema = json.loads((directory / "match-schema.json").read_text())
+    schema = saved_schema(directory)
     encoded = json.dumps(schema)
     assert encoded.count('"source-0"') == 1
     assert encoded.count('"confirmed-language"') == 1
@@ -519,9 +547,7 @@ def test_mixed_schema_encodes_each_source_identity_once(mixed_case, tmp_path):
     assert schema["properties"]["selected_source_ids"]["items"] == {
         "$ref": "#/$defs/ResumeSourceID"
     }
-    context = json.loads(
-        json.loads((directory / "context-input.json").read_text())["prompt"].rsplit("\n", 1)[1]
-    )
+    context = saved_context(directory)
     assert "native_citation_source_ids" not in context
     assert "resume_selection_source_ids" not in context
 
@@ -540,7 +566,7 @@ def test_shared_source_definitions_handle_empty_partitions(native_case, tmp_path
     reseal(prepared)
     directory = tmp_path / mode
     result = analyze_job(application, prepared, directory, runner=model_runner(output, []))
-    schema = json.loads((directory / "match-schema.json").read_text())
+    schema = saved_schema(directory)
     encoded = json.dumps(schema)
     assert encoded.count('"source-0"') == 1
     assert encoded.count('"confirmed-language"') == 1

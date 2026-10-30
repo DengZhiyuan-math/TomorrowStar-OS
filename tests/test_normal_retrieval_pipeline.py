@@ -405,3 +405,25 @@ def test_selected_candidate_without_a_successful_read_does_not_count_as_exhauste
     assert followup["coverage"]["visited_candidate_ids"] == ["unseen-identity"]
     assert result["requirements"][0]["judgment"] == "unknown"
     assert result["requirements"][0]["evidence_state"] == "searched_evidence_insufficient"
+
+
+def test_evaluation_sees_short_source_handles_and_the_report_keeps_real_identities(
+    canonical, tmp_path
+):
+    import re
+
+    library, _, _, base, *_ = canonical
+    runner = RecordedPipeline([requirement("Experience combining distinct scientific disciplines")])
+    result = analyze_job(
+        APPLICATION,
+        thin(canonical),
+        tmp_path / "short-handles",
+        runner=runner,
+        source_loader=lambda ids: library.snapshot_for_analysis(base, ids),
+        information_library=library_with(),
+    )
+    seen = [source["source_id"] for source in runner.contexts[-1]["sources"]]
+    # The model needs a handle unique within this call; content-bound IDs stay internal.
+    assert seen and all(re.fullmatch(r"S\d+", source_id) for source_id in seen)
+    cited = result["requirements"][0]["source_ids"]
+    assert cited and not any(re.fullmatch(r"S\d+", source_id) for source_id in cited)

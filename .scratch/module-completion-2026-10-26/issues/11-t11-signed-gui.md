@@ -211,3 +211,11 @@ macos/App.swift、macos/main_app.py、macos/build.py、loaded_code.py 仅查明�
 - 申请人事实：联系与身份类（`CONTACT_FACTS` + 新登记的 `pronouns`）不进入匹配；记录去掉存档字段，值只写一次。
 - 真实 Hexagon 材料：60.4 KB → 28.5 KB（上限的 48%）。新测试 RED→GREEN；合成假模型改为缺失准入标记即视为已准入。全量离线 8507/3/0。
 - 留存：读取步骤每次调用 95–118 KB（6 次共 644 KB），重复发送已选资料、职位解读与带完整分组副本的要求；长 ID 约 15%（下一步改短编号）。
+
+### 2026-10-30 匹配调用改用本次调用内的短编号（`claude-code-4ca66ce5/root`）
+
+长 ID（`career-library:<64 位内容哈希>:<位置>`）用于版本绑定、全库唯一与核对，由程序保留；模型只需本次调用内唯一的句柄。
+
+- `_prompt_context` 按纳入顺序给资料编 `S1…Sn`，对照表存入 `context-coverage.json` 的 `source_aliases`；输出格式中的 ID 清单同样用短编号。
+- 模型答复校验格式后，程序先把 `source_id`/`source_ids`/`selected_source_ids` 换回原 ID，再执行全部原有核对；未知编号原样保留并按无效引用拒绝。
+- 仅限最终匹配调用；读取步骤仍用长 ID。新测试 RED→GREEN；12 个检查提示词或格式原文 ID 的测试改为经对照表换回。全量离线 8508/3/0。

@@ -775,7 +775,8 @@ def test_forty_second_contribution_can_be_selected_without_legacy_resume_limits(
     assert all(
         item["source_id"] in result["coverage"]["included_source_ids"] for item in snapshot["items"]
     )
-    assert target["source_id"] in calls[-1][-1]
+    # The model sees the call-local handle of the selected contribution.
+    assert '"' + result["coverage"]["source_aliases"][target["source_id"]] + '"' in calls[-1][-1]
     assert result["selected_source_ids"] == [target["source_id"]]
 
 

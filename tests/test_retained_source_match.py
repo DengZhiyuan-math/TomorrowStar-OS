@@ -126,7 +126,8 @@ def test_retained_analysis_keeps_fact_text_without_duplicate_capture_metadata(
     )
     prompt = calls[-1][-1]
     payload = json.loads(prompt[prompt.index("{") :])
-    source = next(s for s in payload["sources"] if s["source_id"] == education["source_id"])
+    handle = result["coverage"]["source_aliases"][education["source_id"]]
+    source = next(s for s in payload["sources"] if s["source_id"] == handle)
     assert source["text"] == education["text"]
     assert source["documentary_only"] is True
     assert "origin_locators" not in source

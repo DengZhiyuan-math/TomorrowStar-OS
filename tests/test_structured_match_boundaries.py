@@ -21,7 +21,7 @@ def test_normal_matching_retains_original_source_boundaries(canonical, tmp_path)
         for item in library.snapshot_for_analysis(base, ["unseen-identity"])["items"]
     }
     runner = RecordedPipeline([requirement("Work across scientific domains")])
-    analyze_job(
+    report = analyze_job(
         APPLICATION,
         thin(canonical),
         tmp_path / "matching",
@@ -30,9 +30,10 @@ def test_normal_matching_retains_original_source_boundaries(canonical, tmp_path)
         information_library=library_with(),
     )
     context = next(row for row in runner.contexts if "match_requirements" in row)
-    supplied = [row for row in context["sources"] if row["source_id"] in expected]
+    real = {alias: source_id for source_id, alias in report["coverage"]["source_aliases"].items()}
+    supplied = [row for row in context["sources"] if real[row["source_id"]] in expected]
     assert supplied
-    assert all(row["boundaries"] == expected[row["source_id"]] for row in supplied)
+    assert all(row["boundaries"] == expected[real[row["source_id"]]] for row in supplied)
 
 
 def test_trusted_fact_cannot_become_a_personal_ownership_claim(match_inputs, tmp_path):

@@ -258,6 +258,25 @@ def _resume_source_ids(sources, native_ids):
     }
 
 
+def _real_source_ids(value, real):
+    """Map call-local handles back to source IDs; unknown handles stay and fail checks."""
+    if isinstance(value, list):
+        return [_real_source_ids(item, real) for item in value]
+    if not isinstance(value, dict):
+        return value
+    result = {}
+    for key, item in value.items():
+        if key == "source_id" and isinstance(item, str):
+            result[key] = real.get(item, item)
+        elif key in {"source_ids", "selected_source_ids"} and isinstance(item, list):
+            result[key] = [
+                real.get(entry, entry) if isinstance(entry, str) else entry for entry in item
+            ]
+        else:
+            result[key] = _real_source_ids(item, real)
+    return result
+
+
 def _native_output_schema(sources, native_ids):
     """Encode each supplied identity once, shared by all model reference fields."""
     schema = _NativeControlledOutput.model_json_schema()
@@ -627,7 +646,7 @@ def _prompt_context(job, sources, snapshot):
         instructions += (
             "Resolve each record_context.experience_context_ref in experience_contexts and "
             "scope_ref in scope_contexts. These tables share exact metadata and scope values; "
-            "each fact retains its own responsibility, status, source_refs and source_id.\n"
+            "each fact retains its own responsibility, status and source_id.\n"
         )
     remaining = context_limit - len((instructions + encode(context)).encode()) - 2048
     included, omitted, truncated = {}, [], []
@@ -711,9 +730,13 @@ def _prompt_context(job, sources, snapshot):
         )
         remaining -= size
         included_size += size
+    # The model needs a handle unique within this call; the content-bound source IDs
+    # stay with the program, which maps the answer back before any check.
+    aliases = {source_id: f"S{number}" for number, source_id in enumerate(included, 1)}
     coverage = deepcopy(snapshot["coverage"]) | {
         "truncated": bool(snapshot["coverage"].get("truncated") or omitted or truncated),
         "included_source_ids": list(included),
+        "source_aliases": aliases,
         "omitted_source_ids": omitted,
         "truncated_sources": truncated,
         "complete_jd": True,
@@ -722,7 +745,9 @@ def _prompt_context(job, sources, snapshot):
     prompt = instructions + encode(
         {
             **context,
-            **_model_sources(included.values()),
+            **_model_sources(
+                row | {"source_id": aliases[source_id]} for source_id, row in included.items()
+            ),
             "coverage": {
                 "truncated": coverage["truncated"],
                 "omitted_source_count": len(omitted),
@@ -1110,6 +1135,7 @@ def _analyze_loaded_job(
     native_citations = _native_fact_source_ids(snapshot, sources)
     prompt, sources, coverage = _prompt_context(job, sources, snapshot)
     native_citations &= sources.keys()
+    aliases = coverage["source_aliases"]
     output_model = (
         _NativeControlledOutput
         if native_citations
@@ -1118,7 +1144,10 @@ def _analyze_loaded_job(
         else _ModelOutput
     )
     output_schema = (
-        _native_output_schema(sources, native_citations)
+        _native_output_schema(
+            {aliases[source_id]: source for source_id, source in sources.items()},
+            {aliases[source_id] for source_id in native_citations},
+        )
         if native_citations
         else output_model.model_json_schema()
     )
@@ -1166,6 +1195,7 @@ def _analyze_loaded_job(
         output = output_model.model_validate(result.structured_result).model_dump()
     except ValidationError as error:
         raise PortalDataError("match_model_invalid", "岗位分析结果格式不能核验。", 409) from error
+    output = _real_source_ids(output, {alias: source_id for source_id, alias in aliases.items()})
     requirements = normalize_requirements(output["requirements"])
     expected = snapshot.get("match_requirements")
     if snapshot.get("match_requirements") is not None and [
