@@ -268,8 +268,53 @@ def information_source_snapshot(application: dict, library: dict, base_snapshot:
     """Add literal confirmed answers for matching, never for résumé generation."""
     snapshot = deepcopy(base_snapshot)
     context = information_context(application, library)
+    education = library.get("education")
+    excluded = set(MATCH_EXCLUDED_FACTS)
+    if education is not None:
+        # The Education Record is the one education source; other copies leave matching.
+        from .career_education import education_text
+
+        excluded |= {"academic_degree", "graduation_date"}
+        if isinstance(snapshot.get("profile"), dict):
+            snapshot["profile"] = snapshot["profile"] | {"education": []}
+        snapshot["items"] = [
+            item for item in snapshot.get("items", []) if item.get("source_kind") != "education"
+        ]
+        for record in education["records"]:
+            identifier = "education-record:" + record["id"]
+            text = education_text(record)
+            snapshot.setdefault("documents", []).append(
+                {
+                    "id": identifier,
+                    "source_name": "Education: " + record["degree"],
+                    "kind": "source",
+                    "source_kind": "education",
+                    "available": True,
+                    "revision": digest(text),
+                    "content": text,
+                }
+            )
+            snapshot["items"].append(
+                {
+                    "title": record["degree"],
+                    "text": text,
+                    "source_id": identifier,
+                    "evidence_id": identifier,
+                    "source_name": "Education: " + record["degree"],
+                    "source_revision": digest(text),
+                    "source_kind": "education",
+                    "locator": "record",
+                    "attribution": "Education Record; documented degree and status.",
+                    "boundaries": "",
+                    "review_status": "library_fact",
+                    "application_trusted": True,
+                    "resume_eligible": False,
+                    "documentary_only": True,
+                    "rewrite_allowed": False,
+                }
+            )
     for fact in context["facts"]:
-        if fact["status"] != "confirmed" or fact["fact"] in MATCH_EXCLUDED_FACTS:
+        if fact["status"] != "confirmed" or fact["fact"] in excluded:
             continue
         records = [
             {
@@ -849,6 +894,44 @@ def _saved_qualification(text, application, library):
         "explanation": explanation
         if supported
         else "已有记录尚不能完整支持本条条件，保留待核验状态。",
+    }
+
+
+_DEGREE_QUESTIONS = {
+    "academic_degree": "Current Academic Degree",
+    "graduation_date": "Graduation Date (MM/YYYY)",
+}
+
+
+def with_education(library, collection):
+    """Replace stored degree answers and the profile copy with the Education Record."""
+    from .career_education import education_answers, education_profile
+
+    derived = education_answers(collection)
+    records = [
+        record
+        for record in library.get("records", [])
+        if information_fact(str(record.get("question", ""))) not in _DEGREE_QUESTIONS
+    ] + [
+        {
+            "key": "education." + fact,
+            "question": _DEGREE_QUESTIONS[fact],
+            "aliases": [],
+            "value": value,
+            "state": "confirmed",
+            "scope": {},
+            "sensitivity": "none",
+            "source": "education-record",
+        }
+        for fact, value in derived.items()
+    ]
+    return library | {
+        "records": records,
+        "revision": digest(
+            {"library": library.get("revision"), "education": collection["revision"]}
+        ),
+        "education": collection,
+        "education_profile": education_profile(collection),
     }
 
 

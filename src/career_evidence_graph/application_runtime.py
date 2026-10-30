@@ -508,6 +508,11 @@ def _assemble(
         def current_flow_information():
             library = read_information_library(information_library_root)
             library["career_library"] = career_library.index()
+            education = career_library.education() if career_library.manifest else None
+            if education is not None:
+                from .application_information import with_education
+
+                return with_education(library, education)
             sources = flow_sources()
             profile, source = sources.get("profile"), sources.get("profile_source")
             if profile is not None and source is not None:

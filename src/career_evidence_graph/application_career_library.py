@@ -439,6 +439,27 @@ class CareerLibrary:
             upgraded.append(candidate_id)
         return {"upgraded": upgraded}
 
+    def education(self):
+        """The Education Record collection, or None before it is first saved."""
+        from .career_education import EducationStore
+
+        _, root, _, _ = self._load()
+        return EducationStore(root).read()
+
+    def save_education(self, records, *, expected_revision=None, actor="user"):
+        from .career_education import EducationStore
+
+        _, root, _, _ = self._load()
+        return EducationStore(root).save(records, expected_revision=expected_revision, actor=actor)
+
+    def _education_experiences(self, root, directory):
+        """Education experiences retire once the Education Record holds the degrees."""
+        from .career_education import EducationStore
+
+        if EducationStore(root).read() is None:
+            return set()
+        return {key for key, row in directory.items() if row.get("category") == "education"}
+
     def read_experience(self, candidate_id):
         _, root, _, current = self._load()
         if candidate_id not in current:
@@ -713,6 +734,7 @@ class CareerLibrary:
                 directory = ExperienceStore(root).directory()
             except (OSError, ValueError):
                 directory, directory_error = {}, True
+            retired = self._education_experiences(root, directory)
             records = [
                 {
                     **{
@@ -724,6 +746,7 @@ class CareerLibrary:
                     **directory.get(record["candidate_id"], {}),
                 }
                 for record in records
+                if record["candidate_id"] not in retired
             ]
             bound.update(set(directory) & current.keys())
             for record in records:
@@ -784,6 +807,8 @@ class CareerLibrary:
             )
             if not selected <= current.keys():
                 raise ValueError("Select current candidate IDs only.")
+            retired = self._education_experiences(root, directory)
+            selected -= retired
             requested = set(selected)
             snapshot = (
                 fact_source_projection(base_snapshot)
@@ -799,7 +824,7 @@ class CareerLibrary:
             while pending:
                 identifier = pending.pop()
                 for related in directory.get(identifier, {}).get("related_ids", []):
-                    if related in selected:
+                    if related in selected or related in retired:
                         continue
                     if related not in current:
                         outcome = {
