@@ -171,3 +171,10 @@ macos/App.swift、macos/main_app.py、macos/build.py、loaded_code.py 仅查明�
 - 根因二：流水线岗位的“继续”从不重跑被拒的分析，重试按钮又只对非流水线任务显示，岗位无路可走。修复：输出被校验拒绝（结果已知）时，一次“继续”即一次显式重试
   （保留失败 attempt，一次真实模型调用）；结果未知仍不重放，旧格式记录行为不变。
 - 新测试 RED→GREEN；全量离线 8499/3/0，ruff、format 干净。
+
+### 2026-10-30 安装版第七次更新（`claude-code-4ca66ce5/root`）
+
+用户“提交并更新 App”。以 `d49e36ab` 构建，App 已退出（私人证据 `maintenance-2026-10-30-mc11-r7/`）：构建、`verify.py`、`main_app.py check`、`update`（回退副本已验证、
+配置与权限未改、未启动 GUI）、`codesign --verify`、`check_main_permissions.py` 均 exit 0。安装版 `application_job_brief.py`（`762661b5…`）与
+`application_pipeline.py`（`dbd68264…`）为修复版，driver `ba1541e7…`。
+下一步由用户：打开 App 后点一次“继续当前岗位”，应重跑一次该岗位分析（一次真实模型调用）并进入匹配／材料／填写；再测实际接管、关闭后停写与不可用原因提示。
