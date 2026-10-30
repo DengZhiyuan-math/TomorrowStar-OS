@@ -253,5 +253,8 @@ def validate_inference(row, template, brief):
         expected = "supported" if calculation["result"]["satisfied"] else "gap"
         if row["judgment"] != expected:
             raise _invalid("模型判断与程序计算结果不一致。")
-    _check_expression(inference["expression_scope"], facts, calculation)
+    if row["judgment"] == "supported":
+        # Only supported conclusions become résumé wording; a partial one also names
+        # what is missing, such as a JD's "100% on-site", which is no applicant claim.
+        _check_expression(inference["expression_scope"], facts, calculation)
     return {**inference, "facts": facts, "calculation": calculation}
