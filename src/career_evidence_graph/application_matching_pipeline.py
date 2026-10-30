@@ -40,11 +40,13 @@ def known_reading_failure(directory, saved):
     """The saved reading phase ended in a proven size refusal, not an unknown call."""
     from .application_material_packet import known_budget_failure
 
-    origin = Path(saved["reading_origin"]) if isinstance(saved.get("reading_origin"), str) else None
+    # A resumed attempt keeps its recovered reading origin but writes its own packet.
+    number = saved.get("round_number")
+    origin = directory / f"material-packet-{number}"
     return bool(
         saved.get("phase") == "reading"
-        and origin is not None
-        and origin.parent == directory
+        and type(number) is int
+        and number > 0
         and not origin.is_symlink()
         and known_budget_failure(origin)
     )
@@ -405,10 +407,15 @@ def analyze_with_retrieval(
             or saved.get("revision") != digest({k: v for k, v in saved.items() if k != "revision"})
             or not _same_upstream_binding(saved, binding)
         ):
-            raise PortalDataError("match_resume_invalid", "原分析与本轮输入不符，未复用。", 409)
-        revalidate_recorded = saved["binding"]["configuration"] != binding[
-            "configuration"
-        ] and _known_invalid_followup(saved)
+            if not known_reading_failure(previous_directory, saved):
+                raise PortalDataError("match_resume_invalid", "原分析与本轮输入不符，未复用。", 409)
+            # A proven size refusal hides no result; changed inputs are read from the start.
+            previous_directory, saved = None, {}
+            binding["job_brief_revision"] = (job_brief or {}).get("revision")
+        revalidate_recorded = bool(saved) and (
+            saved["binding"]["configuration"] != binding["configuration"]
+            and _known_invalid_followup(saved)
+        )
 
     def checkpoint(phase, **values):
         saved.update(

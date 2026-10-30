@@ -262,6 +262,8 @@ def test_retry_after_a_refused_recovery_reads_the_rejected_job_brief_again(
 def test_a_packet_refused_for_size_after_every_read_is_a_known_failure(
     canonical, tmp_path, monkeypatch
 ):
+    from career_evidence_graph import application_matching_pipeline
+
     library, _, _, base, *_ = canonical
     snapshot = thin(canonical)
     root = tmp_path / "analyses"
@@ -283,6 +285,18 @@ def test_a_packet_refused_for_size_after_every_read_is_a_known_failure(
             APPLICATION, snapshot, request_id="2" * 32
         )
     assert again.value.code == "retrieval_execution_incomplete"
+    # The resumed attempt points at the recovered reading but proves its own packet.
+    assert analysis.progress("2" * 32)["status"] == "failed"
+    monkeypatch.delenv("TOMORROWSTAR_MATERIAL_CONTEXT_BYTES")
+    # Installed MC-11: the trimmed source view changed the information revision,
+    # so the refused reading could not be resumed; it is read again from the start.
+    monkeypatch.setattr(application_matching_pipeline, "_same_upstream_binding", lambda *_: False)
+    fresh = RecordedPipeline(first.requirements)
+    progress = application_match.Analysis(root, runner=fresh, **options).prepare(
+        APPLICATION, snapshot, request_id="3" * 32, recovery_candidates=["2" * 32, "1" * 32]
+    )
+    assert progress["status"] == "complete"
+    assert len(fresh.brief_calls) == 1
     packet = root / ("1" * 32) / "material-packet-1" / "material-packet.json"
     packet.write_text(packet.read_text().replace('"failed"', '"needs_recheck"', 1))
     assert analysis.progress("1" * 32)["status"] == "needs_recheck"
