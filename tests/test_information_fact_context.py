@@ -178,3 +178,26 @@ def test_information_source_cannot_preserve_binding_but_substitute_its_content(f
     item = information_source_snapshot(APPLICATION, lib, {})["items"][0]
     with pytest.raises(PortalDataError):
         validate_information_source(APPLICATION, lib, {**item, field: "C2"})
+
+
+def test_match_only_sources_leave_out_contact_facts_and_record_bookkeeping():
+    from career_evidence_graph.application_information import (
+        information_source_snapshot,
+        validate_information_source,
+    )
+
+    level = answer("French level", "B2")
+    level[1].update(source="user-self-assessment-no-exam", confirmedAt="2026-10-22T22:40:13Z")
+    lib = library_with(
+        level,
+        answer("Phone number", "+41 00 000 00 00"),
+        answer("What are your preferred pronouns", "they/them"),
+    )
+    items = information_source_snapshot(APPLICATION, lib, {})["items"]
+    # Contact and identity facts never bear on a requirement; the matcher never sees them.
+    assert [item["confirmed_information"]["fact"] for item in items] == ["language_french_cefr"]
+    text = items[0]["text"]
+    assert text.count('"B2"') == 1 and "user-self-assessment-no-exam" in text
+    assert all(noise not in text for noise in ("confirmedAt", '"key"', '"state"', '"scope"'))
+    assert validate_information_source(APPLICATION, lib, items[0])[0]["value"] == "B2"
+    assert information_fact("What are your preferred pronouns") == "pronouns"

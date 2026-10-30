@@ -21,6 +21,10 @@ from .validation.hashing import record_digest as digest
 COUNTRIES = {"CHE", "USA", "GBR", "DEU", "FRA", "CAN", "OTHER"}
 MAX_DOCUMENT_BYTES = 2 * 1024 * 1024
 CONTACT_FACTS = ("name", "first_name", "last_name", "email", "phone", "github_url", "linkedin_url")
+# Contact and identity answers never bear on a JD requirement.
+MATCH_EXCLUDED_FACTS = (*CONTACT_FACTS, "pronouns")
+# Bookkeeping that identifies a saved answer but says nothing about the applicant.
+_RECORD_BOOKKEEPING = {"key", "revision", "confirmedAt", "updatedAt", "state", "fact"}
 ADDITIONAL_LANGUAGE_FACTS = (
     "language_french_cefr",
     "language_german_cefr",
@@ -40,6 +44,7 @@ def fact_for(question: str) -> str:
         "last_name": {"last name", "family name", "surname"},
         "email": {"email", "email address", "your email address"},
         "phone": {"phone", "phone number"},
+        "pronouns": {"pronouns", "preferred pronouns", "what are your preferred pronouns"},
         "github_url": {
             "github",
             "github url",
@@ -264,8 +269,19 @@ def information_source_snapshot(application: dict, library: dict, base_snapshot:
     snapshot = deepcopy(base_snapshot)
     context = information_context(application, library)
     for fact in context["facts"]:
-        if fact["status"] != "confirmed":
+        if fact["status"] != "confirmed" or fact["fact"] in MATCH_EXCLUDED_FACTS:
             continue
+        records = [
+            {
+                key: value
+                for key, value in record.items()
+                # The single confirmed value is stated once, beside the fact.
+                if key not in _RECORD_BOOKKEEPING | {"value"}
+                and value not in ({}, [])
+                and not (key == "sensitivity" and value == "none")
+            }
+            for record in fact["records"]
+        ]
         binding = {
             "fact": fact["fact"],
             "references": fact["references"],
@@ -275,7 +291,7 @@ def information_source_snapshot(application: dict, library: dict, base_snapshot:
             {"fact": fact["fact"], "references": fact["references"]}
         )
         text = json.dumps(
-            {"fact": fact["fact"], "value": fact["value"], "records": fact["records"]},
+            {"fact": fact["fact"], "value": fact["value"], "records": records},
             ensure_ascii=False,
             sort_keys=True,
         )

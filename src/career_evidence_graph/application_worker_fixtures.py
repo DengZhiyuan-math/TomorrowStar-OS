@@ -79,10 +79,11 @@ try:
         }
     elif properties == {"role_understanding", "requirements", "selected_source_ids",
                       "selection_rationale", "extracted_fields", "limitations"}:
+        # A trusted view omits the admission flags the program has already applied.
         eligible = [
             source for source in data["sources"]
-            if source.get("available", True) and source.get("match_eligible")
-            and source.get("resume_eligible") and source.get("rewrite_allowed")
+            if source.get("available", True) and source.get("match_eligible", True)
+            and source.get("resume_eligible") and source.get("rewrite_allowed", True)
             and source.get("attribution") == "User"
         ]
         requirements, selected, seen = [], [], set()

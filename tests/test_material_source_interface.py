@@ -71,6 +71,97 @@ def test_source_projection_keeps_order_and_omits_receipt_only_fields():
     assert [first, second] == before
 
 
+def test_trusted_projection_sends_evidence_and_boundaries_without_admission_flags():
+    from career_evidence_graph.application_material_sources import model_source, model_sources
+
+    flags = {
+        "application_trusted": True,
+        "match_eligible": True,
+        "documentary_only": True,
+        "design_only": False,
+        "review_status": "documentary",
+        "rewrite_allowed": False,
+        "resume_eligible": True,
+        "available": True,
+    }
+    profile = {
+        "source_id": "profile",
+        "source_name": "sources/profile.json",
+        "locator": "profile.experience[0]",
+        "document_locator": "$.experience[0].detail",
+        "text": "Led delivery.",
+        "record_context": {"organization": "Example", "role": "Lead"},
+        "attribution": "Editorial statement",
+        "boundaries": "",
+        "planned_only": False,
+        **flags,
+    }
+    # The program already admitted trusted sources and keeps every flag for its own
+    # checks; the model reads only evidence, context and boundaries.
+    assert model_source(profile) == {
+        "source_id": "profile",
+        "text": "Led delivery.",
+        "record_context": {"organization": "Example", "role": "Lead"},
+        "attribution": "Editorial statement",
+        "resume_eligible": True,
+    }
+    assert model_source(profile | {"planned_only": True})["planned_only"] is True
+    confirmed = {
+        "source_id": "fact-answer",
+        "source_kind": "confirmed_information",
+        "text": '{"fact": "language_french_cefr", "value": "B2"}',
+        "attribution": "Applicant-confirmed personal statement; retain original source.",
+        "boundaries": "Accepted current applicant fact. Preserve its value and application scope.",
+        "confirmed_information": {"fact": "language_french_cefr", "references": ["r1"]},
+        **flags,
+    }
+    # The trusted prompt already states what every confirmed fact's boundary says.
+    assert model_source(confirmed) == {
+        "source_id": "fact-answer",
+        "source_kind": "confirmed_information",
+        "text": '{"fact": "language_french_cefr", "value": "B2"}',
+        "resume_eligible": True,
+        "confirmed_information": {"fact": "language_french_cefr"},
+    }
+    research = {key: value for key, value in profile.items() if key != "application_trusted"}
+    assert model_source(research)["match_eligible"] is True
+    fact = {
+        "source_id": "fact",
+        "text": "Built the parser.",
+        "record_context": {
+            "fact_id": "f1",
+            "experience_id": "exp-1",
+            "candidate_id": "exp-1",
+            "content_revision": "r1",
+            "source_refs": ["exp-1-body"],
+            "sources": [{"id": "exp-1-body", "locator": "/body; original revision=r1"}],
+            "organization": "Example",
+            "responsibility": "user",
+            "status": "completed",
+            "scope": "Bounded self-report.",
+        },
+        **flags,
+    }
+    projected = model_sources([fact])
+    assert projected["sources"] == [
+        {
+            "source_id": "fact",
+            "text": "Built the parser.",
+            "resume_eligible": True,
+            "record_context": {
+                "responsibility": "user",
+                "status": "completed",
+                "experience_context_ref": "experience-1",
+                "scope_ref": "scope-1",
+            },
+        }
+    ]
+    assert projected["experience_contexts"] == {
+        "experience-1": {"candidate_id": "exp-1", "organization": "Example"}
+    }
+    assert projected["scope_contexts"] == {"scope-1": "Bounded self-report."}
+
+
 def test_historical_source_imports_are_direct_aliases_of_the_shared_interface():
     from career_evidence_graph import application_match as matching
     from career_evidence_graph import application_material_packet as reading

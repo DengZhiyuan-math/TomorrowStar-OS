@@ -199,3 +199,15 @@ macos/App.swift、macos/main_app.py、macos/build.py、loaded_code.py 仅查明�
 - 修复三：持有该岗位执行锁时，最新 attempt 若目录为空即已结束且未调用模型，不再阻止新请求；同一请求本身仍不重放。
   `test_request_save_failure_never_dispatches_or_replays_an_unknown_intent[True]` 相应改为：原请求仍为 needs_recheck，新请求可执行。
 - 新测试 RED→GREEN；真实记录副本上两处阻塞均通过；全量离线 8505/3/0，ruff、format 干净。
+
+### 2026-10-30 分析材料超出预算：精简发给模型的资料视图（`claude-code-4ca66ce5/root`）
+
+第九次更新后自测：岗位解读通过，读取约 4.5 min 后 `retrieval_execution_incomplete`（material-packet 失败：Relevant evidence exceeds the complete packet budget）。
+按模型实际所见计量为 60.4 KB／上限 60 KB；其中证据原文仅 31%，其余为恒定标记、来源路径、长 ID 与全部申请人事实（含电话、代词）。
+
+- trusted-library 模式下 `model_source` 不再发送程序已准入的恒定标记与位置字段（`application_trusted`、`match_eligible`、`documentary_only`、`design_only`、
+  `review_status`、`rewrite_allowed`、`source_name`、`locator`、`document_locator`）；`planned_only` 仅 true 时保留，空 `boundaries` 不发。`resume_eligible` 保留（非原生引用路径只靠它）。
+- 经历上下文不再发送来源路径清单与 `fact_id`/`source_refs`；申请人事实统一边界由提示词说明，不逐条重复。研究模式不变；保存记录与程序校验仍用完整资料。
+- 申请人事实：联系与身份类（`CONTACT_FACTS` + 新登记的 `pronouns`）不进入匹配；记录去掉存档字段，值只写一次。
+- 真实 Hexagon 材料：60.4 KB → 28.5 KB（上限的 48%）。新测试 RED→GREEN；合成假模型改为缺失准入标记即视为已准入。全量离线 8507/3/0。
+- 留存：读取步骤每次调用 95–118 KB（6 次共 644 KB），重复发送已选资料、职位解读与带完整分组副本的要求；长 ID 约 15%（下一步改短编号）。

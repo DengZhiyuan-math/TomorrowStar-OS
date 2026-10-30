@@ -202,6 +202,19 @@ def source_records(snapshot):
     return sources
 
 
+_TRUSTED_RECEIPT_ONLY = {
+    "source_name",
+    "locator",
+    "document_locator",
+    "review_status",
+    "match_eligible",
+    "rewrite_allowed",
+    "design_only",
+    "documentary_only",
+    "application_trusted",
+}
+
+
 def model_source(source):
     """Send evidence and responsibility boundaries; keep internal hashes in the receipt."""
     keys = {
@@ -225,7 +238,23 @@ def model_source(source):
         "original_text_chars",
         "context_range",
     }
+    if source.get("application_trusted") is True:
+        # The program admitted this trusted-library source and keeps these flags and
+        # file locators for its own checks; the model reads evidence and boundaries.
+        # resume_eligible stays: only native citations list resume sources in the schema.
+        keys -= _TRUSTED_RECEIPT_ONLY
+        if source.get("source_kind") == "confirmed_information":
+            # Every confirmed fact shares this boundary, which the prompt already states.
+            keys -= {"attribution", "boundaries"}
     result = {key: value for key, value in source.items() if key in keys}
+    if source.get("application_trusted") is True:
+        result = {
+            key: value
+            for key, value in result.items()
+            if not (
+                key == "planned_only" and value is not True or key == "boundaries" and not value
+            )
+        }
     if source.get("confirmed_information"):
         result["confirmed_information"] = {"fact": source["confirmed_information"]["fact"]}
     return result
@@ -234,7 +263,7 @@ def model_source(source):
 def model_sources(sources):
     """Share canonical JSON metadata without changing native facts or replay hashes."""
     rows, experiences, scopes = [], {}, {}
-    experience_keys, scope_keys, referenced = {}, {}, {}
+    experience_keys, scope_keys, referenced, trusted_experiences = {}, {}, {}, set()
     fact_keys = {"fact_id", "source_refs", "responsibility", "status", "scope"}
     for source in sources:
         row = deepcopy(model_source(source))
@@ -262,7 +291,14 @@ def model_sources(sources):
             referenced[name] = set()
         name = experience_keys[identity]
         referenced[name].update(context["source_refs"])
-        compact = {key: context[key] for key in fact_keys if key in context and key != "scope"}
+        trusted = source.get("application_trusted") is True
+        if trusted:
+            trusted_experiences.add(name)
+        compact = {
+            key: context[key]
+            for key in fact_keys - ({"fact_id", "source_refs"} if trusted else set())
+            if key in context and key != "scope"
+        }
         compact["experience_context_ref"] = name
         if "scope" in context:
             scope = context["scope"]
@@ -282,6 +318,12 @@ def model_sources(sources):
             row.pop("boundaries")
         rows.append(row)
     for name, context in experiences.items():
+        if name in trusted_experiences:
+            # Source locators are provenance the program reattaches after the answer.
+            context.pop("sources")
+            if context.get("experience_id") == context.get("candidate_id"):
+                context.pop("experience_id")
+            continue
         context["sources"] = [
             definition
             for definition in context["sources"]
