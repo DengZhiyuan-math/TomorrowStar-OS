@@ -52,7 +52,9 @@ _RELATIONS = {
     "unknown": "unresolved",
 }
 _ISO_DATE = re.compile(r"(?<!\d)\d{4}-\d{2}-\d{2}(?!\d)")
-_NUMBER = re.compile(r"\d+(?:[.,]\d+)*%?")
+# Digits joined to letters name things (ROS2, EC2, 3D), they do not state a quantity
+# (installed MC-11, 2026-10-31).
+_NUMBER = re.compile(r"(?<![A-Za-z])\d+(?:[.,]\d+)*%?(?![A-Za-z])")
 _LEVEL = re.compile(r"(?<![A-Za-z0-9])(?:CEFR\s*)?[ABC][12](?![A-Za-z0-9])", re.I)
 _DURATION_UNIT = r"(?:years?|months?|年|个月|月)"
 _DURATION = re.compile(rf"(?<![A-Za-z0-9_.,+\-−–—/~～])([1-9]\d*)\s*({_DURATION_UNIT})", re.I)

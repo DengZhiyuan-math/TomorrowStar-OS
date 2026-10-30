@@ -448,6 +448,16 @@ def _assemble(
 
         injected_revision = secrets.token_hex(16) if flow_analyzer is not None else "default"
 
+        def current_information():
+            """The answer library with degree answers derived from the Education Record."""
+            library = read_information_library(information_library_root)
+            education = career_library.education() if career_library.manifest else None
+            if education is None:
+                return library
+            from .application_information import with_education
+
+            return with_education(library, education)
+
         def current_benchmark(sources: dict, engine_revision: str) -> tuple[dict, str]:
             benchmark = load_benchmark(evidence.root, sources["revision"], engine_revision)
             return benchmark, digest(
@@ -484,7 +494,7 @@ def _assemble(
                 from .application_preparation import preparation_inputs
 
                 preparation_identity = preparation_inputs(evidence.root)
-            library = read_information_library(information_library_root)
+            library = current_information()
             preparation_identity["information_library_revision"] = material_information_library(
                 application, library
             )["revision"]
@@ -506,13 +516,10 @@ def _assemble(
             }
 
         def current_flow_information():
-            library = read_information_library(information_library_root)
+            library = current_information()
             library["career_library"] = career_library.index()
-            education = career_library.education() if career_library.manifest else None
-            if education is not None:
-                from .application_information import with_education
-
-                return with_education(library, education)
+            if "education" in library:
+                return library
             sources = flow_sources()
             profile, source = sources.get("profile"), sources.get("profile_source")
             if profile is not None and source is not None:
@@ -548,7 +555,7 @@ def _assemble(
             source_loader=lambda ids: career_library.snapshot_for_analysis(
                 career_source_snapshot(evidence), ids
             ),
-            information_provider=lambda: read_information_library(information_library_root),
+            information_provider=current_information,
             analyzer=flow_analyzer,
             adapter_revision=injected_revision,
             refresh_root=flow.root / "match-refreshes",
