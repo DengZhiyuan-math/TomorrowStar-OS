@@ -270,11 +270,28 @@ def test_invalid_native_id_bindings_publish_no_score(native_case, tmp_path, muta
         row["source_ids"] = []
         row["citations"] = []
     directory = tmp_path / "invalid-id"
+    if mutation != "missing-id":
+        result = analyze_job(application, prepared, directory, runner=model_runner(output, []))
+        assert_citation_withheld(result)
+        return
     with pytest.raises(PortalDataError) as caught:
         analyze_job(application, prepared, directory, runner=model_runner(output, []))
-    assert caught.value.code in {"match_model_invalid", "retrieval_execution_incomplete"}
+    assert caught.value.code == "match_model_invalid"
     assert not (directory / "analysis.json").exists()
     assert (directory / "model-result.json").exists()
+
+
+def assert_citation_withheld(result):
+    """A complete answer keeps its score, but the unusable citation counts for nothing."""
+    # Installed MC-11: one bad citation used to fail the whole analysis as unknown.
+    row = result["requirements"][0]
+    assert row["judgment"] == "unknown" and row["citation_warning"] in {
+        "match_source_invalid",
+        "match_attribution_invalid",
+    }
+    assert row["inference"]["relation"] == "unresolved"
+    assert row["inference"]["expression_scope"] == "" and row["inference"]["facts"] == []
+    assert result["score"]["lower"] == 0
 
 
 def reseal(prepared):
@@ -288,7 +305,6 @@ def reseal(prepared):
 def test_raw_or_mixed_controlled_sources_keep_literal_quote_validation(
     native_case, tmp_path, mutation
 ):
-    from career_evidence_graph.career_portal_data import PortalDataError
 
     application, prepared, output = native_case
     source = prepared["material_packet_sources"]["source-0"]
@@ -310,10 +326,9 @@ def test_raw_or_mixed_controlled_sources_keep_literal_quote_validation(
     for citation in output["requirements"][0]["citations"]:
         citation["quote"] = "Invented content, not a literal source fact."
     directory = tmp_path / "raw"
-    with pytest.raises(PortalDataError) as caught:
+    assert_citation_withheld(
         analyze_job(application, prepared, directory, runner=model_runner(output, []))
-    assert caught.value.code == "retrieval_execution_incomplete"
-    assert not (directory / "analysis.json").exists()
+    )
     schema = saved_schema(directory)
     assert "quote" in schema["$defs"]["_Citation"]["required"]
     prompt = json.loads((directory / "context-input.json").read_text())["prompt"]
@@ -501,7 +516,6 @@ def test_complete_native_fact_with_original_segments_still_uses_native_identity(
 
 @pytest.mark.parametrize("quote", [None, "Invented unrelated quote"])
 def test_mixed_raw_quotes_are_required_even_when_native_ids_are_valid(mixed_case, tmp_path, quote):
-    from career_evidence_graph.career_portal_data import PortalDataError
 
     application, prepared, output = mixed_case
     citation = output["requirements"][0]["citations"][-1]
@@ -510,10 +524,9 @@ def test_mixed_raw_quotes_are_required_even_when_native_ids_are_valid(mixed_case
     else:
         citation["quote"] = quote
     directory = tmp_path / "invalid-raw"
-    with pytest.raises(PortalDataError) as caught:
+    assert_citation_withheld(
         analyze_job(application, prepared, directory, runner=model_runner(output, []))
-    assert caught.value.code == "retrieval_execution_incomplete"
-    assert not (directory / "analysis.json").exists()
+    )
 
 
 def test_all_raw_controlled_dataset_keeps_legacy_quotes_and_inference_bindings(

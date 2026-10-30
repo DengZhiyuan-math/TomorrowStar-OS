@@ -108,3 +108,24 @@ def test_matching_view_states_each_experience_once_and_keeps_background_apart():
         }
     ]
     assert json.dumps(view).count("Co-founder") == 1
+
+
+def test_source_handles_are_numbered_in_reading_order(canonical, tmp_path):
+    import re
+
+    library, _, _, base, *_ = canonical
+    runner = RecordedPipeline([requirement("Scientific collaboration")])
+    analyze_job(
+        APPLICATION,
+        thin(canonical),
+        tmp_path / "ordered",
+        runner=runner,
+        source_loader=lambda ids: library.snapshot_for_analysis(base, ids),
+        information_library={"status": "unconfigured"},
+    )
+    attempt = next((tmp_path / "ordered").glob("evaluation-*"))
+    prompt = json.loads((attempt / "context-input.json").read_text())["prompt"]
+    handles = [int(number) for number in re.findall(r'"source_id":"S([0-9]+)"', prompt)]
+    # Installed MC-11: scattered handles led the model to cite one fact's text
+    # under another fact's handle.
+    assert handles == list(range(1, len(handles) + 1))

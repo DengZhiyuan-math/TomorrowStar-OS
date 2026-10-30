@@ -74,7 +74,7 @@ def test_a_saved_size_refusal_is_rejected_only_when_its_attempt_proves_it(
         raise PortalDataError(code, "Synthetic reading or planner failure", 409)
 
     class Attempts:
-        def progress(self, attempt_id):
+        def reconcile(self, attempt_id):
             return {"attempt_id": attempt_id, "status": attempt_status}
 
     flow = ApplicationFlowService(applications, tmp_path / "flow", callbacks={"analysis": analyze})

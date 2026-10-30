@@ -104,10 +104,8 @@ def test_model_change_cannot_claim_same_upstream_configuration(canonical, tmp_pa
     assert retry.calls == []
 
 
-@pytest.mark.parametrize(
-    ("fault", "error_code"),
-    [("source", "retrieval_execution_incomplete"), ("inference", "match_inference_invalid")],
-)
+# An unusable citation now only withholds that requirement (test_native_fact_citations).
+@pytest.mark.parametrize(("fault", "error_code"), [("inference", "match_inference_invalid")])
 def test_known_invalid_evaluator_keeps_ready_packet_after_implementation_repair(
     canonical, tmp_path, monkeypatch, fault, error_code
 ):

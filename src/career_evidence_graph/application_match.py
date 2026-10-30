@@ -794,7 +794,18 @@ def _prompt_context(job, sources, snapshot):
         included_size += size
     # The model needs a handle unique within this call; the content-bound source IDs
     # stay with the program, which maps the answer back before any check.
-    aliases = {source_id: f"S{number}" for number, source_id in enumerate(included, 1)}
+    # Handles follow the order the model reads them; scattered numbers led it to cite
+    # one fact's text under another fact's handle.
+    shown = _matching_view(row | {"source_id": source_id} for source_id, row in included.items())
+    order = [
+        entry["source_id"]
+        for experience in shown.get("experiences", [])
+        for bucket in ("context", "facts")
+        for entry in experience.get(bucket, [])
+    ] + [entry["source_id"] for entry in shown["sources"]]
+    if sorted(order) != sorted(included):
+        order = list(included)
+    aliases = {source_id: f"S{number}" for number, source_id in enumerate(order, 1)}
     coverage = deepcopy(snapshot["coverage"]) | {
         "truncated": bool(snapshot["coverage"].get("truncated") or omitted or truncated),
         "included_source_ids": list(included),
@@ -1347,12 +1358,22 @@ def _analyze_loaded_job(
         except PortalDataError as error:
             if error.code not in {"match_source_invalid", "match_attribution_invalid"}:
                 raise
-            if snapshot.get("material_packet") is not None:
-                raise PortalDataError(
-                    "retrieval_execution_incomplete",
-                    "资料包引用或责任归属不能核验，未转为能力未知或生成分数。",
-                    409,
-                ) from error
+            # A complete answer with one unusable citation loses only that requirement's
+            # support; installed MC-11 failed the whole analysis as an unknown result.
+            if controlled and isinstance(requirement.get("inference"), dict):
+                inference = requirement["inference"]
+                requirement["inference"] = inference | {
+                    "requirement_id": expected[requirement_index]["scoring_framework"][
+                        "requirement_id"
+                    ],
+                    "type": "direct"
+                    if inference.get("type") == "deterministic"
+                    else inference.get("type"),
+                    "relation": "unresolved",
+                    "expression_scope": "",
+                    "calculation": None,
+                    "facts": [],
+                }
             requirement.update(
                 proposed_judgment=requirement["judgment"],
                 judgment="unknown",
@@ -1816,9 +1837,9 @@ class Analysis:
                     else "match_result_needs_recheck",
                 }
             receipt = CodexCLIResult.model_validate(saved)
+            # The receipt's prompt hash binds the saved prompt; rebuilding it with today's
+            # code would call every earlier answer unverifiable after a prompt change.
             prompt = self._json(origin / "context-input.json")["prompt"]
-            if prompt != _prompt_context(inputs["job"], _sources(snapshot), snapshot)[0]:
-                raise ValueError("Changed recorded evaluation prompt")
             validate_recorded_result(
                 receipt,
                 prompt=prompt,

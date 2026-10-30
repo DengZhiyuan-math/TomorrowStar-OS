@@ -5138,7 +5138,8 @@ class ApplicationFlowService:
         if stage.get("error_code") not in _ATTEMPT_PROVEN_CODES or analysis is None:
             return False
         try:
-            return analysis.progress(stage["attempt_id"])["status"] == "failed"
+            # A recoverable attempt holds a complete saved answer, never an unknown one.
+            return analysis.reconcile(stage["attempt_id"])["status"] in {"failed", "recoverable"}
         except (PortalDataError, KeyError, TypeError):
             return False
 
