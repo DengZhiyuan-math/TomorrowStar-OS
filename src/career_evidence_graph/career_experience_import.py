@@ -11,7 +11,13 @@ from typing import Literal
 
 from pydantic import Field
 
-from .application_resume_content import Contract, ExperienceFacts, Text
+from .application_resume_content import (
+    Contract,
+    ExperienceFacts,
+    Text,
+    experience_facts_v1,
+    upgrade_experience_facts,
+)
 from .career_experiences import _json_bytes, material_identity
 from .career_portal_data import PortalDataError
 
@@ -105,7 +111,7 @@ def prepare_experience_import(previous: dict, request: dict) -> dict:
     ).hexdigest()
     inherited_facts = {}
     if "content" in previous:
-        baseline = ExperienceFacts.model_validate(previous["content"]).model_dump(mode="json")
+        baseline = experience_facts_v1(previous["content"], previous.get("notes", ()))
         if any(
             content[key] != value
             for key, value in baseline.items()
@@ -216,12 +222,23 @@ def prepare_experience_import(previous: dict, request: dict) -> dict:
         for ref in fact.source_refs
         if (identifier, ref) not in bound_pairs
     )
+    notes = None
+    if previous.get("content", {}).get("schema_version") == "experience-facts/v2":
+        # An upgraded record stays upgraded; existing archive notes are kept as saved.
+        content, added = upgrade_experience_facts(content)
+        notes = list(previous.get("notes", []))
+        kept = {note["fact_id"] for note in notes}
+        notes += [note for note in added if note["fact_id"] not in kept]
+        content["revision"] = hashlib.sha256(
+            _json_bytes({key: value for key, value in content.items() if key != "revision"})
+        ).hexdigest()
     return {
         "schema_version": "experience-import-plan/v1",
         "candidate_id": previous["candidate_id"],
         "expected_revision": previous["revision"],
         "ready": not unresolved,
         "content": content,
+        **({"notes": notes} if notes is not None else {}),
         "migration": {
             "schema_version": "experience-import-coverage/v1",
             "from_revision": previous["revision"],

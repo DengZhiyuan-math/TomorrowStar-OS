@@ -124,6 +124,25 @@ method or result, with its applicable time, status and source context; a questio
 discussion turn or hypothetical answer is not itself a Career Fact.
 _Avoid_: Conversation entry, source paragraph, assessment conclusion
 
+**Experience Context Item (经历背景资料)**:
+A sourced description that belongs to one Experience but is not the user's own
+work, such as a website, repository or other person's statement. It can explain
+an Experience to the matching model; it never counts as the user's activity.
+_Avoid_: third-party Career Fact, user responsibility
+
+**Education Record (学历记录)**:
+The single structured authority for each degree: field, institution, dates and
+whether it is awarded or in progress. Application answers, qualification checks
+and résumé education are derived from it, never kept as separate copies.
+_Avoid_: degree answer, profile education copy, template-only education
+
+**Matching View (匹配视图)**:
+The one model-facing projection of the Career History Library, grouped by
+Experience with the Education Record, Career Facts and Experience Context Items
+kept apart. It omits receipts and audit notes and is rebuilt only when the library
+changes; stored records stay the authority for every check.
+_Avoid_: per-job source dump, audit record
+
 **Experience Main Content (经历主要内容)**:
 The consolidated current account of one Experience, retaining distinct career
 facts and their responsibility boundaries without repeating the discussions,

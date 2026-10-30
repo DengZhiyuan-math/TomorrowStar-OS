@@ -11,6 +11,7 @@ import subprocess
 from copy import deepcopy
 from pathlib import Path
 
+from .application_resume_content import experience_facts_v1, upgrade_experience_facts
 from .application_source_reuse import fact_source_projection
 from .career_experience_import import pending_materials
 from .career_experiences import ExperienceStore, material_identity
@@ -323,6 +324,7 @@ class CareerLibrary:
             if "content" in before:
                 changes.setdefault("content", before["content"])
                 changes.setdefault("migration", before.get("migration"))
+                changes.setdefault("notes", before.get("notes"))
             elif "content" not in changes:
                 changes.setdefault("body", before["body"])
             supplied_metadata = changes.get("metadata", {})
@@ -384,6 +386,7 @@ class CareerLibrary:
             title=plan["content"]["title"],
             content=plan["content"],
             migration=plan["migration"],
+            notes=plan.get("notes"),
             metadata={
                 **before["metadata"],
                 "import_status": "pending"
@@ -400,6 +403,41 @@ class CareerLibrary:
             origin="user",
             actor="structured-import",
         )
+
+    def upgrade_experience_facts(self, candidate_ids=None):
+        """Republish v1 fact content as v2 with every other record field unchanged."""
+        _, root, _, current = self._load()
+        store = ExperienceStore(root)
+        upgraded = []
+        for candidate_id in candidate_ids or sorted(store.directory()):
+            if candidate_id not in current:
+                raise PortalDataError("experience-not-found", "经历不存在。", 404)
+            before = store.get(candidate_id)
+            if before.get("content", {}).get("schema_version") != "experience-facts/v1":
+                continue
+            row, derived = store.directory()[candidate_id], store.derive(before)
+            content, notes = upgrade_experience_facts(before["content"])
+            store.save(
+                candidate_id,
+                title=before["title"],
+                content=content,
+                notes=notes,
+                # Curated directory text, unlike derived text, moves into the record.
+                metadata=before["metadata"]
+                | {
+                    key: row[key]
+                    for key in ("summary", "retrieval_terms")
+                    if row.get(key) and row[key] != derived[key]
+                },
+                materials=before["materials"],
+                migration=before.get("migration"),
+                expected_revision=before["revision"],
+                input_revision=before["input_revision"],
+                origin=before["origin"],
+                actor="experience-facts-v2-upgrade",
+            )
+            upgraded.append(candidate_id)
+        return {"upgraded": upgraded}
 
     def read_experience(self, candidate_id):
         _, root, _, current = self._load()
@@ -860,7 +898,9 @@ class CareerLibrary:
                         user_saved=current[identifier].get("application_saved_only", False),
                     )
                     if "content" in experience:
-                        facts = experience["content"]
+                        facts = experience_facts_v1(
+                            experience["content"], experience.get("notes", ())
+                        )
                         contents = []
                         for fact in facts["facts"]:
                             context = {

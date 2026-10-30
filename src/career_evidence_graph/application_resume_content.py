@@ -56,6 +56,112 @@ class ExperienceFacts(Contract):
         return self
 
 
+class ExperienceFactV2(Contract):
+    id: Text
+    text: Text
+    # agent_assisted remains only until the per-experience review separates agent
+    # work (agent) from assisted user or team work.
+    responsibility: Literal["user", "team", "other_person", "agent", "agent_assisted"]
+    status: Literal["planned", "in_progress", "completed", "unknown"]
+    source_refs: list[Text] = Field(min_length=1)
+
+
+class ContextItem(Contract):
+    """Sourced background for an Experience; never the user's own activity."""
+
+    id: Text
+    text: Text
+    source_refs: list[Text] = Field(min_length=1)
+
+
+class ExperienceFactsV2(Contract):
+    """Only attributes every Experience shares; anything particular is a fact."""
+
+    schema_version: Literal["experience-facts/v2"]
+    revision: Text
+    experience_id: Text
+    title: Text
+    role: Text | None = None
+    organization: Text | None = None
+    location: Text | None = None
+    start: Text | None = None
+    end: Text | None = None
+    sources: list[Source]
+    facts: list[ExperienceFactV2]
+    context: list[ContextItem]
+
+    @model_validator(mode="after")
+    def validate_fact_sources(self):
+        source_ids = [source.id for source in self.sources]
+        _unique(source_ids, "source ID")
+        _unique([item.id for item in (*self.facts, *self.context)], "fact ID")
+        for item in (*self.facts, *self.context):
+            _references(item.source_refs, source_ids)
+        return self
+
+
+StoredExperienceFacts = TypeAdapter(
+    Annotated[ExperienceFacts | ExperienceFactsV2, Field(discriminator="schema_version")]
+)
+
+
+def upgrade_experience_facts(content):
+    """Move v1 content to v2 without losing text: returns content and its scope notes.
+
+    Third-party facts become context; each fact's free-text scope becomes a pending
+    archive note until the per-experience review rewrites real boundaries as facts.
+    """
+    content = ExperienceFacts.model_validate(content).model_dump(mode="json")
+    facts, context, notes = [], [], []
+    for fact in content.pop("facts"):
+        note = {"fact_id": fact["id"], "text": fact.pop("scope"), "status": "pending"}
+        if fact["responsibility"] == "third_party":
+            # Context carries no status field; the archive note keeps the old value.
+            note["context_status"] = fact["status"]
+            context.append({key: fact[key] for key in ("id", "text", "source_refs")})
+        else:
+            facts.append(fact)
+        notes.append(note)
+    upgraded = ExperienceFactsV2.model_validate(
+        {key: value for key, value in content.items() if key != "candidate_id"}
+        | {"schema_version": "experience-facts/v2", "facts": facts, "context": context}
+    ).model_dump(mode="json")
+    return upgraded, notes
+
+
+def experience_facts_v1(content, notes=()):
+    """Read either version as v1 facts until the Matching View replaces this shape.
+
+    Pending notes keep the old scope text visible to matching until reviewed.
+    """
+    content = StoredExperienceFacts.validate_python(content).model_dump(mode="json")
+    if content["schema_version"] == "experience-facts/v1":
+        return content
+    scope = {note["fact_id"]: note["text"] for note in notes if note["status"] == "pending"}
+    statuses = {note["fact_id"]: note.get("context_status", "unknown") for note in notes}
+    rows = [
+        fact | {"scope": scope.get(fact["id"], "Recorded experience fact.")}
+        for fact in content["facts"]
+    ] + [
+        item
+        | {
+            "responsibility": "third_party",
+            "status": statuses.get(item["id"], "unknown"),
+            "scope": scope.get(item["id"], "Experience background; not the user's activity."),
+        }
+        for item in content["context"]
+    ]
+    return {
+        key: value
+        for key, value in content.items()
+        if key not in {"schema_version", "facts", "context"}
+    } | {
+        "schema_version": "experience-facts/v1",
+        "candidate_id": content["experience_id"],
+        "facts": rows,
+    }
+
+
 class Inference(Contract):
     id: Text
     candidate_id: Text

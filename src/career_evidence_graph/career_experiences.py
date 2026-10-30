@@ -19,7 +19,7 @@ from uuid import uuid4
 
 from pydantic import ValidationError
 
-from .application_resume_content import ExperienceFacts
+from .application_resume_content import StoredExperienceFacts, experience_facts_v1
 from .career_portal_data import ApplicationStore, PortalDataError, _check_root, _write_file
 
 _MAX_TEXT = 2_000_000
@@ -32,8 +32,17 @@ _METADATA_STRINGS = {
     "status",
     "import_status",
     "source_revision",
+    # A curated directory summary and terms survive saves; absent ones are derived.
+    "summary",
 }
-_METADATA_LISTS = {"aliases", "related_ids", "links", "unavailable_sources", "manual_fields"}
+_METADATA_LISTS = {
+    "aliases",
+    "related_ids",
+    "links",
+    "unavailable_sources",
+    "manual_fields",
+    "retrieval_terms",
+}
 _ROLES = {"primary", "supplement", "artifact", "generated", "history"}
 
 
@@ -68,10 +77,10 @@ def _json_bytes(value: object) -> bytes:
 
 def _content(value: object, candidate_id: str, title: str, *, verify: bool = False) -> dict:
     try:
-        clean = ExperienceFacts.model_validate(value).model_dump(mode="json")
+        clean = StoredExperienceFacts.validate_python(value).model_dump(mode="json")
     except ValidationError as exc:
         raise _invalid() from exc
-    if clean["candidate_id"] != candidate_id or clean["title"] != title:
+    if clean.get("candidate_id", clean["experience_id"]) != candidate_id or clean["title"] != title:
         raise _invalid()
     revision = hashlib.sha256(
         _json_bytes({key: item for key, item in clean.items() if key != "revision"})
@@ -80,6 +89,23 @@ def _content(value: object, candidate_id: str, title: str, *, verify: bool = Fal
         raise _invalid()
     clean["revision"] = revision
     return clean
+
+
+def _notes(value: object, content: dict) -> list:
+    """Archive notes for facts; they never enter the fact content or its revision."""
+    items = {item["id"] for item in (*content["facts"], *content.get("context", []))}
+    if not isinstance(value, list) or not all(
+        isinstance(note, dict)
+        and note.keys() - {"context_status"} == {"fact_id", "text", "status"}
+        and note["fact_id"] in items
+        and note["status"] in {"pending", "resolved"}
+        and isinstance(note["text"], str)
+        and note.get("context_status", "unknown")
+        in {"planned", "in_progress", "completed", "unknown"}
+        for note in value
+    ):
+        raise _invalid()
+    return value
 
 
 def _metadata(value: object) -> dict[str, object]:
@@ -167,6 +193,7 @@ def material_identity(material: dict) -> tuple[str, str]:
 def _derive(payload: dict[str, object]) -> dict[str, object]:
     content = payload.get("content")
     if content is not None:
+        content = experience_facts_v1(content, payload.get("notes", ()))
         texts = [content[key] for key in ("title", "role", "organization") if content[key]]
         for fact in content["facts"]:
             texts.extend(fact[key] for key in ("text", "scope", "status", "responsibility"))
@@ -301,6 +328,10 @@ class ExperienceStore:
             raise _invalid()
         return path
 
+    def derive(self, payload: dict[str, object]) -> dict[str, object]:
+        """Return the directory fields a save would derive for this record."""
+        return self._derive(json.loads(_json_bytes(payload)))
+
     def get(self, candidate_id: str) -> dict[str, object]:
         """Return the complete original record, including source provenance."""
         identifier = _identifier(candidate_id)
@@ -336,7 +367,7 @@ class ExperienceStore:
             if (
                 payload.get("schema_version") != "experience-record/v2"
                 or not required <= payload.keys()
-                or payload.keys() - required - {"migration"}
+                or payload.keys() - required - {"migration", "notes"}
                 or not isinstance(payload["metadata"], dict)
                 or not isinstance(payload["materials"], list)
             ):
@@ -353,6 +384,8 @@ class ExperienceStore:
                 raise _invalid()
             if "migration" in payload and not isinstance(payload["migration"], dict):
                 raise _invalid()
+            if "notes" in payload:
+                _notes(payload["notes"], payload["content"])
         return payload
 
     def save(
@@ -369,6 +402,7 @@ class ExperienceStore:
         input_revision: str = "",
         actor: str = "user",
         migration: dict[str, object] | None = None,
+        notes: list[dict[str, object]] | None = None,
     ) -> dict[str, object]:
         """Create a record or update it with its exact current revision."""
         identifier = _identifier(candidate_id)
@@ -392,6 +426,10 @@ class ExperienceStore:
             if not isinstance(migration, dict) or content is None:
                 raise _invalid()
             payload["migration"] = json.loads(_json_bytes(migration))
+        if notes:
+            if content is None:
+                raise _invalid()
+            payload["notes"] = _notes(json.loads(_json_bytes(notes)), payload["content"])
         _json_bytes(payload)
         with self._write_lock():
             rows = self.directory()
@@ -434,7 +472,10 @@ class ExperienceStore:
             try:
                 derived = self._derive(json.loads(_json_bytes(payload)))
                 row.update(
-                    {key: derived[key] for key in ("summary", "retrieval_terms", "material_groups")}
+                    {
+                        key: payload["metadata"].get(key) or derived[key]
+                        for key in ("summary", "retrieval_terms", "material_groups")
+                    }
                 )
                 if payload["metadata"].get("import_status") != "pending":
                     row["index_status"] = "ready"
