@@ -1332,13 +1332,29 @@ class ApplicationPipeline:
                         # the user's explicit retry. Unknown results still never replay.
                         if outcome["status"] == "rejected" and not outcome["legacy_skippable"]:
                             task = self._task(state)
-                            self.flow.start(
-                                task["id"],
-                                task["revision"],
-                                "analysis",
-                                retry=True,
-                                _continuation_request_id=payload["request_id"],
+                            application = self.flow.applications.get_application(
+                                task["application_id"]
                             )
+                            # An App update changes the analysis configuration; the
+                            # retry rebinds current inputs, archiving the rejection.
+                            task = self.flow.update_inputs(
+                                task["id"], task["revision"], application["revision"]
+                            )
+                            if task["stages"]["analysis"]["status"] == "failed":
+                                self.flow.start(
+                                    task["id"],
+                                    task["revision"],
+                                    "analysis",
+                                    retry=True,
+                                    _continuation_request_id=payload["request_id"],
+                                )
+                            else:
+                                self.flow.prepare(
+                                    task["id"],
+                                    task["revision"],
+                                    request_id=payload["request_id"],
+                                    analysis_only=True,
+                                )
                             outcome = self.flow.analysis_outcome(task["id"])
                         if outcome["status"] in {"ready", "running"}:
                             state.pop("wait_reason", None)

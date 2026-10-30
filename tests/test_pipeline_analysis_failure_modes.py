@@ -226,3 +226,66 @@ def test_default_queue_waits_for_matching_outcome_task_revision(queue_environmen
     flow.analysis_outcome = observed
     pipeline._tick()
     assert sum(stage == "analysis" for stage, _ in flow.calls) == 1
+
+
+def test_continue_retries_rejected_analysis_after_an_app_update_changed_its_configuration(
+    tmp_path,
+):
+    (tmp_path / "applications").mkdir()
+    applications = ApplicationStore(tmp_path / "applications")
+    inputs = {"analysis_configuration_revision": "before-update"}
+    analysis_calls = []
+
+    def reader(_directory, **_options):
+        return {
+            "status": "readable",
+            "emails": [message("first", ["https://www.linkedin.com/jobs/view/10000"])],
+            "provenance": {},
+        }
+
+    def analyze(task):
+        analysis_calls.append(task["inputs"]["analysis_configuration_revision"])
+        raise PortalDataError("job_brief_invalid", "Saved rejected analysis", 409)
+
+    intake = ApplicationIntakeService(
+        applications,
+        tmp_path / "intake",
+        reader=reader,
+        fetcher=lambda url: page(url) | {"job_fields": {"title": "Engineer", "company": "Co"}},
+    )
+    flow = ApplicationFlowService(
+        applications,
+        tmp_path / "flow",
+        input_provider=lambda identifier: {
+            "application_revision": applications.get_application(identifier)["revision"],
+            "inputs": dict(inputs),
+        },
+        callbacks={"analysis": analyze},
+    )
+    pipeline = ApplicationPipeline(flow, intake, Worker(), interval=0.01)
+
+    def paused(after):
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            state = pipeline.snapshot()
+            if state["control"] == "paused" and len(analysis_calls) >= after:
+                return state
+            threading.Event().wait(0.01)
+        pytest.fail("The rejected analysis was not retained")
+
+    try:
+        pipeline.start(request_id="first-run")
+        assert paused(1)["wait_reason"] == "analysis_input_required"
+        # Installed MC-11: the update changed the engine hash inside the analysis
+        # configuration, so the old task looked stale and Continue never retried.
+        inputs["analysis_configuration_revision"] = "after-update"
+        pipeline.continue_current(request_id="retry-after-update")
+        state = paused(2)
+        assert analysis_calls == ["before-update", "after-update"]
+        assert state["wait_reason"] == "analysis_input_required"
+        assert len(flow.snapshot()["tasks"]) == 1
+        assert len(flow.snapshot()["active_task"]["analysis_attempts"]) == 1
+    finally:
+        pipeline.close()
+        flow.close()
+        intake.close()

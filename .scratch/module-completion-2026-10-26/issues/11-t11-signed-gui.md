@@ -178,3 +178,11 @@ macos/App.swift、macos/main_app.py、macos/build.py、loaded_code.py 仅查明�
 配置与权限未改、未启动 GUI）、`codesign --verify`、`check_main_permissions.py` 均 exit 0。安装版 `application_job_brief.py`（`762661b5…`）与
 `application_pipeline.py`（`dbd68264…`）为修复版，driver `ba1541e7…`。
 下一步由用户：打开 App 后点一次“继续当前岗位”，应重跑一次该岗位分析（一次真实模型调用）并进入匹配／材料／填写；再测实际接管、关闭后停写与不可用原因提示。
+
+### 2026-10-30 GUI 试用：更新后“继续”仍报 `flow_inputs_stale`（`claude-code-4ca66ce5/root`）
+
+第七次更新后用户点“继续当前岗位”，提示“JD 或职业资料已变化，请更新任务。”；任务未重试（attempt 0）。只读核对：任务在更新前建立，`analysis_configuration_revision`
+含 `application_job_brief.py` 等引擎哈希与 codex 可执行文件元数据；App 更新（或 Codex CLI 更新）即令旧任务对分析过期，`flow.start` 的 `_fresh` 拒绝重试。
+
+- 修复：继续重试被拒分析前先 `update_inputs` 绑定当前输入（同“更新任务”路径；输入有变时归档失败 attempt 并转为待分析，再 `prepare`）；输入未变仍 `start(retry=True)`。
+- 新测试复现原报错（RED）→ GREEN；全量离线 8500/3/0，ruff、format 干净。
