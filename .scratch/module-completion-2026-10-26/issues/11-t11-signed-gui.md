@@ -159,3 +159,15 @@ macos/App.swift、macos/main_app.py、macos/build.py、loaded_code.py 仅查明�
 配置与权限未改、未启动 GUI）、`check_main_permissions.py` 均 exit 0。安装版 `application_pipeline.py` 为修复版（`f0d57d19…`），driver `ba1541e7…`。
 下一步由用户：打开 App 后“继续当前岗位”，确认很快选中岗位并进入 JD／匹配／材料／填写；再测实际接管、关闭后停写与不可用原因提示。
 
+
+### 2026-10-30 GUI 重测：选岗通过，岗位分析 `job_brief_invalid` 无法继续（`claude-code-4ca66ce5/root`）
+
+用户重测报告（私人：`~/Library/Application Support/TomorrowStar/test-reports/2026-10-30-mc11-selection-retest/`）：启动后选中真实岗位并进入岗位分析；
+模型调用退出码 0，但应用校验拒绝（`job_brief_invalid`），流程 `needs_input / analysis_input_required`；点一次“继续当前岗位”提示不会自动重放，仍停在分析。
+暂停选岗重开场景前置不符，未测。
+
+- 根因一：某个分组 `jd_quote` 用换行连接了 JD 中三段不相邻的原文；`_canonical_groups` 要求单段连续原文。修复：分组引用可为多段，每行仍须逐字来自 JD
+  （大小写与空白按 JD 恢复）；任一行不在 JD 中仍拒绝。要求项引用与提示词不变，已保存分析的哈希不变。真实输出用新代码回放通过。
+- 根因二：流水线岗位的“继续”从不重跑被拒的分析，重试按钮又只对非流水线任务显示，岗位无路可走。修复：输出被校验拒绝（结果已知）时，一次“继续”即一次显式重试
+  （保留失败 attempt，一次真实模型调用）；结果未知仍不重放，旧格式记录行为不变。
+- 新测试 RED→GREEN；全量离线 8499/3/0，ruff、format 干净。

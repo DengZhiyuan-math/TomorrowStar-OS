@@ -123,8 +123,9 @@ def test_default_queue_holds_modern_failed_analysis_without_retry_or_next_job(
         assert len(flow.snapshot()["tasks"]) == len(analysis_calls) == 1
         assert fetched == ["https://www.linkedin.com/jobs/view/10000"]
         assert len(applications.list_applications()) == 1
-        # Continue may expose the retained wait, but cannot guess that the
-        # provider's unknown/rejected result authorizes another analysis call.
+        # Continue retries a known rejected output once (installed MC-11: a pipeline
+        # job had no other retry); it cannot guess that an unknown result allows one.
+        retried = expected_status == "needs_input"
         pipeline.continue_current(request_id="observe-retained-failure")
         deadline = time.monotonic() + 3
         while time.monotonic() < deadline:
@@ -134,7 +135,10 @@ def test_default_queue_holds_modern_failed_analysis_without_retry_or_next_job(
             threading.Event().wait(0.01)
         assert resumed["status"] == expected_status
         assert resumed["current_recommendation_id"] == current
-        assert len(flow.snapshot()["tasks"]) == len(analysis_calls) == 1
+        assert len(flow.snapshot()["tasks"]) == 1
+        assert len(analysis_calls) == (2 if retried else 1)
+        attempts = flow.snapshot()["active_task"].get("analysis_attempts", [])
+        assert len(attempts) == (1 if retried else 0)
         assert fetched == ["https://www.linkedin.com/jobs/view/10000"]
         assert len(selections) == 1
         assert reader_calls == ([error_code] if reader_timeout else [])

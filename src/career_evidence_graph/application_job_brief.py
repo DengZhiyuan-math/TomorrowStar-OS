@@ -118,6 +118,14 @@ def _literal_jd_quote(quote, jd):
     return match.group()
 
 
+def _literal_group_quote(quote, jd):
+    """A group may summarize separate JD passages, one per line; each stays literal."""
+    try:
+        return _literal_jd_quote(quote, jd)
+    except PortalDataError:
+        return "\n".join(_literal_jd_quote(part, jd) for part in quote.split("\n") if part.strip())
+
+
 def _canonical_groups(output, jd):
     """Collapse exact normalized duplicates; semantic merging belongs to interpretation."""
     groups = {}
@@ -126,7 +134,10 @@ def _canonical_groups(output, jd):
         group = deepcopy(source)
         if not group["label"].strip() or not group["weight_reason"].strip():
             raise _invalid()
-        if not group["jd_quote"].strip() or group["jd_quote"] not in jd:
+        quote = group["jd_quote"]
+        if not quote.strip() or (
+            quote not in jd and not all(part and part in jd for part in quote.split("\n"))
+        ):
             raise _invalid("岗位分组引用必须来自岗位全文。")
         atoms = {}
         original_keys = []
@@ -521,7 +532,8 @@ def create_job_brief(
     try:
         output = _Output.model_validate(result.structured_result).model_dump()
         for group in output["groups"]:
-            for item in (group, *group["requirements"]):
+            group["jd_quote"] = _literal_group_quote(group["jd_quote"], job["job_description"])
+            for item in group["requirements"]:
                 item["jd_quote"] = _literal_jd_quote(item["jd_quote"], job["job_description"])
         groups = _canonical_groups(output, job["job_description"])
         brief = {

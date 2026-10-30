@@ -177,6 +177,25 @@ def test_generated_quotes_reuse_original_jd_case_and_whitespace(tmp_path, applic
     assert raw["structured_result"]["groups"][0]["jd_quote"] == "we’re researching pricing models."
 
 
+def test_group_quote_may_join_separate_literal_jd_passages(tmp_path, application, output):
+    # Installed MC-11: a real group summarized non-adjacent JD bullets, one per line.
+    output["groups"][0]["jd_quote"] = (
+        "Research pricing models and validate risk.\ncommunicate results."
+    )
+    value = brief(tmp_path, application, output)
+    assert value["groups"][0]["jd_quote"] == (
+        "Research pricing models and validate risk.\nCommunicate results."
+    )
+    assert validate_job_brief(value, application) == value
+
+
+def test_joined_group_quote_still_rejects_a_passage_not_in_the_jd(tmp_path, application, output):
+    output["groups"][0]["jd_quote"] = "Research pricing models and validate risk.\nEarn profits."
+    with pytest.raises(PortalDataError) as error:
+        brief(tmp_path, application, output)
+    assert error.value.code == "job_brief_invalid"
+
+
 @pytest.mark.parametrize(
     "jd,quote",
     [

@@ -1328,6 +1328,18 @@ class ApplicationPipeline:
                         "analysis_result_unknown",
                     }:
                         outcome = self.flow.analysis_outcome(state["active_task_id"])
+                        # A known rejected output left nothing behind; this Continue is
+                        # the user's explicit retry. Unknown results still never replay.
+                        if outcome["status"] == "rejected" and not outcome["legacy_skippable"]:
+                            task = self._task(state)
+                            self.flow.start(
+                                task["id"],
+                                task["revision"],
+                                "analysis",
+                                retry=True,
+                                _continuation_request_id=payload["request_id"],
+                            )
+                            outcome = self.flow.analysis_outcome(task["id"])
                         if outcome["status"] in {"ready", "running"}:
                             state.pop("wait_reason", None)
                             state.pop("resume_status", None)
