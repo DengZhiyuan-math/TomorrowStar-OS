@@ -85,18 +85,20 @@ def legacy_analysis_failure(task):
     )
 
 
-def _analysis_outcome(task):
+def _analysis_outcome(task, *, known_budget_failure=False):
     """Interpret Flow-owned attempt metadata without authorizing a new attempt."""
     stage = task.get("stages", {}).get("analysis", {})
     legacy_skippable = legacy_analysis_failure(task)
     # The legacy skip policy keeps its original code and exact field set.
     # Modern validation failures only classify a same-job input wait.
     # retrieval_execution_incomplete also wraps reader timeouts; its code alone
-    # cannot establish a known rejected result and must remain unknown.
+    # cannot establish a known rejected result. Only the saved attempt can prove
+    # a size refusal after every reading call was receipted.
     modern_rejected = bool(
         task.get("status") == stage.get("status") == "failed"
         and stage.get("error_code")
         in {
+            *(["retrieval_execution_incomplete"] if known_budget_failure else []),
             "match_model_invalid",
             "match_requirement_conflict",
             "match_source_invalid",
@@ -5120,16 +5122,29 @@ class ApplicationFlowService:
             "created_at": time.time(),
         }
 
+    def _known_budget_failure(self, task):
+        stage, analysis = task["stages"]["analysis"], getattr(self, "analysis", None)
+        if stage.get("error_code") != "retrieval_execution_incomplete" or analysis is None:
+            return False
+        try:
+            return analysis.progress(stage["attempt_id"])["status"] == "failed"
+        except (PortalDataError, KeyError, TypeError):
+            return False
+
     def analysis_outcome(self, task_id):
         """Deliver saved analysis certainty; never project, refresh or retry work."""
         with self.applications.write_lock():
-            return _analysis_outcome(self._task(self._load(), task_id))
+            task = self._task(self._load(), task_id)
+            return _analysis_outcome(task, known_budget_failure=self._known_budget_failure(task))
 
     def progress(self, task_id):
         """Read preparation progress without dispatching or inspecting execution."""
         with self.applications.write_lock():
             task = self._task(self._load(), task_id)
-            return _preparation_progress(task, _analysis_outcome(task))
+            return _preparation_progress(
+                task,
+                _analysis_outcome(task, known_budget_failure=self._known_budget_failure(task)),
+            )
 
     def prepare(self, task_id, task_revision, *, request_id=None, analysis_only=False):
         """Advance one necessary preparation stage; Pipeline owns the next-job decision."""

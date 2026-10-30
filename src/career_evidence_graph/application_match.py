@@ -1640,6 +1640,13 @@ class Analysis:
             if (directory / "analysis-progress.json").exists():
                 checkpoint = self._checkpoint(attempt_id)
                 result["phase"] = checkpoint["phase"]
+                from .application_matching_pipeline import known_reading_failure
+
+                if known_reading_failure(directory, checkpoint):
+                    return result | {
+                        "status": "failed",
+                        "error_code": "retrieval_execution_incomplete",
+                    }
                 if checkpoint["phase"] == "evaluation" and checkpoint.get("evaluation_error"):
                     checked = self._saved_evaluation_progress(result, checkpoint)
                     if checked["status"] == "failed":

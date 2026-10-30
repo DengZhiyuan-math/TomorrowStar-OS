@@ -257,3 +257,32 @@ def test_retry_after_a_refused_recovery_reads_the_rejected_job_brief_again(
     )
     assert progress["status"] == "complete"
     assert len(retry.brief_calls) == 1
+
+
+def test_a_packet_refused_for_size_after_every_read_is_a_known_failure(
+    canonical, tmp_path, monkeypatch
+):
+    library, _, _, base, *_ = canonical
+    snapshot = thin(canonical)
+    root = tmp_path / "analyses"
+    options = {"source_loader": lambda ids: library.snapshot_for_analysis(base, ids)}
+    monkeypatch.setenv("TOMORROWSTAR_MATERIAL_CONTEXT_BYTES", "300")
+    first = RecordedPipeline([requirement("Scientific collaboration")])
+    with pytest.raises(PortalDataError) as caught:
+        application_match.Analysis(root, runner=first, **options).prepare(
+            APPLICATION, snapshot, request_id="1" * 32
+        )
+    assert caught.value.code == "retrieval_execution_incomplete"
+    analysis = application_match.Analysis(root, runner=first, **options)
+    # Installed MC-11: every reading call was receipted before the size refusal,
+    # so the attempt hides no model result and a new request may run.
+    assert analysis.progress("1" * 32)["status"] == "failed"
+    retry = RecordedPipeline(first.requirements)
+    with pytest.raises(PortalDataError) as again:
+        application_match.Analysis(root, runner=retry, **options).prepare(
+            APPLICATION, snapshot, request_id="2" * 32
+        )
+    assert again.value.code == "retrieval_execution_incomplete"
+    packet = root / ("1" * 32) / "material-packet-1" / "material-packet.json"
+    packet.write_text(packet.read_text().replace('"failed"', '"needs_recheck"', 1))
+    assert analysis.progress("1" * 32)["status"] == "needs_recheck"

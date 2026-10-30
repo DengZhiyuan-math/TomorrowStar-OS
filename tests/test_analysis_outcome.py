@@ -62,6 +62,36 @@ def test_modern_failed_analysis_delivers_certainty_without_retry(
 
 
 @pytest.mark.parametrize(
+    ("attempt_status", "certainty"), [("failed", "rejected"), ("needs_recheck", "unknown")]
+)
+def test_a_saved_size_refusal_is_rejected_only_when_its_attempt_proves_it(
+    application, tmp_path, attempt_status, certainty
+):
+    applications, job = application
+
+    def analyze(_task):
+        raise PortalDataError("retrieval_execution_incomplete", "Synthetic reading failure", 409)
+
+    class Attempts:
+        def progress(self, attempt_id):
+            return {"attempt_id": attempt_id, "status": attempt_status}
+
+    flow = ApplicationFlowService(applications, tmp_path / "flow", callbacks={"analysis": analyze})
+    try:
+        task = flow.create(job["id"], job["revision"])
+        flow.start(task["id"], task["revision"], "analysis")
+        task = wait_for(flow, task["id"], lambda row: row["status"] == "failed")
+        assert flow.analysis_outcome(task["id"])["status"] == "unknown"
+        # The same code also wraps reader timeouts; only the saved attempt can
+        # show that every reading call was receipted before the size refusal.
+        flow.analysis = Attempts()
+        assert flow.analysis_outcome(task["id"])["status"] == certainty
+        assert flow.progress(task["id"])["analysis"]["status"] == certainty
+    finally:
+        flow.close()
+
+
+@pytest.mark.parametrize(
     "modification",
     [
         "legacy",

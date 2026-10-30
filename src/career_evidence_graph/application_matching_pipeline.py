@@ -36,6 +36,20 @@ def _read_saved(path):
         raise PortalDataError("match_resume_invalid", "原分析恢复记录不能核验。", 409) from error
 
 
+def known_reading_failure(directory, saved):
+    """The saved reading phase ended in a proven size refusal, not an unknown call."""
+    from .application_material_packet import known_budget_failure
+
+    origin = Path(saved["reading_origin"]) if isinstance(saved.get("reading_origin"), str) else None
+    return bool(
+        saved.get("phase") == "reading"
+        and origin is not None
+        and origin.parent == directory
+        and not origin.is_symlink()
+        and known_budget_failure(origin)
+    )
+
+
 def _same_upstream_binding(saved, binding):
     previous = saved.get("binding")
     if previous == binding:

@@ -32,6 +32,7 @@ MAX_COMPLETE_SOURCE_BYTES = 8_000
 CHUNK_OVERLAP_CHARS = 256
 # Bound selection output independently of the unchanged input-byte budgets.
 MAX_BATCH_SOURCES = 32
+_BUDGET_FAILURE = "Relevant evidence exceeds the complete packet budget"
 
 
 class _Selection(BaseModel):
@@ -298,6 +299,22 @@ def _unreceipted_reading(origin, previous):
             ):
                 return True
     return False
+
+
+def known_budget_failure(origin):
+    """A packet refused for size after every reading call was receipted hides no result."""
+    try:
+        packet = helper.read_json_object(origin / "material-packet.json", "material packet")
+        return (
+            packet.get("status") == "failed"
+            and packet.get("failure") == {"error_type": "ValueError", "message": _BUDGET_FAILURE}
+            and not packet.get("pending_call")
+            and packet.get("revision")
+            == digest({key: value for key, value in packet.items() if key != "revision"})
+            and not _unreceipted_reading(origin, packet)
+        )
+    except (OSError, ValueError, TypeError, KeyError, helper.StoreError):
+        return False
 
 
 def _recover_native_reading(origin, previous, sources, scope, job_brief, business_scope):
@@ -810,7 +827,7 @@ def prepare_material_packet(
 
         def check_packet_budget():
             if _size(packet["sources"]) > material_limit:
-                raise ValueError("Relevant evidence exceeds the complete packet budget")
+                raise ValueError(_BUDGET_FAILURE)
 
         check_packet_budget()
         cursor = 0
