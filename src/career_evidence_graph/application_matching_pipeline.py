@@ -40,6 +40,17 @@ def _same_upstream_binding(saved, binding):
     previous = saved.get("binding")
     if previous == binding:
         return True
+    if (
+        saved.get("phase") == "brief"
+        and not saved.get("brief")
+        and isinstance(saved.get("brief_origin"), str)
+        and (Path(saved["brief_origin"]) / "validation-failure.json").is_file()
+    ):
+        # A rejected JD reading reuses nothing; its next call runs under the current
+        # configuration, and the brief itself re-checks the recorded rejection.
+        return isinstance(previous, dict) and {
+            k: v for k, v in previous.items() if k != "configuration"
+        } == {k: v for k, v in binding.items() if k != "configuration"}
     if _known_invalid_followup(saved):
         if not isinstance(previous, dict) or {
             k: v for k, v in previous.items() if k != "configuration"

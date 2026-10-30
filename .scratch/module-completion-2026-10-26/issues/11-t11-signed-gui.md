@@ -186,3 +186,16 @@ macos/App.swift、macos/main_app.py、macos/build.py、loaded_code.py 仅查明�
 
 - 修复：继续重试被拒分析前先 `update_inputs` 绑定当前输入（同“更新任务”路径；输入有变时归档失败 attempt 并转为待分析，再 `prepare`）；输入未变仍 `start(retry=True)`。
 - 新测试复现原报错（RED）→ GREEN；全量离线 8500/3/0，ruff、format 干净。
+
+### 2026-10-30 安装版第八次更新与自测：重试停在 `match_resume_invalid`（`claude-code-4ca66ce5/root`）
+
+用户授权由我直接测试。以 `9649beb9` 构建并更新（私人证据 `maintenance-2026-10-30-mc11-r8/`，各项 exit 0）。屏幕锁定，CUA 无法点击窗口，
+改为向 App 本机服务发送与按钮相同的 `/api/pipeline/continue`。结果：任务重新绑定输入（旧失败 attempt 已归档）并开始分析，数秒后 `match_resume_invalid`，
+流程按“结果未知”停住；新 attempt 目录为空，没有模型调用。
+
+- 根因：新 attempt 从被拒的岗位解读接续，`_same_upstream_binding` 要求配置完全相同；App 更新改了引擎哈希，ChatGPT.app 内 Codex 13:04 更新改了可执行文件元数据。
+- 修复一：解读被拒（`validation-failure.json`）且未采纳解读的 brief 阶段不复用任何上游决定，配置变化不再阻止接续；解读本身仍核对原拒绝记录后重新调用。
+- 修复二：`match_resume_invalid` 归为已知拒绝（不调用模型，下次尝试重新核对记录），“继续”可重试。
+- 修复三：持有该岗位执行锁时，最新 attempt 若目录为空即已结束且未调用模型，不再阻止新请求；同一请求本身仍不重放。
+  `test_request_save_failure_never_dispatches_or_replays_an_unknown_intent[True]` 相应改为：原请求仍为 needs_recheck，新请求可执行。
+- 新测试 RED→GREEN；真实记录副本上两处阻塞均通过；全量离线 8505/3/0，ruff、format 干净。

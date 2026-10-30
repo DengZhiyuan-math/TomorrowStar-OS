@@ -3,6 +3,8 @@
 from copy import deepcopy
 
 import pytest
+import test_normal_retrieval_pipeline as recorded
+from test_application_match import model_runner
 from test_canonical_career_sources import canonical as canonical
 from test_normal_retrieval_pipeline import APPLICATION, RecordedPipeline, requirement, thin
 
@@ -160,3 +162,98 @@ def test_known_invalid_evaluator_keeps_ready_packet_after_implementation_repair(
     assert retry.read_calls == []
     assert retry.phases == ["evaluate"]
     assert result["material_packet"]["status"] == "complete"
+
+
+@pytest.mark.parametrize("changed", ["engine_sha256", "executable_metadata_revision"])
+def test_rejected_job_brief_is_read_again_after_an_app_or_codex_update(
+    canonical, tmp_path, monkeypatch, changed
+):
+    library, _, _, base, *_ = canonical
+    snapshot = thin(canonical)
+    loader = lambda ids: library.snapshot_for_analysis(base, ids)  # noqa: E731
+    initial = RecordedPipeline([requirement("Scientific collaboration")])
+    old = tmp_path / "rejected"
+
+    def unquoted(output, calls):
+        if "groups" in output:
+            output = deepcopy(output)
+            output["groups"][0]["jd_quote"] = "Unrecorded duty"
+        return model_runner(output, calls)
+
+    with monkeypatch.context() as patch, pytest.raises(PortalDataError) as rejected:
+        patch.setattr(recorded, "model_runner", unquoted)
+        application_match.analyze_job(
+            APPLICATION,
+            snapshot,
+            old,
+            runner=initial,
+            source_loader=loader,
+            information_library={"status": "unconfigured"},
+        )
+    assert rejected.value.code == "job_brief_invalid"
+    # Installed MC-11: an App or Codex CLI update between the rejection and Continue
+    # changed the configuration; the rejected reading reuses nothing, so it reads again.
+    original = application_match.match_configuration
+    monkeypatch.setattr(
+        application_match,
+        "match_configuration",
+        lambda environment=None: original(environment) | {changed: "updated"},
+    )
+    retry = RecordedPipeline(initial.requirements)
+    result = application_match.analyze_job(
+        APPLICATION,
+        snapshot,
+        tmp_path / "retry",
+        runner=retry,
+        source_loader=loader,
+        information_library={"status": "unconfigured"},
+        resume_from=old,
+    )
+    assert len(retry.brief_calls) == 1
+    assert result["job_brief"]["groups"][0]["jd_quote"] != "Unrecorded duty"
+
+
+def test_retry_after_a_refused_recovery_reads_the_rejected_job_brief_again(
+    canonical, tmp_path, monkeypatch
+):
+    from career_evidence_graph import application_matching_pipeline
+
+    library, _, _, base, *_ = canonical
+    snapshot = thin(canonical)
+    root = tmp_path / "analyses"
+    options = {"source_loader": lambda ids: library.snapshot_for_analysis(base, ids)}
+    initial = RecordedPipeline([requirement("Scientific collaboration")])
+
+    def unquoted(output, calls):
+        if "groups" in output:
+            output = deepcopy(output)
+            output["groups"][0]["jd_quote"] = "Unrecorded duty"
+        return model_runner(output, calls)
+
+    with monkeypatch.context() as patch, pytest.raises(PortalDataError) as rejected:
+        patch.setattr(recorded, "model_runner", unquoted)
+        application_match.Analysis(root, runner=initial, **options).prepare(
+            APPLICATION, snapshot, request_id="1" * 32
+        )
+    assert rejected.value.code == "job_brief_invalid"
+    original = application_match.match_configuration
+    monkeypatch.setattr(
+        application_match,
+        "match_configuration",
+        lambda environment=None: original(environment) | {"engine_sha256": "updated"},
+    )
+    refused = RecordedPipeline(initial.requirements)
+    # The installed App before this fix refused the changed configuration once.
+    with monkeypatch.context() as patch, pytest.raises(PortalDataError) as error:
+        patch.setattr(application_matching_pipeline, "_same_upstream_binding", lambda *_: False)
+        application_match.Analysis(root, runner=refused, **options).prepare(
+            APPLICATION, snapshot, request_id="2" * 32, recovery_candidates=["1" * 32]
+        )
+    assert error.value.code == "match_resume_invalid"
+    assert refused.calls == []
+    retry = RecordedPipeline(initial.requirements)
+    progress = application_match.Analysis(root, runner=retry, **options).prepare(
+        APPLICATION, snapshot, request_id="3" * 32, recovery_candidates=["2" * 32, "1" * 32]
+    )
+    assert progress["status"] == "complete"
+    assert len(retry.brief_calls) == 1

@@ -23,6 +23,7 @@ from career_evidence_graph.codex_cli import CodexCLIError
     ("error_code", "expected_status"),
     [
         ("match_model_invalid", "needs_input"),
+        ("match_resume_invalid", "needs_input"),
         ("match_result_needs_recheck", "needs_recheck"),
         ("reader_cli_timeout", "needs_recheck"),
         ("reader_subprocess_timeout", "needs_recheck"),

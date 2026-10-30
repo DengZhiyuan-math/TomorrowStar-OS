@@ -262,10 +262,14 @@ def test_request_save_failure_never_dispatches_or_replays_an_unknown_intent(
     assert calls == []
     result = analysis.prepare(application, snapshot, request_id="8" * 32)
     if published:
+        # The published intent itself is never replayed; a new request may follow
+        # because the ended attempt wrote nothing and therefore called no model.
         assert result["status"] == "needs_recheck"
-        with pytest.raises(PortalDataError):
-            analysis.prepare(application, snapshot, request_id="9" * 32)
         assert calls == []
+        assert analysis.prepare(application, snapshot, request_id="9" * 32)["status"] == (
+            "complete"
+        )
+        assert len(calls) == 2
     else:
         assert result["status"] == "complete"
         assert len(calls) == 2  # Existing boundary's version check and evaluation.

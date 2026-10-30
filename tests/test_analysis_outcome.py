@@ -18,6 +18,7 @@ from career_evidence_graph.career_portal_data import PortalDataError
         ("match_inference_invalid", "rejected"),
         ("retrieval_invalid", "rejected"),
         ("job_brief_invalid", "rejected"),
+        ("match_resume_invalid", "rejected"),
         ("retrieval_execution_incomplete", "unknown"),
         ("match_model_unavailable", "unknown"),
         ("match_timeout", "unknown"),

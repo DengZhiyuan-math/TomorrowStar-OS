@@ -2029,6 +2029,12 @@ class Analysis:
                 binding.get("resume_from"), binding.get("recovery_candidates", [])
             )
             outcome = self.reconcile(latest["attempt_id"])["status"] if latest else None
+            if outcome == "needs_recheck" and self.analyzer is None:
+                ended = self._directory(latest["attempt_id"])
+                # This scope's lock is held, so the attempt has ended; every model call
+                # first writes its schema inside it, so one that wrote nothing called none.
+                if not (ended.exists() and any(ended.iterdir())):
+                    outcome = "failed"
             if (
                 latest is not None
                 and outcome in {"failed", "recoverable", "stopped"}

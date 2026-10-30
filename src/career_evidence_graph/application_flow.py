@@ -104,6 +104,8 @@ def _analysis_outcome(task):
             "match_inference_invalid",
             "retrieval_invalid",
             "job_brief_invalid",
+            # A refused recovery calls nothing; the next attempt re-checks the records.
+            "match_resume_invalid",
         }
         and isinstance(stage.get("attempt_id"), str)
         and re.fullmatch(r"[a-f0-9]{32}", stage["attempt_id"])
