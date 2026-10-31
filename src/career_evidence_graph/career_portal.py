@@ -614,6 +614,21 @@ def create_server(
             self._json(response, 200 if patch else 201)
 
         def do_POST(self) -> None:
+            if self._path() == "/api/browser-sign-in":
+                if not self._admit(write=True):
+                    return
+                try:
+                    from .browser_sign_in import open_sign_in
+
+                    payload = self._body()
+                    if worker_root is None or set(payload) != {"site"}:
+                        raise PortalDataError(
+                            "sign_in_unavailable", "自动填写浏览器尚未配置。", 409
+                        )
+                    self._json(open_sign_in(worker_root, payload["site"]))
+                except PortalDataError as exc:
+                    self._error(exc.code, str(exc), exc.status)
+                return
             if self._path().startswith("/api/resume-review/"):
                 if not self._admit(write=True):
                     return

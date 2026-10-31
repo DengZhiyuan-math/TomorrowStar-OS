@@ -39,3 +39,25 @@ def test_an_overrun_idle_wait_is_not_a_lost_browser(monkeypatch):
     runner.event = events.append
     runner.pump()
     assert events == []
+
+
+def test_worker_adopts_a_login_saved_by_the_sign_in_window(tmp_path):
+    from career_evidence_graph.cua_driver import sync_login_state
+
+    class Context:
+        def __init__(self):
+            self.cookies = [{"name": "guest", "value": "1"}]
+
+        def add_cookies(self, cookies):
+            self.cookies += cookies
+
+        def storage_state(self):
+            return {"cookies": list(self.cookies), "origins": []}
+
+    context = Context()
+    seen = sync_login_state(tmp_path, context, None)
+    signed_in = {"cookies": [{"name": "session", "value": "x"}], "origins": []}
+    (tmp_path / LOGIN_STATE).write_text(__import__("json").dumps(signed_in))
+    sync_login_state(tmp_path, context, seen - 1)
+    names = {c["name"] for c in load_login_state(tmp_path)["cookies"]}
+    assert names == {"guest", "session"}

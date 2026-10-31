@@ -70,7 +70,7 @@ from .ashby_drafts import DraftSession
 from .ashby_drafts import supports as supports_ashby_drafts
 from .ats_forms import FORMS, form_for
 from .career_portal_data import ApplicationStore, PortalDataError
-from .cua_driver import managed_cua_browser, save_login_state
+from .cua_driver import managed_cua_browser, sync_login_state
 from .loaded_code import load_worker_modules, loaded_runtime_revision
 from .owned_browser_cdp import OwnedCDP, browser_budget, pause_browser_budget, pump_events
 from .owned_browser_cdp import screenshot as owned_screenshot
@@ -5781,7 +5781,7 @@ def main(argv: list[str] | None = None, *, expected_sources: dict | None = None)
                     from .application_worker_fixtures import install_browser_fixture
 
                     install_browser_fixture(context, runner, args.synthetic_browser)
-            next_login_save = 0.0
+            next_login_save, login_seen = 0.0, None
             while not stop_requested:
                 runner.tick()
                 # Context waiting pumps native events without depending on the first Page.
@@ -5789,8 +5789,8 @@ def main(argv: list[str] | None = None, *, expected_sources: dict | None = None)
                 if cua is not None and time.monotonic() >= next_login_save:
                     # Keep a login made on the worker's page for later runs.
                     with suppress(Error, OSError, ValueError):
-                        save_login_state(store.root, context)
-                    next_login_save = time.monotonic() + 30
+                        login_seen = sync_login_state(store.root, context, login_seen)
+                    next_login_save = time.monotonic() + 10
             with store.applications.write_lock():
                 state = store.load()
                 state.update(control="paused", worker_error="worker_stopped")

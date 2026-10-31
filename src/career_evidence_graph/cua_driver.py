@@ -1619,6 +1619,18 @@ def save_login_state(root, context) -> None:
     helper.atomic_write_json(Path(root) / LOGIN_STATE, context.storage_state())
 
 
+def sync_login_state(root, context, seen):
+    """Adopt a login the sign-in window saved since ``seen``, then save this context."""
+    path = Path(root) / LOGIN_STATE
+    with suppress(OSError):
+        if seen is not None and path.stat().st_mtime_ns != seen:
+            saved = load_login_state(root)
+            if saved:
+                context.add_cookies(saved["cookies"])
+    save_login_state(root, context)
+    return path.stat().st_mtime_ns
+
+
 @contextmanager
 def managed_owned_cua_browser(
     playwright, root, driver, env, record, origins, *, trusted_session=False

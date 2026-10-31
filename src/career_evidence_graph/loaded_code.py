@@ -62,6 +62,7 @@ _PREPARATION_MODULES = (
     "application_source_reuse",
     "application_match_scoring",
     "application_second_opinion",
+    "browser_sign_in",
     "application_job_brief",
     "application_jd_extract",
     "application_input_limits",
