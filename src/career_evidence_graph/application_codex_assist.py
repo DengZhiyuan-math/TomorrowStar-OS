@@ -298,7 +298,14 @@ class _Run:
 
 
 class _ProtocolFailure(Exception):
-    pass
+    def __init__(self, *args):
+        super().__init__(*args)
+        if args and args[0] == "native_handoff_status_unknown":
+            # The private worker log keeps which native check refused (2026-10-31).
+            import traceback
+
+            frame = traceback.extract_stack(limit=3)[0]
+            print(f"native_handoff_status_unknown at line {frame.lineno}", flush=True)
 
 
 class CodexAdapter:
