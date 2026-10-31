@@ -59,7 +59,7 @@ def _answered_evaluation(saved):
         return False
     try:
         result = _read_saved(Path(origin) / "model-result.json")
-    except PortalDataError:
+    except (PortalDataError, helper.StoreError):
         return False
     return result.get("status") != "failed" and result.get("exit_code") == 0
 
