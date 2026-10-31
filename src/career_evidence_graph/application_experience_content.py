@@ -33,6 +33,10 @@ WRITER_INSTRUCTIONS = (
     "Write only this experience from the delivered facts and accepted inferences. "
     "Keep roles, numbers, responsibility and status. Use per-item fact_refs or inference_refs. "
     "Use needs_material with located requests for missing facts. "
+    "Items are the bullets under this experience's heading; the program already prints its "
+    "title, organization, role, location and dates, so never repeat them as items. "
+    "Put a URL only in an item's links, without repeating its label in the item text. "
+    "Leave out long identifiers such as full commit hashes. "
     "Do not reinterpret the JD, rescore, retrieve libraries, or change another experience."
 )
 REVIEW_INSTRUCTIONS = (

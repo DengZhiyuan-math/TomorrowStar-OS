@@ -259,3 +259,16 @@ def test_item_names_two_writers_chose_independently_are_scoped_by_experience():
     assert assemble_content(plan(), [fragment()])["experiences"][0]["items"][0]["id"] == (
         "item-demo-1"
     )
+
+
+def test_characters_the_template_font_lacks_are_written_as_latex():
+    from career_evidence_graph.application_resume_render import _item, _text
+
+    # Installed MC-11: the Hexagon PDF silently dropped "π₀.₅" and an em dash.
+    assert _text("π₀.₅ — x²") == (
+        r"\ensuremath{\pi}\textsubscript{0}.\textsubscript{5} --- x\textsuperscript{2}"
+    )
+    link = {"label": "PR #1", "url": "https://example.com/1"}
+    assert _item({"text": "PR #1", "links": [link]}) == (
+        "\\item \\href{https://example.com/1}{PR \\#1}\n"
+    )

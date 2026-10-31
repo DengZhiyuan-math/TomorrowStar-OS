@@ -7,6 +7,7 @@ files, invokes models or starts a compiler.
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote, urlsplit
@@ -53,6 +54,39 @@ _ESCAPES = {
     "^": r"\textasciicircum{}",
     "\\": r"\textbackslash{}",
     "\n": r"\mbox{}\newline{}",
+    # Templates use 8-bit fonts; these characters have no glyph there and vanish.
+    "\u2014": "---",
+    "\u2013": "--",
+    "\u2018": "`",
+    "\u2019": "'",
+    "\u201c": "``",
+    "\u201d": "''",
+    "\u2026": r"\ldots{}",
+    "\u2022": r"\textbullet{}",
+    "\u2192": r"\ensuremath{\rightarrow}",
+    "\u00d7": r"\ensuremath{\times}",
+    "\u00b1": r"\ensuremath{\pm}",
+    "\u2248": r"\ensuremath{\approx}",
+    "\u2264": r"\ensuremath{\leq}",
+    "\u2265": r"\ensuremath{\geq}",
+    **{chr(0x2080 + digit): rf"\textsubscript{{{digit}}}" for digit in range(10)},
+    **{
+        char: rf"\textsuperscript{{{digit}}}"
+        for digit, char in enumerate("\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079")
+    },
+    **{
+        unicodedata.lookup(f"GREEK {case} LETTER {name.upper()}"): rf"\ensuremath{{\{command}}}"
+        for case, names in (
+            (
+                "SMALL",
+                "alpha beta gamma delta epsilon zeta eta theta iota kappa lamda mu nu "
+                "xi pi rho sigma tau upsilon phi chi psi omega",
+            ),
+            ("CAPITAL", "Gamma Delta Theta Lamda Xi Pi Sigma Upsilon Phi Psi Omega"),
+        )
+        for name in names.split()
+        for command in [name.replace("amda", "ambda")]
+    },
 }
 
 
@@ -82,8 +116,12 @@ def _link(label: str, url: str | None) -> str:
 
 
 def _item(item: dict[str, Any]) -> str:
-    links = " ".join(_link(link["label"], link["url"]) for link in item["links"])
-    return "\\item " + _text(item["text"]) + (" " + links if links else "") + "\n"
+    links = item["links"]
+    if len(links) == 1 and links[0]["label"].strip() == item["text"].strip():
+        # A link labelled with the item's own text is the item.
+        return "\\item " + _link(item["text"], links[0]["url"]) + "\n"
+    rendered = " ".join(_link(link["label"], link["url"]) for link in links)
+    return "\\item " + _text(item["text"]) + (" " + rendered if rendered else "") + "\n"
 
 
 @dataclass(frozen=True)
