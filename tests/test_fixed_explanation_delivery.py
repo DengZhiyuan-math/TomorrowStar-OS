@@ -45,6 +45,21 @@ def test_fixed_explanation_consumes_delivered_judgments_without_live_source_read
     assert task == before
 
 
+def test_fixed_explanation_rescores_saved_verdicts_with_the_current_rule():
+    application, task = job_and_task(
+        [requirement("Python"), requirement("Embedded Linux", judgment="partial")]
+    )
+    analysis = task["artifacts"][0]["result"]
+    analysis.update(
+        retrieval={"selected_candidate_ids": []}, application_library_policy="trusted-library/v1"
+    )
+    # Installed MC-11: a score saved under the old partial rule kept showing 14-94.
+    analysis["score"] = {"lower": 50, "upper": 100, "coverage": 50, "eligibility": "not_specified"}
+    view = job_explanation(application, task, current_inputs=task["inputs"], fixed_delivery=True)
+    assert view["score"] == calculate_match_score(analysis["requirements"])
+    assert (view["score"]["lower"], view["score"]["upper"]) == (75, 75)
+
+
 @pytest.mark.parametrize(
     ("judgment", "expected"), [("unknown", "needs_input"), ("gap", "conflict")]
 )

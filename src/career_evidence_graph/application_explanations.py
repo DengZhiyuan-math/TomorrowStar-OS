@@ -1,5 +1,6 @@
 """Read-only, source-bound job explanations; scores never establish qualification."""
 
+from contextlib import suppress
 from copy import deepcopy
 
 from .application_match_scoring import calculate_match_score
@@ -259,7 +260,7 @@ def _material_read_coverage(packet):
     }
 
 
-def _resume_coverage(task, requirements):
+def _resume_coverage(task, requirements, resume_sources=None):
     identifiers = {
         (task or {}).get("draft_id"),
         (task or {}).get("resume_id"),
@@ -285,6 +286,10 @@ def _resume_coverage(task, requirements):
     if material is None:
         return result
     used = material.get("used_source_ids")
+    if not used and resume_sources is not None:
+        # Results saved before 2026-10-31 recorded no sources for template content.
+        with suppress(PortalDataError, OSError, ValueError, KeyError, TypeError):
+            used = resume_sources(material.get("id"))
     if not isinstance(used, list) or any(not isinstance(sid, str) for sid in used):
         return result
     used = set(used)
@@ -360,6 +365,7 @@ def job_explanation(
     source_provider=None,
     policy_version=POLICY_VERSION,
     fixed_delivery=False,
+    resume_sources=None,
 ):
     from .application_flow import (
         analysis_input_binding,
@@ -420,13 +426,9 @@ def job_explanation(
                     )
                 requirement.pop("information_support", None)
     try:
-        score = (
-            deepcopy(analysis["score"])
-            if fixed_delivery and isinstance((analysis or {}).get("score"), dict)
-            else calculate_match_score(requirements)
-            if analysis
-            else None
-        )
+        # Saved verdicts are rescored with the current rule (decided 2026-10-31), so a
+        # rule change also shows on jobs whose materials are already fixed.
+        score = calculate_match_score(requirements) if analysis else None
     except (PortalDataError, KeyError, TypeError, ValueError):
         score = None
         requirements = []
@@ -592,6 +594,6 @@ def job_explanation(
         result["material_read_coverage"] = _material_read_coverage(
             effective_analysis["material_packet"]
         )
-        result["resume_coverage"] = _resume_coverage(task, requirements)
+        result["resume_coverage"] = _resume_coverage(task, requirements, resume_sources)
     result["revision"] = digest(result)
     return result

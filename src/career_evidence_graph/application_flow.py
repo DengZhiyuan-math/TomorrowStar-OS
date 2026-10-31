@@ -706,6 +706,7 @@ class ApplicationFlowService:
         self.information_provider = information_provider
         self.information_library_root = information_library_root
         self.recheck_source_provider = recheck_source_provider
+        self._resume_sources = {}
         self.preparation_only = preparation_only
         from .application_material_batch import MaterialBatch
 
@@ -1108,6 +1109,14 @@ class ApplicationFlowService:
         if record is None:
             raise PortalDataError("flow_draft_not_found", "找不到已保存的岗位草稿。", 404)
         return self._materials.read(record)
+
+    def _resume_source_ids(self, identifier):
+        """Sources an adopted résumé used; saved drafts never change, so read each once."""
+        if identifier not in self._resume_sources:
+            self._resume_sources[identifier] = list(
+                self.read_draft(identifier).get("used_source_ids", [])
+            )
+        return self._resume_sources[identifier]
 
     def verify_draft(self, task):
         """Verify the task's saved draft bytes against its adopted record."""
@@ -5398,6 +5407,7 @@ class ApplicationFlowService:
             source_provider=None if fixed is not None else self.recheck_source_provider,
             policy_version=PREPARATION_POLICY_VERSION,
             fixed_delivery=fixed is not None,
+            resume_sources=self._resume_source_ids if hasattr(self, "_materials") else None,
         )
         if unavailable:
             result["limitations"].insert(0, "此岗当前资料暂不能核验，请保留进度后重新读取。")
