@@ -63,6 +63,10 @@ def saved_context(directory):
 
 @pytest.fixture
 def native_case(tmp_path):
+    return build_native_case(tmp_path)
+
+
+def build_native_case(tmp_path, *, education=False):
     application = {
         "id": "synthetic-native",
         "revision": "r1",
@@ -112,6 +116,16 @@ def native_case(tmp_path):
     )
     original["documents"].append({"id": "confirmed-doc", "revision": "r-0", "available": True})
     original["items"].append(confirmed)
+    if education:
+        degree = snapshot("M2 in Mathematics, Example University, 2021-09 to 2022-06 (awarded).")
+        degree = degree["items"][0] | {
+            "source_id": "education-m2",
+            "evidence_id": "education-doc",
+            "source_kind": "education",
+            "resume_eligible": False,
+        }
+        original["documents"].append({"id": "education-doc", "revision": "r-0", "available": True})
+        original["items"].append(degree)
     original["schemaVersion"] = 1
     original["application_library_policy"] = "trusted-library/v1"
     original["job_brief"] = brief
@@ -288,6 +302,20 @@ def test_native_citations_follow_the_source_ids(native_case, tmp_path, cited):
     row = result["requirements"][0]
     assert row["judgment"] == "supported" and "citation_warning" not in row
     assert [citation["source_id"] for citation in row["citations"]] == ["source-0"]
+
+
+def test_an_education_record_is_cited_by_identity(tmp_path):
+    # Installed MC-11: education needed a literal quote, so the model's ID-only citation
+    # named an unrelated record and both degree requirements stayed unresolved.
+    application, prepared, output = build_native_case(tmp_path, education=True)
+    row = output["requirements"][0]
+    row.update(source_ids=["education-m2"], citations=[{"source_id": "education-m2"}])
+    result = analyze_job(
+        application, prepared, tmp_path / "degree", runner=model_runner(output, [])
+    )
+    row = result["requirements"][0]
+    assert row["judgment"] == "supported" and "citation_warning" not in row
+    assert row["citations"][0]["quote"].startswith("M2 in Mathematics")
 
 
 def assert_citation_withheld(result):

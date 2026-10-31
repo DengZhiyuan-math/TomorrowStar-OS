@@ -264,7 +264,11 @@ def _native_fact_source_ids(snapshot, sources):
     return {
         identifier
         for identifier, source in sources.items()
-        if (structured_fact(source) or source.get("source_kind") == "confirmed_information")
+        # An education record is one fixed documentary record, cited whole like a fact.
+        if (
+            structured_fact(source)
+            or source.get("source_kind") in {"confirmed_information", "education"}
+        )
         and source.get("original_text_chars", len(source["text"])) == len(source["text"])
         and source.get("context_range", {"start": 0, "end": len(source["text"])})
         == {"start": 0, "end": len(source["text"])}
