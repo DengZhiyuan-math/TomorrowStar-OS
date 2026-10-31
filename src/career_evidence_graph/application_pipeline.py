@@ -1280,6 +1280,8 @@ class ApplicationPipeline:
                     )
                 self._save(state)
             elif action == "continue":
+                if state.get("wait_reason") == "cover_letter_result_unknown":
+                    self._retry_unknown_writing(state, payload["request_id"])
                 if state.get("wait_reason") in {
                     "cover_letter_result_unknown",
                     "material_consistency_required",
@@ -1865,6 +1867,29 @@ class ApplicationPipeline:
             return False
         task = self._task(state)
         return task["status"] in {"resume_ready", "materials_ready"} and not task.get("worker_ref")
+
+    def _retry_unknown_writing(self, state, request_id):
+        """Re-run résumé or letter writing calls with unknown results (approved 2026-10-31).
+
+        Writing only drafts text; the unknown attempts stay in the task history.
+        """
+        task = self._task(state)
+        resume = task["stages"].get("resume", {})
+        if (
+            resume.get("status") == "needs_recheck"
+            and resume.get("error_code") == "resume_author_needs_recheck"
+        ):
+            task = self.flow.start(
+                task["id"],
+                task["revision"],
+                "resume",
+                retry=True,
+                _continuation_request_id=request_id,
+            )
+        if (task.get("cover_letter") or {}).get("status") == "needs_recheck":
+            self.flow.start_cover_letter(
+                task["id"], retry=True, _continuation_request_id=request_id
+            )
 
     def _material_wait_for_recovery(self, state):
         if (

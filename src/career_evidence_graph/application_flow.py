@@ -5582,7 +5582,9 @@ class ApplicationFlowService:
             return None
         previous = task.get("cover_letter") or {}
         binding = self._letter_binding(task)
-        if previous.get("status") == "needs_recheck":
+        # Writing only drafts text; the user's explicit retry may run an unknown letter
+        # call again (approved 2026-10-31). The unknown attempt stays in history.
+        if previous.get("status") == "needs_recheck" and not retry:
             raise PortalDataError(
                 "letter_generation_needs_recheck", "求职信调用结果未知，先核验原尝试。", 409
             )
@@ -5603,7 +5605,7 @@ class ApplicationFlowService:
             "job_binding": task["job_binding"],
             "fixed_inputs_revision": binding,
         }
-        if retry and previous.get("status") == "failed":
+        if retry and previous.get("status") in {"failed", "needs_recheck"}:
             task["cover_letter"]["retry_from_attempt_id"] = previous["attempt_id"]
         _record_preparation_attempt(
             task, "cover_letter", attempt, previous.get("attempt_id"), _continuation_request_id
@@ -6266,7 +6268,11 @@ class ApplicationFlowService:
                 raise PortalDataError(
                     "flow_export_recheck_required", "导出尚未确定，请先核验本次导出。", 409
                 )
-            if stage == "resume" and current["status"] == "needs_recheck":
+            if (
+                stage == "resume"
+                and current["status"] == "needs_recheck"
+                and not (retry and current.get("error_code") == "resume_author_needs_recheck")
+            ):
                 raise PortalDataError(
                     "flow_resume_recheck_required", "写作结果尚未核验，请先保留并核对原交付。", 409
                 )
