@@ -383,6 +383,8 @@ class ApplicationRunner:
         self.batch_id = self.store.load()["batch_id"]
         self.live = self.store.load()["mode"] == "live"
         self.handed_off_pages: set = set()
+        # Pages waiting for the user's own sign-in; the script does not write there.
+        self.login_pages: set = set()
         self.upload_job: dict | None = None
         self.bound_material_read = None
         self.blocked_pages: dict[Page, str] = {}
@@ -949,6 +951,17 @@ class ApplicationRunner:
                 self.transports.append(record | {"stage": "request", "at": time.time()})
             route.continue_()
             return
+        if page in self.login_pages:
+            state = self.store.load()
+            job = next(
+                (row for row in state["jobs"] if self.pages.get(row["application_id"]) is page),
+                None,
+            )
+            if hosted_ats.is_final_submission(request, job):
+                _abort(route)
+            else:
+                route.continue_()
+            return
         state = self.store.load()
         owned_job = next(
             (job for job in state["jobs"] if page is self.pages.get(job["application_id"])),
@@ -1280,15 +1293,10 @@ class ApplicationRunner:
                 and destination.netloc == "browser-intake-datadoghq.com"
                 and destination.path in {"/api/v2/rum", "/api/v2/replay"}
             )
-            if (
-                owned_job
-                and not telemetry
-                and (
-                    request.method != "GET"
-                    or urlsplit(request.url).netloc == urlsplit(owned_job["job_url"]).netloc
-                    or page in self.editing_pages
-                )
-            ):
+            # A blocked request never left the browser. Before the script writes to
+            # the page it carries no application data, so it does not stop the job
+            # (decided 2026-10-31: job board tracking stopped every listing page).
+            if owned_job and not telemetry and page in self.editing_pages:
                 self.blocked_pages.setdefault(page, "unverified_send_path")
             _abort(route)
             self.request_diagnostic(
@@ -1329,6 +1337,7 @@ class ApplicationRunner:
         self.blocked_pages.pop(page, None)
         self.editing_pages.discard(page)
         self.handed_off_pages.discard(page)
+        self.login_pages.discard(page)
         self.page_ids.pop(page, None)
         self.page_faults.pop(page, None)
         for request, record in list(self.requests.items()):
@@ -3832,6 +3841,9 @@ class ApplicationRunner:
                 }:
                     job.update(status="needs_recheck", reason=self.blocked_pages[page])
                     self.store.sync(job, "页面发送路径未验证：请人工核验当前页面。")
+                if job.get("reason") != "user_authentication":
+                    # Continue (or any other state) ends the sign-in window.
+                    self.login_pages.discard(page)
                 if page and page.is_closed():
                     self._forget_page(job["application_id"], page)
                     job["page_open"] = False
@@ -3934,8 +3946,10 @@ class ApplicationRunner:
                 if getattr(exc, "code", None) == "user_authentication":
                     page = self.pages.get(job["application_id"])
                     if page is not None and not page.is_closed():
-                        # Expose the retained page for the user's login. Network
-                        # restrictions remain active; this is not final-submit handoff.
+                        # Expose the retained page for the user's login. Its requests
+                        # pass until the next Continue, except a recognized final
+                        # submit (decided 2026-10-31: blocked sign-ins never completed).
+                        self.login_pages.add(page)
                         with suppress(Error, PortalDataError):
                             if self.cua is not None:
                                 self.cua.review(page, pump=self.pump)
