@@ -54,7 +54,8 @@ _DISABLED_FEATURES = (
 _MAX_FRAME_BYTES = 1_048_576
 _MAX_REPORT_CHARS = 65_536
 # Actual 0.165 thread/start took 4.8-5.1 s; other requests keep the short default.
-_THREAD_START_TIMEOUT = 15.0
+# Above the takeover tool server's own 30 s startup, so its failure is reported.
+_THREAD_START_TIMEOUT = 45.0
 # Report text limits live in the schema itself. Strict outputs enforce `pattern`
 # while generating; they reject `maxLength`, so the model reads each bound from its
 # `description` and `_matches` enforces it, no looser than the Worker's adoption check.
@@ -1411,6 +1412,7 @@ class CodexAdapter:
         response = run.responses.pop(identifier)
         run.pending_requests.remove(identifier)
         if "error" in response:
+            print(f"request_rejected: {method} {str(response['error'])[:400]}", flush=True)
             raise _ProtocolFailure("request_rejected")
         result = response.get("result")
         if not isinstance(result, dict):
