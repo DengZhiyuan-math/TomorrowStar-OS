@@ -1119,8 +1119,9 @@ class ApplicationResumeStore:
         """Save the unchanged draft as a new version bound to the new task inputs."""
         identifier = uuid4().hex
         source, target = self.root / draft["id"], self.root / identifier
+        raw = json.loads(self._read_version_file(draft["id"], "draft.json", 2 * 1024 * 1024))
         shutil.copytree(source, target, symlinks=True)
-        rebound = deepcopy(draft) | {
+        rebound = raw | {
             "id": identifier,
             "task_inputs": deepcopy(task_inputs),
             "information_library_revision": task_inputs.get(

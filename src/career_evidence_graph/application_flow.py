@@ -2206,6 +2206,7 @@ class ApplicationFlowService:
                 if not candidate and update.get("error_code") in {
                     "bound_material_preparation_interrupted",
                     "resume_template_update_required",
+                    "resume_draft_invalid",
                 }:
                     update.setdefault("recovery_history", []).append(
                         {
