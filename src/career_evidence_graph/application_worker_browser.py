@@ -652,8 +652,10 @@ class ApplicationRunner:
             pump_events(self.context, 5 if self.work_progressed else 250)
         except TimeoutError:
             pass
-        except Error:
+        except Error as error:
             if not self.shared_fault:
+                # The private log keeps the cause; the job record keeps only the event.
+                print("browser_connection_unknown: " + repr(error)[:500], flush=True)
                 self.event("browser_connection_unknown")
 
     def drain_events(self, state: dict) -> None:
