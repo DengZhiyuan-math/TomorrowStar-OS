@@ -162,12 +162,15 @@ def calculate_framework_score(rows):
         lower = upper = Fraction(0)
         hard = []
         for group in ordered:
+            # Partial support is a completed judgment worth half (decided 2026-10-31);
+            # only unknown keeps the whole [0, 1] interval.
+            half = Fraction(1, 2)
             values = [
-                (1, 1)
-                if seen[atom["id"]] == "supported"
-                else (0, 0)
-                if seen[atom["id"]] == "gap"
-                else (0, 1)
+                {
+                    "supported": (1, 1),
+                    "gap": (0, 0),
+                    "partial": (half, half),
+                }.get(seen[atom["id"]], (0, 1))
                 for atom in group["requirements"]
             ]
             if group["alternatives"] is not None:

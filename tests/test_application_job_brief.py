@@ -365,7 +365,7 @@ def test_failed_call_never_retries_same_directory(tmp_path, application, failure
     [
         ("all", ["supported", "gap"], (50, 50, "conflict")),
         ("any", ["supported", "gap"], (100, 100, "supported")),
-        ("all", ["supported", "partial"], (50, 100, "needs_input")),
+        ("all", ["supported", "partial"], (75, 75, "needs_input")),
         ("any", ["gap", "unknown"], (0, 100, "needs_input")),
         ("any", ["gap", "gap"], (0, 0, "conflict")),
     ],
@@ -564,7 +564,7 @@ def nested_output(application, output, texts=None, alternatives=None):
         (["supported", "supported", "gap"], (100, 100, "supported")),
         (["gap", "supported", "gap"], (50, 50, "conflict")),
         (["supported", "unknown", "gap"], (50, 100, "needs_input")),
-        (["gap", "gap", "partial"], (0, 100, "needs_input")),
+        (["gap", "gap", "partial"], (50, 50, "needs_input")),
     ],
 )
 def test_nested_phd_and_two_years_or_five_years(tmp_path, application, output, judgments, expected):
