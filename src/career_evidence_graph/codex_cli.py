@@ -166,14 +166,19 @@ _EXEC_DISABLED = ("memories", "apps", "plugins", "hooks")
 def strict_output_schema(schema):
     """Make a Pydantic JSON schema acceptable to strict structured output.
 
-    The provider requires every object property in ``required`` and rejects
-    defaults; optional fields stay optional by already allowing null.
+    The provider requires every object property in ``required``, accepts ``anyOf``
+    but not ``oneOf`` or ``discriminator``, and rejects defaults; optional fields stay
+    optional by already allowing null.
     """
     if isinstance(schema, list):
         return [strict_output_schema(item) for item in schema]
     if not isinstance(schema, dict):
         return schema
-    result = {key: strict_output_schema(value) for key, value in schema.items() if key != "default"}
+    result = {
+        "anyOf" if key == "oneOf" else key: strict_output_schema(value)
+        for key, value in schema.items()
+        if key not in {"default", "discriminator"}
+    }
     if isinstance(result.get("properties"), dict):
         result["required"] = list(result["properties"])
     return result

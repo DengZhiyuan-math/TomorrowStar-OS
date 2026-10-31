@@ -41,9 +41,21 @@ def scoped_output(context):
 
 def author_output(request):
     if request["role"] == "plan":
-        return validate_plan(request["context"]["content_plan"]).model_dump(mode="json")
+        # The planner returns only its choices; the program rebuilds assignments.
+        plan = validate_plan(request["context"]["content_plan"]).model_dump(mode="json")
+        return {
+            **{key: plan[key] for key in ("headline", "summary", "skills") if key in plan},
+            "assignments": [
+                {
+                    "experience_id": row["experience_id"],
+                    "writing_requirements": row["writing_requirements"],
+                }
+                for row in plan["assignments"]
+            ],
+        }
     if request["role"].startswith("experience-"):
-        return scoped_output(request["context"])
+        # The writer's union schema is answered inside "result".
+        return {"result": scoped_output(request["context"])}
     return {"passed": True, "issues": [], "content_patch": None, "rewrite_experience_ids": []}
 
 

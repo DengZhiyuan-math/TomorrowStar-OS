@@ -187,3 +187,14 @@ def test_strict_output_schema_requires_every_property_and_drops_defaults():
     # optional headline missing from required.
     assert set(schema["required"]) == set(schema["properties"])
     assert "default" not in str(schema)
+
+
+def test_strict_output_schema_turns_unions_into_any_of():
+    from pydantic import TypeAdapter
+
+    from career_evidence_graph.application_resume_content import WritingResult
+    from career_evidence_graph.codex_cli import strict_output_schema
+
+    schema = strict_output_schema(TypeAdapter(WritingResult).json_schema())
+    # Installed MC-11: the provider rejects oneOf and discriminator in strict mode.
+    assert "anyOf" in schema and "oneOf" not in str(schema) and "discriminator" not in schema

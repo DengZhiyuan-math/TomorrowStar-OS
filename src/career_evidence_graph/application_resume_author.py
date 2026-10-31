@@ -24,6 +24,16 @@ def _call(store, identifier, role, context, schema, runner, allow_calls, admit_c
     # Strict structured output lists every property as required (installed MC-11:
     # every author call was rejected for the optional headline).
     schema = strict_output_schema(schema)
+    # The provider needs an object at the root; a union is answered inside "result".
+    wrapped = schema.get("type") != "object"
+    if wrapped:
+        schema = {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {"result": {k: v for k, v in schema.items() if k != "$defs"}},
+            "required": ["result"],
+            **({"$defs": schema["$defs"]} if "$defs" in schema else {}),
+        }
     binding = digest({"role": role, "context": context, "schema": schema})
     index = 0
     previous = None
@@ -62,7 +72,8 @@ def _call(store, identifier, role, context, schema, runner, allow_calls, admit_c
                 validate_recorded_result(
                     raw, prompt=prompt, output_schema=directory / "schema.json"
                 )
-            return deepcopy(raw["structured_result"]), writer_id, directory
+            answer = raw["structured_result"]
+            return deepcopy(_unwrapped(answer, wrapped)), writer_id, directory
         if not allow_calls:
             raise _failure(
                 "resume_author_needs_recheck", "简历作者尚无完整本地回执，核验不会启动新调用。"
@@ -88,7 +99,8 @@ def _call(store, identifier, role, context, schema, runner, allow_calls, admit_c
         helper.atomic_write_json(
             result_path, {"binding": binding, "result_revision": digest(raw), "result": raw}
         )
-        return deepcopy(response.structured_result), writer_id, directory
+        answer = response.structured_result
+        return deepcopy(_unwrapped(answer, wrapped)), writer_id, directory
     except Exception as error:
         helper.atomic_write_json(
             directory / "failure.json",
@@ -97,6 +109,13 @@ def _call(store, identifier, role, context, schema, runner, allow_calls, admit_c
         raise _failure(
             "resume_author_needs_recheck", "简历作者结果未知，原尝试已保留；不会自动重放。"
         ) from error
+
+
+def _unwrapped(answer, wrapped):
+    """A malformed wrapped answer reaches validation as is, a known rejection."""
+    if wrapped and isinstance(answer, dict) and "result" in answer:
+        return answer["result"]
+    return answer
 
 
 def _plan_choices_schema(full):
