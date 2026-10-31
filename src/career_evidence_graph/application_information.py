@@ -400,7 +400,8 @@ def validate_information_source(application: dict, library: dict, source: dict) 
         (
             item
             for item in information_source_snapshot(application, library, {})["items"]
-            if item["confirmed_information"]["fact"] == binding["fact"]
+            # Education Record items share this snapshot but are not answers.
+            if item.get("confirmed_information", {}).get("fact") == binding["fact"]
         ),
         None,
     )

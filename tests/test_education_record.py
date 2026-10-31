@@ -140,3 +140,16 @@ def test_education_experiences_retire_once_the_record_exists(library):
     assert ids() == {"alpha"}
     items = adapter.snapshot_for_analysis({"documents": [], "items": []}, ["alpha", "beta"])
     assert {item["candidate_id"] for item in items["items"]} == {"alpha"}
+
+
+def test_confirmed_answers_still_validate_beside_education_items(tmp_path):
+    from test_application_information import answer, library_with
+
+    from career_evidence_graph.application_information import validate_information_source
+
+    collection = EducationStore(tmp_path).save(RECORDS, expected_revision=None, actor="user")
+    library = with_education(library_with(answer("English fluency", "professional")), collection)
+    snapshot = information_source_snapshot({"id": "job"}, library, {"documents": [], "items": []})
+    confirmed = next(i for i in snapshot["items"] if i["source_kind"] == "confirmed_information")
+    # Installed MC-11: rebinding an answer crashed on the education items beside it.
+    assert validate_information_source({"id": "job"}, library, confirmed)
