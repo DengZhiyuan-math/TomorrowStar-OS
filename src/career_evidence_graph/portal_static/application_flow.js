@@ -341,7 +341,7 @@
     if (pipeline?.notice) automation.append(node("p", "flow-muted", pipeline.notice.message || pipeline.notice.title));
     for (const item of pipeline?.items || []) {
       const score = item.score;
-      const line = node("p", "flow-muted", `${item.company || "岗位"}${item.role_title ? ` · ${item.role_title}` : ""}${score && typeof score.lower === "number" ? ` · 匹配 ${score.lower}–${score.upper}，证据覆盖 ${score.coverage}` : ""}${item.status === "analysis_failed" ? " · 分析结果未通过校验，已保留记录并跳过" : ""}`);
+      const line = node("p", "flow-muted", `${item.company || "岗位"}${item.role_title ? ` · ${item.role_title}` : ""}${score && typeof score.lower === "number" ? ` · 匹配 ${Math.round(score.lower)}–${Math.round(score.upper)}，证据覆盖 ${Math.round(score.coverage)}%` : ""}${item.status === "analysis_failed" ? " · 分析结果未通过校验，已保留记录并跳过" : ""}`);
       automation.append(line);
       if (item.status === "skipped") {
         const restore = button("返回此岗位", () => pipelineAction("return", { application_id: item.application_id || item.recommendation_id }, true), "", true);
@@ -633,6 +633,9 @@
     }
     if (!task) { current.append(node("p", "flow-muted", flow?.enabled === false ? "单岗位服务尚未连接。" : flow?.mode === "application" ? "将岗位加入申请队列，开启后按顺序处理。查看历史任务不会改变当前岗位。" : "选择一个完整岗位，或从岗位详情打开工作台。")); return; }
     current.append(node("h3", "flow-job-title", applicationTitle(task.application_id)), node("p", "flow-badges", statusLabels[task.status] || task.status));
+    // The automatic flow has no active explanation; its saved match score still belongs here.
+    const pipelineScore = flow.active_explanation ? null : pipeline?.items?.find(item => item.task_id === task.id)?.score;
+    if (pipelineScore && typeof pipelineScore.lower === "number") current.append(node("p", "flow-badges", `${pipelineScore.lower === pipelineScore.upper ? `匹配 ${Math.round(pipelineScore.lower)}/100` : `匹配 ${Math.round(pipelineScore.lower)}–${Math.round(pipelineScore.upper)}/100`} · 分数确定度 ${Math.round(pipelineScore.coverage)}%`));
     if (flow.active_explanation) {
       const explanation = explanationPanel(flow.active_explanation); explanation.id = "flow-explanation";
       explanation.querySelector("#flow-fit-details").open = fitOpen; current.append(explanation);
