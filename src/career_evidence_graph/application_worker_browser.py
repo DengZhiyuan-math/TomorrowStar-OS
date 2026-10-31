@@ -385,6 +385,8 @@ class ApplicationRunner:
         self.handed_off_pages: set = set()
         # Pages waiting for the user's own sign-in; the script does not write there.
         self.login_pages: set = set()
+        # Non-GET endpoints already blocked on a page the script has not written to.
+        self.blocked_endpoints: dict[Page, set] = {}
         self.upload_job: dict | None = None
         self.bound_material_read = None
         self.blocked_pages: dict[Page, str] = {}
@@ -962,6 +964,17 @@ class ApplicationRunner:
             else:
                 route.continue_()
             return
+        endpoint = (request.method, *urlsplit(request.url)[:3])
+        if (
+            endpoint in self.blocked_endpoints.get(page, ())
+            and page not in self.editing_pages
+            and page not in self.drafts
+            and page not in self.workable
+        ):
+            # The same decision as its first block, without re-reading the checkpoint
+            # for each of a job board's many tracking requests.
+            _abort(route)
+            return
         state = self.store.load()
         owned_job = next(
             (job for job in state["jobs"] if page is self.pages.get(job["application_id"])),
@@ -1298,6 +1311,8 @@ class ApplicationRunner:
             # (decided 2026-10-31: job board tracking stopped every listing page).
             if owned_job and not telemetry and page in self.editing_pages:
                 self.blocked_pages.setdefault(page, "unverified_send_path")
+            elif request.method != "GET" and not hosted_ats.is_final_submission(request, owned_job):
+                self.blocked_endpoints.setdefault(page, set()).add(endpoint)
             _abort(route)
             self.request_diagnostic(
                 request,
@@ -1338,6 +1353,7 @@ class ApplicationRunner:
         self.editing_pages.discard(page)
         self.handed_off_pages.discard(page)
         self.login_pages.discard(page)
+        self.blocked_endpoints.pop(page, None)
         self.page_ids.pop(page, None)
         self.page_faults.pop(page, None)
         for request, record in list(self.requests.items()):
@@ -3368,6 +3384,8 @@ class ApplicationRunner:
             code = result.error_code if getattr(result, "status", None) == "failed" else None
         except (PortalDataError, Error) as error:
             code = getattr(error, "code", "native_assistance_unavailable")
+            if not hasattr(error, "code"):
+                print("native_assistance_unavailable: " + repr(error)[:500], flush=True)
         if code is None:
             return
         with self.store.applications.write_lock():
