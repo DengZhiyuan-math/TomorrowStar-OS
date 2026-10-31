@@ -304,7 +304,7 @@ class _ProtocolFailure(Exception):
             # The private worker log keeps which native check refused (2026-10-31).
             import traceback
 
-            frame = traceback.extract_stack(limit=3)[0]
+            frame = traceback.extract_stack(limit=2)[0]
             print(f"native_handoff_status_unknown at line {frame.lineno}", flush=True)
 
 
