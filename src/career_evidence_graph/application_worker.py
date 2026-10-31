@@ -1864,8 +1864,13 @@ def start_run(store, *, expected_sources: dict | None = None) -> str:
                 and backend_recovery_timely(backend_recovery)
             )
         )
+        # A Continue that reopens a lost page (APP-13) starts this run for that job.
+        reopen = state.get("page_reopen") or {}
+        reopening = reopen.get("status") == "pending" and state["control"] == "running"
         if recovering or cold_continue:
-            state.update(control="running" if cold_continue else "paused", worker_error="")
+            state.update(
+                control="running" if cold_continue or reopening else "paused", worker_error=""
+            )
         run_id = uuid4().hex
         now = time.time()
         for job in state["jobs"]:
@@ -1888,6 +1893,7 @@ def start_run(store, *, expected_sources: dict | None = None) -> str:
                 or recovering
                 and not unopened
                 and job["status"] != "cancelled"
+                and not (reopening and job["application_id"] == reopen["application_id"])
             ):
                 job.setdefault("observations", []).append(
                     {
@@ -1903,6 +1909,8 @@ def start_run(store, *, expected_sources: dict | None = None) -> str:
         state["commands"] = (
             [] if recovering else [c for c in state["commands"] if c["action"] != "one-use"]
         )
+        if reopening:
+            reopen.update(status="started", run_id=run_id)
         state.update(worker_pid=os.getpid(), worker_heartbeat=now)
         state["runtime"] = {
             "id": run_id,
@@ -5034,6 +5042,7 @@ class WorkerService:
             "inspect-handoff",
             "verify-handoff",
             "continue-current",
+            "reopen-current",
             "observe-result",
         }
         if operation not in operations:
@@ -6452,6 +6461,57 @@ class WorkerService:
                         "controller": controller,
                     }
                 )
+            elif operation == "reopen-current":
+                # APP-13: the original page is gone with its run; a new run opens the
+                # same job on a new page and reuses saved facts. The old page and its
+                # form stay history; an unknown action or submission still waits.
+                job = self._job(state, payload.get("application_id"))
+                request_id, controller = payload.get("request_id"), payload.get("controller")
+                if (
+                    not isinstance(request_id, str)
+                    or not 1 <= len(request_id) <= 100
+                    or not isinstance(controller, str)
+                    or not 8 <= len(controller) <= 100
+                ):
+                    raise PortalDataError("controller_required", "继续操作缺少标识。", 409)
+                if (
+                    state.get("current_job_id") != job["application_id"]
+                    or job["status"] != "needs_recheck"
+                    or job.get("intent")
+                    or job.get("handed_off")
+                    or job.get("manual_submission")
+                    or manual_submission_unresolved(job)
+                    or material_edit_pending(job)
+                    or assistance_stop_pending(job)
+                    or self._page_current(state, job)
+                    or self.process is not None
+                    and self.process.poll() is None
+                ):
+                    raise PortalDataError(
+                        "page_lost", "原页不能核验，保留已有资料与未决动作。", 409
+                    )
+                if (state.get("page_reopen") or {}).get("request_id") == request_id:
+                    return self.snapshot()
+                archive_stopped_assistance(job)
+                job["observations"].append(
+                    {
+                        "action": "page_reopen_requested",
+                        "request_id": request_id,
+                        "previous_page": deepcopy(job.get("page_observation")),
+                        "reason": job.get("reason"),
+                        "at": time.time(),
+                    }
+                )
+                if job.get("form_state"):
+                    job.setdefault("form_history", []).append(job.pop("form_state"))
+                job.update(status="queued", reason="", page_open=False)
+                state.update(control="running", controller=controller, worker_error="")
+                state["page_reopen"] = {
+                    "request_id": request_id,
+                    "application_id": job["application_id"],
+                    "status": "pending",
+                    "at": time.time(),
+                }
             elif operation in {"skip-current", "select-current"}:
                 if "current_job_id" not in state:
                     raise PortalDataError(
@@ -6982,7 +7042,7 @@ class WorkerService:
                 self.store.stop_path.unlink(missing_ok=True)
                 self.store.storage_error = ""
         if (
-            operation == "resume"
+            operation in {"resume", "reopen-current"}
             and state["control"] == "running"
             or operation == "prepare"
             and any(job.get("workflow") != "single" for job in state["jobs"])

@@ -1576,12 +1576,22 @@ class ApplicationPipeline:
                 else:
                     state.update(control="running", status="continuing_worker", notification=None)
                     self._save(state)
-                    self.flow.worker_action(
-                        task["id"],
-                        task["revision"],
-                        "continue-current",
-                        {"request_id": payload["request_id"], "controller": state["controller"]},
-                    )
+                    request = {
+                        "request_id": payload["request_id"],
+                        "controller": state["controller"],
+                    }
+                    try:
+                        self.flow.worker_action(
+                            task["id"], task["revision"], "continue-current", request
+                        )
+                    except PortalDataError as error:
+                        if error.code != "page_lost":
+                            raise
+                        # APP-13: the original page is gone; a new run opens a new one.
+                        self.flow.worker_action(
+                            task["id"], task["revision"], "reopen-current", request
+                        )
+                        state.update(status="filling", worker_runtime_id=None, last_heartbeat=0)
             else:
                 if not state.get("worker_batch_id"):
                     raise PortalDataError(

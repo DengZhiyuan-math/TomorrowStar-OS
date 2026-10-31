@@ -5001,6 +5001,7 @@ class ApplicationFlowService:
             "skip-current",
             "select-current",
             "continue-current",
+            "reopen-current",
             "observe-result",
         }
         with self.applications.write_lock():
@@ -5023,7 +5024,7 @@ class ApplicationFlowService:
                 raise PortalDataError("flow_worker_unavailable", "请先准备当前填写任务。", 409)
             if operation not in allowed or not isinstance(payload, dict):
                 raise PortalDataError("invalid_flow_request", "填写操作无效。")
-            if operation in {"resume", "continue-current"}:
+            if operation in {"resume", "continue-current", "reopen-current"}:
                 self._group_guard_change(task)
                 self._check_other_match_pending(task)
             if operation == "resume":

@@ -561,3 +561,59 @@ def test_old_job_manual_submit_transport_does_not_lock_new_current_job(single_wo
         state["jobs"][1], state["batch_id"], {"action": "fill", "field_id": "new-field"}
     )
     assert runner.pages[item["application_id"]] is old_page
+
+
+def test_continue_after_lost_page_reopens_the_job_on_a_new_run(single_worker):
+    from career_evidence_graph.application_worker import start_run
+
+    service, item, _checks, launches = single_worker
+    retained_page(service, item)
+    state = service.store.load()
+    state["runtime"]["observed_at"] -= 60
+    state["jobs"][0].update(
+        status="needs_recheck",
+        reason="browser_connection_unknown",
+        form_state={"binding": {"page_id": "retained-page"}},
+    )
+    service.store.save(state)
+    payload = {
+        "application_id": item["application_id"],
+        "controller": "synthetic-controller",
+        "request_id": "continue-lost",
+    }
+    with pytest.raises(PortalDataError) as lost:
+        service.request("continue-current", payload)
+    assert lost.value.code == "page_lost"
+    service.request("reopen-current", payload)
+    after = service.store.load()
+    job = after["jobs"][0]
+    assert (job["status"], job["reason"], job["page_open"]) == ("queued", "", False)
+    assert "form_state" not in job and job["form_history"][-1]["binding"]["page_id"]
+    assert after["control"] == "running" and after["page_reopen"]["status"] == "pending"
+    assert launches
+    # The new run keeps the job queued so it opens a new page, instead of stopping it.
+    run_id = start_run(service.store)
+    after = service.store.load()
+    assert after["control"] == "running" and after["jobs"][0]["status"] == "queued"
+    assert (after["page_reopen"]["status"], after["page_reopen"]["run_id"]) == ("started", run_id)
+
+
+def test_reopen_refuses_an_unknown_action(single_worker):
+    service, item, _checks, _launches = single_worker
+    intent = {"action": "upload", "attempt_id": "unknown-upload"}
+    retained_page(service, item, intent=intent)
+    state = service.store.load()
+    state["runtime"]["observed_at"] -= 60
+    state["jobs"][0].update(status="needs_recheck", reason="page_lost")
+    service.store.save(state)
+    with pytest.raises(PortalDataError) as refused:
+        service.request(
+            "reopen-current",
+            {
+                "application_id": item["application_id"],
+                "controller": "synthetic-controller",
+                "request_id": "reopen-unknown",
+            },
+        )
+    assert refused.value.code == "page_lost"
+    assert service.store.load()["jobs"][0]["intent"] == intent
