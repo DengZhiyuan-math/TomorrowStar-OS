@@ -458,3 +458,29 @@ def test_model_configuration_change_keeps_completed_analysis_explanation_fresh()
     assert result["fresh"] is True
     assert result["progress"]["status"] == "analysis_ready"
     assert result["reasons"][0]["explanation"] == "Synthetic documentary reason."
+
+
+def test_automatic_flow_shows_the_match_overview_without_gating_on_it(application, tmp_path):
+    from test_application_flow import wait_for
+
+    from career_evidence_graph.application_flow import ApplicationFlowService
+
+    applications, job = application
+    service = ApplicationFlowService(
+        applications,
+        tmp_path / "flow",
+        callbacks={"analysis": lambda task: {"id": task["id"], "requirements": [requirement()]}},
+    )
+    try:
+        task = service.create(job["id"], job["revision"])
+        assert "match_explanation" not in service.snapshot(task["id"])
+        service.start(task["id"], task["revision"], "analysis")
+        task = wait_for(service, task["id"], lambda row: row["status"] == "analysis_ready")
+        state = service.snapshot(task["id"])
+        # Installed MC-11: the automatic flow showed only a score badge, without
+        # the range and per-requirement reasons the preparation overview gives.
+        assert state["match_explanation"]["input_binding"]["analysis_id"] == task["analysis_id"]
+        assert state["match_explanation"]["reasons"]
+        assert "active_explanation" not in state
+    finally:
+        service.close()

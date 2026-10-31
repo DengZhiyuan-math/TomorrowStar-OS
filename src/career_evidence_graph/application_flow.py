@@ -5315,17 +5315,23 @@ class ApplicationFlowService:
                     None,
                 )
                 if explanation is None and active:
-                    explanation = self._explanation(
-                        self.applications.get_application(active["application_id"]),
-                        active,
-                        self.information_provider()
-                        if self.fixed_writing_inputs(active) is None and self.information_provider
-                        else None,
-                    )
+                    explanation = self._task_explanation(active)
                 snapshot["active_explanation"] = explanation
                 if explanation:
                     snapshot["eligibility"] = explanation["qualification"]
+            elif active and active.get("analysis_id"):
+                # Display only: application-mode gates never read this explanation.
+                snapshot["match_explanation"] = self._task_explanation(active)
             return snapshot
+
+    def _task_explanation(self, task):
+        return self._explanation(
+            self.applications.get_application(task["application_id"]),
+            task,
+            self.information_provider()
+            if self.fixed_writing_inputs(task) is None and self.information_provider
+            else None,
+        )
 
     def _explanations(self, state):
         from .application_preparation import PREPARATION_POLICY_VERSION

@@ -616,7 +616,7 @@
     const jobs = worker?.jobs?.map(job => job.page_observation
       ? { ...job, page_observation: { ...job.page_observation, at: undefined } }
       : job);
-    const key = JSON.stringify([task, flow?.preparation_activity, pipeline?.id, pipeline?.active_task_id, pipeline?.items?.map(item => item.task_id), flow?.active_explanation, flow?.resume_language, flow?.draft_integrity, flow?.pdf_integrity, flow?.prism, flow?.group_review, flow?.mode, flow?.preparation, flow?.eligibility, flow?.capabilities, flow?.experience_generation, [worker?.enabled, worker?.control, worker?.controller, jobs, worker?.input_items, worker?.runtime_status?.observation, worker?.worker_error, worker?.runtime?.id], [runtimeCheck, runtimeChecking, runtimeCheckFresh(task)], flow?.tasks?.map(item => [item.id, item.revision]), data.applications.map(item => [item.id, item.company, item.role_title, item.url])]);
+    const key = JSON.stringify([task, flow?.preparation_activity, pipeline?.id, pipeline?.active_task_id, pipeline?.items?.map(item => item.task_id), flow?.active_explanation, flow?.match_explanation, flow?.resume_language, flow?.draft_integrity, flow?.pdf_integrity, flow?.prism, flow?.group_review, flow?.mode, flow?.preparation, flow?.eligibility, flow?.capabilities, flow?.experience_generation, [worker?.enabled, worker?.control, worker?.controller, jobs, worker?.input_items, worker?.runtime_status?.observation, worker?.worker_error, worker?.runtime?.id], [runtimeCheck, runtimeChecking, runtimeCheckFresh(task)], flow?.tasks?.map(item => [item.id, item.revision]), data.applications.map(item => [item.id, item.company, item.role_title, item.url])]);
     if (renderedTask === key) return;
     renderedTask = key;
     const sameTask = current.dataset.taskId === task?.id;
@@ -633,9 +633,13 @@
     }
     if (!task) { current.append(node("p", "flow-muted", flow?.enabled === false ? "单岗位服务尚未连接。" : flow?.mode === "application" ? "将岗位加入申请队列，开启后按顺序处理。查看历史任务不会改变当前岗位。" : "选择一个完整岗位，或从岗位详情打开工作台。")); return; }
     current.append(node("h3", "flow-job-title", applicationTitle(task.application_id)), node("p", "flow-badges", statusLabels[task.status] || task.status));
-    // The automatic flow has no active explanation; its saved match score still belongs here.
-    const pipelineScore = flow.active_explanation ? null : pipeline?.items?.find(item => item.task_id === task.id)?.score;
+    // The automatic flow shows the same overview for display; its gates never read it.
+    const pipelineScore = flow.active_explanation || flow.match_explanation ? null : pipeline?.items?.find(item => item.task_id === task.id)?.score;
     if (pipelineScore && typeof pipelineScore.lower === "number") current.append(node("p", "flow-badges", `${pipelineScore.lower === pipelineScore.upper ? `匹配 ${Math.round(pipelineScore.lower)}/100` : `匹配 ${Math.round(pipelineScore.lower)}–${Math.round(pipelineScore.upper)}/100`} · 分数确定度 ${Math.round(pipelineScore.coverage)}%`));
+    if (!flow.active_explanation && flow.match_explanation) {
+      const explanation = explanationPanel(flow.match_explanation); explanation.id = "flow-explanation";
+      explanation.querySelector("#flow-fit-details").open = fitOpen; current.append(explanation);
+    }
     if (flow.active_explanation) {
       const explanation = explanationPanel(flow.active_explanation); explanation.id = "flow-explanation";
       explanation.querySelector("#flow-fit-details").open = fitOpen; current.append(explanation);
