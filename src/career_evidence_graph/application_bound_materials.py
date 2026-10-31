@@ -38,7 +38,13 @@ MATERIAL_KEYS = (
 def failure(
     code="bound_material_update_changed", message="原页材料更新状态已变化，请保留原记录核验。"
 ):
-    return PortalDataError(code, message, 409)
+    import traceback
+
+    error = PortalDataError(code, message, 409)
+    # Which check refused; the Pipeline keeps it with its stop (2026-10-31).
+    frame = traceback.extract_stack(limit=2)[0]
+    error.location = f"{Path(frame.filename).name}:{frame.lineno} {frame.name}"
+    return error
 
 
 def read_commit_journal(root, update_id):

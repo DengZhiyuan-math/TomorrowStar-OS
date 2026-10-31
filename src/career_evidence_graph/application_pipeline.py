@@ -2156,6 +2156,12 @@ class ApplicationPipeline:
             try:
                 self._advance(state)
             except PortalDataError as error:
+                # The private record keeps which check stopped the job (2026-10-31).
+                state["last_stop_error"] = {
+                    "code": error.code,
+                    "location": getattr(error, "location", None),
+                    "at": time.time(),
+                }
                 self._pause_owned_worker(state)
                 self._stop(state, "needs_recheck", str(error))
 
