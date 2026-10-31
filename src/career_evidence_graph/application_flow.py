@@ -2201,10 +2201,12 @@ class ApplicationFlowService:
                     self._save(state)
                     self._queue.put((task_id, "bound-material", update["id"]))
                     return True
-                if (
-                    not candidate
-                    and update.get("error_code") == "bound_material_preparation_interrupted"
-                ):
+                # A refused preparation made no candidate; the next Continue rechecks it,
+                # e.g. after the template or the contact facts were brought in line.
+                if not candidate and update.get("error_code") in {
+                    "bound_material_preparation_interrupted",
+                    "resume_template_update_required",
+                }:
                     update.setdefault("recovery_history", []).append(
                         {
                             "status": update["status"],
