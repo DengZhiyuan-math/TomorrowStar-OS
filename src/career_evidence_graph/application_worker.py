@@ -6345,7 +6345,7 @@ class WorkerService:
             return self.snapshot()
         with self.store.applications.write_lock():
             state = self.store.load()
-            if operation == "resume" and self.store.stop_reason():
+            if operation in {"resume", "reopen-current"} and self.store.stop_reason():
                 # An explicit Continue lifts the stop only once the unchanged
                 # checkpoint is durable again; otherwise the pause remains.
                 try:
@@ -7086,7 +7086,7 @@ class WorkerService:
                 self.write_admitted(operation, state)
             if operation == "prepare":
                 self._settle_pending_prepare(state)
-            if operation == "resume":
+            if operation in {"resume", "reopen-current"}:
                 self.store.stop_path.unlink(missing_ok=True)
                 self.store.storage_error = ""
         if (
