@@ -1619,6 +1619,8 @@ class ApplicationPipeline:
             receipt.update(
                 status="needs_recheck", error_code=getattr(error, "code", type(error).__name__)
             )
+            if getattr(error, "location", None):
+                receipt["error_location"] = error.location
             self._stop(state, "needs_recheck", str(error))
             raise
         receipt = next(
