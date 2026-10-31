@@ -392,6 +392,47 @@ def test_all_any_eligibility_and_uncertainty(
     )
 
 
+@pytest.mark.parametrize(
+    "marks,expected",
+    [
+        # The model's fit is kept inside its judgment's band, in steps of 5.
+        ({"judgment": "partial", "fit_score": 62}, (80, 80)),
+        ({"judgment": "partial", "fit_score": 95}, (87.5, 87.5)),
+        ({"judgment": "unknown", "fit_score": 40}, (57.5, 57.5)),
+        ({"judgment": "gap", "fit_score": 30}, (50, 50)),
+        # An unread source or a withheld citation is not evidence of absence.
+        (
+            {"judgment": "unknown", "fit_score": 5, "evidence_state": "context_not_fully_read"},
+            (50, 100),
+        ),
+        (
+            {
+                "judgment": "unknown",
+                "citation_warning": "match_source_invalid",
+                "proposed_judgment": "partial",
+                "proposed_fit_score": 60,
+            },
+            (50, 80),
+        ),
+    ],
+)
+def test_model_fit_scores_give_one_score_inside_their_bands(
+    tmp_path, application, output, marks, expected
+):
+    # Decided 2026-10-31: wide intervals from many unknown or partial items gave the
+    # user no usable score; the model now scores each requirement inside its band.
+    output["groups"] = [output["groups"][0]]
+    output["groups"][0].update(operator="all", hard_condition=False)
+    rows = judged_rows(
+        brief(tmp_path, application, output),
+        {"Research pricing models": "supported", "Validate risk": marks["judgment"]},
+    )
+    rows[0]["fit_score"] = 100
+    rows[1].update(marks)
+    score = calculate_framework_score(rows)
+    assert (score["lower"], score["upper"]) == expected
+
+
 def test_hard_conflict_cannot_be_offset_by_business_advantages(tmp_path, application, output):
     output["groups"][1]["hard_condition"] = True
     rows = judged_rows(

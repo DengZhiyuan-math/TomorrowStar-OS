@@ -194,6 +194,8 @@ class _Requirement(BaseModel):
     claim_scope: Literal[
         "documentary", "personal_completed", "personal_design", "team", "other", "unknown"
     ]
+    # The model's 0-100 fit inside its judgment's band; the program clamps and rounds it.
+    fit_score: int | None = None
 
 
 class _ExtractedFields(BaseModel):
@@ -473,6 +475,19 @@ def _rebind_misplaced_quotes(requirement, sources):
         )
 
 
+# Decided 2026-10-31: the model scores each requirement; the program keeps it in band.
+_FIT_SCORE_RULES = (
+    "For every requirement also return fit_score, an integer 0-100 for how well the cited "
+    "facts meet it, inside the band of its judgment: supported 75-100 (100 meets or "
+    "exceeds the stated level directly; 75 meets it with a minor difference of setting or "
+    "scale); partial 30-75 (75 most of it, for example the same methods in simulation "
+    "rather than on hardware; 30 only a transferable related part); unknown 0-15 (15 "
+    "adjacent work makes it plausible; 0 nothing in the supplied facts relates); gap 0. "
+    "Score every requirement by the same standard from the supplied facts only; the "
+    "program keeps the score inside its band and rounds it to 5. "
+)
+
+
 # Decided 2026-10-31: the user applies for roles that start after the PhD.
 _DEGREE_IN_PROGRESS = (
     "The user applies for roles that start after an in-progress degree is completed, so "
@@ -599,6 +614,7 @@ def _prompt_context(job, sources, snapshot):
         "date does not establish an already awarded degree. Assess the actual education "
         "content against this JD: ongoing study can support an education-background requirement. "
         + _DEGREE_IN_PROGRESS
+        + _FIT_SCORE_RULES
         + "For selected_source_ids, select only item IDs cited in requirements whose "
         "resume_eligible flag is true; match_eligible alone is insufficient. "
         "Education locators and match-only profile facts must never enter selected_source_ids. "
@@ -685,6 +701,7 @@ def _prompt_context(job, sources, snapshot):
             "dates and literal JD threshold; the program calculates the result. A date "
             "comparison does not award an unfinished degree. "
             + _DEGREE_IN_PROGRESS
+            + _FIT_SCORE_RULES
             + "Keep calculations null for "
             "direct/semantic. Do not calculate a score, write library facts or rerun role "
             "interpretation. Resume source selection never changes background judgments.\n"
@@ -1413,6 +1430,8 @@ def _analyze_loaded_job(
                     "calculation": None,
                     "facts": [],
                 }
+            if "fit_score" in requirement:
+                requirement["proposed_fit_score"] = requirement.pop("fit_score")
             requirement.update(
                 proposed_judgment=requirement["judgment"],
                 judgment="unknown",

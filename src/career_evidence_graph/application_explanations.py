@@ -3,7 +3,7 @@
 from contextlib import suppress
 from copy import deepcopy
 
-from .application_match_scoring import calculate_match_score
+from .application_match_scoring import calculate_match_score, fit_in_band
 from .career_portal_data import STATUS_LABELS, PortalDataError
 from .job_screening import application_country
 from .validation.hashing import record_digest as digest
@@ -517,6 +517,11 @@ def job_explanation(
         )
         if not preferences[key]
     ]
+    for requirement in requirements:
+        # The card shows the in-band fit the score used, not the model's raw number.
+        fit = fit_in_band(requirement.get("judgment"), requirement.get("fit_score"))
+        if fit is not None and not requirement.get("citation_warning"):
+            requirement["fit"] = fit
     result = {
         "application_id": application["id"],
         "task_id": (task or {}).get("id"),

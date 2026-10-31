@@ -326,6 +326,13 @@ def test_packet_matching_counts_an_in_progress_degree_as_held(native_case, tmp_p
     analyze_job(application, prepared, directory, runner=model_runner(output, []))
     prompt = json.loads((directory / "context-input.json").read_text())["prompt"]
     assert "a degree in progress with an expected completion date supports" in prompt
+    assert "return fit_score, an integer 0-100" in prompt
+    from career_evidence_graph.codex_cli import strict_output_schema
+
+    sent = strict_output_schema(json.loads((directory / "match-schema.json").read_text()))
+    definitions = sent["$defs"]
+    requirement = next(v for v in definitions.values() if "fit_score" in v.get("properties", {}))
+    assert "fit_score" in requirement["required"]
 
 
 def assert_citation_withheld(result):

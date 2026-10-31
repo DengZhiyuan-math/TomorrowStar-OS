@@ -97,6 +97,50 @@ def calculate_match_score(requirements: list[dict]) -> dict:
     }
 
 
+# Decided 2026-10-31: the model scores each requirement inside its judgment's band and
+# the program keeps the score there, so randomness cannot cross a band.
+FIT_BANDS = {"supported": (75, 100), "partial": (30, 75), "unknown": (0, 15), "gap": (0, 0)}
+_UNREAD = {"context_not_fully_read", "source_unavailable"}
+
+
+def fit_in_band(judgment, fit):
+    """Clamp a model fit score to its judgment's band, in steps of 5; None when absent."""
+    if type(fit) is not int or judgment not in FIT_BANDS:
+        return None
+    low, high = FIT_BANDS[judgment]
+    return min(high, max(low, 5 * round(fit / 5)))
+
+
+def _item_interval(row):
+    """One requirement's [low, high] share of its full weight."""
+    judgment = row["judgment"]
+    if row.get("citation_warning"):
+        # An execution failure is not evidence of absence: keep what the model proposed.
+        proposed = fit_in_band(row.get("proposed_judgment"), row.get("proposed_fit_score"))
+        return (Fraction(0), Fraction(100 if proposed is None else proposed, 100))
+    fit = fit_in_band(judgment, row.get("fit_score"))
+    if fit is None or judgment == "unknown" and row.get("evidence_state") in _UNREAD:
+        # Analyses saved before fit scores: partial counts half, unknown keeps [0, 1].
+        half = Fraction(1, 2)
+        return {"supported": (1, 1), "gap": (0, 0), "partial": (half, half)}.get(judgment, (0, 1))
+    return (Fraction(fit, 100), Fraction(fit, 100))
+
+
+def _group_interval(group, rows):
+    """A group's interval: OR of AND branches, all as the mean, any as the best."""
+    if group["alternatives"] is not None:
+        return tuple(
+            max(
+                Fraction(sum(rows[i][index] for i in clause), len(clause))
+                for clause in group["alternatives"]
+            )
+            for index in (0, 1)
+        )
+    if group["operator"] == "all":
+        return tuple(Fraction(sum(row[index] for row in rows), len(rows)) for index in (0, 1))
+    return tuple(Fraction(max(row[index] for row in rows)) for index in (0, 1))
+
+
 def calculate_framework_score(rows):
     """Compute conservative intervals with all/any business-group semantics."""
     from .application_job_brief import FRAMEWORK, validate_framework_groups
@@ -108,6 +152,7 @@ def calculate_framework_score(rows):
         expected_ids = metadata["group_ids"]
         groups = {}
         seen = {}
+        intervals = {}
         for row in rows:
             meta = row["scoring_framework"]
             if (
@@ -143,6 +188,7 @@ def calculate_framework_score(rows):
             if row["judgment"] not in {"supported", "gap", "partial", "unknown"}:
                 raise _invalid()
             seen[meta["requirement_id"]] = row["judgment"]
+            intervals[meta["requirement_id"]] = _item_interval(row)
         ordered = [groups[group_id] for group_id in expected_ids]
         if len(set(expected_ids)) != len(expected_ids) or set(groups) != set(expected_ids):
             raise _invalid()
@@ -162,26 +208,14 @@ def calculate_framework_score(rows):
         lower = upper = Fraction(0)
         hard = []
         for group in ordered:
-            # Partial support is a completed judgment worth half (decided 2026-10-31);
-            # only unknown keeps the whole [0, 1] interval.
-            half = Fraction(1, 2)
+            # Eligibility reads the judgments; the score reads each item's interval.
             values = [
-                {
-                    "supported": (1, 1),
-                    "gap": (0, 0),
-                    "partial": (half, half),
-                }.get(seen[atom["id"]], (0, 1))
+                {"supported": (1, 1), "gap": (0, 0)}.get(seen[atom["id"]], (0, 1))
                 for atom in group["requirements"]
             ]
+            scored = [intervals[atom["id"]] for atom in group["requirements"]]
             if group["alternatives"] is not None:
                 clauses = [[values[index] for index in clause] for clause in group["alternatives"]]
-                low, high = (
-                    max(
-                        Fraction(sum(value[index] for value in clause), len(clause))
-                        for clause in clauses
-                    )
-                    for index in (0, 1)
-                )
                 eligibility = (
                     "supported"
                     if any(all(value == (1, 1) for value in clause) for clause in clauses)
@@ -190,8 +224,6 @@ def calculate_framework_score(rows):
                     else "needs_input"
                 )
             elif group["operator"] == "all":
-                low = Fraction(sum(value[0] for value in values), len(values))
-                high = Fraction(sum(value[1] for value in values), len(values))
                 eligibility = (
                     "conflict"
                     if any(value == (0, 0) for value in values)
@@ -200,12 +232,16 @@ def calculate_framework_score(rows):
                     )
                 )
             elif group["operator"] == "any":
-                low, high = (Fraction(max(value[index] for value in values)) for index in (0, 1))
                 eligibility = (
-                    "supported" if low == 1 else "conflict" if high == 0 else "needs_input"
+                    "supported"
+                    if (1, 1) in values
+                    else "conflict"
+                    if all(value == (0, 0) for value in values)
+                    else "needs_input"
                 )
             else:
                 raise _invalid()
+            low, high = _group_interval(group, scored)
             lower += 100 * group["weight"] * low / total
             upper += 100 * group["weight"] * high / total
             if group["hard_condition"]:

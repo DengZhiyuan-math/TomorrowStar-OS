@@ -348,6 +348,7 @@ def test_education_interpretation_preserves_context_and_model_uncertainty(
     assert "ongoing study can support an education-background requirement" in prompt
     # Decided 2026-10-31: the user applies for roles after the PhD, so it counts as held.
     assert "a degree in progress with an expected completion date supports" in prompt
+    assert "return fit_score, an integer 0-100" in prompt
 
 
 def test_quote_cannot_join_two_profile_fields_into_one_excerpt(match_inputs, tmp_path):

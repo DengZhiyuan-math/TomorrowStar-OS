@@ -106,3 +106,16 @@ def test_flow_snapshot_presents_the_same_fixed_qualification_as_execution(applic
         assert view["active_explanation"]["reasons"][0]["judgment"] == "supported"
     finally:
         flow.close()
+
+
+def test_the_card_shows_each_in_band_fit_and_none_for_a_withheld_citation():
+    application, task = job_and_task(
+        [
+            requirement("Python") | {"fit_score": 120},
+            requirement("Linux", judgment="partial") | {"fit_score": 62},
+            requirement("ROS2", judgment="unknown")
+            | {"citation_warning": "match_source_invalid", "fit_score": 5},
+        ]
+    )
+    view = job_explanation(application, task, current_inputs=task["inputs"], fixed_delivery=True)
+    assert [reason.get("fit") for reason in view["reasons"]] == [100, 60, None]

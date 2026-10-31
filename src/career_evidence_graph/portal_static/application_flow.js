@@ -846,6 +846,7 @@
   const number = value => typeof value === "number" && Number.isFinite(value) ? String(Math.round(value * 100) / 100) : "—";
   const matchScoreText = score => score.lower === score.upper ? `${number(score.lower)}/100` : `${number(score.lower)}–${number(score.upper)}/100`;
   const judgmentLabels = { supported: "有支持", partial: "部分支持", gap: "已知缺口", unknown: "资料未知" };
+  const FIT_LEGEND = "每项满足度由模型在判档范围内给出（支持 75–100、部分支持 30–75、资料未知 0–15、缺口 0，按 5 分取整），再按固定业务组权重折算 100 分；引用待核验或资料未读完的项保留可能范围。";
   function sourceDescription(item) {
     if (item.confirmed_information) return "信息库 · 本人已确认的资料";
     if (item.application_trusted) return "职业经历库 · 已保存资料";
@@ -920,7 +921,7 @@
       const topics = [...new Map(items.map(item => [topicKey(item), item])).values()];
       for (const item of topics.slice(0, business ? 2 : 3)) {
         const row = node("li", `flow-fit-${item.judgment || "unknown"}`);
-        row.append(node("span", "flow-fit-marker", item.citation_warning ? "引用待核验" : judgmentLabels[item.judgment] || "资料未知"));
+        row.append(node("span", "flow-fit-marker", item.citation_warning ? "引用待核验" : `${judgmentLabels[item.judgment] || "资料未知"}${typeof item.fit === "number" ? ` ${item.fit}` : ""}`));
         const content = node("span", "flow-fit-topic", topic(item));
         if (business) {
           const inferredJudgment = { supports: "supported", partial_support: "partial", contradicts: "gap", unresolved: "unknown" }[item.inference?.relation];
@@ -939,7 +940,7 @@
       const alert = node("div", "flow-fit-conflicts"); alert.append(node("strong", "", qualification.status === "conflict" ? `${conflicts.length} 项硬条件冲突 · 需先处理` : `${conflicts.length} 项条件分支不符 · 资格按原组关系汇总`));
       alert.append(node("span", "", `：${[...new Set(conflicts.map(topic))].join("、")}。展开完整依据核对。`)); panel.append(alert);
     }
-    panel.append(node("p", "flow-fit-note", business ? `分数确定度 ${number(score?.coverage)}% 按固定组关系表示分数已确定程度，不表示每个原子事实都齐全；资料读取与简历覆盖均不改变背景分。` : "资料支持不等于资格已确认；待核对不代表不符合，可能需要核验引用或补充信息。"));
+    panel.append(node("p", "flow-fit-note", explanation.reasons?.some(reason => typeof reason.fit === "number") ? FIT_LEGEND : business ? `分数确定度 ${number(score?.coverage)}% 按固定组关系表示分数已确定程度，不表示每个原子事实都齐全；资料读取与简历覆盖均不改变背景分。` : "资料支持不等于资格已确认；待核对不代表不符合，可能需要核验引用或补充信息。"));
     const details = node("details", "flow-details flow-fit-details"); details.id = "flow-fit-details"; details.append(node("summary", "", "查看逐项 JD 分析、资格与完整依据"), explanationDetails(explanation, true)); panel.append(details);
     return panel;
   }
@@ -952,7 +953,8 @@
     if (score) panel.append(node("p", "flow-badges", explanation.business_summary ? `${matchScoreText(score)} · 分数确定度 ${number(score.coverage)}%` : `已支持 ${number(score.lower)}/100 · 可能 ${number(score.lower)}–${number(score.upper)} · 证据覆盖 ${number(score.coverage)}%`));
     else panel.append(node("p", "flow-muted", "尚未分析匹配分。"));
     const fixedFramework = explanation.reasons?.some(reason => reason.scoring_framework);
-    const legend = node("p", "flow-fit-note", fixedFramework ? "按固定业务组权重及原条件关系折算 100 分；支持计全分、缺口计 0；部分支持和未知保留可能范围。" : "按权重折算 100 分：必需 ×3，加分 ×1；支持计全分、部分支持计半分、缺口计 0；未知仅扩大可能范围。"); if (primary) legend.id = "flow-fit-score-legend"; panel.append(legend);
+    const fitScored = explanation.reasons?.some(reason => typeof reason.fit === "number");
+    const legend = node("p", "flow-fit-note", fitScored ? FIT_LEGEND : fixedFramework ? "按固定业务组权重及原条件关系折算 100 分；支持计全分、缺口计 0；部分支持计半分，未知保留可能范围。" : "按权重折算 100 分：必需 ×3，加分 ×1；支持计全分、部分支持计半分、缺口计 0；未知仅扩大可能范围。"); if (primary) legend.id = "flow-fit-score-legend"; panel.append(legend);
     if (explanation.material_read_coverage) {
       const coverage = explanation.material_read_coverage;
       panel.append(node("p", "flow-muted", `资料读取：${coverage.complete ? "完成" : "未完成"} · 来源 ${coverage.sources_complete}/${coverage.sources_total} · 已读范围 ${coverage.ranges_complete}/${coverage.ranges_total}`));
@@ -974,7 +976,7 @@
     if (!explanation.reasons?.length) panel.append(node("p", "flow-muted", "尚无已保存的岗位分析理由。"));
     for (const reason of explanation.reasons || []) {
       const row = node("div", "flow-requirement");
-      row.append(node("h5", "", reason.text), node("p", "flow-badges", `${reason.importance === "required" ? "必需" : "加分"} · ${judgmentLabels[reason.judgment] || "资料未知"}`), node("p", "flow-muted", reason.explanation));
+      row.append(node("h5", "", reason.text), node("p", "flow-badges", `${reason.importance === "required" ? "必需" : "加分"} · ${judgmentLabels[reason.judgment] || "资料未知"}${typeof reason.fit === "number" ? ` · 满足度 ${reason.fit}` : ""}`), node("p", "flow-muted", reason.explanation));
       if (reason.inference) {
         const inference = reason.inference;
         const type = { direct: "直接记录", deterministic: "确定性推导", semantic: "语义推断" }[inference.type] || inference.type;
