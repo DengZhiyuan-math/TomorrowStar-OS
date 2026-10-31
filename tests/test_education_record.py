@@ -73,8 +73,13 @@ def test_derived_values_keep_the_earlier_answer_and_profile_shapes(tmp_path):
         "Feb 2023 - Expected Jul 2027",
         "Sep 2021 - Jun 2022",
     ]
+    # Installed MC-11: matching read "M2" without its level and judged the MSc unknown.
     assert education_text(collection["records"][1]) == (
-        "M2 in Fundamental Mathematics, Synthetic Institute, 2021-09 to 2022-06 (awarded)."
+        "Master's degree: M2 in Fundamental Mathematics, Synthetic Institute, "
+        "2021-09 to 2022-06 (awarded)."
+    )
+    assert education_text(collection["records"][0]).startswith(
+        "Doctoral degree (PhD): Ph.D. in Mathematics, "
     )
     stored = {
         "status": "available",

@@ -129,7 +129,13 @@ def education_text(record):
         "discontinued": "discontinued",
     }[record["status"]]
     period = " to ".join(part for part in (record["start"], record["end"]) if part)
-    text = f"{record['degree']}, {record['institution']}, {period} ({status})."
+    # The level leads, so a national label such as "M2" is read as the degree it is.
+    level = {
+        "doctorate": "Doctoral degree (PhD): ",
+        "master": "Master's degree: ",
+        "bachelor": "Bachelor's degree: ",
+    }.get(record["level"], "")
+    text = f"{level}{record['degree']}, {record['institution']}, {period} ({status})."
     return " ".join([text, *record["details"]])
 
 
