@@ -964,7 +964,8 @@ TAKEOVER_REASONS = TAKEOVER_UNKNOWN_REASONS | {
 # current not-sent route decision dispatches. A Cua/driver failure itself never does.
 TAKEOVER_ROUTE_REASONS = frozenset({"cua_unavailable"})
 TAKEOVER_CODES = TAKEOVER_REASONS | TAKEOVER_ROUTE_REASONS
-ASSISTANCE_HISTORY_LIMIT = 8
+# Each takeover still needs the user's Continue; 8 filled up on one real job.
+ASSISTANCE_HISTORY_LIMIT = 16
 
 
 def _valid_takeover_blocker(blocker, binding):
@@ -6508,18 +6509,26 @@ class WorkerService:
                     )
                 if (state.get("page_reopen") or {}).get("request_id") == request_id:
                     return self.snapshot()
+                retired_stop = None
                 if assistance:
                     # A takeover, stopped or finished, belonged to the closed page.
-                    job["assistance_history"] = [
-                        *job.get("assistance_history", []),
-                        job.pop("assistance"),
-                    ]
+                    row = job.pop("assistance")
+                    if row["status"] not in {"stopped", "released"}:
+                        # Its native driver exited with the old run: nothing can still
+                        # be in flight. The unconfirmed stop stays in the reopen record.
+                        retired_stop = deepcopy(row["stop"])
+                        row["stop"].update(
+                            stop_status="stopped", local_tools_drained=True, observed_at=time.time()
+                        )
+                        row["status"] = "stopped"
+                    job["assistance_history"] = [*job.get("assistance_history", []), row]
                 job["observations"].append(
                     {
                         "action": "page_reopen_requested",
                         "request_id": request_id,
                         "previous_page": deepcopy(job.get("page_observation")),
                         "previous_open_intent": deepcopy(job.get("intent")),
+                        "retired_takeover_stop": retired_stop,
                         "reason": job.get("reason"),
                         "at": time.time(),
                     }
