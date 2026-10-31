@@ -6475,6 +6475,12 @@ class WorkerService:
                 ):
                     raise PortalDataError("controller_required", "继续操作缺少标识。", 409)
                 assistance = job.get("assistance") or {}
+                # Reopen runs only after the old run exited; its native driver went with
+                # it, so a stopped Codex with revoked tools cannot still write.
+                stop = assistance.get("stop") or {}
+                retired = assistance.get("status") == "stopped" or (
+                    stop.get("process_stopped") is True and stop.get("tools_revoked") is True
+                )
                 if (
                     state.get("current_job_id") != job["application_id"]
                     or job["status"] not in {"needs_recheck", "queued"}
@@ -6482,7 +6488,7 @@ class WorkerService:
                     and job["status"] == "queued"
                     or assistance
                     and assistance.get("active_writer") != "script"
-                    and assistance.get("status") != "stopped"
+                    and not retired
                     or len(job.get("assistance_history", [])) >= ASSISTANCE_HISTORY_LIMIT
                     # Opening the page sends no application data; any other unknown
                     # action still waits for its result.
@@ -6491,13 +6497,8 @@ class WorkerService:
                     or job.get("manual_submission")
                     or manual_submission_unresolved(job)
                     or material_edit_pending(job)
-                    # Reopen runs only after the old run exited; its native driver went
-                    # with it, so a stopped Codex with revoked tools cannot still write.
                     or assistance_stop_pending(job)
-                    and not (
-                        (assistance.get("stop") or {}).get("process_stopped") is True
-                        and (assistance.get("stop") or {}).get("tools_revoked") is True
-                    )
+                    and not retired
                     or self._page_current(state, job)
                     or self.process is not None
                     and self.process.poll() is None
