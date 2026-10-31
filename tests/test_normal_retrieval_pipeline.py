@@ -121,6 +121,12 @@ class RecordedPipeline:
             self.phases.append("followup" if followup else "plan")
         else:
             data = json.loads(prompt.rsplit("\n", 1)[1])
+            # Grouped prompts list library facts under their experience.
+            data["sources"] = data.get("sources", []) + [
+                entry
+                for experience in data.get("experiences", [])
+                for entry in experience.get("facts", []) + experience.get("context", [])
+            ]
             output = model_output({"items": [{"source_id": "unused", "text": "unused"}]})
             output["requirements"] = []
             output["selected_source_ids"] = []
