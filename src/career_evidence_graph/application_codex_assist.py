@@ -1228,6 +1228,11 @@ class CodexAdapter:
                 native["status"] = None
             if isinstance(error, _ProtocolFailure):
                 raise
+            print(
+                "native_handoff_status_error: "
+                + f"{getattr(error, 'code', type(error).__name__)} {error}"[:300],
+                flush=True,
+            )
             raise _ProtocolFailure("native_handoff_status_unknown") from error
         finally:
             native["polling"] = False
