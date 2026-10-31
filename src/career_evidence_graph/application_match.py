@@ -452,6 +452,27 @@ def _prompt_requirements(requirements):
     return rows
 
 
+def _rebind_misplaced_quotes(requirement, sources):
+    """Move a literal quote cited under the wrong handle to the one source that holds it.
+
+    Installed MC-11: one handle mistake withheld nine judgments. A quote found in no
+    source, or in several, keeps its citation and fails validation as before.
+    """
+    moved = False
+    for citation in requirement["citations"]:
+        quote, cited = citation.get("quote"), sources.get(citation.get("source_id"))
+        # Only a supplied source's handle moves; unknown or whole-document IDs stay invalid.
+        if not isinstance(quote, str) or not quote.strip() or not cited or quote in cited["text"]:
+            continue
+        holders = [key for key, row in sources.items() if row["available"] and quote in row["text"]]
+        if len(holders) == 1:
+            citation["source_id"], moved = holders[0], True
+    if moved:
+        requirement["source_ids"] = list(
+            dict.fromkeys(citation["source_id"] for citation in requirement["citations"])
+        )
+
+
 # Decided 2026-10-31: the user applies for roles that start after the PhD.
 _DEGREE_IN_PROGRESS = (
     "The user applies for roles that start after an in-progress degree is completed, so "
@@ -1312,6 +1333,7 @@ def _analyze_loaded_job(
             )
         requirement["sources"] = []
         try:
+            _rebind_misplaced_quotes(requirement, sources)
             references = list(dict.fromkeys(requirement["source_ids"]))
             if any(
                 source_id not in sources or not sources[source_id]["available"]

@@ -460,3 +460,32 @@ def test_unknown_judgment_does_not_upgrade_future_work_attribution(
         assert result["requirements"][0]["citation_warning"] == code
     else:
         assert result["requirements"][0]["claim_scope"] == "unknown"
+
+
+def test_a_quote_cited_under_another_handle_moves_to_the_one_source_holding_it(
+    match_inputs, tmp_path
+):
+    # Installed MC-11: a literal robotics quote cited under an unrelated record's handle
+    # withheld nine Hexagon judgments; a quote held by exactly one source moves there.
+    application, _ = match_inputs
+    (tmp_path / "career/contributions/rust.md").write_text(
+        "# Contribution candidate: Rust parser\n\n## Scope\nBuilt a Rust parser.\n\n"
+        "## Responsibility attribution\n| Work | Owner |\n| --- | --- |\n"
+        "| Implementation | User |\n"
+    )
+    snapshot = career_source_snapshot(CareerCatalog(tmp_path / "career"))
+    python, rust = (
+        next(i["source_id"] for i in snapshot["items"] if name in i.get("title", "") + i["text"])
+        for name in ("Python service", "Rust parser")
+    )
+    output = model_output(snapshot)
+    output["requirements"][0].update(
+        source_ids=[rust],
+        citations=[{"source_id": rust, "quote": "Implemented a Python service."}],
+    )
+    row = analyze_job(application, snapshot, tmp_path / "moved", runner=model_runner(output, []))[
+        "requirements"
+    ][0]
+    assert "citation_warning" not in row and row["judgment"] == "supported"
+    assert row["source_ids"] == [python]
+    assert row["sources"][0]["quote"] == "Implemented a Python service."
