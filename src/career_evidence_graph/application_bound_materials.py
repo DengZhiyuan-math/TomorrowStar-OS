@@ -84,6 +84,11 @@ def current_inputs(flow, task):
     return flow.material_update_inputs(task)
 
 
+def page_closed_receipt(receipt, job):
+    """A material update for a page that had already closed checks no page or lock."""
+    return receipt.get("page_closed") is True and not job.get("page_open")
+
+
 def paused_job(flow, task):
     """Legacy coordinator view; Worker owns its read-only permission checks."""
     from .application_worker import checked_material_preparation_job
@@ -115,11 +120,10 @@ def inspect_request(pipeline, state, task):
     with flow.applications.write_lock():
         current, job = paused_job(flow, task)
         old_job = deepcopy(job)
-        if not job.get("page_open"):
-            raise failure("page_lost")
         mirror = job.get("material_update") or {}
         if mirror.get("id") == update["id"]:
             return
+        closed = not job.get("page_open")
         if mirror:
             job.setdefault("material_update_history", []).append(deepcopy(mirror))
         job["material_update"] = {
@@ -132,6 +136,20 @@ def inspect_request(pipeline, state, task):
             "requested_at": time.time(),
         }
         job["material_update"]["old_job_revision"] = digest(old_job)
+        if closed:
+            # A closed page lost what was filled and uploaded (2026-10-31); there is
+            # nothing to inspect, and the reopened page fills with the new materials.
+            job["material_update"].update(
+                status="page_verified",
+                page_receipt={
+                    "page_closed": True,
+                    "run_id": (current.get("runtime") or {}).get("id"),
+                    "page_id": (job.get("page_observation") or {}).get("page_id"),
+                    "verified_at": time.time(),
+                },
+            )
+            worker.store.save(current)
+            return
         current["commands"].append(
             {
                 "action": "inspect-material-update",
@@ -310,7 +328,7 @@ def recover_commit(pipeline, state, path, *, resume_request_id=None):
     from .application_worker import worker_lock_is_held
 
     receipt = journal["new_job"]["material_update"]["page_receipt"]
-    if (
+    if not page_closed_receipt(receipt, job) and (
         receipt.get("run_id") != (current.get("runtime") or {}).get("id")
         or receipt.get("page_id") != (job.get("page_observation") or {}).get("page_id")
         or not worker_lock_is_held(worker.store.root, receipt.get("worker_lock"))

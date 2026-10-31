@@ -5721,7 +5721,11 @@ class WorkerService:
 
     def material_update_progress(self, application_id, update_id, *, expected_batch_id):
         """Read the original-page participant's saved completion without issuing control."""
-        from .application_bound_materials import failure, read_commit_journal
+        from .application_bound_materials import (
+            failure,
+            page_closed_receipt,
+            read_commit_journal,
+        )
 
         with self.store.applications.write_lock():
             if self.store.single_flow_root is None:
@@ -5791,11 +5795,17 @@ class WorkerService:
                 != digest(journal.get("execution_claim"))
                 or "worker_controller" in journal
                 and state.get("controller") != journal["worker_controller"]
-                or receipt.get("run_id") != (state.get("runtime") or {}).get("id")
-                or receipt.get("page_id") != (job.get("page_observation") or {}).get("page_id")
+                or not page_closed_receipt(receipt, job)
+                and (
+                    receipt.get("run_id") != (state.get("runtime") or {}).get("id")
+                    or receipt.get("page_id") != (job.get("page_observation") or {}).get("page_id")
+                )
             ):
                 raise failure("bound_material_journal_conflict")
             self.store.check_single(job, state)
+            if page_closed_receipt(receipt, job):
+                # No page holds an upload to replace; the reopened page uses these.
+                status = "complete"
             return {
                 "application_id": application_id,
                 "task_id": journal["task_id"],
@@ -5930,7 +5940,9 @@ class WorkerService:
         ):
             raise failure("bound_material_journal_conflict")
         receipt = new.get("material_update", {}).get("page_receipt", {})
-        if (
+        from .application_bound_materials import page_closed_receipt
+
+        if not page_closed_receipt(receipt, job) and (
             receipt.get("run_id") != (state.get("runtime") or {}).get("id")
             or receipt.get("page_id") != (job.get("page_observation") or {}).get("page_id")
             or not worker_lock_is_held(self.store.root, receipt.get("worker_lock"))
