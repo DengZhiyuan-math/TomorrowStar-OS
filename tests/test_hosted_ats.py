@@ -1580,3 +1580,20 @@ def test_live_worker_reaches_review_and_preserves_manual_edit(tmp_path, monkeypa
             assert service.store.load()["jobs"][0]["handed_off"]
         finally:
             browser.close()
+
+
+def test_onlyfy_apply_page_is_identified_by_its_address():
+    from career_evidence_graph.hosted_ats import onlyfy_identity
+
+    job = {
+        "company": "Example Robotics",
+        "job_url": "https://example-robotics.onlyfy.jobs/application/en/apply/abc123",
+    }
+    assert onlyfy_identity("https://example-robotics.onlyfy.jobs/application/en/apply/abc123", job)
+    assert onlyfy_identity("https://example-robotics.onlyfy.jobs/application/apply/abc123", job)
+    assert not onlyfy_identity("https://example-robotics.onlyfy.jobs/application/apply/other", job)
+    assert not onlyfy_identity("https://other-company.onlyfy.jobs/application/apply/abc123", job)
+    assert not onlyfy_identity(
+        "https://example-robotics.onlyfy.jobs/application/apply/abc123",
+        job | {"company": "Different Company"},
+    )

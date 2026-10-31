@@ -458,6 +458,30 @@ def document_step_target(source: str, target: str, job: dict) -> bool:
     )
 
 
+_ONLYFY_APPLY = re.compile(r"/application/(?:[a-z]{2}/)?apply/([a-z0-9]+)/?")
+
+
+def onlyfy_identity(url: str, job: dict) -> bool:
+    """Onlyfy's apply page names neither company nor role (adapted 2026-10-31).
+
+    Its address does: the subdomain is the company and the path the job's ID, which
+    must match the job link's own.
+    """
+    page, target = urlsplit(url), urlsplit(job["job_url"])
+    host = page.hostname or ""
+    page_id = _ONLYFY_APPLY.fullmatch(page.path)
+    target_id = _ONLYFY_APPLY.fullmatch(target.path)
+    company = re.sub(r"[^a-z0-9]+", "-", job["company"].casefold()).strip("-")
+    return bool(
+        host.endswith(".onlyfy.jobs")
+        and host == target.hostname
+        and page_id
+        and target_id
+        and page_id[1] == target_id[1]
+        and host.removesuffix(".onlyfy.jobs") == company
+    )
+
+
 def observe(page, job: dict, *, document_url: str | None = None) -> dict:
     if page.is_closed() or not matches_page(page.url, job, document_url=document_url):
         raise PortalDataError("page_changed", "页面跳转或岗位来源已变更。", 409)
@@ -481,7 +505,8 @@ def observe(page, job: dict, *, document_url: str | None = None) -> dict:
         return " ".join(text.split()).casefold()
 
     identity_matches = (
-        normalize(result["role"]) == normalize(job["role_title"])
+        onlyfy_identity(page.url, job)
+        or normalize(result["role"]) == normalize(job["role_title"])
         and normalize(job["company"]) in normalize(result["title"])
         if job["platform"] == "generic"
         else normalize(result["title"]) == normalize(expected_title)
