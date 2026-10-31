@@ -3289,6 +3289,21 @@ class ApplicationRunner:
                     )
                     # A run that failed to start is a capability failure, not a lost scope.
                     failed = progress.status == "failed"
+                    print(
+                        "assistance_progress_stop: "
+                        + json.dumps(
+                            {
+                                "permitted": permitted,
+                                "backend": backend,
+                                "status": progress.status,
+                                "error_code": getattr(progress, "error_code", None),
+                                "tools_revoked": progress.tools_revoked,
+                                "turn": getattr(progress, "native_turn_status", None),
+                                "stop": bool(assistance.get("stop")),
+                            }
+                        ),
+                        flush=True,
+                    )
                     reason = (
                         "native_turn_completed"
                         if completed
