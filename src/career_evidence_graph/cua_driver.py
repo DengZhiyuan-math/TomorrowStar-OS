@@ -1601,7 +1601,8 @@ def managed_hidden_chrome(playwright, temporary, driver, log, env):
 
 
 # Logins the user made in the worker's browser (decided 2026-10-31). Each run still
-# opens a fresh context; it starts from these cookies and site storage.
+# opens a fresh context; it starts from these cookies. Only cookies are kept:
+# reading site storage makes Playwright open and navigate pages to every origin.
 LOGIN_STATE = "browser-login-state.json"
 
 
@@ -1612,11 +1613,13 @@ def load_login_state(root) -> dict | None:
         return None
     if not isinstance(value, dict) or not isinstance(value.get("cookies"), list):
         return None
-    return value
+    return {"cookies": value["cookies"], "origins": []}
 
 
 def save_login_state(root, context) -> None:
-    helper.atomic_write_json(Path(root) / LOGIN_STATE, context.storage_state())
+    helper.atomic_write_json(
+        Path(root) / LOGIN_STATE, {"cookies": context.cookies(), "origins": []}
+    )
 
 
 def sync_login_state(root, context, seen):

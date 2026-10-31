@@ -10,8 +10,8 @@ def test_login_state_round_trips_and_ignores_a_damaged_file(tmp_path):
     assert load_login_state(tmp_path) is None
 
     class Context:
-        def storage_state(self):
-            return {"cookies": [{"name": "session", "value": "x"}], "origins": []}
+        def cookies(self):
+            return [{"name": "session", "value": "x"}]
 
     save_login_state(tmp_path, Context())
     assert load_login_state(tmp_path)["cookies"][0]["name"] == "session"
@@ -46,13 +46,13 @@ def test_worker_adopts_a_login_saved_by_the_sign_in_window(tmp_path):
 
     class Context:
         def __init__(self):
-            self.cookies = [{"name": "guest", "value": "1"}]
+            self.jar = [{"name": "guest", "value": "1"}]
 
         def add_cookies(self, cookies):
-            self.cookies += cookies
+            self.jar += cookies
 
-        def storage_state(self):
-            return {"cookies": list(self.cookies), "origins": []}
+        def cookies(self):
+            return list(self.jar)
 
     context = Context()
     seen = sync_login_state(tmp_path, context, None)
