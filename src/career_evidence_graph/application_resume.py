@@ -1528,7 +1528,7 @@ class ApplicationResumeStore:
     @staticmethod
     def _imported_content_projection(mapping, application_id, latex_source):
         from .application_resume_content import validate_content
-        from .application_resume_render import render_resume
+        from .application_resume_render import render_resume, symbols_for
 
         if not isinstance(mapping, dict) or set(mapping) != {
             "content",
@@ -1553,8 +1553,14 @@ class ApplicationResumeStore:
             or content["application_id"] != application_id
         ):
             raise ValueError("Imported content application or template differs")
-        rendered = render_resume(content, template=mapping["template"])
         manifest = deepcopy(mapping["render_manifest"])
+        rendered = render_resume(
+            content,
+            template=mapping["template"],
+            symbols=symbols_for(
+                manifest.get("renderer_revision") if isinstance(manifest, dict) else None
+            ),
+        )
         ranges = {key: list(value) for key, value in rendered.ranges.items()}
         expected = {
             "content_revision": rendered.content_revision,

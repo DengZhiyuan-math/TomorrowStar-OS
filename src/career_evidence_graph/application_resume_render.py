@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from dataclasses import dataclass
+from contextvars import ContextVar
+from dataclasses import dataclass, replace
 from typing import Any
 from urllib.parse import quote, urlsplit
 
@@ -54,7 +55,11 @@ _ESCAPES = {
     "^": r"\textasciicircum{}",
     "\\": r"\textbackslash{}",
     "\n": r"\mbox{}\newline{}",
-    # Templates use 8-bit fonts; these characters have no glyph there and vanish.
+}
+# Templates use 8-bit fonts; these characters have no glyph there and vanish. Renders
+# that write one carry SYMBOLS_SUFFIX, so earlier saved renders still verify.
+SYMBOLS_SUFFIX = "+symbols/v1"
+_SYMBOLS = {
     "\u2014": "---",
     "\u2013": "--",
     "\u2018": "`",
@@ -90,13 +95,27 @@ _ESCAPES = {
 }
 
 
+_symbols = ContextVar("resume_symbols", default=None)
+
+
+def symbols_for(renderer_revision: str | None) -> bool:
+    """Whether a saved render used the symbol escapes."""
+    return bool(renderer_revision and renderer_revision.endswith(SYMBOLS_SUFFIX))
+
+
 def _text(value: str) -> str:
     # A single pass prevents generated escape sequences from being re-escaped.
     if any((ord(char) < 32 and char not in "\r\n\t") or ord(char) == 127 for char in value):
         raise ValueError("resume text contains unsupported control characters")
-    return "".join(
-        _ESCAPES.get(char, char) for char in value.replace("\r\n", "\n").replace("\r", "\n")
-    )
+    used = _symbols.get()
+    pieces = []
+    for char in value.replace("\r\n", "\n").replace("\r", "\n"):
+        if used is not None and char in _SYMBOLS:
+            used.append(char)
+            pieces.append(_SYMBOLS[char])
+        else:
+            pieces.append(_ESCAPES.get(char, char))
+    return "".join(pieces)
 
 
 def _link(label: str, url: str | None) -> str:
@@ -117,8 +136,10 @@ def _link(label: str, url: str | None) -> str:
 
 def _item(item: dict[str, Any]) -> str:
     links = item["links"]
-    if len(links) == 1 and links[0]["label"].strip() == item["text"].strip():
-        # A link labelled with the item's own text is the item.
+    used = _symbols.get()
+    if used is not None and len(links) == 1 and links[0]["label"].strip() == item["text"].strip():
+        # A link labelled with the item's own text is the item (same versioned render).
+        used.append("link")
         return "\\item " + _link(item["text"], links[0]["url"]) + "\n"
     rendered = " ".join(_link(link["label"], link["url"]) for link in links)
     return "\\item " + _text(item["text"]) + (" " + rendered if rendered else "") + "\n"
@@ -254,8 +275,21 @@ def render_resume(
     template_revision: str = TEMPLATE_REVISION,
     *,
     template: str | None = None,
+    symbols: bool = True,
 ) -> RenderedResume:
     """Render one complete document; ranges use Python character offsets."""
+    used = []
+    token = _symbols.set(used if symbols else None)
+    try:
+        rendered = _render(content, template_revision, template)
+    finally:
+        _symbols.reset(token)
+    if not used:
+        return rendered
+    return replace(rendered, renderer_revision=rendered.renderer_revision + SYMBOLS_SUFFIX)
+
+
+def _render(content, template_revision, template):
     content = validate_content(content).model_dump(mode="json")
     if content["schema_version"] == "resume-template-content/v1":
         if template_revision not in {TEMPLATE_REVISION, content["template_revision"]}:

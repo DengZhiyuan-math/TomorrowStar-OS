@@ -262,13 +262,24 @@ def test_item_names_two_writers_chose_independently_are_scoped_by_experience():
 
 
 def test_characters_the_template_font_lacks_are_written_as_latex():
-    from career_evidence_graph.application_resume_render import _item, _text
+    from career_evidence_graph.application_resume_render import SYMBOLS_SUFFIX
 
+    written = fragment()
+    written["items"][0]["text"] = "π₀.₅ — x²"
+    content = assemble_content(plan(), [written])
+    rendered = render_resume(content, template=TEMPLATE)
     # Installed MC-11: the Hexagon PDF silently dropped "π₀.₅" and an em dash.
-    assert _text("π₀.₅ — x²") == (
+    assert (
         r"\ensuremath{\pi}\textsubscript{0}.\textsubscript{5} --- x\textsuperscript{2}"
+        in rendered.tex
     )
-    link = {"label": "PR #1", "url": "https://example.com/1"}
-    assert _item({"text": "PR #1", "links": [link]}) == (
-        "\\item \\href{https://example.com/1}{PR \\#1}\n"
-    )
+    assert rendered.renderer_revision.endswith(SYMBOLS_SUFFIX)
+    # Saved renders from before the escapes still reproduce their own bytes.
+    legacy = render_resume(content, template=TEMPLATE, symbols=False)
+    assert "π₀.₅ — x²" in legacy.tex and not legacy.renderer_revision.endswith(SYMBOLS_SUFFIX)
+    assert not render_resume(
+        assemble_content(plan(), [fragment()]), template=TEMPLATE
+    ).renderer_revision.endswith(SYMBOLS_SUFFIX)
+    written["items"][0]["links"] = [{"label": "π₀.₅ — x²", "url": "https://example.com/1"}]
+    linked = render_resume(assemble_content(plan(), [written]), template=TEMPLATE).tex
+    assert linked.count("x\\textsuperscript{2}") == 1

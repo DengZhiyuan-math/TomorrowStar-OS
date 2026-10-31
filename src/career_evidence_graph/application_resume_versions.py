@@ -1095,10 +1095,15 @@ def _content_manifest(state, template):
 
 
 def _rendered_content(plan, *, template=None):
-    from .application_resume_render import render_resume
+    from .application_resume_render import render_resume, symbols_for
 
     content = plan["resume_content"]
-    rendered = render_resume(content, plan["template_revision"], template=template)
+    rendered = render_resume(
+        content,
+        plan["template_revision"],
+        template=template,
+        symbols=symbols_for(plan["renderer_revision"]),
+    )
     ranges = {key: list(value) for key, value in rendered.ranges.items()}
     if (
         plan["latex_source"] != rendered.tex
