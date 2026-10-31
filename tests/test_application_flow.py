@@ -1186,3 +1186,31 @@ def test_completed_results_keep_original_model_binding_across_configuration_upda
         assert calls == ["analysis", "resume", "resume"]
     finally:
         service.close()
+
+
+def test_a_failed_material_stage_keeps_its_reason(application, tmp_path):
+    applications, job = application
+
+    def resume(_):
+        raise PortalDataError("resume_latex_invalid", "正文括号不平衡，不能保存为完整简历。", 409)
+
+    service = ApplicationFlowService(
+        applications,
+        tmp_path / "flow",
+        callbacks={
+            "analysis": lambda _: {"id": "analysis-v1", "requirements": []},
+            "resume": resume,
+        },
+    )
+    try:
+        task = service.create(job["id"], job["revision"])
+        service.start(task["id"], task["revision"], "analysis")
+        task = wait_for(service, task["id"], lambda row: row["status"] == "analysis_ready")
+        service.start(task["id"], task["revision"], "resume")
+        task = wait_for(service, task["id"], lambda row: row["status"] == "failed")
+        # Installed MC-11: the Hexagon résumé failed with only an error code; the
+        # page and the operator had no way to tell which check refused it.
+        assert task["stages"]["resume"]["error_message"] == "正文括号不平衡，不能保存为完整简历。"
+        assert "error_message" not in task["stages"]["analysis"]
+    finally:
+        service.close()

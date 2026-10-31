@@ -5490,6 +5490,7 @@ class ApplicationFlowService:
             if failed_author:
                 resume_stage.update(status="pending")
                 resume_stage.pop("error_code", None)
+                resume_stage.pop("error_message", None)
                 task["status"] = "needs_input"
                 self._save(state)
                 task_revision = task["revision"]
@@ -6010,6 +6011,7 @@ class ApplicationFlowService:
                 )
             task["stages"]["resume"]["status"] = "pending"
             task["stages"]["resume"].pop("error_code", None)
+            task["stages"]["resume"].pop("error_message", None)
             task["status"] = "needs_input"
             self._save(state)
             return self.resume_experience_generation(task_id, task["revision"], handoff["id"])
@@ -6607,7 +6609,7 @@ class ApplicationFlowService:
                         else:
                             validate_prepared_result(request, candidate)
                 result = candidate
-                error_code = None
+                error_code = error_message = None
             except Exception as error:
                 failed_handoff = getattr(error, "experience_handoff", None)
                 error_code = (
@@ -6617,6 +6619,7 @@ class ApplicationFlowService:
                     if stage == "export"
                     else "flow_stage_failed"
                 )
+                error_message = error.message if isinstance(error, PortalDataError) else None
             finally:
                 with self.applications.write_lock():
                     self._running_stage_task_id = None
@@ -6686,6 +6689,9 @@ class ApplicationFlowService:
                     task["stages"][stage].update(
                         status="needs_recheck" if uncertain else "failed", error_code=error_code
                     )
+                    # Analysis keeps its exact failure fields; other stages say why.
+                    if error_message and stage != "analysis":
+                        task["stages"][stage]["error_message"] = error_message
                     task["status"] = (
                         "needs_recheck"
                         if uncertain
