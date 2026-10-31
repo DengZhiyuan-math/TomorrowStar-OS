@@ -337,11 +337,12 @@
     }
     automation.append(actions);
     if (pipeline?.wait_reason === "codex_resume_required") automation.append(node("p", "flow-muted", "当前岗位等待 Codex 完成分经历写作、程序组装和单一终审；完成后自动继续，其他岗位保持等待。"));
+    if (pipeline?.wait_reason === "score_approval") automation.append(node("p", "flow-muted", "此岗位匹配分在 55–75 区间，或两个模型分差较大：已完成分析、尚未生成材料。查看匹配概览后，点击“继续当前岗位”即批准生成材料；不投可点跳过。"));
     if (pipeline?.wait_reason === "precision_adjustment") automation.append(node("p", "flow-muted", "此岗位已完成分析、完整简历与已发现的必要附稿。你可以先调整材料，再点击“继续当前岗位”使用当前版本填写。"));
     if (pipeline?.notice) automation.append(node("p", "flow-muted", pipeline.notice.message || pipeline.notice.title));
     for (const item of pipeline?.items || []) {
       const score = item.score;
-      const line = node("p", "flow-muted", `${item.company || "岗位"}${item.role_title ? ` · ${item.role_title}` : ""}${score && typeof score.lower === "number" ? ` · 匹配 ${Math.round(score.lower)}–${Math.round(score.upper)}，证据覆盖 ${Math.round(score.coverage)}%` : ""}${item.status === "analysis_failed" ? " · 分析结果未通过校验，已保留记录并跳过" : ""}`);
+      const line = node("p", "flow-muted", `${item.company || "岗位"}${item.role_title ? ` · ${item.role_title}` : ""}${score && typeof score.lower === "number" ? ` · 匹配 ${Math.round(score.lower) === Math.round(score.upper) ? Math.round(score.upper) : `${Math.round(score.lower)}–${Math.round(score.upper)}`}` : ""}${item.status === "analysis_failed" ? " · 分析结果未通过校验，已保留记录并跳过" : ""}${item.status === "skipped" && item.reason === "low_match_score" ? " · 匹配分低于 15，已自动跳过；可返回此岗位继续" : ""}`);
       automation.append(line);
       if (item.status === "skipped") {
         const restore = button("返回此岗位", () => pipelineAction("return", { application_id: item.application_id || item.recommendation_id }, true), "", true);

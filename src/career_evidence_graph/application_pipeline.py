@@ -23,7 +23,7 @@ from .application_flow import (
     legacy_analysis_failure as _known_analysis_failure,
 )
 from .application_match_refresh import match_refresh_running, require_no_other_match_refresh
-from .application_match_scoring import calculate_match_score, combined_score
+from .application_match_scoring import calculate_match_score, combined_score, score_tier
 from .career_portal_data import PortalDataError
 from .job_screening import application_country, application_route, screen_applications
 from .validation.hashing import record_digest as digest
@@ -1281,6 +1281,9 @@ class ApplicationPipeline:
                     current_recommendation_id=target["recommendation_id"], control="paused"
                 )
                 target["status"] = target.pop("retained_status")
+                if target.get("reason") == "low_match_score":
+                    # Returning a low-score job is the user's decision to proceed.
+                    target["score_decision"] = target.get("score_analysis_id")
                 if state.get("worker_batch_id"):
                     task = self._task(state)
                     self.flow.worker_action(
@@ -1332,6 +1335,18 @@ class ApplicationPipeline:
                         return self.snapshot()
                 if not state.get("worker_batch_id"):
                     receipt["status"] = "complete"
+                    if state.get("wait_reason") == "score_approval":
+                        # Continue on a score approval wait approves this analysis.
+                        task = self._task(state)
+                        item = next(
+                            row for row in state["items"] if row.get("task_id") == task["id"]
+                        )
+                        item["score_decision"] = item.get("score_analysis_id")
+                        state.pop("wait_reason", None)
+                        state.pop("resume_status", None)
+                        state.update(control="running", status="matching", notification=None)
+                        self._save(state)
+                        return self.snapshot()
                     if state.get("wait_reason") == "resume_author_input_required":
                         task = self._task(state)
                         progress = self.flow.progress(task["id"])
@@ -2437,6 +2452,31 @@ class ApplicationPipeline:
             self._stop(state, "needs_input", "本次岗位均不满足自动准备条件，原因已逐岗保存。")
             return
         if item["status"] == "matched":
+            # Four score tiers (decided 2026-10-31); a decision binds to its analysis.
+            tier = item.get("score_tier", "auto")
+            decided = item.get("score_decision") == item.get("score_analysis_id")
+            if tier == "skip" and not decided:
+                item["reason"] = "low_match_score"
+                if state.get("queue_mode") and state.get("current_recommendation_id"):
+                    state["active_task_id"] = item["task_id"]
+                    self._leave_current(state, "low-score:" + item["task_id"])
+                else:
+                    item["status"] = "skipped"
+                self._save(state)
+                return
+            if tier == "approve" and not decided:
+                state.update(active_task_id=item["task_id"], wait_reason="score_approval")
+                self._stop(
+                    state,
+                    "needs_input",
+                    "匹配分在待审批区间或两个模型分差较大：请查看匹配概览，点继续即批准生成材料。",
+                )
+                return
+            if tier == "manual" and item.get("application_route") != "manual":
+                item.update(
+                    application_route="manual",
+                    route_reasons=[*item.get("route_reasons", []), "匹配分达到 75 以上"],
+                )
             state.update(active_task_id=item["task_id"], status="generating_resume")
             self._save(state)
             return
@@ -2503,10 +2543,14 @@ class ApplicationPipeline:
             self.flow.prepare(task["id"], task["revision"], analysis_only=True)
         elif analysis_status == "ready":
             analysis = adopted_analysis(task)
-            score, _ = combined_score(
+            score, models = combined_score(
                 calculate_match_score(analysis["requirements"]), analysis, analysis["requirements"]
             )
             item["score"] = score
+            item.update(
+                score_tier=score_tier(score, needs_review=bool(models and models["needs_review"])),
+                score_analysis_id=task["analysis_id"],
+            )
             eligible = task_eligibility(task)["status"] in {
                 "supported",
                 "not_specified",

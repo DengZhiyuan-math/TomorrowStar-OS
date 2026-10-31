@@ -1145,3 +1145,25 @@ def test_unknown_qualification_continues_preparation_without_becoming_confirmed(
     task = flow.tasks[state["active_task_id"]]
     assert task_eligibility(task)["status"] == "needs_input"
     assert any(call[0] == "prepare" for call in flow.calls)
+
+
+@pytest.mark.parametrize(
+    "upper,review,tier",
+    [
+        (14.9, False, "skip"),
+        (15, False, "auto"),
+        (54.9, False, "auto"),
+        (55, False, "approve"),
+        (74.9, False, "approve"),
+        (75, False, "manual"),
+        (10, True, "approve"),
+        (40, True, "approve"),
+        (90, True, "manual"),
+    ],
+)
+def test_score_tiers_lean_toward_the_user_near_each_line(upper, review, tier):
+    from career_evidence_graph.application_match_scoring import score_tier
+
+    # Decided 2026-10-31: lines at 20/60/80 with a 5-point margin toward more involvement.
+    score = {"lower": upper - 5, "upper": upper, "coverage": 95, "eligibility": "not_specified"}
+    assert score_tier(score, needs_review=review) == tier

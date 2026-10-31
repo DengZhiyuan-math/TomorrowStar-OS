@@ -321,3 +321,19 @@ def combined_score(primary, analysis, requirements):
         "needs_review": gap > REVIEW_GAP,
         "differing_requirements": differing,
     }
+
+
+# Decided 2026-10-31: below 20 skip, 20-60 autonomous, 60-80 the user approves before
+# materials, 80 and above precision adjustment. Within 5 points of a line the more
+# involved tier applies (a 4-job test moved dual scores by 3-7 points), and the upper
+# bound is read, so uncertainty also leans toward the user.
+def score_tier(score, *, needs_review=False):
+    if score is None or score.get("upper") is None:
+        return "approve"
+    upper = score["upper"]
+    tier = (
+        "manual" if upper >= 75 else "approve" if upper >= 55 else "auto" if upper >= 15 else "skip"
+    )
+    if needs_review and tier in {"auto", "skip"}:
+        tier = "approve"
+    return tier
