@@ -511,6 +511,10 @@ def test_custom_required_buttons_pause_instead_of_reporting_complete(tmp_path, m
         assert current["reason"] == "unsupported_structure"
         assert runner.pages[job["application_id"]].locator("input[name=person]").input_value() == ""
         assert posts == []
+        # The stopped page is bound, so a takeover has an original page to start from.
+        from career_evidence_graph.application_worker import assistance_binding
+
+        assert assistance_binding(service.store.load(), current) is not None
 
 
 @pytest.mark.worker_browser

@@ -162,6 +162,23 @@ def capture(runner, page, job, batch_id, observed, *, acknowledge=False, current
     return result
 
 
+def bind_page(runner, page, job, batch_id):
+    """Bind an original page whose first read found no supported form (decided 2026-10-31).
+
+    A takeover starts only from a saved binding; without one, a listing page or an
+    unsupported platform stopped the job with nothing to take over from.
+    """
+    from .application_bound_materials import document_token
+
+    current = next(
+        row for row in runner.store.load()["jobs"] if row["application_id"] == job["application_id"]
+    )
+    bound = (current.get("form_state") or {}).get("binding") or {}
+    if bound.get("run_id") == runner.run_id and bound.get("page_id") == runner.page_ids.get(page):
+        return
+    capture(runner, page, job, batch_id, {"fields": [], "document_token": document_token(page)})
+
+
 def choice_for(form, field, proposed, reference):
     """A choice applies only to its field, source proposal and observed value."""
     for choice in reversed(list(form.get("choices", {}).values())):

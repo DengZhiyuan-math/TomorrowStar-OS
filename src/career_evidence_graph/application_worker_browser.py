@@ -3907,6 +3907,15 @@ class ApplicationRunner:
                     or self.blocked_pages.get(self.pages.get(job["application_id"]))
                     or "browser_result_unknown",
                 )
+                page = self.pages.get(job["application_id"])
+                code = getattr(exc, "code", None)
+                if (
+                    code in {"unsupported_structure", "unsupported_attachments"}
+                    and page is not None
+                    and not page.is_closed()
+                ):
+                    with suppress(Error, PortalDataError, OSError, StoreError, StopIteration):
+                        form_flow.bind_page(self, page, job, batch_id)
                 if getattr(exc, "code", None) == "user_authentication":
                     page = self.pages.get(job["application_id"])
                     if page is not None and not page.is_closed():
