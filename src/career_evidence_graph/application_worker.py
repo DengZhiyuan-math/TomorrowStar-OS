@@ -5719,6 +5719,26 @@ class WorkerService:
         self.store.verify_material(material, job)
         return state, job, old
 
+    def _lift_checkpoint_stop(self, state):
+        """An explicit Continue lifts the stop only once the unchanged checkpoint is
+        durable again; otherwise the pause remains."""
+        if not self.store.stop_reason():
+            return
+        try:
+            self.store.check_applications_root(state)
+            helper.atomic_write_json(self.store.path, state)
+            self.store.stop_path.unlink(missing_ok=True)
+        except (OSError, ValueError, TypeError):
+            raise PortalDataError(
+                "checkpoint_unavailable", "填写记录保存失败，请保留暂停并核验。", 409
+            ) from None
+        self.store.storage_error = ""
+
+    def lift_checkpoint_stop(self):
+        """The Pipeline's explicit Continue, before a material update reads the Worker."""
+        with self.store.applications.write_lock():
+            self._lift_checkpoint_stop(self.store.load())
+
     def material_update_progress(self, application_id, update_id, *, expected_batch_id):
         """Read the original-page participant's saved completion without issuing control."""
         from .application_bound_materials import (
@@ -6357,18 +6377,8 @@ class WorkerService:
             return self.snapshot()
         with self.store.applications.write_lock():
             state = self.store.load()
-            if operation in {"resume", "reopen-current"} and self.store.stop_reason():
-                # An explicit Continue lifts the stop only once the unchanged
-                # checkpoint is durable again; otherwise the pause remains.
-                try:
-                    self.store.check_applications_root(state)
-                    helper.atomic_write_json(self.store.path, state)
-                    self.store.stop_path.unlink(missing_ok=True)
-                except (OSError, ValueError, TypeError):
-                    raise PortalDataError(
-                        "checkpoint_unavailable", "填写记录保存失败，请保留暂停并核验。", 409
-                    ) from None
-                self.store.storage_error = ""
+            if operation in {"resume", "reopen-current"}:
+                self._lift_checkpoint_stop(state)
             admission = None
             if (
                 operation

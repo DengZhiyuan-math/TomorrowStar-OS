@@ -1489,6 +1489,10 @@ class ApplicationPipeline:
                 task = self._task(state)
                 from .application_worker import material_edit_pending
 
+                # This Continue is explicit; a durable checkpoint lifts an old stop
+                # before a material update reads the Worker (2026-10-31).
+                if hasattr(self.worker, "lift_checkpoint_stop"):
+                    self.worker.lift_checkpoint_stop()
                 if state.get("material_update_id"):
                     from .application_bound_materials import recover_pending_commit
 
