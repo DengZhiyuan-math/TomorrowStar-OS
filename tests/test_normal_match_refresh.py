@@ -698,7 +698,10 @@ def test_completed_refresh_allows_a_new_refresh_and_keeps_both_receipts(retained
     first = refresh_match(flow, task["id"], task["revision"], uuid4().hex)
     second = refresh_match(flow, task["id"], first["revision"], uuid4().hex)
     assert len(second["match_rechecks"]) == len(calls) == 2
-    assert second["match_rechecks"][0] == first["match_rechecks"][0]
+    # Only the latest normal recheck keeps its full result in flow.json.
+    earlier = {k: v for k, v in first["match_rechecks"][0].items() if k != "result"}
+    assert second["match_rechecks"][0] == earlier
+    assert "result" in second["match_rechecks"][1]
 
 
 def test_wrong_engine_configuration_cannot_be_adopted(retained_match):
@@ -780,7 +783,7 @@ def test_saved_report_drift_rejects_existing_receipt(retained_match):
     assert (flow.root / "flow.json").read_bytes() == before and len(calls) == 1
 
 
-def test_existing_gap_is_retained_in_new_match_result(retained_match):
+def test_a_recheck_may_overturn_an_earlier_gap(retained_match):
     flow, _, task, _, _, _, _, _ = setup_callback(retained_match)
     with flow.applications.write_lock():
         state = flow._load()
@@ -792,7 +795,8 @@ def test_existing_gap_is_retained_in_new_match_result(retained_match):
         task.clear()
         task.update(deepcopy(row))
     result = refresh_match(flow, task["id"], task["revision"], uuid4().hex)
-    assert result["match_rechecks"][0]["result"]["requirements"][1]["judgment"] == "gap"
+    # Decided 2026-10-31: the recheck's own judgment stands.
+    assert result["match_rechecks"][0]["result"]["requirements"][1]["judgment"] != "gap"
 
 
 def test_completed_parser_failure_is_recorded_and_does_not_block_a_fresh_request(retained_match):

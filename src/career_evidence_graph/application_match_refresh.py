@@ -386,11 +386,10 @@ def _report_current(flow, application, original, library, report):
     )
 
 
-def _retained_result(report, original):
+def _recheck_result(report):
+    # Decided 2026-10-31: a recheck may overturn an earlier gap; both come from the same
+    # model and rules, and the recheck reads the same confirmed information.
     result = deepcopy(report)
-    for index, old in enumerate(original["requirements"]):
-        if old.get("judgment") == "gap":
-            result["requirements"][index] = deepcopy(old)
     result["score"] = calculate_match_score(result["requirements"])
     return result
 
@@ -829,7 +828,7 @@ def refresh_match(flow, task_id, task_revision, request_id, *, resume_request_id
             )
             _report_current(flow, application, original, library, report)
             _require(
-                digest(existing.get("result")) == digest(_retained_result(report, original)),
+                digest(existing.get("result")) == digest(_recheck_result(report)),
                 "已有重新核验结论与保存结果不同。",
             )
             return deepcopy(task)
@@ -945,7 +944,7 @@ def refresh_match(flow, task_id, task_revision, request_id, *, resume_request_id
             )
         _require(digest(_read(report_path)) == digest(report), "分析保存结果已变化。")
         _report_current(flow, application, original, library, report)
-        result = _retained_result(report, original)
+        result = _recheck_result(report)
         receipt = {
             **binding,
             "id": request_id,
