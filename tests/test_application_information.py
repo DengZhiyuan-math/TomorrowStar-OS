@@ -532,3 +532,17 @@ def test_material_contacts_use_explicit_unique_country_in_application_location()
     unknown = material_information_library({"id": "job", "location": "Zurich"}, library)
     assert swiss["revision"] == explicit["revision"]
     assert swiss["revision"] != unknown["revision"]
+
+
+def test_form_labels_for_contact_and_address_map_to_saved_facts():
+    from career_evidence_graph.application_information import information_fact
+
+    expected = {
+        "E-mail address": "email",
+        "Street and house number": "street_address",
+        "ZIP Code": "postal_code",
+        "Home city": "city",
+        "Country of residence": "country_of_residence",
+        "Salutation": "salutation",
+    }
+    assert {label: information_fact(label) for label in expected} == expected

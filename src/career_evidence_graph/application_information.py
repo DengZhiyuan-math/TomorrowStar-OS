@@ -42,8 +42,23 @@ def fact_for(question: str) -> str:
         "name": {"full name", "name", "your full name"},
         "first_name": {"first name", "given name"},
         "last_name": {"last name", "family name", "surname"},
-        "email": {"email", "email address", "your email address"},
+        "email": {"email", "email address", "your email address", "e mail", "e mail address"},
         "phone": {"phone", "phone number"},
+        # Address and salutation as application forms name them (Onlyfy, 2026-10-31).
+        "street_address": {
+            "street and house number",
+            "street address",
+            "street and number",
+            "address line 1",
+        },
+        "postal_code": {"zip code", "postal code", "postcode", "zip", "zip postal code"},
+        "city": {"home city", "city", "town", "city of residence"},
+        "country_of_residence": {
+            "country of residence",
+            "current country of residence",
+            "country",
+        },
+        "salutation": {"salutation"},
         "pronouns": {"pronouns", "preferred pronouns", "what are your preferred pronouns"},
         "github_url": {
             "github",
