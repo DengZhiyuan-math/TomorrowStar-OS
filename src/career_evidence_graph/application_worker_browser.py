@@ -2923,6 +2923,7 @@ class ApplicationRunner:
             or getattr(client, "driver_sha256", None) != policy["driver_sha256"]
             or executable is None
         ):
+            print("native_assistance_unavailable: worker capability", flush=True)
             raise PortalDataError(
                 "native_assistance_unavailable", "原生原页接管能力尚不可用。", 409
             )
@@ -3090,6 +3091,7 @@ class ApplicationRunner:
         except ValueError as error:
             # The adapter's own pre-checks (unresolved run, driver identity) start
             # nothing; that is a capability refusal, not a checkpoint failure.
+            print("native_assistance_unavailable: " + repr(error)[:500], flush=True)
             raise PortalDataError(
                 "native_assistance_unavailable", "原生原页接管能力尚不可用。", 409
             ) from error
