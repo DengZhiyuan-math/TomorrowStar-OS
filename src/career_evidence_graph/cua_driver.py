@@ -1600,6 +1600,25 @@ def managed_hidden_chrome(playwright, temporary, driver, log, env):
             trace("cleanup_complete", launch_date=identity["launch_date"])
 
 
+# Logins the user made in the worker's browser (decided 2026-10-31). Each run still
+# opens a fresh context; it starts from these cookies and site storage.
+LOGIN_STATE = "browser-login-state.json"
+
+
+def load_login_state(root) -> dict | None:
+    try:
+        value = json.loads((Path(root) / LOGIN_STATE).read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(value, dict) or not isinstance(value.get("cookies"), list):
+        return None
+    return value
+
+
+def save_login_state(root, context) -> None:
+    helper.atomic_write_json(Path(root) / LOGIN_STATE, context.storage_state())
+
+
 @contextmanager
 def managed_owned_cua_browser(
     playwright, root, driver, env, record, origins, *, trusted_session=False
@@ -1736,7 +1755,11 @@ def managed_owned_cua_browser(
                     raise PortalDataError(
                         "cua_visibility_unknown", "无窗口启动出现了意外页面。", 409
                     )
-                context = browser.new_context(service_workers="block", accept_downloads=False)
+                context = browser.new_context(
+                    service_workers="block",
+                    accept_downloads=False,
+                    **({"storage_state": saved} if (saved := load_login_state(root)) else {}),
+                )
                 anchor = CuaDriver(
                     None, pid, launch_date=identity["launch_date"], driver_owned=True
                 ).new_page(context)

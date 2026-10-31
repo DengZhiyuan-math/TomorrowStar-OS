@@ -70,7 +70,7 @@ from .ashby_drafts import DraftSession
 from .ashby_drafts import supports as supports_ashby_drafts
 from .ats_forms import FORMS, form_for
 from .career_portal_data import ApplicationStore, PortalDataError
-from .cua_driver import managed_cua_browser
+from .cua_driver import managed_cua_browser, save_login_state
 from .loaded_code import load_worker_modules, loaded_runtime_revision
 from .owned_browser_cdp import OwnedCDP, browser_budget, pause_browser_budget, pump_events
 from .owned_browser_cdp import screenshot as owned_screenshot
@@ -350,6 +350,13 @@ def _manual_submission_target(job, binding, *, document_url=None):
         return request.path.rstrip("/") == expected.path.rstrip("/")
     # A generic GraphQL operation name alone carries no verified job identity.
     return False
+
+
+def _abort(route) -> None:
+    # A request whose page or frame already closed has nothing left to block; its
+    # failed abort is not a lost browser connection (seen on a job board, 2026-10-31).
+    with suppress(Error):
+        route.abort("blockedbyclient")
 
 
 class ApplicationRunner:
@@ -898,14 +905,14 @@ class ApplicationRunner:
         except (OSError, StoreError, PortalDataError, ValueError, KeyError, StopIteration):
             self.storage_stopped = True
             self.store.block_storage()
-            route.abort("blockedbyclient")
+            _abort(route)
 
     def _live_guard_request(self, route) -> None:
         request = route.request
         try:
             page = request.frame.page
         except Error:
-            route.abort("blockedbyclient")
+            _abort(route)
             return
         if page in self.handed_off_pages:
             state = self.store.load()
@@ -947,7 +954,7 @@ class ApplicationRunner:
         sequence = self.request_sequence
         if hosted_ats.is_final_submission(request, owned_job):
             self.blocked_pages[page] = "manual_submit_required"
-            route.abort("blockedbyclient")
+            _abort(route)
             self.request_diagnostic(
                 request,
                 page,
@@ -966,7 +973,7 @@ class ApplicationRunner:
             and state.get("generic_enabled") is not True
         ):
             self.blocked_pages[page] = "generic_disabled"
-            route.abort("blockedbyclient")
+            _abort(route)
             self.request_diagnostic(
                 request,
                 page,
@@ -1192,7 +1199,7 @@ class ApplicationRunner:
             except (Error, ValueError, TypeError, KeyError, OSError):
                 workable.failed = True
                 self.blocked_pages[page] = "upload_result_unknown"
-                route.abort("blockedbyclient")
+                _abort(route)
         elif allowed and bounded_public_read:
             # Fetch only a reviewed public read. A public GET redirect
             # cannot grant its target access outside the original job scope.
@@ -1204,7 +1211,7 @@ class ApplicationRunner:
                 stage, reason = "request_permitted", "request_allowed"
             except (Error, ValueError, TypeError, KeyError, OSError):
                 self.blocked_pages.setdefault(page, "public_read_result_unknown")
-                route.abort("blockedbyclient")
+                _abort(route)
                 stage, reason = "public_read_response_rejected", "public_read_result_unknown"
             self.request_diagnostic(
                 request,
@@ -1232,7 +1239,7 @@ class ApplicationRunner:
                 self.blocked_pages[page] = reason
                 if draft is not None:
                     draft.failed = True
-                route.abort("blockedbyclient")
+                _abort(route)
                 self.request_diagnostic(
                     request,
                     page,
@@ -1277,7 +1284,7 @@ class ApplicationRunner:
                 )
             ):
                 self.blocked_pages.setdefault(page, "unverified_send_path")
-            route.abort("blockedbyclient")
+            _abort(route)
             self.request_diagnostic(
                 request,
                 page,
@@ -5728,10 +5735,16 @@ def main(argv: list[str] | None = None, *, expected_sources: dict | None = None)
                     from .application_worker_fixtures import install_browser_fixture
 
                     install_browser_fixture(context, runner, args.synthetic_browser)
+            next_login_save = 0.0
             while not stop_requested:
                 runner.tick()
                 # Context waiting pumps native events without depending on the first Page.
                 runner.pump()
+                if cua is not None and time.monotonic() >= next_login_save:
+                    # Keep a login made on the worker's page for later runs.
+                    with suppress(Error, OSError, ValueError):
+                        save_login_state(store.root, context)
+                    next_login_save = time.monotonic() + 30
             with store.applications.write_lock():
                 state = store.load()
                 state.update(control="paused", worker_error="worker_stopped")
