@@ -3828,7 +3828,8 @@ class ApplicationRunner:
             if maintain is not None and not self.shared_fault:
                 try:
                     maintain(pump=self.pump)
-                except PortalDataError:
+                except PortalDataError as error:
+                    print(f"cua_owner_unknown: {error.code} {error}", flush=True)
                     self.event("cua_owner_unknown")
             if control_only:
                 self._tick(control_only=True)
