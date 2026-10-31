@@ -6,6 +6,9 @@ import base64
 import hashlib
 import json
 import re
+import shutil
+import subprocess
+import tempfile
 from copy import deepcopy
 from pathlib import Path
 from uuid import uuid4
@@ -40,6 +43,69 @@ def _client(store):
     from .application_prism import PrismClient
 
     return store.prism_client if store.prism_client is not None else PrismClient()
+
+
+class TectonicCompiler:
+    """Compile automatic materials directly (decided 2026-10-31); Prism stays the editor.
+
+    The project is copied to a temporary directory, so compiling never writes into it.
+    """
+
+    def read_compiled(self, binding):
+        from .application_prism import dependency_snapshot
+
+        actual = dependency_snapshot(
+            Path(binding["project_root"]), binding["main"], [binding["main"]]
+        )
+        executable = shutil.which("tectonic")
+        if executable is None:
+            raise PortalDataError(
+                "resume_compiler_unavailable", "未找到 tectonic，暂不能编译 PDF。", 409
+            )
+        with tempfile.TemporaryDirectory() as work:
+            main = Path(work) / actual["main"]
+            main.write_bytes((Path(actual["project_root"]) / actual["main"]).read_bytes())
+            try:
+                run = subprocess.run(
+                    [executable, "--untrusted", "--keep-logs", main.name],
+                    cwd=work,
+                    capture_output=True,
+                    text=True,
+                    timeout=180,
+                )
+            except subprocess.TimeoutExpired as error:
+                raise PortalDataError(
+                    "resume_export_failed", "PDF 编译超时，源与旧终稿保留。", 409
+                ) from error
+            log = run.stderr + run.stdout
+            pdf = main.with_suffix(".pdf")
+            if run.returncode != 0 or not pdf.is_file():
+                raise PortalDataError("resume_export_failed", "PDF 编译失败，源与旧终稿保留。", 409)
+            raw = pdf.read_bytes()
+        # A glyph missing from the font silently drops text from the PDF.
+        missing = sorted(set(re.findall(r"could not represent character \"(.)\"", log)))
+        diagnostics = [
+            {"severity": "error", "message": f"missing glyph {char!r}"} for char in missing
+        ]
+        result = {
+            "schema_version": "prism-build-result/v1",
+            "status": "complete",
+            "id": uuid4().hex,
+            "main": actual["main"],
+            "builder": "tectonic",
+            "exit": run.returncode,
+            "pdf_updated": True,
+            "cancelled": False,
+            "timed_out": False,
+            "diagnostics": diagnostics,
+            "files": actual["files"],
+            "pdf_sha256": _sha(raw),
+        }
+        return {
+            "pdf": raw,
+            "binding": actual,
+            "build": result | {"source_revision": actual["source_revision"]},
+        }
 
 
 def _edit_provenance(store, binding):
@@ -833,7 +899,7 @@ def capture(store, draft_id, draft_sha256, *, task_inputs, export_id):
         ):
             raise _invalid("同一结果读取编号不能对应另一材料版本。")
         return saved
-    client = _client(store)
+    client = store.prism_client if store.prism_client is not None else TectonicCompiler()
     reader = getattr(client, "read_compiled", None)
     if reader is None:
         raise PortalDataError(
@@ -841,6 +907,18 @@ def capture(store, draft_id, draft_sha256, *, task_inputs, export_id):
         )
     compiled = reader(_binding(draft["source_checkpoint"]))
     binding, build, raw = compiled["binding"], compiled["build"], compiled["pdf"]
+    defects = [
+        row.get("message", "")
+        for row in (build.get("diagnostics") if isinstance(build.get("diagnostics"), list) else [])
+        if isinstance(row, dict) and row.get("severity") == "error"
+    ]
+    if defects:
+        # A known refusal of this source, not an unknown build result.
+        raise PortalDataError(
+            "resume_pdf_source_defect",
+            "PDF 会缺失内容（" + "；".join(defects) + "），旧终稿保留。",
+            409,
+        )
     archive = archive_sources(binding)
     source = validate_archive(archive, binding)
     if (

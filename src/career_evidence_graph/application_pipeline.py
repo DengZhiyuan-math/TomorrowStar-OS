@@ -49,6 +49,17 @@ MATERIAL_EDIT_STOPPING = {
 }
 
 
+_EXPORT_ENVIRONMENT_FAILURES = frozenset(
+    {
+        "prism_unavailable",
+        "prism_not_running",
+        "prism_result_unavailable",
+        "resume_compiler_unavailable",
+        "resume_export_failed",
+    }
+)
+
+
 class ApplicationPipeline:
     """A persistent mail queue with one current job and manual final submission."""
 
@@ -1901,6 +1912,20 @@ class ApplicationPipeline:
                 task["id"],
                 task["revision"],
                 "resume",
+                retry=True,
+                _continuation_request_id=request_id,
+            )
+        export = task["stages"].get("export", {})
+        if export.get("status") == "failed" and export.get("error_code") in {
+            "resume_pdf_source_defect",
+            *_EXPORT_ENVIRONMENT_FAILURES,
+        }:
+            retried = True
+            # A defective source is rewritten; an unreachable compiler is only retried.
+            task = self.flow.start(
+                task["id"],
+                task["revision"],
+                "resume" if export["error_code"] == "resume_pdf_source_defect" else "export",
                 retry=True,
                 _continuation_request_id=request_id,
             )
