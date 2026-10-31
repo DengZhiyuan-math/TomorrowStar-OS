@@ -297,6 +297,10 @@ class _Run:
         self.report = None
 
 
+STARTUP_REQUEST_TIMEOUT = 30.0
+STARTUP_METHODS = frozenset({"initialize", "config/read", "thread/start", "mcpServerStatus/list"})
+
+
 class _ProtocolFailure(Exception):
     def __init__(self, *args):
         super().__init__(*args)
@@ -1365,7 +1369,14 @@ class CodexAdapter:
             run.next_pump_at = time.monotonic() + 0.05
 
     def _request(self, run, method, params, *, timeout=None):
-        timeout = self.config.request_timeout if timeout is None else timeout
+        if timeout is None:
+            # Starting a thread launches the required takeover tool server (its own
+            # startup allows 30 s); 2 s let real runs time out (2026-10-31).
+            timeout = (
+                max(self.config.request_timeout, STARTUP_REQUEST_TIMEOUT)
+                if method in STARTUP_METHODS
+                else self.config.request_timeout
+            )
         deadline = time.monotonic() + timeout
         run.next_request += 1
         identifier = run.next_request
