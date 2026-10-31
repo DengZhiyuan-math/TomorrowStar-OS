@@ -14,7 +14,9 @@ from .application_automation import validate_application_target
 from .career_portal_data import CareerCatalog, PortalDataError
 
 
-def _read(path: Path, *, expected_sha256=None, maximum_bytes=32_000_000) -> dict:
+# flow.json holds one task's full prior copy during a material update; a real job
+# reached 37 MB (2026-10-31). The bound still refuses unbounded local records.
+def _read(path: Path, *, expected_sha256=None, maximum_bytes=64_000_000) -> dict:
     if (
         any(part.is_symlink() for part in (path, *path.parents))
         or path.stat().st_size > maximum_bytes
