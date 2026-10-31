@@ -1404,6 +1404,7 @@ class CodexAdapter:
         while identifier not in run.responses:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
+                print(f"response_unknown: {method} after {timeout}s", flush=True)
                 raise _ProtocolFailure("response_unknown")
             self._consume(run, timeout=min(remaining, 0.05))
             self._pump(run)
