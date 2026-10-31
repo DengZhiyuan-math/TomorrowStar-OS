@@ -119,3 +119,31 @@ def test_the_card_shows_each_in_band_fit_and_none_for_a_withheld_citation():
     )
     view = job_explanation(application, task, current_inputs=task["inputs"], fixed_delivery=True)
     assert [reason.get("fit") for reason in view["reasons"]] == [100, 60, None]
+
+
+def test_fixed_card_shows_the_latest_recheck_but_keeps_its_qualification():
+    application, task = job_and_task([requirement("Work permit", judgment="unknown", hard=True)])
+    analysis = task["artifacts"][0]["result"]
+    analysis.update(
+        retrieval={"selected_candidate_ids": []}, application_library_policy="trusted-library/v1"
+    )
+    recheck = deepcopy(analysis)
+    recheck["requirements"] = [requirement("Work permit", hard=True) | {"fit_score": 90}]
+    task["job_binding"] = task.get("job_binding")
+    task["match_rechecks"] = [
+        {
+            "id": "r1",
+            "method": "normal_analysis",
+            "base_analysis_id": task["analysis_id"],
+            "job_binding": task["job_binding"],
+            "library_revision": "lib",
+            "source_snapshot_revision": "src",
+            "reviewed_at": "2026-10-31T12:00:00+00:00",
+            "result": recheck,
+        }
+    ]
+    # Decided 2026-10-31: the card shows the latest recheck of a fixed job.
+    view = job_explanation(application, task, current_inputs=task["inputs"], fixed_delivery=True)
+    assert view["score"] == calculate_match_score(recheck["requirements"])
+    assert view["match_recheck"]["id"] == "r1"
+    assert view["qualification"]["status"] == "needs_input"

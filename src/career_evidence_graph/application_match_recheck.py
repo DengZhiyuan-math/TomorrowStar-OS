@@ -198,6 +198,27 @@ def normal_analysis_current(report, application, library, source_provider):
         return False
 
 
+def latest_fixed_recheck(task):
+    """The latest normal recheck of a job whose materials are fixed, for display only.
+
+    Decided 2026-10-31: the card shows it; qualification and execution keep the
+    analysis the materials were made with.
+    """
+    rows = [
+        row
+        for row in (task or {}).get("match_rechecks", [])
+        if row.get("method") == "normal_analysis"
+    ]
+    latest = rows[-1] if rows else {}
+    if (
+        latest.get("result")
+        and latest.get("base_analysis_id") == task.get("analysis_id")
+        and latest.get("job_binding") == task.get("job_binding")
+    ):
+        return latest
+    return None
+
+
 def current_match_recheck(task, library, *, application=None, source_provider=None):
     """Use a review only while its original analysis and connected source version remain current."""
     connected = (library or {}).get("career_library", {})

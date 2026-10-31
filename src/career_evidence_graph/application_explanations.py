@@ -378,10 +378,14 @@ def job_explanation(
         current_inputs = retained_configuration_inputs(task, current_inputs)
     analysis = adopted_analysis(task)
     requirements = deepcopy((analysis or {}).get("requirements", []))
-    from .application_match_recheck import current_match_recheck, normal_analysis_current
+    from .application_match_recheck import (
+        current_match_recheck,
+        latest_fixed_recheck,
+        normal_analysis_current,
+    )
 
     recheck = (
-        None
+        latest_fixed_recheck(task)
         if fixed_delivery
         else current_match_recheck(
             task, library, application=application, source_provider=source_provider
@@ -440,7 +444,10 @@ def job_explanation(
         task,
         application,
         library,
-        analysis={**effective_analysis, "requirements": requirements, "normal_facts_path": normal}
+        # Fixed materials keep the qualification execution uses; a recheck is display only.
+        analysis=analysis
+        if fixed_delivery
+        else {**effective_analysis, "requirements": requirements, "normal_facts_path": normal}
         if effective_analysis
         else None,
         fixed_delivery=fixed_delivery,
