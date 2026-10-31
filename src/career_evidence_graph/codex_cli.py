@@ -338,7 +338,12 @@ def run_codex_exec(
     # The CLI reads an immutable copy; later source edits cannot alter this call's schema.
     with tempfile.TemporaryDirectory(prefix=".codex-schema-", dir=workspace) as directory:
         snapshot = Path(directory) / "output.schema.json"
-        snapshot.write_bytes(schema_bytes)
+        # Every call meets strict structured output (installed MC-11: optional fields
+        # made the provider reject whole stages); receipts still hash the caller's file.
+        snapshot_bytes = json.dumps(
+            strict_output_schema(json.loads(schema_bytes)), ensure_ascii=False
+        ).encode("utf-8")
+        snapshot.write_bytes(snapshot_bytes)
         snapshot.chmod(0o400)
         argv[argv.index("--output-schema") + 1] = str(snapshot)
         source_environment = os.environ if environment is None else environment
@@ -394,7 +399,7 @@ def run_codex_exec(
             )
         try:
             _check_schema_unchanged(output_schema, schema_bytes)
-            _check_schema_unchanged(snapshot, schema_bytes)
+            _check_schema_unchanged(snapshot, snapshot_bytes)
             _, structured_result = _parse_jsonl(process.stdout)
         except CodexCLIError as exc:
             raise CodexCLIError(

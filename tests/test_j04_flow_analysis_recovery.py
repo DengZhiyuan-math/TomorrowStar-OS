@@ -9,6 +9,8 @@ from test_canonical_career_sources import canonical as canonical
 from career_evidence_graph.application_flow import ApplicationFlowService
 from career_evidence_graph.career_portal_data import ApplicationStore, PortalDataError
 
+pytestmark = pytest.mark.usefixtures("planner_path")
+
 
 def test_explicit_analysis_retry_reopens_with_failed_attempt_and_original_binding(tmp_path):
     applications_root = tmp_path / "applications"
