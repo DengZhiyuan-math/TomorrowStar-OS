@@ -382,6 +382,18 @@ def _native_output_schema(sources, native_ids):
     return schema
 
 
+# Decided 2026-10-31 after comparing luna, terra, sol and Opus on four jobs: sol at medium
+# was stable within a few points, while luna moved by up to 15.
+MATCH_MODEL = "gpt-6.1-sol"
+# Set once at App start when a Claude configuration exists; Opus then scores beside sol.
+SECOND_OPINION = None
+
+
+def configure_second_opinion(scorer):
+    global SECOND_OPINION
+    SECOND_OPINION = scorer
+
+
 def match_configuration(environment=None) -> dict:
     """Describe the loaded engine and requested model policy without a model call."""
     environment = dict(os.environ) if environment is None else environment
@@ -423,6 +435,7 @@ def match_configuration(environment=None) -> dict:
         "inference_schema_sha256": digest(_ControlledOutput.model_json_schema()),
         "inference_policy_revision": digest(INFERENCE_POLICY),
         "requested_model": CodexCLIConfig.model_fields["requested_model"].default,
+        "evaluation_model": MATCH_MODEL,
         "reasoning_effort": CodexCLIConfig.model_fields["reasoning_effort"].default,
         "sandbox": CodexCLIConfig.model_fields["sandbox"].default,
         "executable": requested,
@@ -1299,11 +1312,21 @@ def _analyze_loaded_job(
         schema_version="codex-cli-config/v1",
         workspace=directory,
         output_schema=schema_path,
+        requested_model=MATCH_MODEL,
         drift_limitation_reason="Unpinned comparison alias; raw response and uncertainty retained.",
     )
+    second = None
+    if SECOND_OPINION is not None:
+        from concurrent.futures import ThreadPoolExecutor
+
+        # Both models read the same prompt at the same time; neither waits for the other.
+        pool = ThreadPoolExecutor(1)
+        second = pool.submit(SECOND_OPINION, prompt, output_schema, directory)
+        pool.shutdown(wait=False)
     try:
+        # sol took up to 150 s on a 39-requirement JD in the 2026-10-31 comparison.
         result = runner(
-            config, prompt, timeout_seconds=180, allow_non_repository=True, environment=environment
+            config, prompt, timeout_seconds=300, allow_non_repository=True, environment=environment
         )
     except (CodexCLIError, OSError, subprocess.TimeoutExpired) as error:
         raw = getattr(error, "raw_stdout_jsonl", getattr(error, "output", "")) or ""
@@ -1561,6 +1584,10 @@ def _analyze_loaded_job(
         }
         inferences["revision"] = digest(inferences)
         report["inference_result"] = inferences
+    if second is not None:
+        from .application_second_opinion import summarize
+
+        report["second_opinion"] = summarize(second.result(), requirements)
     helper.atomic_write_json(directory / "analysis.json", report)
     return report
 

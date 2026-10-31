@@ -882,6 +882,21 @@
     const business = explanation.business_summary;
     if (business) scorePanel.append(node("p", "flow-fit-business", [business.business_objective, business.work_outputs?.length ? `产出：${business.work_outputs.join("、")}` : ""].filter(Boolean).join(" · ")));
     panel.append(scorePanel);
+    const models = explanation.model_scores;
+    if (models) {
+      // Decided 2026-10-31: sol and Opus score side by side; a large gap needs the user's review.
+      const middle = value => (value.lower + value.upper) / 2;
+      const line = `sol ${number(middle(models.primary))} · Opus ${number(middle(models.second))} · 分差 ${number(models.gap)}`;
+      panel.append(node("p", models.needs_review ? "flow-error" : "flow-fit-note", models.needs_review ? `两个模型分差较大，需你审核：${line}` : `两个模型一致，取平均：${line}`));
+      const differing = (models.differing_requirements || []).map(index => (explanation.reasons || [])[index]).filter(Boolean);
+      if (models.needs_review && differing.length) {
+        const list = node("ul", "flow-fit-list");
+        for (const reason of differing.slice(0, 6)) list.append(node("li", "", reason.text));
+        panel.append(node("p", "flow-muted", "两个模型判断不一致的要求："), list);
+      }
+    } else if (explanation.reasons?.some(reason => typeof reason.fit === "number")) {
+      panel.append(node("p", "flow-fit-note", "仅单模型评分（第二模型未运行或未完成）。"));
+    }
     if (explanation.factual_rechecks?.some(item => item.status === "supported")) panel.append(node("p", "flow-fit-note", "已复用信息库中的确认事实核验学历与实习安排。"));
     if (explanation.match_recheck) panel.append(node("p", "flow-fit-note", "已结合经历库与 GitHub 库中按需读取的原始证据复核。"));
     if (explanation.match_recheck_stale) panel.append(node("p", "flow-error", "经历库来源已变化，原复核保留为历史；当前展示原分析及仍适用的确认事实。"));

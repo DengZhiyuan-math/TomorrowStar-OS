@@ -23,7 +23,7 @@ from .application_flow import (
     legacy_analysis_failure as _known_analysis_failure,
 )
 from .application_match_refresh import match_refresh_running, require_no_other_match_refresh
-from .application_match_scoring import calculate_match_score
+from .application_match_scoring import calculate_match_score, combined_score
 from .career_portal_data import PortalDataError
 from .job_screening import application_country, application_route, screen_applications
 from .validation.hashing import record_digest as digest
@@ -2503,7 +2503,9 @@ class ApplicationPipeline:
             self.flow.prepare(task["id"], task["revision"], analysis_only=True)
         elif analysis_status == "ready":
             analysis = adopted_analysis(task)
-            score = calculate_match_score(analysis["requirements"])
+            score, _ = combined_score(
+                calculate_match_score(analysis["requirements"]), analysis, analysis["requirements"]
+            )
             item["score"] = score
             eligible = task_eligibility(task)["status"] in {
                 "supported",

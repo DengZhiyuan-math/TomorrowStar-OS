@@ -323,7 +323,12 @@ def test_packet_matching_counts_an_in_progress_degree_as_held(native_case, tmp_p
     # judged the in-progress PhD a gap for "Hold a PhD".
     application, prepared, output = native_case
     directory = tmp_path / "degree-rule"
-    analyze_job(application, prepared, directory, runner=model_runner(output, []))
+    calls = []
+    analyze_job(application, prepared, directory, runner=model_runner(output, calls))
+    # Decided 2026-10-31: the final matching call uses gpt-6.1-sol.
+    assert any(
+        call[call.index("--model") + 1] == "gpt-6.1-sol" for call in calls if "--model" in call
+    )
     prompt = json.loads((directory / "context-input.json").read_text())["prompt"]
     assert "a degree in progress with an expected completion date supports" in prompt
     assert "return fit_score, an integer 0-100" in prompt
@@ -335,6 +340,47 @@ def test_packet_matching_counts_an_in_progress_degree_as_held(native_case, tmp_p
     definitions = sent["$defs"]
     requirement = next(v for v in definitions.values() if "fit_score" in v.get("properties", {}))
     assert "fit_score" in requirement["required"]
+
+
+@pytest.mark.parametrize("opinion", ["agree", "differ", "failed"])
+def test_a_second_model_scores_the_same_prompt_beside_the_first(
+    native_case, tmp_path, monkeypatch, opinion
+):
+    from career_evidence_graph import application_match
+    from career_evidence_graph.application_match_scoring import combined_score
+
+    application, prepared, output = native_case
+    output["requirements"][0]["fit_score"] = 90
+    seen = []
+
+    def scorer(prompt, schema, directory):
+        seen.append(prompt)
+        if opinion == "failed":
+            return {
+                "model": "claude-opus-5-5",
+                "status": "failed",
+                "error_code": "claude_not_signed_in",
+            }
+        row = {
+            "judgment": "supported" if opinion == "agree" else "partial",
+            "fit_score": 85 if opinion == "agree" else 40,
+            "explanation": "Second reading.",
+        }
+        return {"model": "claude-opus-5-5", "status": "complete", "output": {"requirements": [row]}}
+
+    # Decided 2026-10-31: Opus scores the same prompt beside sol.
+    monkeypatch.setattr(application_match, "SECOND_OPINION", scorer)
+    result = analyze_job(application, prepared, tmp_path / opinion, runner=model_runner(output, []))
+    prompt = json.loads((tmp_path / opinion / "context-input.json").read_text())["prompt"]
+    assert seen == [prompt]
+    score, models = combined_score(result["score"], result, result["requirements"])
+    if opinion == "failed":
+        assert result["second_opinion"]["status"] == "failed" and models is None
+        assert score == result["score"]
+        return
+    assert models["needs_review"] is (opinion == "differ")
+    assert models["differing_requirements"] == ([] if opinion == "agree" else [0])
+    assert score["lower"] == (90 + (85 if opinion == "agree" else 40)) / 2
 
 
 def assert_citation_withheld(result):

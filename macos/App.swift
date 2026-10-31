@@ -314,11 +314,13 @@ struct Workspace: Codable {
     // Absent means on; an unreadable value turns automatic takeover off.
     let automatic_takeover: Bool?
     let takeover_executor: String?
+    // Claude configuration for Opus scoring beside sol; absent means sol alone (2026-10-31).
+    let match_second_opinion_claude_config: String?
 
     init(applications: String, career_workspace: String, preparation_root: String? = nil,
          application_processed_label: String? = nil, career_library_manifest: String? = nil,
          cover_letter_template: String? = nil, automatic_takeover: Bool? = nil,
-         takeover_executor: String? = nil) {
+         takeover_executor: String? = nil, match_second_opinion_claude_config: String? = nil) {
         self.applications = applications
         self.career_workspace = career_workspace
         self.career_library_manifest = career_library_manifest
@@ -327,9 +329,10 @@ struct Workspace: Codable {
         self.application_processed_label = application_processed_label
         self.automatic_takeover = automatic_takeover
         self.takeover_executor = takeover_executor
+        self.match_second_opinion_claude_config = match_second_opinion_claude_config
     }
 
-    enum CodingKeys: String, CodingKey { case applications, career_workspace, career_library_manifest, cover_letter_template, preparation_root, application_processed_label, automatic_takeover, takeover_executor }
+    enum CodingKeys: String, CodingKey { case applications, career_workspace, career_library_manifest, cover_letter_template, preparation_root, application_processed_label, automatic_takeover, takeover_executor, match_second_opinion_claude_config }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -346,6 +349,7 @@ struct Workspace: Codable {
         automatic_takeover = values.contains(.automatic_takeover)
             ? (try? values.decode(Bool.self, forKey: .automatic_takeover)) ?? false : nil
         takeover_executor = try? values.decodeIfPresent(String.self, forKey: .takeover_executor)
+        match_second_opinion_claude_config = try? values.decodeIfPresent(String.self, forKey: .match_second_opinion_claude_config)
         if decoder.userInfo[Self.preparationRootRequired] as? Bool == false {
             preparation_root = try? values.decode(String.self, forKey: .preparation_root)
         } else {
@@ -358,20 +362,20 @@ struct Workspace: Codable {
         Workspace(applications: applications, career_workspace: careerWorkspace, preparation_root: preparation_root,
                   application_processed_label: application_processed_label, career_library_manifest: career_library_manifest,
                   cover_letter_template: cover_letter_template, automatic_takeover: automatic_takeover,
-                  takeover_executor: takeover_executor)
+                  takeover_executor: takeover_executor, match_second_opinion_claude_config: match_second_opinion_claude_config)
     }
 
     func selectingMailProcessingLabel(_ label: String) -> Workspace {
         Workspace(applications: applications, career_workspace: career_workspace, preparation_root: preparation_root,
                   application_processed_label: label.isEmpty ? nil : label, career_library_manifest: career_library_manifest,
                   cover_letter_template: cover_letter_template, automatic_takeover: automatic_takeover,
-                  takeover_executor: takeover_executor)
+                  takeover_executor: takeover_executor, match_second_opinion_claude_config: match_second_opinion_claude_config)
     }
 
     func selectingAutomaticTakeover(_ enabled: Bool) -> Workspace {
         Workspace(applications: applications, career_workspace: career_workspace, preparation_root: preparation_root,
                   application_processed_label: application_processed_label, career_library_manifest: career_library_manifest,
-                  cover_letter_template: cover_letter_template, automatic_takeover: enabled, takeover_executor: "codex")
+                  cover_letter_template: cover_letter_template, automatic_takeover: enabled, takeover_executor: "codex", match_second_opinion_claude_config: match_second_opinion_claude_config)
     }
 }
 
@@ -554,6 +558,9 @@ struct NativeLaunch {
         // On by default; only Codex is an executor so far (MC-22, MC-23).
         if canChangeAutomaticTakeover && workspace.automatic_takeover != false {
             arguments += ["--automatic-takeover", "--takeover-executor=" + (workspace.takeover_executor ?? "codex")]
+        }
+        if let claude = workspace.match_second_opinion_claude_config {
+            arguments += ["--second-opinion-claude-config", (claude as NSString).expandingTildeInPath]
         }
         return arguments
     }

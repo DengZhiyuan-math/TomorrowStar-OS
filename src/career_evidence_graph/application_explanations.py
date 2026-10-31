@@ -3,7 +3,7 @@
 from contextlib import suppress
 from copy import deepcopy
 
-from .application_match_scoring import calculate_match_score, fit_in_band
+from .application_match_scoring import calculate_match_score, combined_score, fit_in_band
 from .career_portal_data import STATUS_LABELS, PortalDataError
 from .job_screening import application_country
 from .validation.hashing import record_digest as digest
@@ -524,6 +524,8 @@ def job_explanation(
         )
         if not preferences[key]
     ]
+    # Decided 2026-10-31: sol and Opus scores are averaged; a large gap needs review.
+    score, model_scores = combined_score(score, effective_analysis, requirements)
     for requirement in requirements:
         # The card shows the in-band fit the score used, not the model's raw number.
         fit = fit_in_band(requirement.get("judgment"), requirement.get("fit_score"))
@@ -537,6 +539,7 @@ def job_explanation(
         "fresh": fresh,
         "materials_fresh": materials_fresh,
         "score": score,
+        "model_scores": model_scores,
         "documentary_score": documentary_score,
         "match_recheck_stale": not fixed_delivery
         and (normal_stale or bool((task or {}).get("match_rechecks") and not recheck)),

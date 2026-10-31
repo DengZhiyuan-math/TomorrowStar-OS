@@ -712,6 +712,8 @@ def main() -> int:
     )
     # Unknown values stay a stated takeover reason rather than a failed launch.
     parser.add_argument("--takeover-executor", default="codex")
+    # Opus scores matching beside sol with this Claude configuration (decided 2026-10-31).
+    parser.add_argument("--second-opinion-claude-config", type=Path)
     parser.add_argument(
         "--information-library-root",
         type=Path,
@@ -744,6 +746,11 @@ def main() -> int:
         help="Explicitly enable the separate single-job application workflow.",
     )
     args = parser.parse_args()
+    if args.second_opinion_claude_config is not None:
+        from career_evidence_graph.application_match import configure_second_opinion
+        from career_evidence_graph.application_second_opinion import ClaudeScorer
+
+        configure_second_opinion(ClaudeScorer(args.second_opinion_claude_config))
     legacy = args.automation_lab or args.codex_handoff
     preparation_only = not (
         legacy

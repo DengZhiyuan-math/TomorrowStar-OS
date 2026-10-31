@@ -273,3 +273,51 @@ def route_for_score(score):
     else:
         route = "matched"
     return {"route": route, "auto_skip": False}
+
+
+def combined_score(primary, analysis, requirements):
+    """Average the primary and second-opinion scores; flag review when they differ too much.
+
+    Decided 2026-10-31: sol scores, Opus scores beside it, and a gap above REVIEW_GAP
+    points sends the job to the user's review. Without a complete second opinion the
+    primary score stands alone.
+    """
+    from .application_second_opinion import REVIEW_GAP
+
+    second = (analysis or {}).get("second_opinion") or {}
+    if primary is None or second.get("status") != "complete":
+        return primary, None
+    try:
+        rows = [
+            {key: row[key] for key in ("text", "importance", "hard_condition", "scoring_framework")}
+            | {"judgment": other["judgment"], "fit_score": other.get("fit_score")}
+            for row, other in zip(requirements, second["requirements"], strict=True)
+        ]
+        other = calculate_match_score(rows)
+    except (PortalDataError, KeyError, TypeError, ValueError):
+        return primary, None
+
+    def middle(score):
+        return (score["lower"] + score["upper"]) / 2
+
+    lower = (primary["lower"] + other["lower"]) / 2
+    upper = (primary["upper"] + other["upper"]) / 2
+    gap = abs(middle(primary) - middle(other))
+    differing = [
+        index
+        for index, (row, mine) in enumerate(zip(rows, requirements, strict=True))
+        if row["judgment"] != mine["judgment"]
+        or abs(
+            (fit_in_band(row["judgment"], row["fit_score"]) or 0)
+            - (fit_in_band(mine["judgment"], mine.get("fit_score")) or 0)
+        )
+        >= 25
+    ]
+    return primary | {"lower": lower, "upper": upper, "coverage": 100 - (upper - lower)}, {
+        "primary": primary,
+        "second": other,
+        "second_model": second.get("model"),
+        "gap": gap,
+        "needs_review": gap > REVIEW_GAP,
+        "differing_requirements": differing,
+    }

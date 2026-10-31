@@ -129,7 +129,7 @@ class ValidationCharter(StrictModel):
 
 class ModelIdentity(StrictModel):
     schema_version: Literal["model-identity/v1"]
-    model_alias: Literal["gpt-5.6-luna"]
+    model_alias: Literal["gpt-5.6-luna", "gpt-6.1-sol"]
     resolved_snapshot: str | None = None
 
     @model_validator(mode="after")
@@ -151,7 +151,8 @@ class ModelDriftLimitation(StrictModel):
 class CodexCLIConfig(StrictModel):
     schema_version: Literal["codex-cli-config/v1"]
     executable: Literal["codex"] = "codex"
-    requested_model: Literal["gpt-5.6-luna"] = "gpt-5.6-luna"
+    # Matching's final scoring uses gpt-6.1-sol (decided 2026-10-31); other calls keep luna.
+    requested_model: Literal["gpt-5.6-luna", "gpt-6.1-sol"] = "gpt-5.6-luna"
     reasoning_effort: Literal["medium"] = "medium"
     sandbox: Literal["read-only"] = "read-only"
     workspace: Path
@@ -191,11 +192,10 @@ class CodexCLIResult(StrictModel):
             raise ValueError("formal Codex result must have exit code zero")
         if not self.raw_stdout_jsonl or self.structured_result is None:
             raise ValueError("formal Codex result requires raw JSONL and structured output")
-        if self.requested_configuration != {
-            "model": "gpt-5.6-luna",
-            "reasoning_effort": "medium",
-            "sandbox": "read-only",
-        }:
+        if self.requested_configuration not in (
+            {"model": model, "reasoning_effort": "medium", "sandbox": "read-only"}
+            for model in ("gpt-5.6-luna", "gpt-6.1-sol")
+        ):
             raise ValueError("Codex requested configuration is not the locked profile")
         if self.model_identity.resolved_snapshot is None:
             if self.model_drift_limitation is None:
