@@ -2995,7 +2995,9 @@ class ApplicationRunner:
         native_scope["application_ref_digest"] = digest(reference)
         validate_native_assistance_scope(native_scope, reference)
         context["native_scope"] = native_scope
-        if not self.assistance_read_permitted(reference, document=context["document"]):
+        # Startup work (page context, native scope, Codex launch) can outlast the
+        # observation window; each check first refreshes it (seen 2026-10-31: 6.2 s).
+        if not self.pump_codex_events(reference, document=context["document"]):
             raise PortalDataError(
                 "assistance_binding_changed", "原页文档已改变，保留当前现场。", 409
             )
@@ -3010,7 +3012,7 @@ class ApplicationRunner:
         latest = {}
 
         def permitted():
-            return self.assistance_read_permitted(reference, document=document)
+            return self.pump_codex_events(reference, document=document)
 
         def before_yield(intent):
             if (
