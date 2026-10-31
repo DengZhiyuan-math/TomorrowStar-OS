@@ -1280,8 +1280,20 @@ class ApplicationPipeline:
                     )
                 self._save(state)
             elif action == "continue":
-                if state.get("wait_reason") == "cover_letter_result_unknown":
+                if state.get("wait_reason") in {
+                    "cover_letter_result_unknown",
+                    "material_result_unknown",
+                } and (
                     self._retry_unknown_writing(state, payload["request_id"])
+                    and state.get("wait_reason") == "material_result_unknown"
+                    and not state.get("worker_batch_id")
+                ):
+                    state.pop("wait_reason", None)
+                    state.pop("resume_status", None)
+                    state.update(control="running", status="generating_resume", notification=None)
+                    receipt["status"] = "complete"
+                    self._save(state)
+                    return self.snapshot()
                 if state.get("wait_reason") in {
                     "cover_letter_result_unknown",
                     "material_consistency_required",
@@ -1873,12 +1885,13 @@ class ApplicationPipeline:
 
         Writing only drafts text; the unknown attempts stay in the task history.
         """
-        task = self._task(state)
+        task, retried = self._task(state), False
         resume = task["stages"].get("resume", {})
         if (
             resume.get("status") == "needs_recheck"
             and resume.get("error_code") == "resume_author_needs_recheck"
         ):
+            retried = True
             task = self.flow.start(
                 task["id"],
                 task["revision"],
@@ -1887,9 +1900,15 @@ class ApplicationPipeline:
                 _continuation_request_id=request_id,
             )
         if (task.get("cover_letter") or {}).get("status") == "needs_recheck":
-            self.flow.start_cover_letter(
-                task["id"], retry=True, _continuation_request_id=request_id
-            )
+            retried = True
+            try:
+                # A locally saved letter is adopted without calling the writer again.
+                self.flow.recheck_cover_letter(task["id"], task["revision"])
+            except PortalDataError:
+                self.flow.start_cover_letter(
+                    task["id"], retry=True, _continuation_request_id=request_id
+                )
+        return retried
 
     def _material_wait_for_recovery(self, state):
         if (

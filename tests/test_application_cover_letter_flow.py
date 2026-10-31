@@ -191,12 +191,36 @@ def test_unknown_letter_requires_exact_local_reconciliation_without_replay(tmp_p
                 row["cover_letter"]["status"] == "needs_recheck" and row["status"] == "draft_ready"
             ),
         )
-        with pytest.raises(PortalDataError, match="未知"):
-            flow.start_cover_letter(task["id"], unknown["revision"], retry=True)
         reconciled = flow.recheck_cover_letter(task["id"], unknown["revision"])
         assert reconciled["cover_letter"]["status"] == "ready"
         assert len(calls) == 1
         assert reconciled["draft_id"] == "resume-draft"
+    finally:
+        flow.close()
+
+
+def test_explicit_retry_runs_an_unknown_letter_again_and_keeps_its_history(tmp_path):
+    calls = []
+
+    def letter(task):
+        calls.append(task["cover_letter"]["attempt_id"])
+        if len(calls) == 1:
+            raise TimeoutError("response lost")
+        return material(task)
+
+    flow, task = service(tmp_path, letter)
+    try:
+        flow.start(task["id"], task["revision"], "resume")
+        unknown = wait_for(
+            flow, task["id"], lambda row: row["cover_letter"]["status"] == "needs_recheck"
+        )
+        with pytest.raises(PortalDataError, match="未知"):
+            flow.start_cover_letter(task["id"], unknown["revision"])
+        # Approved 2026-10-31: writing only drafts text, so the user's retry may re-run it.
+        flow.start_cover_letter(task["id"], unknown["revision"], retry=True)
+        done = wait_for(flow, task["id"], lambda row: row["cover_letter"]["status"] == "ready")
+        assert len(calls) == 2
+        assert done["cover_letter_history"][-1]["status"] == "needs_recheck"
     finally:
         flow.close()
 

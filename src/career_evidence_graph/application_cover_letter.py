@@ -493,6 +493,41 @@ def _delivered_sources(fixed_inputs, sources):
     )
 
 
+def _aligned_quotes(row, eligible, application, brief=None):
+    """Pair each literal quote with the one listed source containing it.
+
+    Installed MC-11: the writer quoted the JD twice under one "jd" entry, once with
+    the job brief's normalized requirement wording, so the parallel lists no longer
+    lined up. Under "jd", a requirement's wording maps to its own literal JD excerpt;
+    one quote per source is kept; anything not paired exactly is left for validation.
+    """
+    excerpts = {
+        requirement["text"].rstrip("."): requirement["jd_quote"]
+        for group in (brief or {}).get("groups", [])
+        for requirement in group.get("requirements", [])
+        if isinstance(requirement.get("jd_quote"), str)
+    }
+    ids = row["source_ids"]
+    quotes = [
+        excerpts.get(quote.rstrip("."), quote) if "jd" in ids else quote
+        for quote in row["source_quotes"]
+    ]
+    row = row | {"source_quotes": quotes}
+    if len(ids) == len(quotes):
+        return row
+    texts = {source["source_id"]: source["text"] for source in eligible}
+    texts["jd"] = application["job_description"]
+    first = {}
+    for quote in quotes:
+        owners = [identifier for identifier in ids if quote in texts.get(identifier, "")]
+        if len(owners) != 1:
+            return row
+        first.setdefault(owners[0], quote)
+    if set(first) != set(ids):
+        return row
+    return row | {"source_quotes": [first[identifier] for identifier in ids]}
+
+
 def _writer_inputs(fixed_inputs, eligible):
     """The letter reads judgments and the facts they rest on, not the reading receipts.
 
@@ -878,7 +913,11 @@ def generate_cover_letter(
                 "inputs_revision": inputs_revision,
                 "language": output["language"],
                 "paragraphs": [
-                    row | {"origin": "ai", "protected": False} for row in output["paragraphs"]
+                    _aligned_quotes(
+                        row, eligible, application, fixed_inputs["analysis"].get("job_brief")
+                    )
+                    | {"origin": "ai", "protected": False}
+                    for row in output["paragraphs"]
                 ],
             }
             content["revision"] = _revision(content)
