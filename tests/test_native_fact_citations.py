@@ -327,6 +327,8 @@ def test_packet_matching_counts_an_in_progress_degree_as_held(native_case, tmp_p
     prompt = json.loads((directory / "context-input.json").read_text())["prompt"]
     assert "a degree in progress with an expected completion date supports" in prompt
     assert "return fit_score, an integer 0-100" in prompt
+    # Decided 2026-10-31: team and AI-assisted work count only the user's own share.
+    assert "count the user's design, direction and review" in prompt
     from career_evidence_graph.codex_cli import strict_output_schema
 
     sent = strict_output_schema(json.loads((directory / "match-schema.json").read_text()))

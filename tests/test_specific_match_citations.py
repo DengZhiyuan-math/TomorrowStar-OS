@@ -176,7 +176,7 @@ def test_quote_must_be_inside_the_part_actually_sent_to_the_model(
         )
     )
     snapshot = career_source_snapshot(CareerCatalog(tmp_path / "career"))
-    monkeypatch.setenv("TOMORROWSTAR_MATCH_CONTEXT_BYTES", "10000")
+    monkeypatch.setenv("TOMORROWSTAR_MATCH_CONTEXT_BYTES", "11000")
     output = quoted_output(snapshot, "UNSEEN LAST SENTENCE.")
     result = analyze_job(
         application, snapshot, tmp_path / "unseen", runner=model_runner(output, [])

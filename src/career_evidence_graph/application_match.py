@@ -476,15 +476,27 @@ def _rebind_misplaced_quotes(requirement, sources):
 
 
 # Decided 2026-10-31: the model scores each requirement; the program keeps it in band.
+# Model comparison the same day: wording, attribution and partial-band anchors decided
+# most of the sol/Opus gap; team and AI-assisted work count only the user's own share.
 _FIT_SCORE_RULES = (
     "For every requirement also return fit_score, an integer 0-100 for how well the cited "
-    "facts meet it, inside the band of its judgment: supported 75-100 (100 meets or "
-    "exceeds the stated level directly; 75 meets it with a minor difference of setting or "
-    "scale); partial 30-75 (75 most of it, for example the same methods in simulation "
-    "rather than on hardware; 30 only a transferable related part); unknown 0-15 (15 "
-    "adjacent work makes it plausible; 0 nothing in the supplied facts relates); gap 0. "
-    "Score every requirement by the same standard from the supplied facts only; the "
-    "program keeps the score inside its band and rounds it to 5. "
+    "facts meet it, inside the band of its judgment: supported 75-100, partial 30-75, "
+    "unknown 0-15, gap 0. Read each requirement with its group's jd_quote and the full job "
+    "description: a level, duration, seniority or setting stated there (for example fluent "
+    "German, 5+ years, for client companies) applies even when the requirement text omits "
+    "it. Score only the user's own share of the work: work the user did alone counts fully; "
+    "for team work count what the user's recorded role owned (a lead or co-founder owns "
+    "direction and coordination, not every member's implementation); for coding-agent or "
+    "AI-assisted work count the user's design, direction and review, not the agent's "
+    "implementation; other people's and third-party work count nothing. Supported: 90-100 "
+    "the user's own work meets or exceeds the stated level; 75-85 met with a minor gap in "
+    "level, scale or setting. Partial: 65-75 the same kind of work at a smaller scale or in "
+    "another setting, such as simulation instead of hardware; 50-60 the same kind of work "
+    "where the user's own share is limited, or most but not all of the stated scope; 40-45 "
+    "closely adjacent work that would transfer with little ramp-up; 30-35 only a loosely "
+    "related part. Unknown: 10-15 adjacent work makes it plausible; 0-5 nothing in the "
+    "supplied facts relates. Score every requirement by the same standard from the supplied "
+    "facts only; the program keeps the score inside its band and rounds it to 5. "
 )
 
 
