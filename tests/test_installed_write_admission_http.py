@@ -191,8 +191,8 @@ def test_valid_prepare_and_explicit_resume_posts_admit_synthetic_command_but_not
 @pytest.mark.parametrize(
     "change,error_code",
     [
+        # A career source revision is not one of them (APP-04).
         ("target", "conflict"),
-        ("source", "flow_inputs_stale"),
         ("pdf", "flow_materials_changed"),
         ("task", "conflict"),
     ],
@@ -214,10 +214,6 @@ def test_prepare_post_rejects_real_input_changes_before_saving_approval(
                     {"url": "https://jobs.lever.co/synthetic/00000000-0000-0000-0000-000000000002"},
                     application["revision"],
                 )
-            elif change == "source":
-                path = portal.career / "sources/synthetic-added-after-scan.md"
-                path.parent.mkdir(exist_ok=True)
-                path.write_text("Synthetic source changed while preparing.")
             elif change == "pdf":
                 (flow.root / "resumes" / task["resume_id"] / "resume.pdf").write_bytes(
                     b"%PDF-1.4 synthetic changed PDF bytes"

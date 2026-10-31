@@ -452,7 +452,8 @@ def test_source_drift_during_generation_retains_old_draft_then_cancel_and_reopen
                 ),
             )
             task = state["active_task"]
-            assert task["status"] == "failed" and state["active_explanation"]["fresh"] is False
+            # The drifted generation fails; the completed analysis stays current (APP-04).
+            assert task["status"] == "failed" and state["active_explanation"]["fresh"] is True
             assert task["stages"]["resume"]["error_code"] == "resume_inputs_stale"
             assert task["draft_id"] is None and task["resume_id"] is None
             assert len([row for row in task["artifacts"] if row["stage"] == "resume"]) == 1
@@ -463,7 +464,8 @@ def test_source_drift_during_generation_retains_old_draft_then_cancel_and_reopen
                 "begin-group-review",
                 {"task_id": task["id"], "task_revision": task["revision"]},
             )
-            assert status == 409 and failure["error"] == "flow_inputs_stale"
+            # Nothing to review: the failed attempt left no draft.
+            assert status == 409 and failure["error"] == "flow_group_review_blocked"
             batch = state["preparation_batch"]
             assert batch["items"][0]["status"] == "deferred"
             assert batch["items"][0]["reason"] == "resume_inputs_stale"

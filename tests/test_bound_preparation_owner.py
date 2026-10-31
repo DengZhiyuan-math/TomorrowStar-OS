@@ -5,10 +5,10 @@ import threading
 import pytest
 from test_application_resume import task_resume as task_resume
 from test_bound_material_update import bound_pipeline as bound_pipeline
+from test_bound_material_update import request_material_update
 from test_full_latex_generation import full_latex as full_latex
 
 from career_evidence_graph.application_flow import ApplicationFlowService
-from career_evidence_graph.application_information import put_information_answer
 from career_evidence_graph.application_worker import start_run
 from career_evidence_graph.career_portal_data import PortalDataError
 
@@ -24,15 +24,7 @@ def queued_bound_preparation(bound_pipeline, monkeypatch):
     start_run(worker.store)
     pipeline.pause()
     original = flow.task_snapshot(pipeline.snapshot()["active_task_id"])
-    put_information_answer(
-        worker.store.answers,
-        {
-            "question": "Email",
-            "value": "updated@example.invalid",
-            "state": "confirmed",
-            "scope": {},
-        },
-    )
+    request_material_update(flow)
     queued = []
     put, get = flow._queue.put, flow._queue.get
     monkeypatch.setattr(
@@ -143,14 +135,11 @@ def test_queued_candidate_rechecks_current_permission_and_inputs_before_dispatch
         state["control"] = "running"
         worker.store.save(state)
     else:
-        put_information_answer(
-            worker.store.answers,
-            {
-                "question": "Email",
-                "value": "newer@example.invalid",
-                "state": "confirmed",
-                "scope": {},
-            },
+        # A library correction no longer changes material inputs (APP-04); a
+        # changed job identity still stops the queued candidate.
+        app = flow.applications.get_application(original["application_id"])
+        flow.applications.update_application(
+            app["id"], {"job_description": "A different synthetic role."}, app["revision"]
         )
     before_worker = worker.store.path.read_bytes()
     dispatch()
@@ -158,7 +147,9 @@ def test_queued_candidate_rechecks_current_permission_and_inputs_before_dispatch
     assert dispatched == []
     assert current["material_update"]["status"] == "needs_recheck"
     assert current["material_update"]["error_code"] == (
-        "bound_material_pause_required" if changed == "worker" else "bound_material_update_changed"
+        "bound_material_pause_required"
+        if changed == "worker"
+        else "bound_material_analysis_changed"
     )
     assert current["resume_id"] == original["resume_id"]
     assert worker.store.path.read_bytes() == before_worker

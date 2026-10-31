@@ -7,9 +7,9 @@ import pytest
 from test_application_flow import wait_for
 from test_application_resume import task_resume as task_resume
 from test_bound_material_update import bound_pipeline as bound_pipeline
+from test_bound_material_update import request_material_update
 from test_full_latex_generation import full_latex as full_latex
 
-from career_evidence_graph.application_information import put_information_answer
 from career_evidence_graph.application_worker import start_run
 
 
@@ -24,6 +24,7 @@ def test_cancel_after_retained_draft_prevents_build_and_keeps_unadopted_source(
     )
     start_run(worker.store)
     pipeline.pause()
+    request_material_update(flow)
     original = flow.snapshot()["active_task"]
     compiles = len(store.prism_client.calls)
     material_prepare = flow.callbacks["bound_resume_draft"]
@@ -37,15 +38,6 @@ def test_cancel_after_retained_draft_prevents_build_and_keeps_unadopted_source(
         return result
 
     monkeypatch.setitem(flow.callbacks, "bound_resume_draft", cancel_after_draft)
-    put_information_answer(
-        worker.store.answers,
-        {
-            "question": "Email",
-            "value": "updated@example.invalid",
-            "state": "confirmed",
-            "scope": {},
-        },
-    )
     pipeline.continue_current(request_id="cancel-before-candidate-export")
     task = wait_for(
         flow,

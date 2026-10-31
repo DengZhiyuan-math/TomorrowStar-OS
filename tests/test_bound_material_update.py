@@ -9,9 +9,24 @@ from test_full_latex_generation import full_latex as full_latex
 
 from career_evidence_graph.application_information import put_information_answer
 
+ORIGINAL_LINE = "Analyzed strategy; built 6 Python services."
+EDITED_LINE = "Built 6 Python services; analyzed strategy."
+
+
+def request_material_update(flow):
+    """The user's explicit source edit; library revisions never start one (APP-04)."""
+    task = flow.snapshot()["active_task"]
+    opened = flow.begin_automatic_edit(task["id"], task["revision"])
+    draft = opened["material_update"]["editable_draft"]
+    source = draft["latex_source"].replace(ORIGINAL_LINE, EDITED_LINE)
+    assert source != draft["latex_source"]
+    return flow.save_automatic_source(
+        opened["id"], opened["revision"], draft["source_checkpoint"]["source_revision"], source
+    )
+
 
 @pytest.mark.parametrize("complete_portal", [{"confirmed_email": True}], indirect=True)
-def test_bound_contact_change_retains_original_current_material_until_commit(complete_portal):
+def test_explicit_sync_retains_original_current_material_until_commit(complete_portal):
     server, store, original, _calls = complete_portal
     flow, worker = server.application_flow_service, server.worker_service
     prepared = flow.prepare_worker(original["id"], original["revision"], "CHE", True)
@@ -25,6 +40,8 @@ def test_bound_contact_change_retains_original_current_material_until_commit(com
             "scope": {"application_id": original["application_id"]},
         },
     )
+    # APP-04: the correction alone stages nothing; the material stays current.
+    assert flow.task_snapshot(prepared["id"]).get("material_update") is None
     app = store.applications.get_application(original["application_id"])
     updated = flow.request(
         "update-inputs",
@@ -34,6 +51,7 @@ def test_bound_contact_change_retains_original_current_material_until_commit(com
             "application_revision": app["revision"],
         },
     )
+    # The user's explicit sync stages an update; the original stays bound until commit.
     assert updated["resume_id"] == original["resume_id"]
     assert updated["draft_id"] == original["draft_id"]
     assert updated["inputs"] == original["inputs"]
@@ -271,15 +289,7 @@ def test_bound_pipeline_candidate_compiles_without_rewriting_manual_body(bound_p
     pipeline.pause()
     original = flow.snapshot()["active_task"]
     before = store.read_export(original["resume_id"])["latex_source"]
-    put_information_answer(
-        worker.store.answers,
-        {
-            "question": "Email",
-            "value": "updated@example.invalid",
-            "state": "confirmed",
-            "scope": {},
-        },
-    )
+    request_material_update(flow)
     pipeline.continue_current(request_id="one-bound-continue")
     for _ in range(300):
         task = flow.snapshot(original["id"])["active_task"]
@@ -293,9 +303,8 @@ def test_bound_pipeline_candidate_compiles_without_rewriting_manual_body(bound_p
     )
     candidate = update["candidate"]
     current_source = store.read_export(candidate["resume_id"])["latex_source"]
-    assert "updated@example.invalid" in current_source
-    assert "job@example.invalid" not in current_source
-    assert before.split("\\section", 1)[1] in current_source
+    assert EDITED_LINE in current_source and ORIGINAL_LINE not in current_source
+    assert ORIGINAL_LINE in before
     assert task["resume_id"] == original["resume_id"]
     assert candidate["resume_id"] != task["resume_id"]
     assert len(calls) == 1
@@ -331,15 +340,7 @@ def test_unknown_candidate_export_only_reconciles_the_consumed_original_attempt(
         raise PortalDataError("resume_export_needs_recheck", "synthetic response lost", 409)
 
     monkeypatch.setitem(flow.callbacks, "bound_material_candidate", candidate_response_lost)
-    put_information_answer(
-        worker.store.answers,
-        {
-            "question": "Email",
-            "value": "updated@example.invalid",
-            "state": "confirmed",
-            "scope": {},
-        },
-    )
+    request_material_update(flow)
     pipeline.continue_current(request_id="lost-export-response")
     for _ in range(250):
         current = flow.snapshot()["active_task"]
@@ -404,15 +405,7 @@ def test_bound_material_commit_keeps_identity_only_and_retains_original_receipts
         before = deepcopy(job)
         old_pdf = Path(job["file_path"]).read_bytes()
         original = flow.snapshot()["active_task"]
-        put_information_answer(
-            worker.store.answers,
-            {
-                "question": "Email",
-                "value": "updated@example.invalid",
-                "state": "confirmed",
-                "scope": {},
-            },
-        )
+        request_material_update(flow)
         pipeline.continue_current(request_id="commit-without-page-copies")
         for _ in range(300):
             task = flow.snapshot(original["id"])["active_task"]

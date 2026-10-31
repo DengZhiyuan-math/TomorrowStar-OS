@@ -218,9 +218,9 @@ def test_prepare_execution_reuses_publication_after_lost_response(
 def test_prepare_execution_rechecks_saved_materials_before_reuse(unpublished_execution):
     service, app, binding, reader, calls = unpublished_execution
     service.prepare_execution(app["id"], app["revision"], binding, pdf_reader=reader)
-    path = service.store.single_career_root / "contributions"
-    path.mkdir()
-    (path / "changed.md").write_text("# Changed synthetic source\n\n## Scope\nNew evidence.")
+    # A career source revision no longer invalidates the PDF (APP-04); its bytes still bind.
+    path = service.store.single_flow_root / "resumes" / binding["resume_id"] / "resume.pdf"
+    path.write_bytes(b"%PDF-1.4 synthetic changed saved material")
     before = service.store.load()
     with pytest.raises(PortalDataError) as error:
         service.prepare_execution(app["id"], app["revision"], binding, pdf_reader=reader)

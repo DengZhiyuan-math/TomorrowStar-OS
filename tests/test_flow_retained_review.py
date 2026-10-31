@@ -495,8 +495,9 @@ def test_review_still_checks_real_bound_inputs_and_current_page(
     before = flow.path.read_bytes()
     pdf_path = flow.root / "resumes" / task["resume_id"] / "resume.pdf"
     original_pdf = pdf_path.read_bytes()
-    if mutation == "configuration":
-        # Review reuses already completed bytes and their original model binding.
+    if mutation in {"configuration", "sources"}:
+        # Review reuses already completed bytes and their original model binding;
+        # a career source revision never invalidates them (APP-04).
         result = flow.worker_action(task["id"], task["revision"], "review", {"acknowledge": True})
         assert_current_review(result, task, observer.worker_service)
     else:
@@ -506,7 +507,7 @@ def test_review_still_checks_real_bound_inputs_and_current_page(
             "not_ready" if mutation == "stale_page" else "single_binding_invalid"
         )
     current = worker.store.load()
-    if mutation == "configuration":
+    if mutation in {"configuration", "sources"}:
         assert current["commands"] == [{"action": "review", "id": task["application_id"]}]
         assert current["jobs"][0]["handed_off"] is True
     else:

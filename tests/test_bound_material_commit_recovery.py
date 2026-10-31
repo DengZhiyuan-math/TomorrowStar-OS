@@ -10,10 +10,10 @@ from uuid import uuid4
 import pytest
 from test_application_resume import task_resume as task_resume
 from test_bound_material_update import bound_pipeline as bound_pipeline
+from test_bound_material_update import request_material_update
 from test_full_latex_generation import full_latex as full_latex
 
 from career_evidence_graph._vendor import job_apply_store as helper
-from career_evidence_graph.application_information import put_information_answer
 from career_evidence_graph.application_worker import start_run
 from career_evidence_graph.career_portal_data import PortalDataError
 from career_evidence_graph.validation.hashing import record_digest as digest
@@ -42,15 +42,7 @@ def interrupted_commit(bound_pipeline, monkeypatch):
             page_observation={"run_id": run_id, "page_id": "retained-page", "at": time.time()},
         )
         worker.store.save(current)
-        put_information_answer(
-            worker.store.answers,
-            {
-                "question": "Email",
-                "value": "updated@example.invalid",
-                "state": "confirmed",
-                "scope": {},
-            },
-        )
+        request_material_update(flow)
         pipeline.continue_current(request_id="prepare-before-local-crash")
         deadline = time.monotonic() + 3
         while True:

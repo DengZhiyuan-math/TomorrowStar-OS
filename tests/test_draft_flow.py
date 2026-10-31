@@ -156,25 +156,23 @@ def test_late_draft_cannot_be_adopted_after_its_attempt_or_facts_change(
         task = wait_for(
             service, task["id"], lambda row: any(a["stage"] == "resume" for a in row["artifacts"])
         )
-        assert task["artifacts"][-1]["adopted"] is False
-        assert task.get("draft_id") is None and task["resume_id"] is None
-        assert task["materials_confirmed"] is False and not task.get("draft_review")
-        assert calls == ["generate"]
         if changed == "inputs":
-            assert task["stages"]["resume"]["attempt_id"] == attempt_id
-            assert task["stages"]["resume"]["status"] == "failed"
-            assert task["stages"]["resume"]["error_code"] == "flow_inputs_stale"
-            assert task["status"] == "stale"
+            # APP-04: a source revision during generation does not stale the late
+            # draft; only the explicit sync, refused while it ran, adopts the revision.
             artifact = task["artifacts"][-1]
-            assert artifact["attempt_id"] == attempt_id
+            assert artifact["attempt_id"] == attempt_id and artifact["adopted"] is True
             assert artifact["inputs"]["sources_revision"] == "source-v1"
-            artifacts = task["artifacts"]
+            assert task["draft_id"] == "late-draft"
             task = service.update_inputs(task["id"], task["revision"], job["revision"])
             assert task["inputs"]["sources_revision"] == "source-v2"
             assert task["stages"]["analysis"]["status"] == "pending"
             assert task["stages"]["resume"]["status"] == "pending"
-            assert task["artifacts"] == artifacts
             assert calls == ["generate"]
+            return
+        assert task["artifacts"][-1]["adopted"] is False
+        assert task.get("draft_id") is None and task["resume_id"] is None
+        assert task["materials_confirmed"] is False and not task.get("draft_review")
+        assert calls == ["generate"]
     finally:
         release.set()
         service.close()

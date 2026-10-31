@@ -133,6 +133,7 @@ def test_contact_refresh_never_rewrites_fixed_template_through_the_legacy_genera
         },
     )
     application = case.applications.get_application(task["application_id"])
+    # Only the user's explicit sync stages this update (APP-04).
     pending = case.flow.update_inputs(task["id"], task["revision"], application["revision"])
     assert pending["material_update"]["inputs"] != task["inputs"]
     with pytest.raises(PortalDataError) as raised:

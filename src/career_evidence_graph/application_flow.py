@@ -385,8 +385,12 @@ def analysis_input_binding(inputs):
 LIBRARY_INPUT_KEYS = ("sources_revision", "information_library_revision")
 
 
-def retained_configuration_inputs(task, inputs, *, completed_stages=None):
-    """Keep completed results bound to the configuration that produced them."""
+def retained_configuration_inputs(task, inputs, *, completed_stages=None, adopt_libraries=False):
+    """Keep completed results bound to the configuration that produced them.
+
+    ``adopt_libraries`` is the user's explicit sync, which takes current library
+    revisions; every other caller keeps those of the completed analysis.
+    """
     resolved = deepcopy(inputs)
     from .application_existing_materials import retained_presentation_input
 
@@ -403,7 +407,7 @@ def retained_configuration_inputs(task, inputs, *, completed_stages=None):
             for key, value in task.get("stages", {}).items()
             if value.get("status") == "complete"
         }
-    if "analysis" in completed_stages:
+    if "analysis" in completed_stages and not adopt_libraries:
         # Library revisions are provenance once the analysis completed (APP-04,
         # 2026-11-01): revising either library never invalidates a job; re-matching
         # or regenerating is explicit. An analysis still to run reads current data.
@@ -2211,13 +2215,10 @@ class ApplicationFlowService:
                     self._save(state)
                     self._queue.put((task_id, "bound-material", update["id"]))
                     return True
-                # A refused preparation made no candidate; the next Continue rechecks it,
-                # e.g. after the template or the contact facts were brought in line.
-                if not candidate and update.get("error_code") in {
-                    "bound_material_preparation_interrupted",
-                    "resume_template_update_required",
-                    "resume_draft_invalid",
-                }:
+                if (
+                    not candidate
+                    and update.get("error_code") == "bound_material_preparation_interrupted"
+                ):
                     update.setdefault("recovery_history", []).append(
                         {
                             "status": update["status"],
@@ -2477,7 +2478,7 @@ class ApplicationFlowService:
             if application["revision"] != application_revision:
                 raise PortalDataError("conflict", "投递记录已变化，请重新打开。", 409)
             resolved = self._identity(application, inputs)
-            resolved = retained_configuration_inputs(task, resolved)
+            resolved = retained_configuration_inputs(task, resolved, adopt_libraries=True)
             changed = (
                 resolved != task["inputs"] or job_input_revision(application) != task["job_binding"]
             )

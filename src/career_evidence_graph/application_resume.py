@@ -1073,43 +1073,6 @@ class ApplicationResumeStore:
             draft.get("parent_content_ref", {}).get("template_revision")
         )
 
-    @staticmethod
-    def _only_contacts_changed(old_inputs, new_inputs):
-        """The user keeps the fixed template and the contact facts in line (2026-10-31).
-
-        A change of the contact projection alone needs no template update; the
-        retained draft is rebound. Any other changed input still asks.
-        """
-        changed = {
-            key for key in {*old_inputs, *new_inputs} if old_inputs.get(key) != new_inputs.get(key)
-        }
-        return changed == {"information_library_revision"}
-
-    def _rebind_draft(self, draft, task_inputs):
-        """Save the unchanged draft as a new version bound to the new task inputs."""
-        identifier = uuid4().hex
-        source, target = self.root / draft["id"], self.root / identifier
-        raw = json.loads(self._read_version_file(draft["id"], "draft.json", 2 * 1024 * 1024))
-        shutil.copytree(source, target, symlinks=True)
-        rebound = raw | {
-            "id": identifier,
-            "task_inputs": deepcopy(task_inputs),
-            "information_library_revision": task_inputs.get(
-                "information_library_revision", draft.get("information_library_revision")
-            ),
-            "rebound_from": {"id": draft["id"], "reason": "contact_projection_unchanged_in_resume"},
-        }
-        helper.atomic_write_json(target / "draft.json", rebound)
-        helper.atomic_write_json(
-            target / "draft-integrity.json",
-            {
-                "schemaVersion": 1,
-                "id": identifier,
-                "sha256": hashlib.sha256((target / "draft.json").read_bytes()).hexdigest(),
-            },
-        )
-        return self.draft(identifier)
-
     def _read_bound_draft(self, task):
         update = task["material_update"]
         old = update["old"]
@@ -1137,19 +1100,14 @@ class ApplicationResumeStore:
         old = update["old"]
         edited = self._read_bound_draft(task)
         template_content = self._fixed_template_content(edited)
-        rebound = None
         if template_content and update["inputs"] != old["inputs"]:
-            if not self._only_contacts_changed(old["inputs"], update["inputs"]):
-                raise PortalDataError(
-                    "resume_template_update_required",
-                    "材料输入已变化，请明确更新固定 LaTeX 模板或人工源；原材料已保留。",
-                    409,
-                )
-            rebound = self._rebind_draft(edited, update["inputs"])
+            raise PortalDataError(
+                "resume_template_update_required",
+                "材料输入已变化，请明确更新固定 LaTeX 模板或人工源；原材料已保留。",
+                409,
+            )
         base = material_source_binding(edited)
-        if rebound is not None:
-            result = rebound
-        elif (template_content or update.get("editable_draft")) and edited.get(
+        if (template_content or update.get("editable_draft")) and edited.get(
             "task_inputs"
         ) == update["inputs"]:
             result = edited

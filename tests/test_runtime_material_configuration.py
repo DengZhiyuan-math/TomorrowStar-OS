@@ -1,6 +1,5 @@
 """Completed job materials survive unrelated maintenance configuration changes."""
 
-import pytest
 from test_installed_write_admission_http import (
     business_bytes,
     installed_portal,
@@ -34,22 +33,18 @@ def test_research_benchmark_does_not_invalidate_current_job_preparation(tmp_path
         assert current["inputs"] == task["inputs"]
 
 
-@pytest.mark.parametrize("changed", ["jd", "career"])
-def test_benchmark_retention_does_not_hide_changed_job_facts(tmp_path, monkeypatch, changed):
+def test_benchmark_retention_does_not_hide_changed_job_facts(tmp_path, monkeypatch):
+    # The job identity still binds the materials; a career source revision does
+    # not (APP-04), as test_research_benchmark... shows for unrelated metadata.
     with installed_portal(tmp_path, monkeypatch) as (portal, task, _, starts):
         directory = portal.career / ".tomorrowstar-match-history"
         directory.mkdir(exist_ok=True)
         (directory / "current.json").write_text('{"synthetic": "unrelated research metadata"}')
-        if changed == "jd":
-            applications = ApplicationStore(portal.applications)
-            app = applications.get_application(task["application_id"])
-            applications.update_application(
-                app["id"], {"job_description": "Build different services."}, app["revision"]
-            )
-        else:
-            source = portal.career / "sources" / "current-job-fact.md"
-            source.parent.mkdir(exist_ok=True)
-            source.write_text("# Current job fact\nImplemented the required Python service.\n")
+        applications = ApplicationStore(portal.applications)
+        app = applications.get_application(task["application_id"])
+        applications.update_application(
+            app["id"], {"job_description": "Build different services."}, app["revision"]
+        )
         retained = business_bytes(portal)
 
         status, shown = post(portal, "prepare-worker", prepare_payload(task))

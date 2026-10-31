@@ -449,14 +449,13 @@ def test_legacy_paused_page_blocks_same_job_without_initializing_old_services(
     assert list(legacy.iterdir()) == [path]
 
 
-def test_browser_material_gate_rejects_changed_career_sources_with_the_original_pdf(
+def test_browser_material_gate_keeps_the_original_pdf_after_career_source_changes(
     bound_single, tmp_path, monkeypatch
 ):
     import base64
 
     from career_evidence_graph.application_worker import WorkerService
     from career_evidence_graph.application_worker_browser import ApplicationRunner
-    from career_evidence_graph.career_portal_data import PortalDataError
 
     applications, flow, career, frozen, _ = bound_single
     path = flow / "flow.json"
@@ -499,9 +498,8 @@ def test_browser_material_gate_rejects_changed_career_sources_with_the_original_
     (career / "contributions" / "changed.md").write_text(
         "# New synthetic source\n\n## Scope\nNew evidence."
     )
-    with pytest.raises(PortalDataError) as error:
-        runner.check_inputs(current, material_required=True)
-    assert error.value.code == "single_binding_invalid"
+    # APP-04: a career source revision keeps the original PDF usable.
+    runner.check_inputs(current, material_required=True)
 
 
 def test_single_binding_accepts_tracking_only_variation_of_the_same_approved_target(bound_single):

@@ -272,9 +272,7 @@ def test_worker_entry_reaches_browser_boundary_despite_replaced_package(tmp_path
 
 
 @pytest.mark.parametrize("drift", ["configuration", "source", "native"])
-def test_prepare_rechecks_actual_sources_but_ignores_unrelated_diagnostics(
-    tmp_path, monkeypatch, drift
-):
+def test_prepare_ignores_source_revisions_and_unrelated_diagnostics(tmp_path, monkeypatch, drift):
     applications, root, career, task = prepared_inputs(tmp_path)
     options = installed_evidence(monkeypatch, tmp_path)
     with create_server(
@@ -287,12 +285,6 @@ def test_prepare_rechecks_actual_sources_but_ignores_unrelated_diagnostics(
     ) as server:
         flow = server.application_flow_service
         original = flow._checked
-        import os
-
-        previous_executable = os.environ.get("TOMORROWSTAR_CODEX_EXECUTABLE")
-        before_flow = flow.path.read_bytes()
-        before_worker = bytes_under(server.worker_service.store.root)
-        before_applications = bytes_under(applications.root)
 
         def change_after_slow_scan(*args):
             result = original(*args)
@@ -309,32 +301,12 @@ def test_prepare_rechecks_actual_sources_but_ignores_unrelated_diagnostics(
             return result
 
         monkeypatch.setattr(flow, "_checked", change_after_slow_scan)
-        if drift != "source":
-            prepared = flow.prepare_worker(task["id"], task["revision"], "CHE", True)
-            assert prepared["status"] == "queued"
-            assert server.worker_service.store.load()["control"] == "paused"
-            assert server.worker_service.process is None
-            return
-        with pytest.raises(PortalDataError) as stopped:
-            flow.prepare_worker(task["id"], task["revision"], "CHE", True)
-        assert stopped.value.code == "flow_inputs_stale"
-        assert flow.path.read_bytes() == before_flow
-        assert bytes_under(server.worker_service.store.root) == before_worker
-        assert bytes_under(applications.root) == before_applications
-        # A rejected operation resets its target; corrected source is rechecked.
-        monkeypatch.setattr(flow, "_checked", original)
-        if drift == "configuration":
-            if previous_executable is None:
-                monkeypatch.delenv("TOMORROWSTAR_CODEX_EXECUTABLE")
-            else:
-                monkeypatch.setenv("TOMORROWSTAR_CODEX_EXECUTABLE", previous_executable)
-        elif drift == "source":
-            (career / "sources/new-synthetic-source.md").unlink()
-        else:
-            options["native_host_identity"].receipt["accessibility"] = True
+        # A career source revision after the scan no longer stops sending the
+        # adopted PDF (APP-04); unrelated diagnostics never did.
         prepared = flow.prepare_worker(task["id"], task["revision"], "CHE", True)
         assert prepared["status"] == "queued"
         assert server.worker_service.store.load()["control"] == "paused"
+        assert server.worker_service.process is None
 
 
 @pytest.mark.parametrize("runtime_kind", ["unknown", "stale", "exited"])

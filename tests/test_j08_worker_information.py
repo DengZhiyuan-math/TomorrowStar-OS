@@ -103,9 +103,8 @@ def test_bound_answer_and_correction_update_declared_store_and_preserve_history(
     assert (
         reopened.resolve({"id": "email", "question": "Email"}, job)[0] == "corrected@example.test"
     )
-    # Updating a contact still invalidates the previous material/send binding.
-    with pytest.raises(PortalDataError):
-        reopened.check_single(reopened.load()["jobs"][0])
+    # APP-04: the correction fills from the current library and keeps the adopted PDF.
+    reopened.check_single(reopened.load()["jobs"][0])
 
 
 @pytest.mark.parametrize("mutation", ["payload-root", "local-task", "symlink-root"])

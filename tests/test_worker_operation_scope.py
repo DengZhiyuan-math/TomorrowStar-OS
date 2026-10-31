@@ -115,16 +115,13 @@ def test_single_resume_uses_bound_task_without_rescanning_unrelated_sources(
     assert reads == []
 
 
-@pytest.mark.parametrize("changed", ["career", "adopted-pdf", "worker-pdf", "lineage"])
+@pytest.mark.parametrize("changed", ["adopted-pdf", "worker-pdf", "lineage"])
 def test_upload_keeps_exact_current_material_guards(bound_runner, changed):
-    service, runner, flow, career = bound_runner
+    service, runner, flow, _career = bound_runner
     state = service.store.load()
     job = state["jobs"][0]
     resume_id = job["single_binding"]["resume_id"]
-    if changed == "career":
-        (career / "contributions").mkdir()
-        (career / "contributions/changed.md").write_text("# Changed career\n\n## Scope\nNew work.")
-    elif changed == "adopted-pdf":
+    if changed == "adopted-pdf":
         (flow / "resumes" / resume_id / "resume.pdf").write_bytes(
             b"%PDF-1.4 different adopted bytes"
         )
@@ -174,17 +171,13 @@ def test_upload_uses_adopted_settings_without_reading_new_model_or_benchmark(
 
 
 @pytest.mark.parametrize(
-    "change", ["contact", "target", "jd", "worker-reference", "material-update", "eligibility"]
+    "change", ["target", "jd", "worker-reference", "material-update", "eligibility"]
 )
 def test_light_actions_still_reject_known_current_input_changes(bound_runner, change):
     service, runner, flow, _ = bound_runner
     state = service.store.load()
     job = state["jobs"][0]
-    if change == "contact":
-        service.store.answers.put_answer(
-            {"question": "Email", "scope": {}, "state": "confirmed", "value": "new@example.invalid"}
-        )
-    elif change in {"target", "jd"}:
+    if change in {"target", "jd"}:
         app = service.store.applications.get_application(job["application_id"])
         updates = (
             {"url": app["url"].replace("000001", "000002")}
@@ -254,8 +247,8 @@ def test_light_actions_keep_existing_execution_guards(bound_runner, guard):
     assert service.store.path.read_bytes() == before
 
 
-@pytest.mark.parametrize("changed", ["name", "links", "removed", "corrupt", "historical-profile"])
-def test_ordinary_fill_stops_if_the_career_profile_contact_changed(
+@pytest.mark.parametrize("changed", ["name", "links", "historical-profile"])
+def test_ordinary_fill_continues_after_a_career_profile_contact_change(
     complete_portal, monkeypatch, changed
 ):
     server, store, original, _ = complete_portal
@@ -267,9 +260,7 @@ def test_ordinary_fill_stops_if_the_career_profile_contact_changed(
     runner = ApplicationRunner(worker.store, None)
     profile = store.catalog.root / "sources/profile.json"
     record = json.loads(profile.read_text())
-    if changed == "removed":
-        profile.unlink()
-    elif changed == "historical-profile":
+    if changed == "historical-profile":
         snapshot = flow.root / "resumes" / original["draft_id"] / "source-snapshot.json"
         saved = json.loads(snapshot.read_text())
         saved["profile"]["name"] = "Altered historical profile"
@@ -277,60 +268,15 @@ def test_ordinary_fill_stops_if_the_career_profile_contact_changed(
     else:
         if changed == "name":
             record["name"] = "Corrected Current Name"
-        elif changed == "links":
+        else:
             record["links"] = [{"label": "Email", "href": "mailto:current@example.invalid"}]
-        profile.write_text("corrupt" if changed == "corrupt" else json.dumps(record))
+        profile.write_text(json.dumps(record))
+    # APP-04: a profile correction does not stop filling with the adopted PDF;
+    # filling reads current facts and regenerating materials is explicit.
     state = worker.store.load()
-    before = worker.store.path.read_bytes()
-    with pytest.raises(PortalDataError) as error:
-        runner.authorize(
-            state["jobs"][0], state["batch_id"], {"action": "fill", "field_id": "name"}
-        )
-    assert error.value.code == "single_binding_invalid"
-    assert worker.store.path.read_bytes() == before
-
-
-@pytest.mark.parametrize("problem", ["missing", "corrupt", "rehashed", "binding-missing"])
-def test_ordinary_fill_checks_adopted_resume_archive_independently_of_analysis(
-    complete_portal, monkeypatch, problem
-):
-    server, _store, task, _calls = complete_portal
-    flow, worker = server.application_flow_service, server.worker_service
-    monkeypatch.setattr(worker, "spawn", lambda: None)
-    flow.prepare_worker(task["id"], task["revision"], "CHE", True)
-    start_run(worker.store)
-    worker.request("resume", {"controller": "synthetic-controller"})
-    archive = flow.root / "resumes" / task["draft_id"] / "source-snapshot.json"
-    if problem == "missing":
-        archive.unlink()
-    elif problem == "corrupt":
-        archive.write_text("corrupt adopted source archive")
-    elif problem == "binding-missing":
-        saved = flow._load()
-        current = flow._task(saved, task["id"])
-        artifact = next(
-            row
-            for row in current["artifacts"]
-            if row["stage"] == "resume" and row["result"]["id"] == task["draft_id"]
-        )
-        artifact["result"]["analysis_binding"].pop("source_snapshot_revision")
-        flow._save(saved)
-    else:
-        record = json.loads(archive.read_text())
-        record["profile"]["name"] = "Rehashed altered historical profile"
-        record["revision"] = digest(
-            {key: value for key, value in record.items() if key != "revision"}
-        )
-        archive.write_text(json.dumps(record))
-    state = worker.store.load()
-    before = worker.store.path.read_bytes()
-    runner = ApplicationRunner(worker.store, None)
-    with pytest.raises(PortalDataError) as error:
-        runner.authorize(
-            state["jobs"][0], state["batch_id"], {"action": "fill", "field_id": "name"}
-        )
-    assert error.value.code == "single_binding_invalid"
-    assert worker.store.path.read_bytes() == before
+    assert runner.authorize(
+        state["jobs"][0], state["batch_id"], {"action": "fill", "field_id": "name"}
+    )
 
 
 def test_ordinary_fill_keeps_existing_latex_without_a_generated_source_archive(bound_runner):

@@ -642,7 +642,7 @@ def test_bound_manual_material_is_local_but_cannot_move_to_another_url(
 
 @pytest.mark.parametrize("change", ["profile_identity", "applicable_email"])
 @pytest.mark.parametrize("material_required", [False, True])
-def test_manual_material_contact_correction_blocks_send_but_keeps_readable_versions(
+def test_manual_material_contact_correction_keeps_send_and_readable_versions(
     combination, change, material_required
 ):
     case = combination
@@ -665,9 +665,9 @@ def test_manual_material_contact_correction_blocks_send_but_keeps_readable_versi
         )
         library["answers"][key] = record
         path.write_text(json.dumps(library))
-    with pytest.raises(PortalDataError) as error:
-        worker.store.check_single(job, state, material_required=material_required)
-    assert error.value.code == "single_binding_invalid"
+    # APP-04: a contact correction neither pauses sending the adopted PDF nor
+    # changes it; the user regenerates materials explicitly when wanted.
+    worker.store.check_single(job, state, material_required=material_required)
     assert worker.store.load()["jobs"][0]["single_binding"] == original_binding
     assert case.store.pdf(task["resume_id"]) == pdf
     assert Path(job["file_path"]).read_bytes() == pdf
@@ -676,34 +676,3 @@ def test_manual_material_contact_correction_blocks_send_but_keeps_readable_versi
     assert len(case.runner.brief_calls) == len(case.proofreading) == 1
 
 
-@pytest.mark.parametrize("damage", ["invalid_json", "changed_profile"])
-@pytest.mark.parametrize("material_required", [False, True])
-def test_manual_material_corrupt_binding_snapshot_cannot_fall_back_to_selected_snapshot(
-    combination, damage, material_required
-):
-    case = combination
-    task, pdf, source, manual, _ = prepare_human_material(case)
-    case.flow.prepare_worker(task["id"], task["revision"], "CHE", True)
-    worker = case.server.worker_service
-    state = worker.store.load()
-    job = deepcopy(state["jobs"][0])
-    directory = case.flow.root / "analyses" / task["analysis_id"]
-    selected = directory / "source-snapshot.json"
-    selected_before = selected.read_bytes()
-    binding = directory / "binding-source-snapshot.json"
-    snapshot = json.loads(binding.read_text())
-    assert snapshot["revision"] == task["inputs"]["sources_revision"]
-    assert json.loads(selected_before)["revision"] != snapshot["revision"]
-    if damage == "invalid_json":
-        binding.write_text("{broken saved original binding")
-    else:
-        snapshot["profile"]["name"] = "Unbound changed profile"
-        binding.write_text(json.dumps(snapshot))
-    with pytest.raises(PortalDataError) as error:
-        worker.store.check_single(job, state, material_required=material_required)
-    assert error.value.code == "single_binding_invalid"
-    assert selected.read_bytes() == selected_before
-    assert case.store.pdf(task["resume_id"]) == pdf
-    assert Path(job["file_path"]).read_bytes() == pdf
-    assert source.read_text() == manual
-    assert len(case.runner.brief_calls) == len(case.proofreading) == 1

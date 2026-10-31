@@ -435,13 +435,10 @@ def test_historical_unbound_contact_correction_cannot_silently_send_old_pdf(tmp_
 
 
 @pytest.mark.parametrize("complete_portal", [{"confirmed_email": True}], indirect=True)
-def test_contact_header_correction_waits_before_resending_existing_materials(complete_portal):
-    from test_installed_write_admission import bytes_under
-
-    from career_evidence_graph.career_portal_data import PortalDataError
-
+def test_contact_header_correction_keeps_existing_materials_for_sending(complete_portal):
     server, store, task, generation = complete_portal
-    server.worker_service.store.answers.put_answer(
+    worker = server.worker_service
+    worker.store.answers.put_answer(
         {
             "question": "Email",
             "value": "new@example.invalid",
@@ -449,11 +446,15 @@ def test_contact_header_correction_waits_before_resending_existing_materials(com
             "scope": {"application_id": task["application_id"]},
         }
     )
-    before = bytes_under(store.root.parent)
-    with pytest.raises(PortalDataError) as changed:
-        server.application_flow_service.prepare_worker(task["id"], task["revision"], "CHE", True)
-    assert changed.value.code in {"flow_inputs_stale", "single_binding_invalid"}
-    assert bytes_under(store.root.parent) == before
+    # APP-04: the correction neither invalidates nor regenerates the final PDF;
+    # filling reads the current contact and regeneration stays explicit.
+    prepared = server.application_flow_service.prepare_worker(
+        task["id"], task["revision"], "CHE", True
+    )
+    assert prepared["resume_sha256"] == task["resume_sha256"]
+    assert prepared["inputs"] == task["inputs"]
+    current = worker.store.load()
+    worker.store.check_single(current["jobs"][0], current)
     assert len(generation) == len(store.prism_client.calls) == 1
 
 
@@ -544,11 +545,12 @@ def test_explicit_next_generation_retains_manual_source_as_its_base(complete_por
 
 @pytest.mark.parametrize("legacy_page_copy", [False, True])
 def test_pending_bound_materials_cannot_supply_an_automatic_base(complete_portal, legacy_page_copy):
-    from career_evidence_graph.application_information import put_information_answer
+    from copy import deepcopy
+
     from career_evidence_graph.career_portal_data import PortalDataError
 
     server, store, original, _generation = complete_portal
-    flow, worker = server.application_flow_service, server.worker_service
+    flow = server.application_flow_service
     source = flow.bind_worker(
         original["id"],
         original["revision"],
@@ -559,18 +561,13 @@ def test_pending_bound_materials_cannot_supply_an_automatic_base(complete_portal
         },
     )
     old_pdf = store.pdf(original["resume_id"])
-    put_information_answer(
-        worker.store.answers,
-        {
-            "question": "Email",
-            "value": "updated@example.invalid",
-            "state": "confirmed",
-            "scope": {},
-        },
-    )
-    application = store.applications.get_application(original["application_id"])
-    pending = flow.update_inputs(source["id"], source["revision"], application["revision"])
-    assert pending["material_update"]["status"] == "staged"
+    # An explicit edit of the bound materials stages this pending update.
+    with flow.applications.write_lock():
+        state = flow._load()
+        pending = flow._task(state, source["id"])
+        flow._stage_material_update(pending, deepcopy(pending["inputs"]))
+        flow._save(state)
+    assert flow.task_snapshot(source["id"])["material_update"]["status"] == "staged"
     if legacy_page_copy:
         from career_evidence_graph.application_worker import digest
 

@@ -1,4 +1,4 @@
-"""Canonical contact corrections change materials without discarding documentary analysis."""
+"""Contact corrections keep analysis and materials; an explicit sync adopts them (APP-04)."""
 
 from copy import deepcopy
 
@@ -175,7 +175,7 @@ def test_important_qualification_changes_recheck_only_the_applicable_job(
 
 
 @pytest.mark.parametrize("complete_portal", [{"confirmed_email": True}], indirect=True)
-def test_contact_change_explanation_keeps_analysis_fresh_but_marks_materials_stale(complete_portal):
+def test_contact_change_explanation_keeps_analysis_and_materials_current(complete_portal):
     server, _store, original, _generation = complete_portal
     flow, worker = server.application_flow_service, server.worker_service
     put_information_answer(
@@ -193,9 +193,10 @@ def test_contact_change_explanation_keeps_analysis_fresh_but_marks_materials_sta
     explanation = job_explanation(
         job, original, current_inputs=flow.input_provider(job["id"])["inputs"]
     )
+    # APP-04: a contact correction never stales the analysis or the final materials.
     assert explanation["fresh"] is True
-    assert explanation["materials_fresh"] is False
-    assert explanation["progress"]["status"] == "materials_stale"
+    assert explanation["materials_fresh"] is True
+    assert explanation["progress"]["status"] == original["status"]
     assert explanation["input_binding"]["analysis_id"] == original["analysis_id"]
 
 

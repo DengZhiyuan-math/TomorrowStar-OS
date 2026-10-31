@@ -206,8 +206,15 @@ def test_confirmed_library_fact_resolves_qualification_without_changing_document
 def test_changed_inputs_keep_historical_reason_but_do_not_present_current_qualification():
     application, task = job_and_task([requirement()])
     before = job_explanation(application, task, current_inputs=task["inputs"])
-    after = job_explanation(
+    # APP-04: a library revision keeps the completed analysis current.
+    revised = job_explanation(
         application, task, current_inputs=task["inputs"] | {"sources_revision": "source-v2"}
+    )
+    assert revised["fresh"] is True and revised["materials_fresh"] is True
+    after = job_explanation(
+        application | {"job_description": "A changed synthetic role."},
+        task,
+        current_inputs=task["inputs"],
     )
     assert after["fresh"] is False
     assert after["progress"]["status"] == "stale"
@@ -307,7 +314,8 @@ def test_library_refresh_keeps_analysis_but_requires_current_fact_confirmation(
         original = service.snapshot(task["id"])["active_explanation"]
         assert original["qualification"]["status"] == "supported"
         inputs["information_library_revision"] = "library-v2"
-        assert service.snapshot(task["id"])["active_explanation"]["fresh"] is False
+        # APP-04: the revision alone stales nothing; the explicit sync adopts it.
+        assert service.snapshot(task["id"])["active_explanation"]["fresh"] is True
         task = service.update_inputs(task["id"], task["revision"], job["revision"])
         assert task["analysis_id"] == "a"
         current = service.snapshot(task["id"])["active_explanation"]

@@ -177,7 +177,8 @@ def test_refresh_uses_current_sources_without_rebinding_uploaded_materials(retai
         source_provider=lambda application_id, selected: deepcopy(sources),
     )
     assert explanation["fresh"] is True
-    assert explanation["materials_fresh"] is False
+    # APP-04: revised career facts never stale the retained materials.
+    assert explanation["materials_fresh"] is True
     assert explanation["match_recheck_stale"] is False
     assert "historical_status" not in explanation["qualification"]
     assert explanation["reasons"][1]["judgment"] == "supported"
@@ -194,7 +195,8 @@ def test_verified_refresh_explanation_is_independent_of_old_material_inputs(reta
         source_provider=lambda application_id, selected: deepcopy(sources),
     )
     assert explanation["fresh"] is True
-    assert explanation["materials_fresh"] is False
+    # APP-04: revised career facts never stale the retained materials.
+    assert explanation["materials_fresh"] is True
     assert "historical_status" not in explanation["qualification"]
 
 
