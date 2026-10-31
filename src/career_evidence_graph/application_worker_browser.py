@@ -2398,6 +2398,34 @@ class ApplicationRunner:
                     or not 0 <= now - observed.get("at", 0) < 6
                     or state.get("worker_error")
                 ):
+                    # The private log keeps which part of the page scope changed.
+                    print(
+                        "assistance_binding_changed: "
+                        + json.dumps(
+                            {
+                                "status": (assistance or {}).get("status"),
+                                "writer": (assistance or {}).get("active_writer"),
+                                "backend": bool(
+                                    assistance and assistance_backend_permitted(state, assistance)
+                                ),
+                                "reference": bool(assistance)
+                                and digest(assistance_reference(assistance))
+                                == digest(assistance_ref),
+                                "binding": bool(job)
+                                and digest(assistance_binding(state, job))
+                                == digest(assistance_ref["binding"]),
+                                "control": state["control"],
+                                "current": state.get("current_job_id") == identifier,
+                                "run": runtime.get("id") == self.run_id,
+                                "source": (runtime.get("source") or {}).get("sha256")
+                                == self._page_source,
+                                "runtime_age": round(now - runtime.get("observed_at", 0), 1),
+                                "page_age": round(now - observed.get("at", 0), 1),
+                                "worker_error": state.get("worker_error"),
+                            }
+                        ),
+                        flush=True,
+                    )
                     raise PortalDataError(
                         "assistance_binding_changed", "原页、材料或接管范围已改变。", 409
                     )
