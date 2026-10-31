@@ -617,3 +617,26 @@ def test_reopen_refuses_an_unknown_action(single_worker):
         )
     assert refused.value.code == "page_lost"
     assert service.store.load()["jobs"][0]["intent"] == intent
+
+
+def test_reopen_clears_an_unknown_page_open(single_worker):
+    service, item, _checks, _launches = single_worker
+    intent = {"action": "open", "attempt_id": "unknown-open"}
+    retained_page(service, item, intent=intent)
+    state = service.store.load()
+    state["runtime"]["observed_at"] -= 60
+    state["jobs"][0].update(
+        status="needs_recheck", reason="checkpoint_unavailable", page_open=False
+    )
+    service.store.save(state)
+    service.request(
+        "reopen-current",
+        {
+            "application_id": item["application_id"],
+            "controller": "synthetic-controller",
+            "request_id": "reopen-open",
+        },
+    )
+    job = service.store.load()["jobs"][0]
+    assert job["status"] == "queued" and job["intent"] is None
+    assert job["observations"][-1]["previous_open_intent"] == intent

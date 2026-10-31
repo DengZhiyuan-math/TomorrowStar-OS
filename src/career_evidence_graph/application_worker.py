@@ -6484,7 +6484,9 @@ class WorkerService:
                     and assistance.get("active_writer") != "script"
                     and assistance.get("status") != "stopped"
                     or len(job.get("assistance_history", [])) >= ASSISTANCE_HISTORY_LIMIT
-                    or job.get("intent")
+                    # Opening the page sends no application data; any other unknown
+                    # action still waits for its result.
+                    or (job.get("intent") or {}).get("action") not in (None, "open")
                     or job.get("handed_off")
                     or job.get("manual_submission")
                     or manual_submission_unresolved(job)
@@ -6510,13 +6512,14 @@ class WorkerService:
                         "action": "page_reopen_requested",
                         "request_id": request_id,
                         "previous_page": deepcopy(job.get("page_observation")),
+                        "previous_open_intent": deepcopy(job.get("intent")),
                         "reason": job.get("reason"),
                         "at": time.time(),
                     }
                 )
                 if job.get("form_state"):
                     job.setdefault("form_history", []).append(job.pop("form_state"))
-                job.update(status="queued", reason="", page_open=False)
+                job.update(status="queued", reason="", page_open=False, intent=None)
                 state.update(control="running", controller=controller, worker_error="")
                 state["page_reopen"] = {
                     "request_id": request_id,
