@@ -2,6 +2,7 @@
 
 import json
 from copy import deepcopy
+from pathlib import Path
 
 import pytest
 from test_application_job_brief import runner_for
@@ -709,3 +710,14 @@ def test_shared_source_definitions_handle_empty_partitions(native_case, tmp_path
         assert schema["properties"]["selected_source_ids"]["maxItems"] == 0
         assert schema["properties"]["selection_rationale"]["maxItems"] == 0
         assert result["selected_source_ids"] == []
+
+
+def test_the_claude_call_names_the_user_for_its_keychain_login(monkeypatch):
+    from career_evidence_graph.application_second_opinion import _claude_environment
+
+    # Installed MC-11: without USER and LOGNAME the CLI reported "Not logged in".
+    for name in ("USER", "LOGNAME"):
+        monkeypatch.delenv(name, raising=False)
+    environment = _claude_environment(Path("/tmp/claude-config"))
+    assert environment["USER"] and environment["LOGNAME"] == environment["USER"]
+    assert environment["CLAUDE_CONFIG_DIR"] == "/tmp/claude-config"

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import pwd
 import subprocess
 import tempfile
 from pathlib import Path
@@ -20,6 +21,18 @@ CLAUDE_MODEL = "claude-opus-5-5"
 # Within this many points the two scores are averaged; above it the job needs review.
 REVIEW_GAP = 10
 _EXECUTABLES = ("/opt/homebrew/bin/claude", "/usr/local/bin/claude")
+
+
+def _claude_environment(config_dir: Path) -> dict:
+    # A Finder-started App has only HOME, PATH and TMPDIR; the CLI then cannot find its
+    # keychain login and reports "Not logged in" (installed MC-11, 2026-10-31).
+    user = pwd.getpwuid(os.getuid()).pw_name
+    return {
+        **os.environ,
+        "USER": os.environ.get("USER") or user,
+        "LOGNAME": os.environ.get("LOGNAME") or user,
+        "CLAUDE_CONFIG_DIR": str(config_dir),
+    }
 
 
 class ClaudeScorer:
@@ -64,7 +77,7 @@ class ClaudeScorer:
                         text=True,
                         cwd=work,
                         timeout=300,
-                        env={**os.environ, "CLAUDE_CONFIG_DIR": str(self.config_dir)},
+                        env=_claude_environment(self.config_dir),
                     )
                 value = json.loads(process.stdout or "{}")
                 output = value.get("structured_output")
