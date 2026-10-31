@@ -380,3 +380,26 @@ def test_low_score_is_skipped_and_a_middle_score_waits_for_one_continue(
     pipeline.continue_current(request_id="approve-score")
     drive(pipeline, "filling")
     assert [call[0] for call in flow.calls].count("resume") == 1
+
+
+def test_closed_and_easy_apply_postings_leave_the_queue_with_their_reason(
+    queue_environment, monkeypatch
+):
+    from career_evidence_graph import job_listing_links
+
+    # Decided 2026-10-31: a LinkedIn job is read once before matching. A closed posting
+    # is marked closed, an Easy Apply one keeps LinkedIn; both are set aside.
+    pipeline, flow, _intake, _worker, _reads, _fetches, _messages = queue_environment
+    statuses = {"10000": ("closed", None), "10001": ("easy_apply", None)}
+    monkeypatch.setattr(
+        job_listing_links,
+        "posting_status",
+        lambda url, read=None: statuses.get(url.rstrip("/").rsplit("/", 1)[-1], (None, None)),
+    )
+    pipeline.start(request_id="postings")
+    filling = drive(pipeline, "filling")
+    skipped = [row for row in filling["items"] if row["status"] == "skipped"]
+    assert [row["reason"] for row in skipped] == ["posting_closed", "easy_apply_only"]
+    closed = flow.applications.get_application(skipped[0]["application_id"])
+    assert closed["status"] == "closed"
+    assert flow.applications.get_application(skipped[1]["application_id"])["status"] == "drafting"

@@ -349,7 +349,7 @@
     if (pipeline?.notice) automation.append(node("p", "flow-muted", pipeline.notice.message || pipeline.notice.title));
     for (const item of pipeline?.items || []) {
       const score = item.score;
-      const line = node("p", "flow-muted", `${item.company || "岗位"}${item.role_title ? ` · ${item.role_title}` : ""}${score && typeof score.lower === "number" ? ` · 匹配 ${Math.round(score.lower) === Math.round(score.upper) ? Math.round(score.upper) : `${Math.round(score.lower)}–${Math.round(score.upper)}`}` : ""}${item.status === "analysis_failed" ? " · 分析结果未通过校验，已保留记录并跳过" : ""}${item.status === "skipped" && item.reason === "low_match_score" ? " · 匹配分低于 15，已自动跳过；可返回此岗位继续" : ""}`);
+      const line = node("p", "flow-muted", `${item.company || "岗位"}${item.role_title ? ` · ${item.role_title}` : ""}${score && typeof score.lower === "number" ? ` · 匹配 ${Math.round(score.lower) === Math.round(score.upper) ? Math.round(score.upper) : `${Math.round(score.lower)}–${Math.round(score.upper)}`}` : ""}${item.status === "analysis_failed" ? " · 分析结果未通过校验，已保留记录并跳过" : ""}${item.status === "skipped" && item.reason === "low_match_score" ? " · 匹配分低于 15，已自动跳过；可返回此岗位继续" : ""}${item.status === "skipped" && item.reason === "posting_closed" ? " · 领英显示岗位已停止招聘，已标为岗位已关闭并跳过" : ""}${item.status === "skipped" && item.reason === "easy_apply_only" ? " · 只能在领英站内申请（Easy Apply），已跳过；需要时请自己在领英投递" : ""}`);
       automation.append(line);
       if (item.status === "skipped") {
         const restore = button("返回此岗位", () => pipelineAction("return", { application_id: item.application_id || item.recommendation_id }, true), "", true);

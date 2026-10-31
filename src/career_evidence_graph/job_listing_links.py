@@ -33,24 +33,34 @@ def _linkedin(host: str) -> bool:
     return host == "linkedin.com" or host.endswith(".linkedin.com")
 
 
-def offsite_apply_url(page: str, job_id: str) -> str | None:
-    """The offsite apply URL LinkedIn names for this job ID, or None (Easy Apply)."""
+def linkedin_posting(page: str, job_id: str) -> tuple[str | None, str | None]:
+    """('open', employer URL), ('easy_apply', None), ('closed', None) or (None, None).
+
+    A closed posting has no apply entry for its job and says so on the page.
+    """
     text = page.replace('\\"', '"')
     for match in re.finditer(rf'"jobId":"{re.escape(job_id)}"([^{{}}]{{0,2000}})', text):
         fields = match.group(1)
         if '"isOnsiteApply":true' in fields:
-            return None
+            return "easy_apply", None
         found = re.search(r'"offsiteApplyUrl":"(https://(?:[^"\\]|\\.)+)"', fields)
         if found:
-            return json.loads(f'"{found.group(1)}"')
-    return None
+            return "open", json.loads(f'"{found.group(1)}"')
+    if "No longer accepting applications" in text:
+        return "closed", None
+    return None, None
 
 
-def resolve_apply_url(url: str, *, read=None, fetch=fetch_job_source) -> str | None:
-    """Return the employer page's final URL for a LinkedIn job, or None to keep LinkedIn."""
+def offsite_apply_url(page: str, job_id: str) -> str | None:
+    """The offsite apply URL LinkedIn names for this job ID, or None (Easy Apply)."""
+    return linkedin_posting(page, job_id)[1]
+
+
+def posting_status(url: str, *, read=None) -> tuple[str | None, str | None]:
+    """Read a LinkedIn job once with the saved login; (None, None) when it cannot."""
     key = recommendation_key(url)
     if not key or key[0] != "linkedin" or LOGIN_ROOT is None:
-        return None
+        return None, None
     saved = load_login_state(LOGIN_ROOT) or {"cookies": []}
     cookies = {
         cookie["name"]: cookie["value"]
@@ -58,12 +68,23 @@ def resolve_apply_url(url: str, *, read=None, fetch=fetch_job_source) -> str | N
         if _linkedin(str(cookie.get("domain", "")).lstrip("."))
     }
     if "li_at" not in cookies:
-        return None
+        return None, None
     try:
         page = (read or _read)(f"https://www.linkedin.com/jobs/view/{key[1]}/", cookies)
-        target = offsite_apply_url(page, key[1])
-        if target is None:
-            return None
+    except (OSError, ValueError):
+        return None, None
+    return linkedin_posting(page, key[1])
+
+
+def resolve_apply_url(url: str, *, read=None, fetch=fetch_job_source) -> str | None:
+    """Return the employer page's final URL for a LinkedIn job, or None to keep LinkedIn."""
+    status, target = posting_status(url, read=read)
+    return employer_url(target, fetch=fetch) if status == "open" else None
+
+
+def employer_url(target: str, *, fetch=fetch_job_source) -> str | None:
+    """Follow LinkedIn's offsite URL to the employer's final page."""
+    try:
         capture = fetch(target)
     except (OSError, ValueError):
         return None

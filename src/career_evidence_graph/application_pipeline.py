@@ -2029,6 +2029,49 @@ class ApplicationPipeline:
     def _task(self, state):
         return self.flow.task_snapshot(state["active_task_id"])
 
+    def _check_posting(self, state, item, application):
+        """Read a LinkedIn job once before matching (decided 2026-10-31).
+
+        A closed posting is marked closed and an Easy Apply one keeps LinkedIn; both
+        leave the queue with their reason. An open one moves to the employer's page.
+        Returns the application to continue with, or None when the job was left.
+        """
+        from .job_listing_links import employer_url, posting_status
+
+        listing = application.get("listing_url") or application["url"]
+        status, target = posting_status(listing)
+        today = time.strftime("%Y-%m-%d")
+        changes, reason = {}, None
+        if status == "closed":
+            reason = "posting_closed"
+            changes = {
+                "status": "closed",
+                "next_action": f"领英显示岗位已停止招聘（{today} 自动核对）。",
+            }
+        elif status == "easy_apply":
+            reason = "easy_apply_only"
+            changes = {
+                "next_action": "只能在领英站内申请（Easy Apply），自动流程不能填写；"
+                "需要时请自己在领英投递。"
+            }
+        elif status == "open" and listing == application["url"]:
+            final = employer_url(target)
+            if final:
+                changes = {"url": final, "listing_url": listing}
+        if changes:
+            application = self.flow.applications.update_application(
+                application["id"], changes, application["revision"]
+            )
+        if reason is None:
+            return application
+        item["reason"] = reason
+        if state.get("queue_mode") and state.get("current_recommendation_id"):
+            self._leave_current(state, f"{reason}:{item['recommendation_id']}")
+        else:
+            item["status"] = "skipped"
+            self._save(state)
+        return None
+
     def _rebind_job_url(self, state, task):
         """Move this cycle's send authorization to the link the user corrected.
 
@@ -2509,6 +2552,11 @@ class ApplicationPipeline:
             self._save(state)
             return
         application = self.flow.applications.get_application(item["application_id"])
+        if item["task_id"] is None and not item.get("posting_checked"):
+            item["posting_checked"] = True
+            application = self._check_posting(state, item, application)
+            if application is None:
+                return
         if item["task_id"] is None:
             screening = next(
                 row["screening"]
