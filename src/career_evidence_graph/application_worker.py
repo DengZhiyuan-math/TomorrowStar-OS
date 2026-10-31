@@ -965,7 +965,7 @@ TAKEOVER_REASONS = TAKEOVER_UNKNOWN_REASONS | {
 TAKEOVER_ROUTE_REASONS = frozenset({"cua_unavailable"})
 TAKEOVER_CODES = TAKEOVER_REASONS | TAKEOVER_ROUTE_REASONS
 # Each takeover still needs the user's Continue; 8 filled up on one real job.
-ASSISTANCE_HISTORY_LIMIT = 16
+ASSISTANCE_HISTORY_LIMIT = 32
 
 
 def _valid_takeover_blocker(blocker, binding):

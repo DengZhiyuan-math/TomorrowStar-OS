@@ -298,6 +298,7 @@ class _Run:
 
 
 STARTUP_REQUEST_TIMEOUT = 30.0
+NATIVE_STATUS_TIMEOUT = 5.0
 STARTUP_METHODS = frozenset({"initialize", "config/read", "thread/start", "mcpServerStatus/list"})
 
 
@@ -1212,7 +1213,14 @@ class CodexAdapter:
         try:
             value = native["client"].handoff_status(
                 pump=lambda: self._native_owner_pump(run),
-                timeout=self.config.stop_timeout if timeout is None else timeout,
+                # A routine poll while Codex holds control; the driver can take over a
+                # second while Codex connects (2026-10-31). Stops keep their own bound.
+                timeout=min(
+                    max(self.config.stop_timeout, NATIVE_STATUS_TIMEOUT),
+                    getattr(native["client"], "timeout", NATIVE_STATUS_TIMEOUT),
+                )
+                if timeout is None
+                else timeout,
             )
             value = self._native_status(run, value)
             if not run.tools_revoked and not value["revoked"]:
