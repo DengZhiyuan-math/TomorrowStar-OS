@@ -46,7 +46,7 @@ flowchart TD
     A --> V[单一终审：只审 AI 新表达，返回字段补丁 JSON]
     V --> T[固定 TeX 模板：仅填充摘要、技能和经历槽位]
     F[模板字面内容：样式、姓名、联系信息及教育] --> T
-    T --> B[既有 Prism-local 自动编译]
+    T --> B[App tectonic 编译]
     B --> PDF[PDF 构建产物]
 ```
 
@@ -165,7 +165,7 @@ Schema 不能证明语义真实，越界表达仍只由单一终审处理。
    和换行。链接使用经过验证的链接字段。输入中的命令不能成为可执行模板。
 4. 生成单文件 `main.tex` 与内容 ID→渲染范围映射。映射属于构建元数据，行号
    可以变化；经历/条目 ID 不变。不让模型抄写模板或执行转义。
-5. 交既有 Prism-local 自动编译并读取成功结果；失败保留内容、诊断及旧 PDF。
+5. App 用 tectonic 编译并读取成功结果（Prism-local 仅编辑与预览）；失败保留内容、诊断及旧 PDF。
 
 当前模板必须各含一次 `%% TOMORROWSTAR_SUMMARY %%`、
 `%% TOMORROWSTAR_SKILLS %%`、`%% TOMORROWSTAR_EXPERIENCES %%`。

@@ -405,11 +405,11 @@ def test_pdf_ui_requires_explicit_prism_return_and_keeps_saved_final_visible(
         assert writes == ["begin-prism-edit"]
         finish.click()
         expect(
-            browser_page.get_by_role("button", name="读取已有编译结果", exact=True)
+            browser_page.get_by_role("button", name="编译并接回 PDF", exact=True)
         ).to_be_enabled()
         expect(browser_page.locator("#flow-final-pdf")).to_contain_text("有未导出的修改")
         assert calls == ["open", "proofread"]
-        browser_page.get_by_role("button", name="读取已有编译结果", exact=True).click()
+        browser_page.get_by_role("button", name="编译并接回 PDF", exact=True).click()
         expect(browser_page.locator("#flow-pdf-link")).not_to_have_attribute(
             "href", f"/api/flow/resumes/{original['resume_id']}/pdf"
         )

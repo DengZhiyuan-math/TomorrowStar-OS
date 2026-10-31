@@ -589,13 +589,13 @@
         const editor = node("a", "text-link", "打开当前 Prism 编辑器 ↗"); editor.href = session.editor_url; editor.target = "_blank"; editor.rel = "noopener noreferrer"; actions.append(editor);
       }
       if (local && !editing) {
-        const capture = button("读取已有编译结果", () => groupAction(task, "capture-prism-result"), "flow-capture-prism-result", true);
+        const capture = button("编译并接回 PDF", () => groupAction(task, "capture-prism-result"), "flow-capture-prism-result", true);
         capture.dataset.flowRequiresPaused = "true";
         capture.dataset.blocked = String(running || task.status === "cancelled");
         actions.append(capture);
       }
       panel.append(actions);
-      const sourceStates = { editing: "正在人工编辑，上一版最终 PDF 保留。", open_failed: "Prism 连接结果尚未核验。系统保持停止修改原稿，请明确重新进入编辑。", proofreading: "正在快速文字校对，上一版最终 PDF 保留。", unexported_changes: "有未导出的修改，等待对应的 Prism 自动编译结果。上一版最终 PDF 仍可查看。", waiting_for_result: "尚无对应的成功编译结果。人工源文和上一版最终 PDF 已保留。", proofreading_unavailable: "快速校对未完成，人工原文和上一版最终 PDF 已保留；不会自动重试模型。", source_changed: "返回校对期间又有修改。新原文和上一版最终 PDF 已保留，请重新进入编辑后明确返回。", return_needs_recheck: "编辑返回结果尚未核验。请核验已有结果；系统保持停止写入。" };
+      const sourceStates = { editing: "正在人工编辑，上一版最终 PDF 保留。", open_failed: "Prism 连接结果尚未核验。系统保持停止修改原稿，请明确重新进入编辑。", proofreading: "正在快速文字校对，上一版最终 PDF 保留。", unexported_changes: "有未导出的修改，等待编译当前源。上一版最终 PDF 仍可查看。", waiting_for_result: "尚无对应的成功编译结果。人工源文和上一版最终 PDF 已保留。", proofreading_unavailable: "快速校对未完成，人工原文和上一版最终 PDF 已保留；不会自动重试模型。", source_changed: "返回校对期间又有修改。新原文和上一版最终 PDF 已保留，请重新进入编辑后明确返回。", return_needs_recheck: "编辑返回结果尚未核验。请核验已有结果；系统保持停止写入。" };
       if (sourceStates[task.material_source_state]) panel.append(node("p", "flow-muted", sourceStates[task.material_source_state]));
       for (const warning of session.notices || session.warnings || []) panel.append(node("p", "flow-muted", typeof warning === "string" ? warning : warning.message || warning.reason || JSON.stringify(warning)));
       if (session.patches?.length) {
