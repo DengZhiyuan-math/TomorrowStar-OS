@@ -6474,9 +6474,16 @@ class WorkerService:
                     or not 8 <= len(controller) <= 100
                 ):
                     raise PortalDataError("controller_required", "继续操作缺少标识。", 409)
+                assistance = job.get("assistance") or {}
                 if (
                     state.get("current_job_id") != job["application_id"]
-                    or job["status"] != "needs_recheck"
+                    or job["status"] not in {"needs_recheck", "queued"}
+                    or job.get("page_open")
+                    and job["status"] == "queued"
+                    or assistance
+                    and assistance.get("active_writer") != "script"
+                    and assistance.get("status") != "stopped"
+                    or len(job.get("assistance_history", [])) >= ASSISTANCE_HISTORY_LIMIT
                     or job.get("intent")
                     or job.get("handed_off")
                     or job.get("manual_submission")
@@ -6492,7 +6499,12 @@ class WorkerService:
                     )
                 if (state.get("page_reopen") or {}).get("request_id") == request_id:
                     return self.snapshot()
-                archive_stopped_assistance(job)
+                if assistance:
+                    # A takeover, stopped or finished, belonged to the closed page.
+                    job["assistance_history"] = [
+                        *job.get("assistance_history", []),
+                        job.pop("assistance"),
+                    ]
                 job["observations"].append(
                     {
                         "action": "page_reopen_requested",
