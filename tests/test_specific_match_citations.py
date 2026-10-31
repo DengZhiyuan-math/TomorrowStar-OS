@@ -346,6 +346,8 @@ def test_education_interpretation_preserves_context_and_model_uncertainty(
     prompt = calls[-1][-1]
     assert detail in prompt
     assert "ongoing study can support an education-background requirement" in prompt
+    # Installed MC-11: an in-progress PhD was judged to support "Hold a PhD".
+    assert "a degree still in progress is partial, never supported" in prompt
 
 
 def test_quote_cannot_join_two_profile_fields_into_one_excerpt(match_inputs, tmp_path):
