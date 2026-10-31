@@ -335,6 +335,8 @@ def test_packet_matching_counts_an_in_progress_degree_as_held(native_case, tmp_p
     assert "return fit_score, an integer 0-100" in prompt
     # Decided 2026-10-31: team and AI-assisted work count only the user's own share.
     assert "count the user's design, direction and review" in prompt
+    # A five-job comparison: a different setting is partial, never supported.
+    assert "Supported needs the stated setting" in prompt
     from career_evidence_graph.codex_cli import strict_output_schema
 
     sent = strict_output_schema(json.loads((directory / "match-schema.json").read_text()))
