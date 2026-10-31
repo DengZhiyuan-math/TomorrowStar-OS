@@ -6482,6 +6482,13 @@ class WorkerService:
                 retired = assistance.get("status") == "stopped" or (
                     stop.get("process_stopped") is True and stop.get("tools_revoked") is True
                 )
+                # A native handoff that never carried a call could not touch the page.
+                native_runs = job.get("native_handoff_runs", [])
+                native_calls = any(
+                    (event.get("receipt") or {}).get("calls")
+                    for run in native_runs
+                    for event in run.get("events", [])
+                )
                 if (
                     state.get("current_job_id") != job["application_id"]
                     or job["status"] not in {"needs_recheck", "queued"}
@@ -6500,6 +6507,7 @@ class WorkerService:
                     or material_edit_pending(job)
                     or assistance_stop_pending(job)
                     and not retired
+                    or native_calls
                     or self._page_current(state, job)
                     or self.process is not None
                     and self.process.poll() is None
@@ -6529,6 +6537,7 @@ class WorkerService:
                         "previous_page": deepcopy(job.get("page_observation")),
                         "previous_open_intent": deepcopy(job.get("intent")),
                         "retired_takeover_stop": retired_stop,
+                        "retired_native_handoff_runs": deepcopy(native_runs),
                         "reason": job.get("reason"),
                         "at": time.time(),
                     }
@@ -6536,6 +6545,8 @@ class WorkerService:
                 if job.get("form_state"):
                     job.setdefault("form_history", []).append(job.pop("form_state"))
                 job.update(status="queued", reason="", page_open=False, intent=None)
+                if native_runs:
+                    job["native_handoff_runs"] = []
                 application = self.store.applications.get_application(job["application_id"])
                 platform, url = _job_identity(
                     application["url"], allow_generic=state.get("generic_enabled") is True
