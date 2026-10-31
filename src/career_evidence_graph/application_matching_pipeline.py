@@ -52,6 +52,18 @@ def known_reading_failure(directory, saved):
     )
 
 
+def _answered_evaluation(saved):
+    """The saved evaluation call returned a complete answer, accepted or rejected."""
+    origin = saved.get("evaluation_origin")
+    if saved.get("phase") not in {"evaluation", "evaluated"} or not isinstance(origin, str):
+        return False
+    try:
+        result = _read_saved(Path(origin) / "model-result.json")
+    except PortalDataError:
+        return False
+    return result.get("status") != "failed" and result.get("exit_code") == 0
+
+
 def _same_upstream_binding(saved, binding):
     previous = saved.get("binding")
     if previous == binding:
@@ -429,16 +441,12 @@ def analyze_with_retrieval(
             or saved.get("revision") != digest({k: v for k, v in saved.items() if k != "revision"})
             or not _same_upstream_binding(saved, binding)
         ):
-            rejected_evaluation = (
-                saved.get("phase") == "evaluation"
-                and saved.get("evaluation_error")
-                in {"match_model_invalid", "match_inference_invalid"}
-                and not saved.get("evaluations")
-            )
-            if not (rejected_evaluation or known_reading_failure(previous_directory, saved)):
+            if not (
+                _answered_evaluation(saved) or known_reading_failure(previous_directory, saved)
+            ):
                 raise PortalDataError("match_resume_invalid", "原分析与本轮输入不符，未复用。", 409)
-            # A proven size refusal or a complete output the program rejected hides no
-            # result; changed inputs are read from the start (installed MC-11).
+            # A proven size refusal or a complete saved answer hides no result; changed
+            # inputs or an App update are analysed from the start (installed MC-11).
             previous_directory, saved = None, {}
             binding["job_brief_revision"] = (job_brief or {}).get("revision")
         revalidate_recorded = bool(saved) and (

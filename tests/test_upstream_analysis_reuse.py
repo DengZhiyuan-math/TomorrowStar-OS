@@ -338,3 +338,22 @@ def test_a_rejected_evaluation_with_changed_inputs_is_analysed_again_from_the_st
     )
     assert len(retry.brief_calls) == 1
     assert result["material_packet"]["status"] == "complete"
+
+
+@pytest.mark.parametrize(
+    ("receipt", "answered"),
+    [({"exit_code": 0}, True), ({"status": "failed", "exit_code": 1}, False), (None, False)],
+)
+def test_only_a_complete_saved_answer_allows_a_fresh_start(tmp_path, receipt, answered):
+    import json
+
+    from career_evidence_graph.application_matching_pipeline import _answered_evaluation
+
+    origin = tmp_path / "evaluation-1"
+    origin.mkdir()
+    if receipt is not None:
+        (origin / "model-result.json").write_text(json.dumps(receipt))
+    # Installed MC-11: a crash after a complete answer, followed by an App update,
+    # left that answer neither resumable nor replaceable.
+    saved = {"phase": "evaluation", "evaluation_origin": str(origin)}
+    assert _answered_evaluation(saved) is answered
