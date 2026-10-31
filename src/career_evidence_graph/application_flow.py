@@ -6465,7 +6465,11 @@ class ApplicationFlowService:
             )
             letter_attempt = (
                 self._reserve_cover_letter(
-                    state, task, _continuation_request_id=_continuation_request_id
+                    state,
+                    task,
+                    # An approved writing retry also re-runs an unknown letter call.
+                    retry=author_retry,
+                    _continuation_request_id=_continuation_request_id,
                 )
                 if stage == "resume"
                 else None
