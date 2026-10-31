@@ -1214,3 +1214,17 @@ def test_a_failed_material_stage_keeps_its_reason(application, tmp_path):
         assert "error_message" not in task["stages"]["analysis"]
     finally:
         service.close()
+
+
+def test_only_the_latest_normal_recheck_keeps_its_full_result():
+    from career_evidence_graph.application_flow import compact_match_rechecks
+
+    task = {
+        "match_rechecks": [
+            {"id": "a", "method": "normal_analysis", "result": {"r": 1}},
+            {"id": "m", "method": "manual", "result": {"r": 2}},
+            {"id": "b", "method": "normal_analysis", "result": {"r": 3}},
+        ]
+    }
+    compact_match_rechecks(task)
+    assert [row.get("result") for row in task["match_rechecks"]] == [None, {"r": 2}, {"r": 3}]

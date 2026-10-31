@@ -679,6 +679,20 @@ def material_task_view(task):
     return view
 
 
+def compact_match_rechecks(task):
+    """Keep the full result only on the latest normal recheck; only that one is read.
+
+    Each result is about 2.5 MB and also saved under match-refreshes/<id>/analysis/.
+    Installed MC-11: five Hexagon rechecks pushed flow.json past the Worker's 32 MB
+    read limit and the App could no longer load its state.
+    """
+    normal = [
+        row for row in task.get("match_rechecks", []) if row.get("method") == "normal_analysis"
+    ]
+    for receipt in normal[:-1]:
+        receipt.pop("result", None)
+
+
 class ApplicationFlowService:
     """One job runner, with independently retained authors for the current job."""
 
@@ -890,6 +904,7 @@ class ApplicationFlowService:
                 or binding.get("input_revision") != digest(task["inputs"])
             ):
                 task.pop("material_binding")
+            compact_match_rechecks(task)
             task["revision"] = digest({k: v for k, v in task.items() if k != "revision"})
             directory = self.root / folder / task["id"]
             if any(path.is_symlink() for path in (directory.parent, directory)):
