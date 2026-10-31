@@ -6268,11 +6268,19 @@ class ApplicationFlowService:
                 raise PortalDataError(
                     "flow_export_recheck_required", "导出尚未确定，请先核验本次导出。", 409
                 )
-            if (
+            author_retry = (
                 stage == "resume"
                 and current["status"] == "needs_recheck"
-                and not (retry and current.get("error_code") == "resume_author_needs_recheck")
-            ):
+                and retry
+                and current.get("error_code") == "resume_author_needs_recheck"
+            )
+            if author_retry and task.get("experience_handoff"):
+                # The unadopted handoff keeps the plan it was built with; the retry builds
+                # a new one from current inputs, and the old one stays in history.
+                task.setdefault("experience_handoff_history", []).append(
+                    task.pop("experience_handoff")
+                )
+            if stage == "resume" and current["status"] == "needs_recheck" and not author_retry:
                 raise PortalDataError(
                     "flow_resume_recheck_required", "写作结果尚未核验，请先保留并核对原交付。", 409
                 )
