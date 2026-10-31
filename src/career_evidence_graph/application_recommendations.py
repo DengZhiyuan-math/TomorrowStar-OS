@@ -164,11 +164,20 @@ def _page_identity(page: dict, mail_url: str, target_url: str, source_url: str) 
     )
 
 
+def _listed_at(application, key) -> bool:
+    """The job's board link, or the board page its employer link was resolved from."""
+    return key is not None and key in {
+        recommendation_key(application.get("url")),
+        recommendation_key(application.get("listing_url")),
+    }
+
+
 def _same_saved_facts(record, application) -> bool:
     return (
         (
             record.get("url", "") == application.get("url", "")
             or _same_identity(record.get("url"), application.get("url"))
+            or _listed_at(application, recommendation_key(record.get("url")))
         )
         and all(
             str(record.get(field, "")).strip() == str(application.get(field, "")).strip()
@@ -684,6 +693,9 @@ class RecommendationStore:
             key = recommendation_key(application["url"])
             if key is not None:
                 by_job.setdefault(key, application)
+            listing = recommendation_key(application.get("listing_url"))
+            if listing is not None:
+                by_job.setdefault(listing, application)
             else:
                 labels = tuple(
                     record_label(application.get(field)) for field in ("company", "role_title")
@@ -863,7 +875,7 @@ class RecommendationStore:
                     "created": False,
                 }
         for application in applications:
-            if recommendation_key(application["url"]) == key:
+            if _listed_at(application, key):
                 if not _same_saved_facts(record, application):
                     raise PortalDataError(
                         "recommendation_source_conflict",
@@ -898,6 +910,10 @@ class RecommendationStore:
             "status": "pending",
         }
         helper.atomic_write_json(journal, attempt)
+        from .job_listing_links import resolve_apply_url
+
+        # A job board link becomes the employer's own page when it can be resolved.
+        apply_url = resolve_apply_url(record.get("url", ""))
         try:
             application = self.applications.create_application(
                 {
@@ -905,6 +921,7 @@ class RecommendationStore:
                     for key in ("company", "role_title", "location", "url", "job_description")
                 }
                 | {"source": origin}
+                | ({"url": apply_url, "listing_url": record["url"]} if apply_url else {})
                 | (
                     {
                         "deadline": str(
@@ -929,11 +946,7 @@ class RecommendationStore:
         except (OSError, PortalDataError) as error:
             helper.atomic_write_json(journal, attempt | {"status": "needs_recheck"})
             application = next(
-                (
-                    row
-                    for row in self.applications.list_applications()
-                    if recommendation_key(row["url"]) == key
-                ),
+                (row for row in self.applications.list_applications() if _listed_at(row, key)),
                 None,
             )
             if application is not None:

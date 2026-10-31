@@ -73,6 +73,8 @@ _TEXT_FIELDS = (
         "track",
         "location",
         "url",
+        # The job board page a resolved employer link came from (2026-10-31).
+        "listing_url",
         "application_date",
         "deadline",
         "contact",
@@ -365,7 +367,9 @@ class ApplicationStore:
                 payload.get("schema_version") != "application-record/v1"
                 or not isinstance(record, dict)
                 or re.fullmatch(r"[a-f0-9]{24}", identifier) is None
-                or set(record) != _TEXT_FIELDS | _BOOL_FIELDS | {"linked_evidence", "content"}
+                # Records written before listing_url existed omit it.
+                or set(record) | {"listing_url"}
+                != _TEXT_FIELDS | _BOOL_FIELDS | {"linked_evidence", "content"}
                 or not isinstance(record["content"], str)
             ):
                 raise ValueError

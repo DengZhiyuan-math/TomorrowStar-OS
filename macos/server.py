@@ -871,6 +871,10 @@ def main() -> int:
             or support
             / ("application-automation-lab" if args.automation_lab else "single-job-worker")
         )
+        from career_evidence_graph.job_listing_links import configure as configure_listing_links
+
+        # LinkedIn jobs resolve to employer pages with the login saved by 登录领英.
+        configure_listing_links(worker_root)
         takeover = args.codex_assist or args.automatic_takeover
         # MC-22: automatic takeover that is on but cannot be configured says why on the job.
         takeover_unavailable_reason = None
