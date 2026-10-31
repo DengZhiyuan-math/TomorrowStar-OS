@@ -36,11 +36,11 @@ def _linkedin(host: str) -> bool:
 def offsite_apply_url(page: str, job_id: str) -> str | None:
     """The offsite apply URL LinkedIn names for this job ID, or None (Easy Apply)."""
     text = page.replace('\\"', '"')
-    for match in re.finditer(rf'"jobId":"{re.escape(job_id)}"([^{{}}]{{0,600}})', text):
+    for match in re.finditer(rf'"jobId":"{re.escape(job_id)}"([^{{}}]{{0,2000}})', text):
         fields = match.group(1)
         if '"isOnsiteApply":true' in fields:
             return None
-        found = re.search(r'"offsiteApplyUrl":"(https://[^"\\]+)"', fields)
+        found = re.search(r'"offsiteApplyUrl":"(https://(?:[^"\\]|\\.)+)"', fields)
         if found:
             return json.loads(f'"{found.group(1)}"')
     return None
@@ -67,10 +67,11 @@ def resolve_apply_url(url: str, *, read=None, fetch=fetch_job_source) -> str | N
         capture = fetch(target)
     except (OSError, ValueError):
         return None
-    final = capture.get("final_url", "")
-    if capture.get("error_code") or _linkedin(urlsplit(final).hostname or ""):
+    if capture.get("error_code") == "unsafe_url":
         return None
-    return final
+    # A site that refuses a direct read still opens in the worker's browser.
+    final = target if capture.get("error_code") else capture.get("final_url") or target
+    return None if _linkedin(urlsplit(final).hostname or "") else final
 
 
 def _read(url: str, cookies: dict) -> str:

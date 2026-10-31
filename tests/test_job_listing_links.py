@@ -41,3 +41,14 @@ def test_keeps_linkedin_without_login_or_for_easy_apply(tmp_path):
     assert links.resolve_apply_url(JOB, read=lambda *_: EASY_APPLY) is None
     assert links.resolve_apply_url("https://jobs.lever.co/x/1", read=lambda *_: PAGE) is None
     links.configure(None)
+
+
+def test_escaped_url_and_a_refused_direct_read(tmp_path):
+    signed_in(tmp_path)
+    page = PAGE.replace("job/abc", "job/abc?a=1\\u0026src=LinkedIn")
+    assert links.offsite_apply_url(page, "4477077634").endswith("abc?a=1&src=LinkedIn")
+    resolved = links.resolve_apply_url(
+        JOB, read=lambda *_: page, fetch=lambda url: {"error_code": "network_error"}
+    )
+    assert resolved == "https://example.onlyfy.jobs/job/abc?a=1&src=LinkedIn"
+    links.configure(None)
