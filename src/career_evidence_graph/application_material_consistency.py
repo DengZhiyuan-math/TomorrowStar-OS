@@ -145,16 +145,21 @@ def _validate_native_review(recorded, directory, prompt):
 
 
 def _prompt(binding, fixed_inputs, resume, letter, letter_material):
+    from .application_cover_letter import material_review_inputs
+
     return (
         INSTRUCTIONS
         + "\n"
         + json.dumps(
             {
                 "binding": binding,
-                "fixed_inputs": {"analysis": fixed_inputs["analysis"]},
+                # Same compact judgments and facts the writers saw (installed MC-11).
+                **material_review_inputs(
+                    {"analysis": fixed_inputs["analysis"]},
+                    letter_material["source_binding"]["sources"],
+                ),
                 "resume_content": resume,
                 "cover_letter_content": letter,
-                "sources": letter_material["source_binding"]["sources"],
             },
             ensure_ascii=False,
         )

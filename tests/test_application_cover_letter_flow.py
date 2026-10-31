@@ -214,10 +214,11 @@ def test_explicit_retry_runs_an_unknown_letter_again_and_keeps_its_history(tmp_p
         unknown = wait_for(
             flow, task["id"], lambda row: row["cover_letter"]["status"] == "needs_recheck"
         )
+        assert unknown["cover_letter"]["status"] == "needs_recheck"
         with pytest.raises(PortalDataError, match="未知"):
-            flow.start_cover_letter(task["id"], unknown["revision"])
+            flow.start_cover_letter(task["id"])
         # Approved 2026-10-31: writing only drafts text, so the user's retry may re-run it.
-        flow.start_cover_letter(task["id"], unknown["revision"], retry=True)
+        flow.start_cover_letter(task["id"], retry=True)
         done = wait_for(flow, task["id"], lambda row: row["cover_letter"]["status"] == "ready")
         assert len(calls) == 2
         assert done["cover_letter_history"][-1]["status"] == "needs_recheck"

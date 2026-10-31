@@ -129,7 +129,15 @@ def json_flow(canonical, tmp_path, monkeypatch, request):
                     output = {"supported": True, "reason": "Bound synthetic facts."}
                 else:
                     context = json.loads(prompt[prompt.index("\n{") + 1 :])
-                    source = context["sources"][0]
+                    # Grouped prompts list library facts under their experience.
+                    source = (
+                        context["sources"]
+                        + [
+                            fact
+                            for experience in context.get("experiences", [])
+                            for fact in experience.get("facts", [])
+                        ]
+                    )[0]
                     output = {
                         "language": "en",
                         "paragraphs": [

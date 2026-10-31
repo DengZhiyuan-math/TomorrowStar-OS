@@ -528,21 +528,36 @@ def _aligned_quotes(row, eligible, application, brief=None):
     return row | {"source_quotes": [first[identifier] for identifier in ids]}
 
 
-def _writer_inputs(fixed_inputs, eligible):
-    """The letter reads judgments and the facts they rest on, not the reading receipts.
+def material_review_inputs(fixed_inputs, eligible):
+    """Writers and reviewers read judgments and the facts they rest on, not receipts.
 
-    Installed MC-11 sent the whole analysis and every library source (4 MB); validation
-    still checks the letter against every eligible source.
+    Installed MC-11 sent the whole analysis and every library source (4 MB). The facts
+    are the selected experiences' facts, cited facts and confirmed answers; validation
+    still checks against every eligible source.
     """
-    from .application_material_sources import model_source
+    from .application_material_sources import matching_view
 
     analysis = fixed_inputs["analysis"]
-    used = set(analysis.get("selected_source_ids", [])) | {
-        source_id
-        for row in analysis.get("requirements", [])
-        if row.get("judgment") in {"supported", "partial"}
-        for source_id in row.get("source_ids", [])
-    }
+    selected = set(analysis.get("selected_source_ids", []))
+    experiences = {
+        (row.get("record_context") or {}).get("candidate_id")
+        for row in eligible
+        if row["source_id"] in selected
+    } - {None}
+    used = (
+        selected
+        | {
+            source_id
+            for row in analysis.get("requirements", [])
+            if row.get("judgment") in {"supported", "partial"}
+            for source_id in row.get("source_ids", [])
+        }
+        | {
+            row["source_id"]
+            for row in eligible
+            if (row.get("record_context") or {}).get("candidate_id") in experiences
+        }
+    )
     if not used & {row["source_id"] for row in eligible}:
         # Nothing selected or cited: the writer keeps every eligible fact as before.
         used = {row["source_id"] for row in eligible}
@@ -579,11 +594,12 @@ def _writer_inputs(fixed_inputs, eligible):
                 },
             }
         },
-        "sources": [
-            model_source(row)
+        # The grouped view states each experience once, without receipts or locators.
+        **matching_view(
+            row | {"application_trusted": True}
             for row in eligible
             if row["source_id"] in used or row.get("source_kind") == "confirmed_information"
-        ],
+        ),
     }
 
 
@@ -874,7 +890,7 @@ def generate_cover_letter(
                 + json.dumps(
                     {
                         "application": application_binding(application),
-                        **_writer_inputs(fixed_inputs, eligible),
+                        **material_review_inputs(fixed_inputs, eligible),
                         **({"local_rewrite": previous_expression} if previous_expression else {}),
                     },
                     ensure_ascii=False,
@@ -975,8 +991,8 @@ def generate_cover_letter(
             + json.dumps(
                 {
                     "content": content,
-                    "fixed_inputs": fixed_inputs,
-                    "sources": eligible,
+                    # The reviewer checks the letter against the same facts the writer saw.
+                    **material_review_inputs(fixed_inputs, eligible),
                     "application": application_binding(application),
                     **({"sibling_resume_content": sibling} if sibling is not None else {}),
                 },
