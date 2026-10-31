@@ -176,3 +176,14 @@ def test_curated_directory_summary_and_terms_survive_the_upgrade_and_later_edits
     row = ExperienceStore(root).directory()["alpha"]
     assert edited["metadata"]["summary"] == row["summary"] == "Curated summary."
     assert row["retrieval_terms"] == ["Model validation"]
+
+
+def test_strict_output_schema_requires_every_property_and_drops_defaults():
+    from career_evidence_graph.application_resume_content import TemplateResumePlan
+    from career_evidence_graph.codex_cli import strict_output_schema
+
+    schema = strict_output_schema(TemplateResumePlan.model_json_schema())
+    # Installed MC-11: the provider rejected every résumé author call for the
+    # optional headline missing from required.
+    assert set(schema["required"]) == set(schema["properties"])
+    assert "default" not in str(schema)

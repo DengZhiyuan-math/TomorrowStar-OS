@@ -9,7 +9,7 @@ from pathlib import Path
 from ._vendor import job_apply_store as helper
 from .application_resume_content import ContentPatch, validate_plan
 from .career_portal_data import PortalDataError
-from .codex_cli import run_codex_exec, validate_recorded_result
+from .codex_cli import run_codex_exec, strict_output_schema, validate_recorded_result
 from .validation.hashing import record_digest as digest
 from .validation.models import CodexCLIConfig
 
@@ -21,6 +21,9 @@ def _failure(code, message):
 def _call(store, identifier, role, context, schema, runner, allow_calls, admit_call):
     """Reserve before calling; a missing response never authorizes another call."""
     base = Path(store.root) / identifier / "automatic-authors"
+    # Strict structured output lists every property as required (installed MC-11:
+    # every author call was rejected for the optional headline).
+    schema = strict_output_schema(schema)
     binding = digest({"role": role, "context": context, "schema": schema})
     index = 0
     previous = None
@@ -96,6 +99,49 @@ def _call(store, identifier, role, context, schema, runner, allow_calls, admit_c
         ) from error
 
 
+def _plan_choices_schema(full):
+    """The planner returns only its choices; delivered assignments are never retyped."""
+    properties = full["properties"]
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            **{
+                key: properties[key]
+                for key in ("headline", "summary", "skills")
+                if key in properties
+            },
+            "assignments": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "experience_id": {"type": "string"},
+                        "writing_requirements": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
+            },
+        },
+        **({"$defs": full["$defs"]} if "$defs" in full else {}),
+    }
+
+
+def _expanded_plan(original, choices):
+    """Rebuild the full plan from delivered assignments in the planner's chosen order."""
+    delivered = {row["experience_id"]: row for row in original["assignments"]}
+    plan = {key: deepcopy(value) for key, value in original.items() if key != "assignments"}
+    plan.update({key: deepcopy(choices[key]) for key in ("summary", "skills") if key in choices})
+    if choices.get("headline") is not None:
+        plan["headline"] = deepcopy(choices["headline"])
+    plan["assignments"] = [
+        delivered[row["experience_id"]]
+        | {"writing_requirements": list(row["writing_requirements"])}
+        for row in choices["assignments"]
+    ]
+    return plan
+
+
 def _rejected(directory, error):
     helper.atomic_write_json(
         directory / "validation-failure.json",
@@ -122,11 +168,12 @@ def _execute_content_generation(
         return generation.adopt_generation(store, identifier)
     if context.get("mapping_required"):
         original = context["content_plan"]
-        schema = type(validate_plan(original)).model_json_schema()
-        plan, main_writer, call = _call(
+        schema = _plan_choices_schema(type(validate_plan(original)).model_json_schema())
+        choices, main_writer, call = _call(
             store, identifier, "plan", context, schema, runner, allow_calls, admit_call
         )
         try:
+            plan = _expanded_plan(original, choices)
             generation.configure_generation(
                 store, identifier, writing_plan=plan, main_writer_id=main_writer
             )

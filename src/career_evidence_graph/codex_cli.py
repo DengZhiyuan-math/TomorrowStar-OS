@@ -163,6 +163,22 @@ def build_codex_exec_argv(
 _EXEC_DISABLED = ("memories", "apps", "plugins", "hooks")
 
 
+def strict_output_schema(schema):
+    """Make a Pydantic JSON schema acceptable to strict structured output.
+
+    The provider requires every object property in ``required`` and rejects
+    defaults; optional fields stay optional by already allowing null.
+    """
+    if isinstance(schema, list):
+        return [strict_output_schema(item) for item in schema]
+    if not isinstance(schema, dict):
+        return schema
+    result = {key: strict_output_schema(value) for key, value in schema.items() if key != "default"}
+    if isinstance(result.get("properties"), dict):
+        result["required"] = list(result["properties"])
+    return result
+
+
 def _allowlisted_environment(source: Mapping[str, str]) -> dict[str, str]:
     environment = {key: source[key] for key in ALLOWED_ENVIRONMENT_KEYS if key in source}
     if CODEX_HOME_ENVIRONMENT in source:
