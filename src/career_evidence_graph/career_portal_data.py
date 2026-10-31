@@ -37,6 +37,8 @@ STATUS_LABELS = {
     "offer": "已获 Offer",
     "rejected": "未通过",
     "withdrawn": "已撤回",
+    # The posting stopped accepting applications before one was sent (2026-10-31).
+    "closed": "岗位已关闭",
     "follow_up_optional": "可跟进",
     "likely_no_response": "可能无回复",
     "no_response": "无回复",
