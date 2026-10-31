@@ -289,7 +289,8 @@ def _resume_coverage(task, requirements, resume_sources=None):
     if not used and resume_sources is not None:
         # Results saved before 2026-10-31 recorded no sources for template content.
         with suppress(PortalDataError, OSError, ValueError, KeyError, TypeError):
-            used = resume_sources(material.get("id"))
+            # An export result names its PDF; the sources belong to the task's draft.
+            used = resume_sources((task or {}).get("draft_id") or material.get("id"))
     if not isinstance(used, list) or any(not isinstance(sid, str) for sid in used):
         return result
     used = set(used)

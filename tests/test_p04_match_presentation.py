@@ -200,14 +200,11 @@ def test_satisfied_or_group_has_certain_score_with_an_unresolved_alternative(
 
 def test_resume_coverage_reads_sources_a_saved_result_did_not_record(tmp_path, application, output):
     app, task = saved_case(tmp_path, application, output)
-    task["draft_id"] = "draft-current"
-    task["artifacts"].append(
-        {
-            "stage": "resume",
-            "adopted": True,
-            "result": {"id": "draft-current", "used_source_ids": []},
-        }
-    )
+    task.update(draft_id="draft-current", resume_id="export-current")
+    task["artifacts"] += [
+        {"stage": stage, "adopted": True, "result": {"id": identifier, "used_source_ids": []}}
+        for stage, identifier in (("resume", "draft-current"), ("export", "export-current"))
+    ]
     analysis = task["artifacts"][0]["result"]
     # Installed MC-11: template-content results saved no sources and showed 0%.
     result = job_explanation(
