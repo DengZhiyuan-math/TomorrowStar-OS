@@ -1073,6 +1073,72 @@ class ApplicationResumeStore:
             draft.get("parent_content_ref", {}).get("template_revision")
         )
 
+    @staticmethod
+    def _template_shows_contacts(draft, old_inputs, new_inputs, application, library):
+        """A contact change leaves the fixed template's résumé unchanged (2026-10-31).
+
+        Only the contact projection may have changed, and each contact kind the
+        résumé displays must already show the library's confirmed value. Kinds the
+        template does not display cannot change it.
+        """
+        from .application_full_latex import _contact_literals, _prose_latex
+        from .application_information import CONTACT_FACTS, information_context
+
+        if {
+            key for key in {*old_inputs, *new_inputs} if old_inputs.get(key) != new_inputs.get(key)
+        } - {"information_library_revision"}:
+            return False
+        latex = draft.get("latex_source")
+        if not isinstance(latex, str) or "\\begin{document}" not in latex:
+            return False
+        # Contacts live in the header; body links and numbers are not contacts.
+        latex = latex.split("\\begin{document}", 1)[1].split("\\section", 1)[0]
+        visible = " ".join(re.sub(r"\\([#$%&_{}])", r"\1", _prose_latex(latex)).split())
+        _, shown = _contact_literals(latex)
+        context = information_context(application, library, fact_keys=list(CONTACT_FACTS))
+        for fact in context["facts"]:
+            value = fact.get("value")
+            if fact.get("status") != "confirmed" or not isinstance(value, str):
+                continue
+            value = value.strip()
+            if fact["fact"] in {"name", "first_name", "last_name"}:
+                displayed = value in visible
+            elif fact["fact"] == "email":
+                displayed = not shown["email"] or value in shown["email"]
+            elif fact["fact"] == "phone":
+                displayed = not shown["phone"] or re.sub(r"\D", "", value) in shown["phone"]
+            else:
+                host = "github.com" if fact["fact"] == "github_url" else "linkedin.com"
+                urls = {url.rstrip("/") for url in shown["url"] if host in url}
+                displayed = not urls or value.rstrip("/") in urls
+            if not displayed:
+                return False
+        return True
+
+    def _rebind_draft(self, draft, task_inputs):
+        """Save the unchanged draft as a new version bound to the new task inputs."""
+        identifier = uuid4().hex
+        source, target = self.root / draft["id"], self.root / identifier
+        shutil.copytree(source, target, symlinks=True)
+        rebound = deepcopy(draft) | {
+            "id": identifier,
+            "task_inputs": deepcopy(task_inputs),
+            "information_library_revision": task_inputs.get(
+                "information_library_revision", draft.get("information_library_revision")
+            ),
+            "rebound_from": {"id": draft["id"], "reason": "contact_projection_unchanged_in_resume"},
+        }
+        helper.atomic_write_json(target / "draft.json", rebound)
+        helper.atomic_write_json(
+            target / "draft-integrity.json",
+            {
+                "schemaVersion": 1,
+                "id": identifier,
+                "sha256": hashlib.sha256((target / "draft.json").read_bytes()).hexdigest(),
+            },
+        )
+        return self.draft(identifier)
+
     def _read_bound_draft(self, task):
         update = task["material_update"]
         old = update["old"]
@@ -1100,14 +1166,26 @@ class ApplicationResumeStore:
         old = update["old"]
         edited = self._read_bound_draft(task)
         template_content = self._fixed_template_content(edited)
+        rebound = None
         if template_content and update["inputs"] != old["inputs"]:
-            raise PortalDataError(
-                "resume_template_update_required",
-                "联系方式已更正，请明确更新固定 LaTeX 模板或人工源；原材料已保留。",
-                409,
-            )
+            application = self.applications.get_application(task["application_id"])
+            if not self._template_shows_contacts(
+                edited,
+                old["inputs"],
+                update["inputs"],
+                application,
+                information_provider(application),
+            ):
+                raise PortalDataError(
+                    "resume_template_update_required",
+                    "联系方式已更正，请明确更新固定 LaTeX 模板或人工源；原材料已保留。",
+                    409,
+                )
+            rebound = self._rebind_draft(edited, update["inputs"])
         base = material_source_binding(edited)
-        if (template_content or update.get("editable_draft")) and edited.get(
+        if rebound is not None:
+            result = rebound
+        elif (template_content or update.get("editable_draft")) and edited.get(
             "task_inputs"
         ) == update["inputs"]:
             result = edited
