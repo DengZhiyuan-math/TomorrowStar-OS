@@ -3430,7 +3430,10 @@ class ApplicationRunner:
         except (PortalDataError, Error) as error:
             code = getattr(error, "code", "native_assistance_unavailable")
             if not hasattr(error, "code"):
+                import traceback
+
                 print("native_assistance_unavailable: " + repr(error)[:500], flush=True)
+                print("".join(traceback.format_exc(limit=-8))[-3000:], flush=True)
         if code is None:
             return
         with self.store.applications.write_lock():
