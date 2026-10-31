@@ -7,6 +7,7 @@ No function reads libraries, invokes a writer, renders TeX or persists revisions
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapter, model_validator
@@ -225,6 +226,21 @@ class ContentItem(Contract):
     edit_source: Text | None = None
     protected: bool = False
     links: list[Link] = Field(default_factory=list)
+
+
+# Provenance belongs to the program; a writer's schema never offers these fields.
+PROGRAM_OWNED_ITEM_FIELDS = ("origin", "edit_source", "protected")
+
+
+def writer_schema(schema):
+    """Remove program-owned item provenance from a writer's output schema."""
+    schema = deepcopy(schema)
+    item = schema.get("$defs", {}).get("ContentItem", {})
+    for key in PROGRAM_OWNED_ITEM_FIELDS:
+        item.get("properties", {}).pop(key, None)
+        if key in item.get("required", []):
+            item["required"].remove(key)
+    return schema
 
 
 class ExperienceFragment(Contract):

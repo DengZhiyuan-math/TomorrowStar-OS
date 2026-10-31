@@ -23,6 +23,7 @@ from .application_resume_content import (
     validate_content,
     validate_fragment,
     validate_plan,
+    writer_schema,
 )
 from .application_resume_render import render_resume
 from .validation.hashing import record_digest as digest
@@ -190,7 +191,9 @@ def writer_context(state, experience_id):
         "input_revision": assignment["assignment_revision"],
         "assignment": deepcopy(assignment),
         "instructions": WRITER_INSTRUCTIONS,
-        "output_schema": TypeAdapter(WritingResult).json_schema(),
+        # Strict output makes every offered field mandatory; installed MC-11 writers
+        # then claimed human provenance, which validation rightly refuses.
+        "output_schema": writer_schema(TypeAdapter(WritingResult).json_schema()),
         "previous_fragment": deepcopy(state["fragments"].get(experience_id)),
         "retained_items": deepcopy((previous_experience or {}).get("items", [])),
         "retained_structure_protected": experience_id

@@ -198,3 +198,14 @@ def test_strict_output_schema_turns_unions_into_any_of():
     schema = strict_output_schema(TypeAdapter(WritingResult).json_schema())
     # Installed MC-11: the provider rejects oneOf and discriminator in strict mode.
     assert "anyOf" in schema and "oneOf" not in str(schema) and "discriminator" not in schema
+
+
+def test_writer_schemas_never_offer_program_owned_provenance():
+    from pydantic import TypeAdapter
+
+    from career_evidence_graph.application_resume_content import WritingResult, writer_schema
+
+    item = writer_schema(TypeAdapter(WritingResult).json_schema())["$defs"]["ContentItem"]
+    # Installed MC-11: once strict output made every field mandatory, the writer
+    # set origin="human", which validation rightly refused.
+    assert not {"origin", "edit_source", "protected"} & set(item["properties"])

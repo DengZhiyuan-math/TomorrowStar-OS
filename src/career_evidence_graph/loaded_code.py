@@ -51,6 +51,7 @@ _PREPARATION_MODULES = (
     "application_job_source",
     "application_recommendations",
     "application_information",
+    "career_education",
     "application_explanations",
     "_vendor.job_apply_store",
     # MC-15: page projection and the Flow-path helpers it and the owners above execute.
@@ -139,6 +140,7 @@ _RUNTIME_MODULES = {
         "application_full_latex",
         "application_information",
         "application_prism",
+        "career_education",
         "application_resume_content",
         "application_resume_render",
         "application_storage",

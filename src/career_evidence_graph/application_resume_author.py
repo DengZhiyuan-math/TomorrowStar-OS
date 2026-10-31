@@ -7,7 +7,7 @@ from copy import deepcopy
 from pathlib import Path
 
 from ._vendor import job_apply_store as helper
-from .application_resume_content import ContentPatch, validate_plan
+from .application_resume_content import ContentPatch, validate_plan, writer_schema
 from .career_portal_data import PortalDataError
 from .codex_cli import run_codex_exec, strict_output_schema, validate_recorded_result
 from .validation.hashing import record_digest as digest
@@ -142,7 +142,7 @@ def _plan_choices_schema(full):
                 },
             },
         },
-        **({"$defs": full["$defs"]} if "$defs" in full else {}),
+        **({"$defs": writer_schema(full)["$defs"]} if "$defs" in full else {}),
     }
 
 
