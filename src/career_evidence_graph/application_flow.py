@@ -6316,7 +6316,7 @@ class ApplicationFlowService:
                     stage == "resume"
                     and current.get("status") == "failed"
                     and current.get("error_code")
-                    in {"resume_author_paused", "resume_author_failed"}
+                    in {"resume_author_paused", "resume_author_failed", "resume_latex_invalid"}
                     and retry
                 )
             ):

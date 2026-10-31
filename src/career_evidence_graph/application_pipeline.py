@@ -1887,9 +1887,14 @@ class ApplicationPipeline:
         """
         task, retried = self._task(state), False
         resume = task["stages"].get("resume", {})
+        # A refused assembly keeps its finished fragments; the retry re-assembles them.
         if (
             resume.get("status") == "needs_recheck"
             and resume.get("error_code") == "resume_author_needs_recheck"
+        ) or (
+            resume.get("status") == "failed"
+            and resume.get("error_code") == "resume_latex_invalid"
+            and (task.get("experience_handoff") or {}).get("status") != "adopted"
         ):
             retried = True
             task = self.flow.start(

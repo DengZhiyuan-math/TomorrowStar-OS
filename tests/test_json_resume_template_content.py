@@ -238,3 +238,24 @@ def test_slots_follow_literal_template_order_and_ranges_match_rendered_items():
         < rendered.ranges["experience-demo-1"][0]
         < rendered.ranges["summary-one"][0]
     )
+
+
+def test_item_names_two_writers_chose_independently_are_scoped_by_experience():
+    second, written = assignment(), fragment()
+    for row in (second, second["experience"], written):
+        row.update(experience_id="experience-demo-2", candidate_id="candidate-demo-2")
+    second["assignment_revision"] = written["assignment_revision"] = "assignment-demo-2"
+    second["experience"]["facts"][0]["id"] = "fact-demo-2"
+    second["allowed_fact_refs"] = written["items"][0]["fact_refs"] = ["fact-demo-2"]
+    planned = plan()
+    planned["assignments"].append(second)
+    # Installed MC-11: two Hexagon experience writers both named items
+    # "item-1", and assembly refused the whole résumé.
+    content = assemble_content(planned, [fragment(), written])
+    assert [row["items"][0]["id"] for row in content["experiences"]] == [
+        "experience-demo-1-item-demo-1",
+        "experience-demo-2-item-demo-1",
+    ]
+    assert assemble_content(plan(), [fragment()])["experiences"][0]["items"][0]["id"] == (
+        "item-demo-1"
+    )

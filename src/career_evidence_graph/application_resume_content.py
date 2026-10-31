@@ -7,6 +7,7 @@ No function reads libraries, invokes a writer, renders TeX or persists revisions
 
 from __future__ import annotations
 
+from collections import Counter
 from copy import deepcopy
 from typing import Annotated, Literal
 
@@ -474,11 +475,20 @@ def assemble_content(plan, fragments, retained=None) -> dict:
             raise ValueError("global writer cannot set human provenance or protection")
         _references(item.fact_refs, all_fact_refs)
         _references(item.inference_refs, all_inference_refs)
+    # Writers name items independently; the program scopes a name two writers chose.
+    names = Counter(
+        [item.id for item in global_items]
+        + assignment_ids
+        + [item["id"] for result in results.values() for item in result.get("items", [])]
+    )
     experiences = []
     for assigned in planned.assignments:
         result = validate_fragment(results[assigned.experience_id], assigned)
         if result["status"] != "complete":
             raise ValueError("experience still needs material")
+        for item in result["items"]:
+            if names[item["id"]] > 1:
+                item["id"] = f"{assigned.experience_id}-{item['id']}"
         facts = assigned.experience
         experiences.append(
             ResumeExperience(

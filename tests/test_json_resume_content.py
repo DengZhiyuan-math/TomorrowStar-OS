@@ -204,14 +204,14 @@ def test_retains_human_application_content_without_fabricating_refs():
 
 
 def test_content_ids_are_unique_across_program_and_authored_blocks():
-    import pytest
-
     from career_evidence_graph.application_resume_content import assemble_content
 
     planned = plan()
     planned["summary"] = [deepcopy(fragment()["items"][0])]
-    with pytest.raises(ValueError, match="duplicate"):
-        assemble_content(planned, [fragment()])
+    content = assemble_content(planned, [fragment()])
+    # The experience writer's item is scoped; the global writer keeps its name.
+    assert content["summary"][0]["id"] == "item-demo-1"
+    assert content["experiences"][0]["items"][0]["id"] == "experience-demo-1-item-demo-1"
 
 
 def patch_for(content, **change):
