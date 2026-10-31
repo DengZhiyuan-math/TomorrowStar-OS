@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -57,7 +58,13 @@ class TectonicCompiler:
         actual = dependency_snapshot(
             Path(binding["project_root"]), binding["main"], [binding["main"]]
         )
-        executable = shutil.which("tectonic")
+        # An App opened from Finder has only the system PATH; Homebrew installs elsewhere.
+        executable = shutil.which(
+            "tectonic",
+            path=os.pathsep.join(
+                [os.environ.get("PATH", os.defpath), "/opt/homebrew/bin", "/usr/local/bin"]
+            ),
+        )
         if executable is None:
             raise PortalDataError(
                 "resume_compiler_unavailable", "未找到 tectonic，暂不能编译 PDF。", 409
