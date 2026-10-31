@@ -64,7 +64,9 @@ def test_modern_failed_analysis_delivers_certainty_without_retry(
 @pytest.mark.parametrize(
     ("attempt_status", "certainty"), [("failed", "rejected"), ("needs_recheck", "unknown")]
 )
-@pytest.mark.parametrize("code", ["retrieval_execution_incomplete", "retrieval_model_failed"])
+@pytest.mark.parametrize(
+    "code", ["retrieval_execution_incomplete", "retrieval_model_failed", "flow_stage_failed"]
+)
 def test_a_saved_size_refusal_is_rejected_only_when_its_attempt_proves_it(
     application, tmp_path, attempt_status, certainty, code
 ):

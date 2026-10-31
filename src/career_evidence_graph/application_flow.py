@@ -85,16 +85,6 @@ def legacy_analysis_failure(task):
     )
 
 
-# Codes that also wrap unknown outcomes; only the saved attempt can prove them known.
-_ATTEMPT_PROVEN_CODES = {
-    "retrieval_execution_incomplete",
-    "retrieval_model_failed",
-    "match_model_timeout",
-    "match_model_unavailable",
-    "job_brief_unavailable",
-}
-
-
 def _analysis_outcome(task, *, known_attempt_failure=False):
     """Interpret Flow-owned attempt metadata without authorizing a new attempt."""
     stage = task.get("stages", {}).get("analysis", {})
@@ -103,8 +93,7 @@ def _analysis_outcome(task, *, known_attempt_failure=False):
     # Modern validation failures only classify a same-job input wait.
     # retrieval_execution_incomplete also wraps reader timeouts; its code alone
     # cannot establish a known rejected result. Only the saved attempt can prove
-    # it ended on a known failure (a size refusal, or a call that timed out with no
-    # output) after every call it made was receipted.
+    # it ended without an unknown model result, whatever code the stage recorded.
     modern_rejected = bool(
         task.get("status") == stage.get("status") == "failed"
         and stage.get("error_code")
@@ -5135,7 +5124,7 @@ class ApplicationFlowService:
 
     def _known_attempt_failure(self, task):
         stage, analysis = task["stages"]["analysis"], getattr(self, "analysis", None)
-        if stage.get("error_code") not in _ATTEMPT_PROVEN_CODES or analysis is None:
+        if stage.get("status") != "failed" or analysis is None:
             return False
         try:
             # A recoverable attempt holds a complete saved answer, never an unknown one.
