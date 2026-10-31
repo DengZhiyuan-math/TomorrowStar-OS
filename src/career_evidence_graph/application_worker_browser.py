@@ -653,6 +653,10 @@ class ApplicationRunner:
         except TimeoutError:
             pass
         except Error as error:
+            if getattr(error, "message", "") == "owned_browser_read_timeout":
+                # A busy page (many blocked requests) overran this idle wait; the
+                # browser is still connected and the wait settles on its own.
+                return
             if not self.shared_fault:
                 # The private log keeps the cause; the job record keeps only the event.
                 print("browser_connection_unknown: " + repr(error)[:500], flush=True)

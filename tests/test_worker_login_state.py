@@ -25,3 +25,17 @@ def test_abort_of_a_closed_page_request_is_not_an_error():
             raise Error("Target page, context or browser has been closed")
 
     _abort(Route())
+
+
+def test_an_overrun_idle_wait_is_not_a_lost_browser(monkeypatch):
+    from career_evidence_graph import application_worker_browser as worker
+
+    def overrun(*_args):
+        raise Error("owned_browser_read_timeout")
+
+    monkeypatch.setattr(worker, "pump_events", overrun)
+    runner = worker.ApplicationRunner.__new__(worker.ApplicationRunner)
+    runner.shared_fault, runner.work_progressed, runner.context, events = False, False, None, []
+    runner.event = events.append
+    runner.pump()
+    assert events == []
