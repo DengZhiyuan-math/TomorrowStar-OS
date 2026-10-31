@@ -493,6 +493,65 @@ def _delivered_sources(fixed_inputs, sources):
     )
 
 
+def _writer_inputs(fixed_inputs, eligible):
+    """The letter reads judgments and the facts they rest on, not the reading receipts.
+
+    Installed MC-11 sent the whole analysis and every library source (4 MB); validation
+    still checks the letter against every eligible source.
+    """
+    from .application_material_sources import model_source
+
+    analysis = fixed_inputs["analysis"]
+    used = set(analysis.get("selected_source_ids", [])) | {
+        source_id
+        for row in analysis.get("requirements", [])
+        if row.get("judgment") in {"supported", "partial"}
+        for source_id in row.get("source_ids", [])
+    }
+    if not used & {row["source_id"] for row in eligible}:
+        # Nothing selected or cited: the writer keeps every eligible fact as before.
+        used = {row["source_id"] for row in eligible}
+    brief = analysis.get("job_brief") or {}
+    return {
+        "fixed_inputs": {key: value for key, value in fixed_inputs.items() if key != "analysis"}
+        | {
+            "analysis": {
+                # The JD is in the application binding; revisions stay with the program.
+                "job_brief": {
+                    key: value
+                    for key, value in brief.items()
+                    if key
+                    not in {
+                        "job",
+                        "job_revision",
+                        "revision",
+                        "framework_revision",
+                        "schema_version",
+                    }
+                },
+                "requirements": [
+                    {
+                        key: value
+                        for key, value in row.items()
+                        if key not in {"scoring_framework", "sources"}
+                    }
+                    for row in analysis.get("requirements", [])
+                ],
+                **{
+                    key: analysis[key]
+                    for key in ("selected_source_ids", "selection_rationale", "inference_result")
+                    if key in analysis
+                },
+            }
+        },
+        "sources": [
+            model_source(row)
+            for row in eligible
+            if row["source_id"] in used or row.get("source_kind") == "confirmed_information"
+        ],
+    }
+
+
 def _reviewed_letter(content, checked, application, eligible, inputs_revision):
     content = deepcopy(content)
     if (
@@ -780,8 +839,7 @@ def generate_cover_letter(
                 + json.dumps(
                     {
                         "application": application_binding(application),
-                        "fixed_inputs": fixed_inputs,
-                        "sources": eligible,
+                        **_writer_inputs(fixed_inputs, eligible),
                         **({"local_rewrite": previous_expression} if previous_expression else {}),
                     },
                     ensure_ascii=False,

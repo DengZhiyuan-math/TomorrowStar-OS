@@ -82,11 +82,19 @@ def _content_plan(
             "已交付经历尚缺结构化事实，原资料已保留：" + ", ".join(unresolved),
             409,
         )
+    # With whole-library matching the packet holds every experience; the résumé writes
+    # only the experiences matching selected (installed MC-11 sent all 75).
+    chosen = {
+        (packet["sources"].get(sid, {}).get("record_context") or {}).get("candidate_id")
+        for sid in resume_source_ids or []
+    } - {None}
     for source_id, row in packet["sources"].items():
         context = row.get("record_context") or {}
         if not context.get("fact_id"):
             continue
         candidate, experience_id = context.get("candidate_id"), context.get("experience_id")
+        if chosen and candidate not in chosen:
+            continue
         if not candidate or not experience_id or row.get("candidate_id", candidate) != candidate:
             raise _invalid("经历事实须保留原经历与候选身份。")
         prefix = candidate + "::"

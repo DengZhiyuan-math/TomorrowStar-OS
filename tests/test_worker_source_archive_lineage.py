@@ -25,6 +25,8 @@ from career_evidence_graph.application_worker import digest, start_run
 from career_evidence_graph.application_worker_browser import ApplicationRunner
 from career_evidence_graph.career_portal_data import PortalDataError
 
+pytestmark = pytest.mark.usefixtures("planner_path")
+
 
 @pytest.mark.parametrize(
     "problem",

@@ -303,7 +303,11 @@ def generation_context(store, identifier):
             **_public(state),
             "job": deepcopy(payload["job"]),
             "job_brief": deepcopy(payload["job_brief"]),
-            "requirements": deepcopy(payload["requirements"]),
+            # Scoring groups repeat the job_brief and never guide wording.
+            "requirements": [
+                {key: value for key, value in row.items() if key != "scoring_framework"}
+                for row in payload["requirements"]
+            ],
             "content_plan": deepcopy(payload["content_plan"]),
             "headline_required": payload.get("headline_required", False),
             "retained_content": deepcopy(payload.get("retained_content")),

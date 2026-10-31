@@ -27,6 +27,8 @@ from career_evidence_graph.career_experiences import ExperienceStore
 from career_evidence_graph.career_portal import create_server
 from career_evidence_graph.career_portal_data import PortalDataError
 
+pytestmark = pytest.mark.usefixtures("planner_path")
+
 
 class SavedPrism:
     """Return an already completed build; never invoke a compiler."""
