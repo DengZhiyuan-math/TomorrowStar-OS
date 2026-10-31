@@ -452,6 +452,14 @@ def _prompt_requirements(requirements):
     return rows
 
 
+# Decided 2026-10-31: the user applies for roles that start after the PhD.
+_DEGREE_IN_PROGRESS = (
+    "The user applies for roles that start after an in-progress degree is completed, so "
+    "a degree in progress with an expected completion date supports a requirement to "
+    "hold that degree (for example 'Hold a PhD'); state the expected completion. "
+)
+
+
 def _prompt_context(job, sources, snapshot):
     context_limit = context_limits()["match_context_bytes"]
     native_citations = _native_fact_source_ids(snapshot, sources)
@@ -569,10 +577,8 @@ def _prompt_context(job, sources, snapshot):
         "Education locators are documentary facts only; enrollment or an expected graduation "
         "date does not establish an already awarded degree. Assess the actual education "
         "content against this JD: ongoing study can support an education-background requirement. "
-        "The user applies for roles that start after an in-progress degree is completed, so "
-        "a degree in progress with an expected completion date supports a requirement to "
-        "hold that degree (for example 'Hold a PhD'); state the expected completion. "
-        "For selected_source_ids, select only item IDs cited in requirements whose "
+        + _DEGREE_IN_PROGRESS
+        + "For selected_source_ids, select only item IDs cited in requirements whose "
         "resume_eligible flag is true; match_eligible alone is insufficient. "
         "Education locators and match-only profile facts must never enter selected_source_ids. "
         "Do not calculate or return a final score. Preserve uncertainty in extracted fields. "
@@ -656,7 +662,9 @@ def _prompt_context(job, sources, snapshot):
             "progress status. Expression scope must not invent exact numbers, CEFR levels, "
             "degrees or responsibilities. Use deterministic only with the schema's explicit ISO "
             "dates and literal JD threshold; the program calculates the result. A date "
-            "comparison does not award an unfinished degree. Keep calculations null for "
+            "comparison does not award an unfinished degree. "
+            + _DEGREE_IN_PROGRESS
+            + "Keep calculations null for "
             "direct/semantic. Do not calculate a score, write library facts or rerun role "
             "interpretation. Resume source selection never changes background judgments.\n"
         )

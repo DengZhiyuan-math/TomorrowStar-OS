@@ -318,6 +318,16 @@ def test_an_education_record_is_cited_by_identity(tmp_path):
     assert row["citations"][0]["quote"].startswith("M2 in Mathematics")
 
 
+def test_packet_matching_counts_an_in_progress_degree_as_held(native_case, tmp_path):
+    # Installed MC-11: the rule reached only the legacy prompt, so packet matching still
+    # judged the in-progress PhD a gap for "Hold a PhD".
+    application, prepared, output = native_case
+    directory = tmp_path / "degree-rule"
+    analyze_job(application, prepared, directory, runner=model_runner(output, []))
+    prompt = json.loads((directory / "context-input.json").read_text())["prompt"]
+    assert "a degree in progress with an expected completion date supports" in prompt
+
+
 def assert_citation_withheld(result):
     """A complete answer keeps its score, but the unusable citation counts for nothing."""
     # Installed MC-11: one bad citation used to fail the whole analysis as unknown.
