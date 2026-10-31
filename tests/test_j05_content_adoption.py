@@ -411,3 +411,20 @@ def test_adoption_rejects_a_changed_frozen_template_binding(cached_resume):
     with pytest.raises((ValueError, PortalDataError)):
         persist_content_generation(store, state, plan)
     assert not (store.root / state["id"] / "draft.json").exists()
+
+
+def test_content_items_name_the_sources_their_facts_came_from():
+    from career_evidence_graph.application_resume import _content_source_ids
+
+    def source(identifier, fact):
+        return {"source_id": identifier, "record_context": {"candidate_id": "c1", "fact_id": fact}}
+
+    draft = {
+        "resume_content": {
+            "experiences": [{"items": [{"fact_refs": ["c1::f1"]}, {"fact_refs": ["c1::f3"]}]}]
+        },
+        "generation_sources": [source("S1", "f1"), source("S2", "f2"), source("S3", "f3")],
+    }
+    # Installed MC-11: template-content résumés reported no used sources, so the
+    # match overview showed 0% résumé coverage for every generated résumé.
+    assert _content_source_ids(draft) == ["S1", "S3"]

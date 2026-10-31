@@ -251,9 +251,7 @@ def test_recorded_native_quotes_are_replaced_without_changing_judgment(
     assert saved["structured_result"] == output
 
 
-@pytest.mark.parametrize(
-    "mutation", ["wrong-id", "missing-id", "missing-citation", "missing-references"]
-)
+@pytest.mark.parametrize("mutation", ["wrong-id", "missing-id", "missing-references"])
 def test_invalid_native_id_bindings_publish_no_score(native_case, tmp_path, mutation):
     from career_evidence_graph.career_portal_data import PortalDataError
 
@@ -264,8 +262,6 @@ def test_invalid_native_id_bindings_publish_no_score(native_case, tmp_path, muta
         row["citations"][0]["source_id"] = "unread-source"
     elif mutation == "missing-id":
         row["citations"][0] = {}
-    elif mutation == "missing-citation":
-        row["citations"] = []
     else:
         row["source_ids"] = []
         row["citations"] = []
@@ -279,6 +275,19 @@ def test_invalid_native_id_bindings_publish_no_score(native_case, tmp_path, muta
     assert caught.value.code == "match_model_invalid"
     assert not (directory / "analysis.json").exists()
     assert (directory / "model-result.json").exists()
+
+
+@pytest.mark.parametrize("cited", [[], [{"source_id": "confirmed-language"}]])
+def test_native_citations_follow_the_source_ids(native_case, tmp_path, cited):
+    # Installed MC-11: an education judgment named the right record in source_ids but
+    # cited an unrelated one; native citations only repeat source_ids.
+    application, prepared, output = native_case
+    row = output["requirements"][0]
+    row.update(source_ids=["source-0"], citations=cited)
+    result = analyze_job(application, prepared, tmp_path / "cited", runner=model_runner(output, []))
+    row = result["requirements"][0]
+    assert row["judgment"] == "supported" and "citation_warning" not in row
+    assert [citation["source_id"] for citation in row["citations"]] == ["source-0"]
 
 
 def assert_citation_withheld(result):

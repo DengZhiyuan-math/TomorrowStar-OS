@@ -1305,6 +1305,10 @@ def _analyze_loaded_job(
                 for source_id in references
             ) or (requirement["judgment"] != "unknown" and not references):
                 raise PortalDataError("match_source_invalid", "岗位分析来源引用不能核验。", 409)
+            if references and set(references) <= native_citations:
+                # Native citations only repeat source_ids; the program attaches whole records.
+                # Installed MC-11 cited an unrelated record beside the right education IDs.
+                requirement["citations"] = [{"source_id": item} for item in references]
             if {citation["source_id"] for citation in requirement["citations"]} != set(references):
                 raise PortalDataError("match_source_invalid", "每项来源须引用对应的具体原文。", 409)
             requirement["source_ids"] = references

@@ -737,6 +737,23 @@ def _validate_task_rewrites(draft: dict, original: dict) -> dict:
     return draft | {"items": chosen}
 
 
+def _content_source_ids(draft):
+    """Map template-content fact_refs (candidate::fact) back to their source IDs."""
+    content = draft.get("resume_content") or {}
+    used = {
+        reference
+        for experience in content.get("experiences", [])
+        for item in experience.get("items", [])
+        for reference in item.get("fact_refs", [])
+    }
+    return [
+        source["source_id"]
+        for source in draft.get("generation_sources", [])
+        if (context := source.get("record_context") or {}).get("fact_id")
+        and f"{context.get('candidate_id')}::{context['fact_id']}" in used
+    ]
+
+
 class ApplicationResumeStore:
     """Create distinct private drafts. Reviewed bytes use the worker's existing PDF binding."""
 
@@ -2986,9 +3003,12 @@ class ApplicationResumeStore:
                     "available_review_sources": draft["generation_sources"],
                     "used_source_ids": list(
                         dict.fromkeys(
-                            source["source_id"]
-                            for group in draft["review_groups"]
-                            for source in group["sources"]
+                            [
+                                source["source_id"]
+                                for group in draft["review_groups"]
+                                for source in group["sources"]
+                            ]
+                            + _content_source_ids(draft)
                         )
                     ),
                 }
