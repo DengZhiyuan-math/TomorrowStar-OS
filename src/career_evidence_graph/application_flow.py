@@ -382,6 +382,9 @@ def analysis_input_binding(inputs):
     return {key: value for key, value in inputs.items() if key not in material_keys}
 
 
+LIBRARY_INPUT_KEYS = ("sources_revision", "information_library_revision")
+
+
 def retained_configuration_inputs(task, inputs, *, completed_stages=None):
     """Keep completed results bound to the configuration that produced them."""
     resolved = deepcopy(inputs)
@@ -400,6 +403,13 @@ def retained_configuration_inputs(task, inputs, *, completed_stages=None):
             for key, value in task.get("stages", {}).items()
             if value.get("status") == "complete"
         }
+    if "analysis" in completed_stages:
+        # Library revisions are provenance once the analysis completed (APP-04,
+        # 2026-11-01): revising either library never invalidates a job; re-matching
+        # or regenerating is explicit. An analysis still to run reads current data.
+        for key in LIBRARY_INPUT_KEYS:
+            if key in task["inputs"]:
+                resolved[key] = task["inputs"][key]
     if (
         "resume" in completed_stages
         and "information_library_revision" not in task["inputs"]

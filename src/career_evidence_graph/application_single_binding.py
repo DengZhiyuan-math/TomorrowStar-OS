@@ -478,70 +478,6 @@ def _adopted_source_archive(flow_root, task, adopted, identifier):
         adopted, identifier, draft_sha256 = parent, parent_id, parent_sha
 
 
-def _check_profile_contacts(flow_root, career_root, task):
-    """Compare adopted and current identity through fixed paths, without a catalog scan."""
-    from .public_site import Profile
-    from .validation.hashing import record_digest as digest
-
-    current_path = next(
-        (
-            Path(career_root) / name
-            for name in ("sources/profile.json", "reports/public-site/site-content.json")
-            if (Path(career_root) / name).exists() or (Path(career_root) / name).is_symlink()
-        ),
-        None,
-    )
-    versions = [task["analysis_id"], task.get("draft_id") or task["resume_id"]]
-    if any(not re.fullmatch(r"[a-f0-9]{32}", value) for value in versions):
-        raise ValueError("invalid source version")
-    paths = (
-        Path(flow_root) / "analyses" / versions[0] / "binding-source-snapshot.json",
-        Path(flow_root) / "analyses" / versions[0] / "source-snapshot.json",
-        Path(flow_root) / "resumes" / versions[1] / "source-snapshot.json",
-    )
-    adopted = next(
-        (
-            row["result"]
-            for row in reversed(task.get("artifacts", []))
-            if row.get("stage") == "resume"
-            and row.get("adopted") is True
-            and row.get("result", {}).get("id") == versions[1]
-        ),
-        {},
-    )
-    # Analysis chooses the current contact baseline; local human versions may
-    # retain their independently checked source archive in a fixed parent.
-    archived = _adopted_source_archive(flow_root, task, adopted, versions[1])
-    archive, retained = archived if archived is not None else (paths[-1], None)
-    saved = next(
-        (path for path in (*paths[:2], archive) if path.exists() or path.is_symlink()), None
-    )
-    if saved is None:
-        if current_path is not None:
-            raise ValueError("historical profile contact binding unavailable")
-        return
-    snapshot = retained if saved == archive and retained is not None else _read(saved)
-    if snapshot.get("revision") != task["inputs"]["sources_revision"] or snapshot[
-        "revision"
-    ] != digest({key: value for key, value in snapshot.items() if key != "revision"}):
-        raise ValueError("historical profile source changed")
-    previous = snapshot.get("profile")
-    if current_path is None:
-        if previous is not None:
-            raise ValueError("profile contact source removed")
-        return
-    raw = _read(current_path)
-    raw_profile = raw if current_path.name == "profile.json" else raw.get("profile")
-    if not isinstance(raw_profile, dict):
-        raise ValueError("profile contact source unavailable")
-    contact_fields = ("name", "title", "location", "links")
-    current = Profile.model_validate(
-        {key: raw_profile[key] for key in contact_fields if key in raw_profile}, strict=True
-    ).model_dump()
-    if previous is None or any(current.get(key) != previous.get(key) for key in contact_fields):
-        raise ValueError("profile contact facts changed")
-
-
 def verify_material_lineage(
     applications,
     flow_root: Path,
@@ -560,7 +496,6 @@ def verify_material_lineage(
         local_materials,
     )
     from .application_match import POLICY_VERSION
-    from .application_resume import career_source_snapshot
     from .validation.hashing import record_digest as digest
 
     try:
@@ -570,13 +505,13 @@ def verify_material_lineage(
         # Delivered material is bound to its saved inputs and adopted artifacts.
         # P03's read snapshot is distinct from the complete input directory.
         delivered = local_materials(task)
-        snapshot = None if delivered else career_source_snapshot(CareerCatalog(Path(career_root)))
         expected = (
             task["inputs"]
             if delivered
             else {
                 "jd_revision": job_input_revision(app),
-                "sources_revision": snapshot["revision"],
+                # Library revisions are provenance, not freshness (APP-04, 2026-11-01).
+                "sources_revision": task["inputs"]["sources_revision"],
                 # Completed adopted bytes retain the exact configurations recorded at adoption.
                 **{
                     key: task["inputs"][key]
@@ -587,17 +522,15 @@ def verify_material_lineage(
                     )
                 },
                 **_material_information_inputs(app, task, information_library_root),
+                **{
+                    key: task["inputs"][key]
+                    for key in ("information_library_revision",)
+                    if key in task["inputs"]
+                },
             }
         )
         if task["inputs"] != expected:
             raise ValueError("inputs changed")
-        if delivered:
-            # A concrete contact correction pauses another transmission, while
-            # the already exported PDF remains a readable historical version.
-            _check_profile_contacts(flow_root, career_root, task)
-            contacts = _material_information_inputs(app, task, information_library_root)
-            if any(task["inputs"].get(key) != value for key, value in contacts.items()):
-                raise ValueError("material contact facts changed")
         analysis_id, resume_id = task["analysis_id"], task["resume_id"]
         if any(not re.fullmatch(r"[a-f0-9]{32}", value) for value in (analysis_id, resume_id)):
             raise ValueError("invalid version")
@@ -1009,11 +942,8 @@ def check_single_binding(
                 pdf_sha256=job["file_sha256"],
                 information_library_root=information_root,
             )
-        else:
-            _check_profile_contacts(flow_root, career_root, task)
-            current_contacts = _material_information_inputs(app, task, information_root)
-            if any(task["inputs"].get(key) != value for key, value in current_contacts.items()):
-                raise ValueError("material contact facts changed")
+        # A contact correction no longer pauses sending the adopted PDF (APP-04,
+        # 2026-11-01); the user regenerates materials explicitly when wanted.
         return check_single_qualification(task, app, information_root, job["country"])
     except PortalDataError:
         raise
