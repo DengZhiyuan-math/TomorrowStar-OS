@@ -2727,11 +2727,8 @@ class ApplicationPipeline:
                 self._save(state)
                 return
             raise
-        state.update(
-            status="filling",
-            worker_runtime_id=(self.worker.snapshot().get("runtime") or {}).get("id"),
-            last_heartbeat=0,
-        )
+        # The new run registers after this call; its first observation records its ID.
+        state.update(status="filling", worker_runtime_id=None, last_heartbeat=0)
         self._save(state)
 
     def _observe_submission(self, state):
