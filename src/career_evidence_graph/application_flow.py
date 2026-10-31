@@ -4932,6 +4932,32 @@ class ApplicationFlowService:
             self._save(state)
             return self._worker_view(task, reference)
 
+    def rebind_job_url(self, task_id, task_revision, authorization):
+        """Follow the cycle authorization to a link the user corrected; keep the old one."""
+        with self.applications.write_lock():
+            state, task = self._checked(task_id, task_revision)
+            approval = task.get("send_approval") or {}
+            previous = approval.get("authorization") or {}
+            if (
+                approval.get("verified_by") != "workflow_policy"
+                or not task.get("worker_ref")
+                or {k: v for k, v in previous.items() if k != "job_url"}
+                != {k: v for k, v in authorization.items() if k != "job_url"}
+                or authorization.get("job_url")
+                != self.applications.get_application(task["application_id"])["url"]
+            ):
+                raise PortalDataError(
+                    "flow_automation_authorization_invalid", "自动流程授权与本岗材料不符。", 409
+                )
+            task.setdefault("send_approval_history", []).append(deepcopy(approval))
+            approval.update(
+                job_url=authorization["job_url"],
+                authorization=deepcopy(authorization),
+                source_corrected_at=time.time(),
+            )
+            self._save(state)
+            return deepcopy(task)
+
     def bind_worker(self, task_id, task_revision, worker):
         """Internal adapter call after the existing worker prepares exact materials."""
         if self.preparation_only:

@@ -640,3 +640,32 @@ def test_reopen_clears_an_unknown_page_open(single_worker):
     job = service.store.load()["jobs"][0]
     assert job["status"] == "queued" and job["intent"] is None
     assert job["observations"][-1]["previous_open_intent"] == intent
+
+
+def test_reopen_follows_a_link_the_user_corrected(single_worker):
+    service, item, _checks, _launches = single_worker
+    retained_page(service, item)
+    state = service.store.load()
+    state["runtime"]["observed_at"] -= 60
+    state["jobs"][0].update(status="needs_recheck", reason="page_lost", page_open=False)
+    service.store.save(state)
+    applications = service.store.applications
+    application = applications.get_application(item["application_id"])
+    old_url = state["jobs"][0]["job_url"]
+    corrected = applications.update_application(
+        item["application_id"],
+        {"url": old_url[:-1] + "2"},
+        application["revision"],
+    )
+    service.request(
+        "reopen-current",
+        {
+            "application_id": item["application_id"],
+            "controller": "synthetic-controller",
+            "request_id": "reopen-link",
+        },
+    )
+    job = service.store.load()["jobs"][0]
+    assert job["job_url"] != old_url
+    assert job["revision"] == corrected["revision"]
+    assert job["observations"][-1]["previous"]["job_url"] == old_url

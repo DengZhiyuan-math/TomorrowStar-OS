@@ -6520,6 +6520,23 @@ class WorkerService:
                 if job.get("form_state"):
                     job.setdefault("form_history", []).append(job.pop("form_state"))
                 job.update(status="queued", reason="", page_open=False, intent=None)
+                application = self.store.applications.get_application(job["application_id"])
+                platform, url = _job_identity(
+                    application["url"], allow_generic=state.get("generic_enabled") is True
+                )
+                if url != job["job_url"]:
+                    # The user corrected the link; the new run's binding checks compare
+                    # it with the moved send authorization and the unchanged JD.
+                    job["observations"].append(
+                        {
+                            "action": "job_url_corrected",
+                            "previous": {key: job[key] for key in ("job_url", "revision")},
+                            "at": time.time(),
+                        }
+                    )
+                    job.update(job_url=url, platform=platform, revision=application["revision"])
+                    if "job_url" in (job.get("single_binding") or {}):
+                        job["single_binding"]["job_url"] = url
                 state.update(control="running", controller=controller, worker_error="")
                 state["page_reopen"] = {
                     "request_id": request_id,

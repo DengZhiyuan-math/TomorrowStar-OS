@@ -1587,7 +1587,9 @@ class ApplicationPipeline:
                     except PortalDataError as error:
                         if error.code != "page_lost":
                             raise
-                        # APP-13: the original page is gone; a new run opens a new one.
+                        # APP-13: the original page is gone; a new run opens a new one,
+                        # at the job's corrected link when the user changed it.
+                        task = self._rebind_job_url(state, task)
                         self.flow.worker_action(
                             task["id"], task["revision"], "reopen-current", request
                         )
@@ -2026,6 +2028,22 @@ class ApplicationPipeline:
 
     def _task(self, state):
         return self.flow.task_snapshot(state["active_task_id"])
+
+    def _rebind_job_url(self, state, task):
+        """Move this cycle's send authorization to the link the user corrected.
+
+        Only the destination changes; the old receipt stays history. JD, analysis
+        and materials stay bound, and the new run's checks still compare them.
+        """
+        url = self.flow.applications.get_application(task["application_id"])["url"]
+        receipt = state["transmission_authorization"]
+        if not url or url == receipt["job_url"]:
+            return task
+        state.setdefault("transmission_authorization_history", []).append(deepcopy(receipt))
+        receipt["job_url"] = url
+        self._save(state)
+        self.flow.rebind_job_url(task["id"], task["revision"], deepcopy(receipt))
+        return self._task(state)
 
     def _pause_owned_worker(self, state):
         if not state.get("active_task_id") or not state.get("worker_batch_id"):
