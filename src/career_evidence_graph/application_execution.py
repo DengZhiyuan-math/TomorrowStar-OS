@@ -125,7 +125,11 @@ def reject_mixed_execution_root(root: Path, other_marker: str) -> None:
     if any(
         (ancestor / other_marker).exists() or (ancestor / other_marker).is_symlink()
         for ancestor in (root, *root.parents)
-    ) or any(root.rglob(other_marker)):
+    ) or any(
+        # A native takeover's own rendezvous record shares the name (2026-10-31).
+        "native-handoffs" not in path.relative_to(root).parts
+        for path in root.rglob(other_marker)
+    ):
         raise ValueError("Keep Codex handoff and automated worker stores separate.")
 
 

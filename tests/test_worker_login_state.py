@@ -61,3 +61,18 @@ def test_worker_adopts_a_login_saved_by_the_sign_in_window(tmp_path):
     sync_login_state(tmp_path, context, seen - 1)
     names = {c["name"] for c in load_login_state(tmp_path)["cookies"]}
     assert names == {"guest", "session"}
+
+
+def test_a_native_rendezvous_record_does_not_look_like_a_handoff_store(tmp_path):
+    import pytest
+
+    from career_evidence_graph.application_execution import reject_mixed_execution_root
+
+    rendezvous = tmp_path / "codex-assist" / "native-handoffs" / "handoff-x"
+    rendezvous.mkdir(parents=True)
+    (rendezvous / "handoff.json").write_text("{}")
+    reject_mixed_execution_root(tmp_path, "handoff.json")
+    (tmp_path / "lane").mkdir()
+    (tmp_path / "lane" / "handoff.json").write_text("{}")
+    with pytest.raises(ValueError):
+        reject_mixed_execution_root(tmp_path, "handoff.json")
