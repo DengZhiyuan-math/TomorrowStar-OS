@@ -32,7 +32,7 @@ def server(tmp_path, scenario="normal"):
         + "if sys.argv[1:]==['--version']:\n"
         + "    if SCENARIO=='wrong_version': print('codex-cli 0.1');sys.exit(0)\n"
         + "    if SCENARIO=='vanish': Path(__file__).unlink()\n"
-        + "    print('codex-cli 0.165.0-alpha.1.2');sys.exit(0)\n"
+        + "    print('codex-cli 0.166.0-alpha.5.1');sys.exit(0)\n"
         + "for line in sys.stdin:\n"
         + "    msg=json.loads(line);record(msg)\n"
         + "    if msg.get('method')=='initialize':\n"

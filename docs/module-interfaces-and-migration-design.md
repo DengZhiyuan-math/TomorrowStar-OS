@@ -1070,6 +1070,7 @@ Codex 根据截图决定操作，受限工具在持有原页的 Worker 中执行
 | 本机 CLI | 查得 `codex-cli 0.164.0-alpha.11.1`；`app-server --help` 有 stdio；帮助输出有 PATH alias 写入受限警告，不影响本次握手，但不是 GUI 完整启动证明 |
 | 当前版本协议 | `generate-json-schema --experimental` 成功，含 `thread/start.dynamicTools`、`item/tool/call`、图像工具结果、`turn/start.outputSchema` 和 `turn/interrupt` |
 | 2026-10-28 版本更新（MC-10） | 本机 CLI 自动更新为 `codex-cli 0.165.0-alpha.1.2`；空 HOME 下 `generate-json-schema --experimental` 离线核对 Adapter 所用方法、参数、响应、通知与条目类型均兼容，产品固定版本改为该版本；有效 MCP 表序列化与 `--disable` 名称仅能实际 C0 核验，Adapter 对其失败即关闭。见 [核对表](../.scratch/remaining-tickets-2026-10-26/mc10-live-model/protocol-0.165-check.md) |
+| 2026-10-31 版本更新 | 本机 CLI 自动更新为 `codex-cli 0.166.0-alpha.5.1`；空 HOME 下 `app-server generate-json-schema --experimental` 离线核对 Adapter 所用方法（`initialize`、`config/read`、`thread/start`、`mcpServerStatus/list`、`turn/start`、`turn/interrupt`）、通知（`turn/started`、`turn/completed`、`item/completed`）、必需字段与枚举均仍存在且兼容，产品固定版本改为该版本；有效 MCP 表等仅能实际运行核验的项目仍由 Adapter 失败即关闭 |
 | 隔离握手 | 临时 HOME/CODEX_HOME，不载入用户配置、插件或凭据；禁用通用执行/浏览器工具，仅发送 `initialize`、`initialized`，收到有效结果，stdin EOF 后进程以 0 退出 |
 | 功能开关 | 本机 feature 清单中 `computer_use`、`browser_use` 为开启；这只说明配置，不证明工具宿主、权限、原页附着或外部控制可用 |
 | 现有执行能力 | `codex_cli.py:run_codex_exec` 是结构化模型调用；`CuaDriver.fill` 是有限控件执行；`inspect-handoff` 是只读观察，均不是新区段接管闭环 |

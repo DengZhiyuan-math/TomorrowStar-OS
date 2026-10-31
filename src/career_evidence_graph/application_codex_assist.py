@@ -36,7 +36,7 @@ from .cua_driver import (
 from .validation.hashing import record_digest as digest
 from .worker_process_identity import process_identity, valid_process_identity
 
-PROTOCOL_VERSION = "0.165.0-alpha.1.2"
+PROTOCOL_VERSION = "0.166.0-alpha.5.1"
 _DISABLED_FEATURES = (
     "apps",
     "plugins",

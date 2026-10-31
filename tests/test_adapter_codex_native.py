@@ -96,7 +96,7 @@ def await_native_grant(native):
     while not ready.with_suffix('.granted').exists() and time.monotonic()<until:
         time.sleep(.005)
 if sys.argv[1:]==['--version']:
-    print('codex-cli 0.165.0-alpha.1.2');sys.exit(0)
+    print('codex-cli 0.166.0-alpha.5.1');sys.exit(0)
 record({'argv':sys.argv[1:]})
 config={}
 for n,part in enumerate(sys.argv[:-1]):
@@ -1257,7 +1257,7 @@ def test_false_native_yield_never_grants_or_starts_a_model_turn(tmp_path, monkey
 
 
 def agent_message(text, *, thread="thread-native", turn="native-turn", kind="agentMessage"):
-    # Shape checked against `codex app-server generate-json-schema` (0.165.0-alpha.1.2):
+    # Shape checked against `codex app-server generate-json-schema` (0.166.0-alpha.5.1):
     # ItemCompletedNotification {threadId, turnId, completedAtMs, item: AgentMessageThreadItem}.
     return {
         "method": "item/completed",

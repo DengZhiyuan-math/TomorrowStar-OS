@@ -17,7 +17,7 @@ from pathlib import Path
 
 def main():
     if sys.argv[1:] == ["--version"]:
-        print("codex-cli 0.165.0-alpha.1.2")
+        print("codex-cli 0.166.0-alpha.5.1")
         return
 
     root = Path.cwd()
