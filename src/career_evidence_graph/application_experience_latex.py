@@ -247,6 +247,10 @@ def prepare_generation(store, identifier, revision, **request):
             _, saved = _load(store, saved["id"])
             if saved.get("adopted_draft"):
                 return store.draft(saved["adopted_draft"]["id"])
+            if any(path.parent.glob("automatic-authors/*/failure.json")):
+                # An author call failed here; a retry builds a fresh generation from
+                # current inputs instead of replaying this plan (installed MC-11).
+                continue
             return _public(saved)
     if fixed_delivery:
         configuration = store.configuration()

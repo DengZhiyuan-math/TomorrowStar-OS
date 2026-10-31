@@ -5605,7 +5605,7 @@ class ApplicationFlowService:
             "job_binding": task["job_binding"],
             "fixed_inputs_revision": binding,
         }
-        if retry and previous.get("status") in {"failed", "needs_recheck"}:
+        if retry and previous.get("status") == "failed":
             task["cover_letter"]["retry_from_attempt_id"] = previous["attempt_id"]
         _record_preparation_attempt(
             task, "cover_letter", attempt, previous.get("attempt_id"), _continuation_request_id
