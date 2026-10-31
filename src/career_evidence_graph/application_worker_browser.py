@@ -4768,11 +4768,17 @@ class ApplicationRunner:
                 timeout=20000 if self.live else 8000,
             )
             if self.live:
-                page.locator(
-                    "input[type=email],form,[role=form]"
-                    if job["platform"] == "generic"
-                    else "form#application-form,form#application_form"
-                ).first.wait_for(timeout=10000)
+                try:
+                    page.locator(
+                        "input[type=email],form,[role=form]"
+                        if job["platform"] == "generic"
+                        else "form#application-form,form#application_form"
+                    ).first.wait_for(timeout=10000)
+                except TimeoutError:
+                    # A listing page or an unsupported platform shows no form. The
+                    # page stays open; its read leads to a sign-in wait or takeover.
+                    if job["platform"] != "generic":
+                        raise
             self.update(
                 job,
                 batch_id,
