@@ -6491,7 +6491,13 @@ class WorkerService:
                     or job.get("manual_submission")
                     or manual_submission_unresolved(job)
                     or material_edit_pending(job)
+                    # Reopen runs only after the old run exited; its native driver went
+                    # with it, so a stopped Codex with revoked tools cannot still write.
                     or assistance_stop_pending(job)
+                    and not (
+                        (assistance.get("stop") or {}).get("process_stopped") is True
+                        and (assistance.get("stop") or {}).get("tools_revoked") is True
+                    )
                     or self._page_current(state, job)
                     or self.process is not None
                     and self.process.poll() is None
