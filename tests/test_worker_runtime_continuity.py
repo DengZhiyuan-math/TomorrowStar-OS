@@ -148,3 +148,58 @@ def test_installed_layout_worker_starts_without_cli_package_proofs(
     assert result["worker_error"] == "worker_stopped"
     assert result["control"] == "paused"
     assert "current_build" not in result["runtime"]
+
+
+@pytest.mark.parametrize("driver_dead", [False, True])
+def test_sigterm_leaves_a_sync_call_spinning_on_a_dead_driver(
+    service, monkeypatch, tmp_path, driver_dead
+):
+    """A dead Playwright driver never returns from a sync call; SIGTERM must still stop."""
+    from career_evidence_graph import application_worker_browser as browser
+
+    runtime_root = tmp_path / "runtime"
+    fiber = SimpleNamespace(dead=False)
+    context = SimpleNamespace(
+        pages=[], set_default_timeout=lambda _value: None, _dispatcher_fiber=fiber
+    )
+
+    @contextmanager
+    def playwright():
+        yield SimpleNamespace()
+
+    @contextmanager
+    def session(_playwright, _runtime, **_kwargs):
+        yield context, SimpleNamespace()
+
+    class Runner:
+        def __init__(self, store, received_context, origin, *, cua):
+            self.context = received_context
+
+        def tick(self):
+            pass
+
+        def event(self, kind):
+            pass
+
+        def pump(self):
+            # The driver exits while this call waits; the call itself never returns.
+            fiber.dead = driver_dead
+            signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+
+    monkeypatch.setattr(browser, "sync_playwright", playwright)
+    monkeypatch.setattr(browser, "managed_cua_browser", session)
+    monkeypatch.setattr(browser, "ApplicationRunner", Runner)
+    monkeypatch.setattr(browser, "sync_login_state", lambda _root, _context, seen: seen)
+    arguments = [
+        "--applications",
+        str(service.store.applications.root),
+        "--runtime",
+        str(runtime_root),
+        "--live",
+        "--cua",
+    ]
+
+    assert browser.main(arguments) == (2 if driver_dead else None)
+    result = browser.WorkerStore(service.store.applications, runtime_root, live=True).load()
+    assert result["control"] == "paused"
+    assert result["worker_error"] == ("KeyboardInterrupt" if driver_dead else "worker_stopped")

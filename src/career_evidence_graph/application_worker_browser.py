@@ -5747,6 +5747,11 @@ def main(argv: list[str] | None = None, *, expected_sources: dict | None = None)
             stop_requested = True
             if runner is not None:
                 runner.event("worker_stopped")
+                # A dead Playwright driver leaves the current sync call spinning on
+                # its finished dispatcher; only an exception can leave that call.
+                fiber = getattr(getattr(runner, "context", None), "_dispatcher_fiber", None)
+                if getattr(fiber, "dead", False):
+                    raise KeyboardInterrupt("playwright_dispatcher_dead")
 
         signal.signal(signal.SIGTERM, stop_cua)
     try:
