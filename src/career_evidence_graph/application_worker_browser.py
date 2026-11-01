@@ -376,6 +376,8 @@ class ApplicationRunner:
         self._assistance_run = None
         self._assistance_baseline = None
         self._servicing_assistance_stop = False
+        # (run_id, next attempt, delay): an unconfirmed stop is retried, not every tick.
+        self._assistance_stop_retry = (None, 0.0, 0.0)
         self._dispatched: set[tuple[str, str]] = set()
         self.pages: dict[str, Page] = {}
         self.guards: dict[str, object] = {}
@@ -3247,6 +3249,9 @@ class ApplicationRunner:
                     self.persist(state)
             return
         reference, run_id = self._assistance_run
+        retry_run, retry_at, delay = self._assistance_stop_retry
+        if retry_run == run_id and time.monotonic() < retry_at:
+            return
         self._servicing_assistance_stop = True
         request_id = "stop-" + run_id
         try:
@@ -3325,6 +3330,11 @@ class ApplicationRunner:
                         self.persist(state)
                     request_id = assistance["stop"]["request_id"]
             stopped = self.codex_assist.stop(run_id, request_id=request_id)
+            if stopped.stop_status == "stopped":
+                self._assistance_stop_retry = (None, 0.0, 0.0)
+            else:
+                delay = min(max(delay * 2, 1.0), 30.0) if retry_run == run_id else 1.0
+                self._assistance_stop_retry = (run_id, time.monotonic() + delay, delay)
             if matched:
                 with self.store.applications.write_lock():
                     state = self.store.load()

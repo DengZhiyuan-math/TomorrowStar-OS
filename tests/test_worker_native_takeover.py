@@ -987,3 +987,39 @@ def test_reopen_retires_a_stopped_native_takeover_that_carried_calls(native_page
     assert job["status"] == "queued" and job["native_handoff_runs"] == []
     assert "assistance" not in job and job["assistance_history"][-1]["status"] == "stopped"
     assert job["observations"][-1]["retired_native_handoff_runs"] == runs
+
+
+def test_unconfirmed_stop_is_retried_with_backoff_not_every_tick(native_page, monkeypatch):
+    from career_evidence_graph import application_worker_browser as browser
+    from career_evidence_graph.application_codex_assist import AssistRunProgress
+
+    _, runner, _, ref, _, _ = native_page
+    stops, clock = [], [1000.0]
+    monkeypatch.setattr(browser.time, "monotonic", lambda: clock[0])
+
+    class Adapter:
+        def progress(self, run_id):
+            return AssistRunProgress(
+                run_id=run_id, status="unknown", error_code="stop_unknown", tools_revoked=True
+            )
+
+        def stop(self, run_id, *, request_id):
+            stops.append(clock[0])
+            return AssistRunProgress(
+                run_id=run_id,
+                status="unknown",
+                error_code="stop_unknown",
+                tools_revoked=True,
+                process_stopped=True,
+                native_turn_status="idle",
+                stop_status="unknown",
+            )
+
+    runner.codex_assist = Adapter()
+    runner._assistance_run = ref, "adapter-native-run"
+    for step in [0, 0.5, 0.6, 1.0, 1.5, 4.0]:
+        clock[0] += step
+        runner._service_assistance_stop()
+    # Retried after 1 s, 2 s, then 4 s: still retried, but not on each tick.
+    assert stops == pytest.approx([1000.0, 1001.1, 1003.6, 1007.6])
+    assert runner._assistance_run is not None
