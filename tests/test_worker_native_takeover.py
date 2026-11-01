@@ -99,6 +99,47 @@ def test_native_start_delivers_json_and_persists_before_grant(native_page):
 
 
 @pytest.mark.parametrize(
+    ("failure", "starts"),
+    [
+        (PortalDataError("page_observation_changed", "synthetic", 409), True),
+        (None, True),
+        (PortalDataError("page_observation_failed", "synthetic", 409), False),
+    ],
+)
+def test_native_start_rereads_a_page_still_settling(native_page, monkeypatch, failure, starts):
+    from playwright.sync_api import Error
+
+    service, runner, page, ref, _, _ = native_page
+    failure = failure or Error("owned_browser_read_timeout")
+    real, attempts, started = runner.observe_assistance_context, [], []
+
+    def observe(reference, **kwargs):
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise failure
+        return real(reference, **kwargs)
+
+    class Adapter:
+        def start_takeover(self, original, **kwargs):
+            started.append(original)
+            return SimpleNamespace(run_id="adapter-native-run")
+
+        def progress(self, run_id):
+            return SimpleNamespace(status="ready", tools_revoked=False)
+
+    monkeypatch.setattr(runner, "observe_assistance_context", observe)
+    runner.codex_assist = Adapter()
+    if starts:
+        runner.start_native_assistance(ref, request_id="native-settling")
+        assert len(attempts) == 2 and started == [ref]
+    else:
+        with pytest.raises(PortalDataError) as refused:
+            runner.start_native_assistance(ref, request_id="native-settling")
+        assert refused.value.code == "page_observation_failed"
+        assert len(attempts) == 1 and started == []
+
+
+@pytest.mark.parametrize(
     "change", ["reload", "page_replaced", "expired_owner", "pause", "checkpoint_failure"]
 )
 def test_native_yield_rechecks_original_document_and_durable_intent(

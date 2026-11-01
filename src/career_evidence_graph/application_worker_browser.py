@@ -2992,7 +2992,20 @@ class ApplicationRunner:
             raise PortalDataError("native_assistance_unavailable", "原生驱动身份已改变。", 409)
         page, check = self._assistance_page_checker(reference)
         check()
-        context = self.observe_assistance_context(reference)
+        # A hidden page can still be settling, or answer slowly, as the takeover
+        # starts (2026-11-01); this read-only observation is repeated before it fails.
+        for attempt in range(3):
+            try:
+                context = self.observe_assistance_context(reference)
+                break
+            except (PortalDataError, Error) as error:
+                if attempt == 2 or (
+                    getattr(error, "code", None) != "page_observation_changed"
+                    and getattr(error, "message", None) != "owned_browser_read_timeout"
+                ):
+                    raise
+                self.pump()
+                check()
         native_scope = self.cua.native_page_scope(page, pump=self.pump)
         native_scope["application_ref_digest"] = digest(reference)
         validate_native_assistance_scope(native_scope, reference)
