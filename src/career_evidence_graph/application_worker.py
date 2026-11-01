@@ -6505,12 +6505,14 @@ class WorkerService:
                     stop.get("process_stopped") is True and stop.get("tools_revoked") is True
                 )
                 # A native handoff that never carried a call could not touch the page.
+                # One that did may retire only with its stopped takeover, once tools
+                # are revoked and the page is lost; its calls stay in the reopen record.
                 native_runs = job.get("native_handoff_runs", [])
                 native_calls = any(
                     (event.get("receipt") or {}).get("calls")
                     for run in native_runs
                     for event in run.get("events", [])
-                )
+                ) and not (retired and stop.get("tools_revoked") is True)
                 if (
                     state.get("current_job_id") != job["application_id"]
                     or job["status"] not in {"needs_recheck", "queued"}

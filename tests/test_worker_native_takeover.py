@@ -912,3 +912,78 @@ def test_native_start_names_only_the_dispatched_pending_intent(native_page, monk
     assert [row["action_id"] for row in pending] == ["script-country-attempt"]
     assert pending[0]["source_ref"] == {"record": "intent"}
     assert adapter.kwargs["pending_action_id"] == ("script-country-attempt" if carried else None)
+
+
+@pytest.mark.parametrize("case", ["retired", "running", "page_current"])
+def test_reopen_retires_a_stopped_native_takeover_that_carried_calls(native_page, case):
+    service, runner, page, ref, _, scope = native_page
+    document = scope["document"]
+    call = {
+        "call_id": "native-read",
+        "tool": "get_browser_state",
+        "arguments_digest": "a" * 64,
+        "status": "observed",
+        "generation": 1,
+        "sequence": 1,
+        "mutation": False,
+        "semantic_verified": False,
+        "scope": {
+            "target_id": "native-target",
+            "tab_id": "native-tab",
+            "expected_document": {key: document[key] for key in ("frame_id", "loader_id", "url")},
+        },
+    }
+
+    class Adapter:
+        def start_takeover(self, original, **kwargs):
+            kwargs["before_yield"](
+                {
+                    "application_ref_digest": digest(ref),
+                    "scope": kwargs["native_scope"],
+                    "request_id": kwargs["request_id"],
+                }
+            )
+            kwargs["after_yield"](
+                {
+                    "handoff_id": "native-run",
+                    "generation": 1,
+                    "revoked": True,
+                    "return_ready": True,
+                    "local_tools_drained": True,
+                    "active_calls": 0,
+                    "calls": [call],
+                }
+            )
+            return SimpleNamespace(run_id="adapter-native-run")
+
+        def progress(self, run_id):
+            return SimpleNamespace(status="ready", tools_revoked=False)
+
+    runner.codex_assist = Adapter()
+    runner.start_native_assistance(ref, request_id="native-reopen")
+    if case != "running":
+        stop_native_run(native_page)
+    state = service.store.load()
+    if case != "page_current":
+        state["runtime"]["observed_at"] -= 60
+    state["jobs"][0].update(status="needs_recheck", reason="browser_disconnected", page_open=False)
+    service.store.save(state)
+    runs = state["jobs"][0]["native_handoff_runs"]
+    assert any((event["receipt"] or {}).get("calls") for run in runs for event in run["events"])
+    payload = {
+        "application_id": ref["binding"]["application_id"],
+        "controller": "synthetic-controller",
+        "request_id": "reopen-native",
+    }
+    if case != "retired":
+        # A running takeover or a page still current keeps the original rule.
+        with pytest.raises(PortalDataError) as refused:
+            service.request("reopen-current", payload)
+        assert refused.value.code == "page_lost"
+        assert service.store.load()["jobs"][0]["native_handoff_runs"] == runs
+        return
+    service.request("reopen-current", payload)
+    job = service.store.load()["jobs"][0]
+    assert job["status"] == "queued" and job["native_handoff_runs"] == []
+    assert "assistance" not in job and job["assistance_history"][-1]["status"] == "stopped"
+    assert job["observations"][-1]["retired_native_handoff_runs"] == runs
