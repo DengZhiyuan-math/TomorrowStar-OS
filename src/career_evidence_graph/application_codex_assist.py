@@ -1146,16 +1146,21 @@ class CodexAdapter:
             resolution, manifest = None, None
             try:
                 # A queued native terminal revokes admission before another dispatch.
-                for _ in range(64):
-                    if not self._consume(run):
+                # Ordinary events that arrive meanwhile are consumed and the checks
+                # repeat at once; only a persisting backlog waits for the next poll.
+                for _attempt in range(4):
+                    for _ in range(64):
+                        if not self._consume(run):
+                            break
+                    if not run.events.empty():
+                        continue
+                    if run.tools_revoked:
+                        raise _ProtocolFailure("native_scope_revoked")
+                    self._native_owner_pump(run)
+                    if run.events.empty():
                         break
-                if not run.events.empty():
+                else:
                     return  # Defer without recording admission until the backlog is observed.
-                if run.tools_revoked:
-                    raise _ProtocolFailure("native_scope_revoked")
-                self._native_owner_pump(run)
-                if not run.events.empty():
-                    return
                 # Validate and persist after the last owner pump. No later pump
                 # may apply a fact correction between this callback and admission.
                 decision = native["before_native_call"](json.loads(json.dumps(call)))
@@ -1171,8 +1176,13 @@ class CodexAdapter:
                     allow = True
                 else:
                     allow = decision is True
-                if not run.events.empty():
-                    return  # A terminal may have arrived while the intent was persisted.
+                # A terminal may have arrived while the intent was persisted; ordinary
+                # events are only observed, never a fact correction.
+                for _ in range(64):
+                    if not self._consume(run):
+                        break
+                if not run.events.empty() or run.tools_revoked:
+                    return
                 allow = allow and not run.tools_revoked
             except (OSError, StoreError) as error:
                 self._native_persistence_failure(run, value, error)

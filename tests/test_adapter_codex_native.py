@@ -1197,14 +1197,53 @@ def test_deferred_native_admission_can_continue_once_backlog_is_drained(tmp_path
                 "field_hint": {"role": "button", "name": "Expand details"},
             }
         ]
-        adapter.progress(run.run_id)
-        assert ("admit", "deferred-call", "allow") not in events
-        for _ in range(5):
+        # An ordinary backlog is drained within the poll instead of costing one.
+        current = adapter.progress(run.run_id)
+        assert ("admit", "deferred-call", "allow") in events
+        for _ in range(3):
             current = adapter.progress(run.run_id)
-            if ("admit", "deferred-call", "allow") in events:
-                break
         assert current.status == "ready" and not current.tools_revoked
         assert events.count(("admit", "deferred-call", "allow")) == 1
+    finally:
+        adapter.close()
+
+
+def test_ordinary_event_during_durable_callback_still_admits_in_the_same_poll(
+    tmp_path, monkeypatch
+):
+    """Codex streams progress while a write waits; that event is not a terminal."""
+    config, ref, scope, packet, driver, native, events = native_case(tmp_path, monkeypatch)
+
+    def persist_intent(call):
+        events.append("persisted-intent")
+        adapter._runs[run.run_id].events.put_nowait(
+            {"method": "item/started", "params": {"threadId": "thread-native"}}
+        )
+        return True
+
+    adapter, run = start_case(
+        config, ref, scope, packet, driver, native, before_native_call=persist_intent
+    )
+    try:
+        native.calls = [
+            {
+                "call_id": "ordinary-race",
+                "tool": "browser_click",
+                "arguments_digest": "a" * 64,
+                "status": "awaiting_host",
+                "generation": 1,
+                "sequence": 1,
+                "mutation": True,
+                "semantic_verified": False,
+                "scope": scope,
+                "native_ref": "control-1",
+                "field_hint": {"role": "button", "name": "Expand details"},
+            }
+        ]
+        current = adapter.progress(run.run_id)
+        assert events.count("persisted-intent") == 1
+        assert events.count(("admit", "ordinary-race", "allow")) == 1
+        assert current.status == "ready" and not current.tools_revoked
     finally:
         adapter.close()
 
