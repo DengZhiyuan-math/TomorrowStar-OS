@@ -836,6 +836,25 @@ def test_repeated_native_metadata_poll_does_not_repeat_journal_writes(tmp_path, 
         adapter.close()
 
 
+def test_routine_native_status_poll_has_the_driver_action_bound(tmp_path, monkeypatch):
+    """A slow status answer while a write awaits admission is not a lost scope."""
+    config, ref, scope, packet, driver, native, events = native_case(tmp_path, monkeypatch)
+    native.timeout = 15
+    status, timeouts = native.handoff_status, []
+
+    def handoff_status(**kwargs):
+        timeouts.append(kwargs.get("timeout"))
+        return status(**kwargs)
+
+    native.handoff_status = handoff_status
+    adapter, run = start_case(config, ref, scope, packet, driver, native)
+    try:
+        adapter.progress(run.run_id)
+        assert timeouts and set(timeouts) == {15}
+    finally:
+        adapter.close()
+
+
 def test_source_changes_before_dispatch_deny_native_admission(tmp_path, monkeypatch):
     config, ref, scope, packet, driver, native, events = native_case(tmp_path, monkeypatch)
     source_valid = [True]

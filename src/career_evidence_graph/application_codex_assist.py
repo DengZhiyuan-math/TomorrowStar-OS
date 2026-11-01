@@ -1214,12 +1214,10 @@ class CodexAdapter:
         try:
             value = native["client"].handoff_status(
                 pump=lambda: self._native_owner_pump(run),
-                # A routine poll while Codex holds control; the driver can take over a
-                # second while Codex connects (2026-10-31). Stops keep their own bound.
-                timeout=min(
-                    max(self.config.stop_timeout, NATIVE_STATUS_TIMEOUT),
-                    getattr(native["client"], "timeout", NATIVE_STATUS_TIMEOUT),
-                )
+                # A routine poll while Codex holds control has the driver's own action
+                # bound: it took over 1 s while Codex connected (2026-10-31) and over
+                # 5 s with a write awaiting admission (2026-11-01). Stops keep their own.
+                timeout=getattr(native["client"], "timeout", NATIVE_STATUS_TIMEOUT)
                 if timeout is None
                 else timeout,
             )
