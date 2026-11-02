@@ -275,7 +275,7 @@ def test_native_takeover_hands_json_to_verified_native_tool_catalog(tmp_path, mo
                 "enabled": True,
                 "required": True,
                 "startup_timeout_sec": 30,
-                "tool_timeout_sec": 15,
+                "tool_timeout_sec": 60,
                 "enabled_tools": [
                     "get_browser_state",
                     "browser_click",

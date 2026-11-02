@@ -829,7 +829,9 @@ class CodexAdapter:
             "enabled": True,
             "required": True,
             "startup_timeout_sec": 30,
-            "tool_timeout_sec": 15,
+            # A write waits in this call for the Worker's admission, which took
+            # 11-14 s per write (2026-11-02); at 15 s Codex cancelled one in flight.
+            "tool_timeout_sec": 60,
             "enabled_tools": list(NATIVE_HANDOFF_TOOLS),
             # approvalPolicy "never" otherwise refuses every non-read-only tool call.
             "tools": {name: {"approval_mode": "approve"} for name in NATIVE_HANDOFF_TOOLS},
