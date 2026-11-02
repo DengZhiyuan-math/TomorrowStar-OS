@@ -8,6 +8,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from career_evidence_graph.application_codex_assist import PROTOCOL_VERSION
+
 
 @pytest.fixture
 def runner():
@@ -53,7 +55,7 @@ def configured(tmp_path, runner, monkeypatch):
     def execute(argv, **kwargs):
         calls.append(argv)
         assert argv == [str(cli), "--version"], "check-only must not dispatch pytest or app-server"
-        return subprocess.CompletedProcess(argv, 0, stdout="codex-cli " + runner.PROTOCOL_VERSION)
+        return subprocess.CompletedProcess(argv, 0, stdout="codex-cli " + PROTOCOL_VERSION)
 
     return SimpleNamespace(
         repo=repo, cli=cli, driver=driver, home=home, env=environment, calls=calls, execute=execute
@@ -64,7 +66,7 @@ def test_check_only_records_identity_without_consuming_a_case(runner, configured
     ns = configured
     result = runner.run("C0", check_only=True, environment=ns.env, repo=ns.repo, execute=ns.execute)
     assert result["status"] == "ready"
-    assert result["identity"]["codex_version"] == "codex-cli " + runner.PROTOCOL_VERSION
+    assert result["identity"]["codex_version"] == "codex-cli " + PROTOCOL_VERSION
     assert set(result["source"]) == {"src/example.py"}
     assert len(result["identity"]["source_sha256"]) == 64
     assert len(ns.calls) == 1
@@ -177,15 +179,16 @@ def test_later_case_runs_once_after_the_matching_c0(runner, configured):
     ]
 
 
-def test_wrong_cli_pin_refuses_before_claiming_any_case(runner, configured):
+@pytest.mark.parametrize("version", ["codex-cli 0.1", "codex-cli 0.166.0-alpha.4", "unknown"])
+def test_cli_below_the_protocol_floor_refuses_before_claiming_any_case(runner, configured, version):
     ns = configured
 
-    def wrong_version(argv, **kwargs):
+    def old_version(argv, **kwargs):
         assert argv == [str(ns.cli), "--version"]
-        return subprocess.CompletedProcess(argv, 0, stdout="codex-cli 0.1")
+        return subprocess.CompletedProcess(argv, 0, stdout=version)
 
-    with pytest.raises(ValueError, match="protocol pin"):
-        runner.run("C0", environment=ns.env, repo=ns.repo, execute=wrong_version)
+    with pytest.raises(ValueError, match="protocol minimum"):
+        runner.run("C0", environment=ns.env, repo=ns.repo, execute=old_version)
     assert not Path(ns.env["TS_MC10_EVIDENCE_DIR"]).exists()
 
 

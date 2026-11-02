@@ -68,7 +68,7 @@ def _turn_started(case):
 
 def prepare_case_dir(root, name, executable, home):
     """Check the CLI before claiming a case directory; reuse one only if no turn was sent."""
-    from career_evidence_graph.application_codex_assist import PROTOCOL_VERSION
+    from career_evidence_graph.application_codex_assist import protocol_version_supported
 
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
@@ -80,7 +80,7 @@ def prepare_case_dir(root, name, executable, home):
         env={"HOME": str(home), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LANG": "en_US.UTF-8"},
         check=False,
     ).stdout.strip()
-    assert version == "codex-cli " + PROTOCOL_VERSION, f"Codex version {version!r} is not pinned"
+    assert protocol_version_supported(version), f"Codex version {version!r} is below the floor"
     case, prior = root / name, []
     if case.exists():
         assert not _turn_started(case), f"{name} already sent turn/start: refusing a rerun"

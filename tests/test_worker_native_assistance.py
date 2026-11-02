@@ -1271,6 +1271,6 @@ def test_late_incomplete_stop_receipt_cannot_replace_the_final_native_stop_proof
         request_id="journal-run",
         phase="stopping",
         scope=scope,
-        receipt={"local_tools_drained": True},
+        receipt=native_status(drained=False),
     )
     assert late == original and native.store.path.read_bytes() == before

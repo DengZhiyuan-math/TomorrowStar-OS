@@ -94,6 +94,10 @@ _RUNTIME_MODULES = {
         *_PREPARATION_MODULES,
         "application_worker",
         "application_codex_assist",
+        # The takeover record, its deadline budget and the original-page scope.
+        "application_takeover_record",
+        "application_takeover_budget",
+        "application_page_scope",
         "application_materials",
         "application_readiness",
         "application_single_binding",
@@ -117,6 +121,9 @@ _RUNTIME_MODULES = {
     "worker": (
         "application_worker_browser",
         "application_codex_assist",
+        "application_takeover_record",
+        "application_takeover_budget",
+        "application_page_scope",
         "application_form_state",
         "application_form_runner",
         "application_bound_materials",

@@ -8,6 +8,7 @@ from test_single_application_worker import single_worker as single_worker
 from test_worker_current_job import prepare
 
 from career_evidence_graph._vendor import job_apply_store as helper
+from career_evidence_graph.application_takeover_budget import DEFAULT_BUDGET
 from career_evidence_graph.application_worker import start_run
 from career_evidence_graph.application_worker_browser import ApplicationRunner
 from career_evidence_graph.career_portal_data import PortalDataError
@@ -585,7 +586,9 @@ def test_request_takeover_claims_once_without_user_claim(retained_assistance_pag
         "blocker",
         "requested_at",
         "continue_serial",
+        "budget",
     }
+    assert assistance["dispatch"]["budget"] == DEFAULT_BUDGET.to_dict()
     assert assistance["dispatch"]["request_id"] == "takeover-one"
     assert assistance["dispatch"]["blocker"] == blocker
     assert assistance["dispatch"]["continue_serial"] == serial
@@ -699,6 +702,30 @@ def test_one_takeover_per_continue_serial(retained_assistance_page, monkeypatch)
     assert native.takeover_candidate(identifier, **expected(native)) is not None
 
 
+def stop_unknown(job):
+    """Record the Adapter's unconfirmed stop through the record's own stop adoption."""
+    from career_evidence_graph.application_worker import (
+        adopt_assistance_stop,
+        assistance_reference,
+    )
+
+    assistance = job["assistance"]
+    progress = {
+        "tools_revoked": True,
+        "local_tools_drained": False,
+        "process_stopped": False,
+        "native_turn_id": None,
+        "native_turn_status": "unknown",
+        "stop_status": "unknown",
+    }
+    assert adopt_assistance_stop(
+        job,
+        assistance_reference(assistance),
+        progress,
+        request_id=assistance["stop"]["request_id"],
+    )
+
+
 @pytest.mark.parametrize(
     "change", ["superseded", "stopping", "stop_unknown", "filling_complete", "paused", "storage"]
 )
@@ -722,8 +749,7 @@ def test_takeover_refused_when_superseded_stopping_or_filling_complete(
         job = state["jobs"][0]
         assert revoke_assistance(job, reason="native_turn_completed")
         if change == "stop_unknown":
-            job["assistance"]["status"] = "stop_unknown"
-            job["assistance"]["stop"].update(stop_status="unknown", observed_at=time.time())
+            stop_unknown(job)
         native.store.save(state)
     elif change == "filling_complete":
         release(native, "filling_complete")
@@ -831,8 +857,7 @@ def test_continue_archives_stopped_takeover_and_restores_script_writes(
         job = state["jobs"][0]
         assert revoke_assistance(job, reason="native_turn_completed")
         if change == "stop_unknown":
-            job["assistance"]["status"] = "stop_unknown"
-            job["assistance"]["stop"].update(stop_status="unknown", observed_at=time.time())
+            stop_unknown(job)
         job.update(status="needs_recheck", reason="assistance_stop_pending")
         native.store.save(state)
     if change == "superseded":
@@ -1092,19 +1117,33 @@ def test_cua_capability_failure_without_a_current_no_route_decision_is_not_dispa
     assert native.takeover_candidate(identifier, **expected(native)) is None
 
 
-def test_takeover_slot_outlasts_32_records_but_keeps_its_bound_and_failed_blockers():
-    from career_evidence_graph.application_worker import ASSISTANCE_HISTORY_LIMIT, _takeover_slot
+def test_one_job_continues_after_100_takeovers_and_keeps_its_failed_blocker(
+    retained_assistance_page, monkeypatch
+):
+    """Settled takeovers never use up the limit; a failed blocker is still never re-sent."""
+    from career_evidence_graph.application_takeover_record import SETTLED_HISTORY_RETAINED
+    from career_evidence_graph.application_worker import record_takeover_failure
 
-    blocker = {
-        "code": "unsupported_structure",
-        "field_id": None,
-        "page_id": "page",
-        "run_id": "run",
-        "observed_at": 1.0,
-    }
-    stopped = {"status": "stopped", "dispatch": {"blocker": dict(blocker, page_id="old")}}
-    assert _takeover_slot({}, {"assistance_history": [stopped] * 32}, blocker)
-    full = {"assistance_history": [stopped] * ASSISTANCE_HISTORY_LIMIT}
-    assert not _takeover_slot({}, full, blocker)
-    failed = {"status": "stopped", "dispatch": {"blocker": blocker, "failed_code": "x"}}
-    assert not _takeover_slot({}, {"assistance_history": [failed]}, blocker)
+    service, identifier = retained_assistance_page
+    native = takeover_service(service, monkeypatch)
+    block(native, "unsupported_control", field="email")
+    take_over(native, identifier, "takeover-failed")
+    state = native.store.load()
+    assert record_takeover_failure(
+        state["jobs"][0], request_id="takeover-failed", code="native_assistance_unavailable"
+    )
+    native.store.save(state)
+    end_in_wait(native, "native_assistance_unavailable")
+    for index in range(100):
+        resume(native)
+        block(native, "unsupported_control")
+        take_over(native, identifier, f"takeover-{index}")
+        end_in_wait(native)
+    job = native.store.load()["jobs"][0]
+    assert job["assistance"]["generation"] == 101
+    assert len(job["assistance_history"]) <= 1 + SETTLED_HISTORY_RETAINED
+    resume(native)
+    block(native, "unsupported_control")
+    assert native.takeover_candidate(identifier, **expected(native)) is not None
+    block(native, "unsupported_control", field="email")
+    assert native.takeover_candidate(identifier, **expected(native)) is None

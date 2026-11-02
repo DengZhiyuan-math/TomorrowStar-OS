@@ -19,6 +19,7 @@ from pathlib import Path
 from urllib.parse import urldefrag
 from uuid import uuid4
 
+from . import application_takeover_record as takeover_record
 from ._vendor import job_apply_store as helper
 from .application_automation import (
     _job_identity,
@@ -32,7 +33,30 @@ from .application_execution import (
     reserve_execution,
 )
 from .application_information import COUNTRIES, fact_for, scope_matches
+from .application_page_scope import PAGE_SCOPE
 from .application_storage import private_root
+from .application_takeover_budget import DEFAULT_BUDGET
+from .application_takeover_record import (  # noqa: F401 - the record's names stay importable here
+    ASSISTANCE_CONTROL_REASONS,
+    ASSISTANCE_HISTORY_LIMIT,
+    ASSISTANCE_REPORT,
+    TAKEOVER_CODES,
+    TAKEOVER_REASONS,
+    TAKEOVER_ROUTE_REASONS,
+    TAKEOVER_UNKNOWN_REASONS,
+    archive_stopped_assistance,
+    assistance_stop_pending,
+    record_takeover_failure,
+    revoke_assistance,
+    valid_assistance_report,
+    valid_assistance_stop,
+    valid_takeover_dispatch,
+)
+from .application_takeover_record import bounded_text as _bounded_text
+from .application_takeover_record import canonical_sha256 as _canonical_sha256
+from .application_takeover_record import takeover_slot as _takeover_slot
+from .application_takeover_record import valid_takeover_blocker as _valid_takeover_blocker
+from .application_takeover_record import valid_timestamp as _timestamp
 from .career_portal_data import ApplicationStore, PortalDataError
 from .job_screening import LEVELS, screen_applications
 from .validation.hashing import record_digest as digest
@@ -54,20 +78,7 @@ MATERIAL_COMMIT_FIELDS = (
     "material_update",
 )
 CODEX_BACKEND_AUTHORITY = "codex-backend-authority/v1"
-ASSISTANCE_REPORT = "assistance-report/v1"
 ASSISTANCE_OUTCOME = "assistance-outcome/v1"
-# User/system controls after which a late Codex report can only remain history.
-ASSISTANCE_CONTROL_REASONS = frozenset(
-    {
-        "user_paused",
-        "cancelled",
-        "skip-current",
-        "select-current",
-        "worker_restarted",
-        "backend_closed",
-        "backend_authority_lost",
-    }
-)
 
 
 def script_writes_allowed(state, application_id=None):
@@ -295,7 +306,11 @@ def _validate_assistance_page_context(value, expected_ref):
             raise ValueError("Invalid original-page validation error details")
     for key in ("at", "observed_at"):
         at = value.get(key)
-        if type(at) not in (int, float) or not math.isfinite(at) or not 0 <= time.time() - at < 6:
+        if (
+            type(at) not in (int, float)
+            or not math.isfinite(at)
+            or not 0 <= time.time() - at < PAGE_SCOPE.window
+        ):
             raise ValueError("Original-page JSON context expired")
     if any(
         row.get("type") == "password" and row.get("value") not in (None, "")
@@ -434,166 +449,25 @@ def validate_assistance_delivery(value, expected_ref):
 
 
 def _native_handoff_receipt(value):
+    """A journaled handoff receipt, held to the driver's one receipt rule."""
     if value is None:
         return None
-    if not isinstance(value, dict) or set(value) - {
-        "handoff_id",
-        "generation",
-        "phase",
-        "revoked",
-        "active_calls",
-        "local_tools_drained",
-        "return_ready",
-        "calls",
-    }:
-        raise PortalDataError(
-            "native_handoff_receipt_invalid", "原生交接回执包含不支持的字段。", 409
-        )
-    if (
-        "handoff_id" in value
-        and (not isinstance(value["handoff_id"], str) or not 1 <= len(value["handoff_id"]) <= 200)
-        or "generation" in value
-        and (type(value["generation"]) is not int or not 0 <= value["generation"] < 2**64)
-        or "phase" in value
-        and (not isinstance(value["phase"], str) or not 1 <= len(value["phase"]) <= 100)
-        or any(
-            type(value[key]) is not bool
-            for key in ("revoked", "local_tools_drained", "return_ready")
-            if key in value
-        )
-        or "active_calls" in value
-        and (type(value["active_calls"]) is not int or not 0 <= value["active_calls"] <= 1000)
-    ):
-        raise PortalDataError("native_handoff_receipt_invalid", "原生交接回执形状无效。", 409)
-    if (
-        "active_calls" in value
-        and "local_tools_drained" in value
-        and value["local_tools_drained"] != (value["active_calls"] == 0)
-    ):
-        raise PortalDataError("native_handoff_receipt_invalid", "原生在途与排空回执不一致。", 409)
-    calls = value.get("calls", [])
-    if not isinstance(calls, list) or len(calls) > 1000:
-        raise PortalDataError("native_handoff_receipt_invalid", "原生调用回执超过上限。", 409)
-    call_ids = set()
-    for call in calls:
-        material_fields = set()
-        if isinstance(call, dict) and call.get("tool") == "browser_deliver_material":
-            from .cua_driver import validate_native_material_metadata
+    from .cua_driver import HANDOFF_GRANT_FIELDS, validate_handoff_receipt
 
-            try:
-                validate_native_material_metadata(call)
-            except ValueError as error:
-                raise PortalDataError(
-                    "native_handoff_receipt_invalid", "原生材料调用元数据不能核验。", 409
-                ) from error
-            material_fields = {
-                "material_ref",
-                "target_descriptor",
-                "material_resolution",
-                "material_readback",
-            }
-        if (
-            not isinstance(call, dict)
-            or set(call) - {"text_sha256", "native_ref", "field_hint"} - material_fields
-            != {
-                "call_id",
-                "tool",
-                "arguments_digest",
-                "status",
-                "generation",
-                "sequence",
-                "mutation",
-                "semantic_verified",
-                "scope",
-            }
-            or not isinstance(call["call_id"], str)
-            or not 1 <= len(call["call_id"]) <= 128
-            or not call["call_id"].isprintable()
-            or call["call_id"] in call_ids
-            or not isinstance(call["tool"], str)
-            or call["tool"]
-            not in {
-                "get_browser_state",
-                "browser_click",
-                "browser_type",
-                "browser_deliver_material",
-            }
-            or not isinstance(call["arguments_digest"], str)
-            or re.fullmatch(r"[a-f0-9]{64}", call["arguments_digest"]) is None
-            or not isinstance(call["status"], str)
-            or call["status"]
-            not in {"awaiting_host", "in_flight", "observed", "not_sent", "unknown"}
-            or any(
-                type(call[k]) is not int or not 0 < call[k] < 2**64
-                for k in ("generation", "sequence")
-            )
-            or type(call["mutation"]) is not bool
-            or call["mutation"] != (call["tool"] != "get_browser_state")
-            or call["semantic_verified"] is not False
-        ):
-            raise PortalDataError("native_handoff_receipt_invalid", "原生调用元数据不能核验。", 409)
-        if call["mutation"]:
-            hint = call.get("field_hint")
-            if (
-                not isinstance(call.get("native_ref"), str)
-                or not 1 <= len(call["native_ref"]) <= 256
-                or not call["native_ref"].isprintable()
-                or not isinstance(hint, dict)
-                or set(hint) != {"role", "name"}
-                or any(not isinstance(v, str) or len(v) > 1000 for v in hint.values())
-            ):
-                raise PortalDataError(
-                    "native_handoff_receipt_invalid", "原生控件引用或字段线索无效。", 409
-                )
-        elif "native_ref" in call or "field_hint" in call:
-            raise PortalDataError(
-                "native_handoff_receipt_invalid", "只读调用不包含写入控件引用。", 409
-            )
-        call_ids.add(call["call_id"])
-        call_scope = call["scope"]
-        if (
-            not isinstance(call_scope, dict)
-            or set(call_scope) != {"target_id", "tab_id", "expected_document"}
-            or any(
-                not isinstance(call_scope[k], str) or not 1 <= len(call_scope[k]) <= 512
-                for k in ("target_id", "tab_id")
-            )
-            or not isinstance(call_scope["expected_document"], dict)
-            or set(call_scope["expected_document"]) != {"frame_id", "loader_id", "url"}
-            or any(
-                not isinstance(v, str) or not 1 <= len(v) <= 20_000
-                for v in call_scope["expected_document"].values()
-            )
-            or call["tool"] == "browser_type"
-            and (
-                not isinstance(call.get("text_sha256"), str)
-                or re.fullmatch(r"[a-f0-9]{64}", call["text_sha256"]) is None
-            )
-            or call["tool"] != "browser_type"
-            and "text_sha256" in call
-        ):
-            raise PortalDataError(
-                "native_handoff_receipt_invalid", "原生调用页面范围或文本摘要无效。", 409
-            )
     try:
-        raw = json.dumps(value, allow_nan=False).encode()
-    except (TypeError, ValueError, RecursionError) as error:
+        if isinstance(value, dict) and "yielded" in value:
+            raise ValueError("A journaled grant keeps no driver yield flag")
+        return validate_handoff_receipt(
+            value, grant=isinstance(value, dict) and set(value) == HANDOFF_GRANT_FIELDS
+        )
+    except (ValueError, TypeError, RecursionError) as error:
         raise PortalDataError(
-            "native_handoff_receipt_invalid", "原生回执必须是有界 JSON。", 409
+            "native_handoff_receipt_invalid", "原生交接回执不能核验。", 409
         ) from error
-    if len(raw) > 256_000:
-        raise PortalDataError("native_handoff_receipt_invalid", "原生回执超过交接上限。", 409)
-    return deepcopy(value)
 
 
-def _native_stop_proven(receipt):
-    return bool(
-        isinstance(receipt, dict)
-        and receipt.get("local_tools_drained") is True
-        and receipt.get("revoked") is True
-        and receipt.get("active_calls") == 0
-        and receipt.get("return_ready") is True
-    )
+# The driver's proof that a handoff is over is the takeover record's one rule.
+_native_stop_proven = takeover_record.native_return_proven
 
 
 def _validate_native_handoff_runs(runs):
@@ -819,6 +693,7 @@ def valid_assistance(assistance, application_id):
         or set(assistance)
         - fields
         - {"stop", "backend_authority", "backend_loss", "report", "outcome", "superseded"}
+        - {"retired"}
         - (
             {"native_policy_digest", "dispatch"}
             if assistance.get("protocol") == CODEX_NATIVE_ASSISTANCE
@@ -938,135 +813,11 @@ def valid_assistance(assistance, application_id):
     )
 
 
-TAKEOVER_UNKNOWN_REASONS = frozenset(
-    {
-        "action_result_unknown",
-        "upload_result_unknown",
-        "draft_result_unknown",
-        "draft_result_unverified",
-        "public_read_result_unknown",
-        "browser_result_unknown",
-    }
-)
-# What the script cannot handle goes to Codex; missing facts stay needs_input.
-TAKEOVER_REASONS = TAKEOVER_UNKNOWN_REASONS | {
-    "unsupported_control",
-    "unsupported_structure",
-    "unsupported_attachments",
-    "unsupported_attachment_transport",
-    "ambiguous_option",
-    "user_authentication",
-    "route_change_forbidden",
-    "parser_failed",
-    "parser_unstable",
-}
-# select_fill_route uses this code when the script has no route for a control; only that
-# current not-sent route decision dispatches. A Cua/driver failure itself never does.
-TAKEOVER_ROUTE_REASONS = frozenset({"cua_unavailable"})
-TAKEOVER_CODES = TAKEOVER_REASONS | TAKEOVER_ROUTE_REASONS
-# Each takeover still needs the user's Continue; 8 filled up on one real job, and
-# repeated real-run repairs used all 32 on another (2026-11-02). Rows are never
-# retired: generations, request ids and failed blockers are read from them.
-ASSISTANCE_HISTORY_LIMIT = 64
-
-
-def _valid_takeover_blocker(blocker, binding):
-    return bool(
-        isinstance(blocker, dict)
-        and set(blocker) == {"code", "field_id", "page_id", "run_id", "observed_at"}
-        and blocker["code"] in TAKEOVER_CODES
-        and (blocker["field_id"] is None or isinstance(blocker["field_id"], str))
-        and blocker["page_id"] == binding["page_id"]
-        and blocker["run_id"] == binding["run_id"]
-        and type(blocker["observed_at"]) in (int, float)
-        and math.isfinite(blocker["observed_at"])
-        and blocker["observed_at"] > 0
-    )
-
-
-def valid_takeover_dispatch(dispatch, assistance):
-    keys = {"request_id", "blocker", "requested_at", "continue_serial"}
-    return bool(
-        isinstance(dispatch, dict)
-        and keys <= set(dispatch) <= keys | {"failed_code", "pending_intent_ref"}
-        and isinstance(assistance.get("binding"), dict)
-        and dispatch["request_id"] == assistance["claim_request_id"]
-        and _valid_takeover_blocker(dispatch["blocker"], assistance["binding"])
-        and type(dispatch["requested_at"]) in (int, float)
-        and math.isfinite(dispatch["requested_at"])
-        and dispatch["requested_at"] > 0
-        and type(dispatch["continue_serial"]) is int
-        and dispatch["continue_serial"] == assistance["binding"]["resume_serial"]
-        and (
-            "failed_code" not in dispatch
-            or isinstance(dispatch["failed_code"], str)
-            and re.fullmatch(r"[a-z][a-z0-9_]{0,99}", dispatch["failed_code"])
-        )
-        and (
-            "pending_intent_ref" not in dispatch
-            or dispatch["blocker"]["code"] in TAKEOVER_UNKNOWN_REASONS
-            and isinstance(dispatch["pending_intent_ref"], str)
-            and re.fullmatch(r"[a-f0-9]{64}", dispatch["pending_intent_ref"])
-        )
-    )
-
-
 def takeover_pending_intent(job):
     """The exact unknown intent a current takeover carries, or None; it is never cleared here."""
     ref = ((job.get("assistance") or {}).get("dispatch") or {}).get("pending_intent_ref")
     intent = job.get("intent")
     return ref if ref and isinstance(intent, dict) and digest(intent) == ref else None
-
-
-def archive_stopped_assistance(job):
-    """On Continue, retain a proven-stopped takeover wait as history so the script rechecks.
-
-    A stopped record outside a wait stays: its lost outcome save may be re-adopted.
-    """
-    assistance = job.get("assistance")
-    history = job.get("assistance_history", [])
-    reason = job.get("reason") or ""
-    failed = ((assistance or {}).get("dispatch") or {}).get("failed_code")
-    if (
-        not assistance
-        or job["status"] != "needs_recheck"
-        or not (reason in TAKEOVER_CODES or reason.startswith("assistance_") or reason == failed)
-        or assistance["status"] != "stopped"
-        or assistance_stop_pending(job)
-        or "backend_loss" in assistance
-        or (assistance.get("superseded") or {}).get("reason") not in (None, "user_paused")
-        or job["status"] == "cancelled"
-        or job.get("handed_off")
-        or len(history) >= ASSISTANCE_HISTORY_LIMIT
-    ):
-        return False
-    job["assistance_history"] = [*history, deepcopy(assistance)]
-    del job["assistance"]
-    job.update(status="queued", reason="")
-    return True
-
-
-def _takeover_slot(state, job, blocker):
-    """One takeover per blocker: after a released checkpoint, or once per explicit Continue."""
-    assistance = job.get("assistance")
-    history = job.get("assistance_history", [])
-    identity = [blocker[key] for key in ("code", "field_id", "page_id")]
-    if len(history) >= ASSISTANCE_HISTORY_LIMIT or any(
-        (row.get("dispatch") or {}).get("failed_code")
-        and [row["dispatch"]["blocker"][key] for key in ("code", "field_id", "page_id")] == identity
-        for row in [*history, *([assistance] if assistance else [])]
-    ):
-        return False
-    if not assistance:
-        return True
-    if "superseded" in assistance or assistance_stop_pending(job):
-        return False
-    if assistance["status"] == "released":
-        return assistance["outcome"]["kind"] == "script_checkpoint"
-    serial = (assistance.get("dispatch") or {}).get(
-        "continue_serial", assistance["binding"]["resume_serial"]
-    )
-    return assistance["status"] == "stopped" and state.get("resume_serial", 0) > serial
 
 
 def technical_blocker(state, job, policy):
@@ -1135,22 +886,6 @@ def technical_blocker(state, job, policy):
     return blocker
 
 
-def record_takeover_failure(job, *, request_id, code):
-    """Keep a Codex capability failure on its dispatch so the same blocker is not re-sent."""
-    dispatch = (job.get("assistance") or {}).get("dispatch")
-    if (
-        not dispatch
-        or dispatch["request_id"] != request_id
-        or not isinstance(code, str)
-        or re.fullmatch(r"[a-z][a-z0-9_]{0,99}", code) is None
-    ):
-        raise PortalDataError("assistance_generation_changed", "接管派发引用已改变。", 409)
-    if "failed_code" in dispatch:
-        return False
-    dispatch["failed_code"] = code
-    return True
-
-
 def valid_assistance_backend_loss(loss):
     return bool(
         isinstance(loss, dict)
@@ -1162,140 +897,6 @@ def valid_assistance_backend_loss(loss):
         and type(loss["automatic_recovery"]) is bool
         and (not loss["automatic_recovery"] or loss["was_running"])
     )
-
-
-def valid_assistance_stop(stop, status):
-    if not isinstance(stop, dict) or set(stop) != {
-        "request_id",
-        "reason",
-        "requested_at",
-        "tools_revoked",
-        "local_tools_drained",
-        "process_stopped",
-        "native_turn_id",
-        "native_turn_status",
-        "stop_status",
-        "observed_at",
-    }:
-        return False
-    return bool(
-        isinstance(stop["request_id"], str)
-        and 1 <= len(stop["request_id"]) <= 200
-        and isinstance(stop["reason"], str)
-        and 1 <= len(stop["reason"]) <= 100
-        and type(stop["requested_at"]) in (int, float)
-        and math.isfinite(stop["requested_at"])
-        and stop["requested_at"] > 0
-        and stop["tools_revoked"] is True
-        and type(stop["local_tools_drained"]) is bool
-        and type(stop["process_stopped"]) is bool
-        and (
-            stop["native_turn_id"] is None
-            or isinstance(stop["native_turn_id"], str)
-            and 1 <= len(stop["native_turn_id"]) <= 200
-            and stop["native_turn_id"].isprintable()
-        )
-        and isinstance(stop["native_turn_status"], str)
-        and stop["native_turn_status"]
-        in {"idle", "running", "completed", "interrupted", "failed", "unknown"}
-        and not (stop["process_stopped"] and stop["native_turn_status"] == "running")
-        and isinstance(stop["stop_status"], str)
-        and {
-            "stopping": "stopping",
-            "stopped": "stopped",
-            "unknown": "stop_unknown",
-        }.get(stop["stop_status"])
-        == status
-        and (
-            stop["observed_at"] is None
-            or type(stop["observed_at"]) in (int, float)
-            and math.isfinite(stop["observed_at"])
-            and stop["observed_at"] > 0
-        )
-        and (
-            stop["stop_status"] != "stopped"
-            or stop["local_tools_drained"] is True
-            and stop["process_stopped"] is True
-        )
-    )
-
-
-def _canonical_sha256(value):
-    return hashlib.sha256(
-        json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
-    ).hexdigest()
-
-
-def _bounded_text(value, limit=200):
-    return isinstance(value, str) and 1 <= len(value) <= limit and value.isprintable()
-
-
-def _timestamp(value):
-    return type(value) in (int, float) and math.isfinite(value) and value > 0
-
-
-def valid_assistance_report(report):
-    """A Codex claim, strictly shaped; it is never evidence of a verified page."""
-    try:
-        claimed = report["claimed"]
-        optional = {"fields", "attachments", "next_step", "optional_failures"}
-        return bool(
-            isinstance(report, dict)
-            and set(report)
-            == {
-                "protocol",
-                "request_id",
-                "native_turn_id",
-                "received_at",
-                "claimed",
-                "claimed_sha256",
-            }
-            and report["protocol"] == ASSISTANCE_REPORT
-            and _bounded_text(report["request_id"])
-            and _bounded_text(report["native_turn_id"])
-            and _timestamp(report["received_at"])
-            and isinstance(claimed, dict)
-            and {"status", "summary", "unresolved_action_ids"} <= set(claimed)
-            and not set(claimed) - {"status", "summary", "unresolved_action_ids"} - optional
-            and claimed["status"]
-            in {"blocked_segment_resolved", "ready_for_review", "needs_input", "needs_recheck"}
-            and isinstance(claimed["summary"], str)
-            and len(claimed["summary"]) <= 2000
-            and isinstance(claimed["unresolved_action_ids"], list)
-            and len(claimed["unresolved_action_ids"]) <= 1000
-            and all(_bounded_text(v, 128) for v in claimed["unresolved_action_ids"])
-            and (
-                "fields" not in claimed
-                or isinstance(claimed["fields"], list)
-                and all(
-                    isinstance(row, dict)
-                    and set(row) == {"field_id", "state"}
-                    and _bounded_text(row["field_id"], 512)
-                    and _bounded_text(row["state"], 64)
-                    for row in claimed["fields"]
-                )
-            )
-            and all(
-                key not in claimed
-                or isinstance(claimed[key], list)
-                and all(isinstance(row, dict) for row in claimed[key])
-                for key in ("attachments", "optional_failures")
-            )
-            and (
-                claimed.get("next_step") is None
-                or isinstance(claimed["next_step"], dict)
-                and {"kind"} <= set(claimed["next_step"]) <= {"kind", "field_id"}
-                and _bounded_text(claimed["next_step"]["kind"], 512)
-                and (
-                    claimed["next_step"].get("field_id") is None
-                    or _bounded_text(claimed["next_step"]["field_id"], 512)
-                )
-            )
-            and report["claimed_sha256"] == _canonical_sha256(claimed)
-            and len(json.dumps(report, sort_keys=True, separators=(",", ":"))) <= 65_536
-        )
-    except (KeyError, TypeError, ValueError, RecursionError):
-        return False
 
 
 def valid_assistance_outcome(outcome, *, report, stop):
@@ -1375,49 +976,6 @@ def valid_assistance_outcome(outcome, *, report, stop):
         return False
 
 
-def revoke_assistance(job, *, reason, request_id=None):
-    """Revoke the original scope without releasing its writer reservation."""
-    assistance = job.get("assistance")
-    if not assistance:
-        return False
-    changed = False
-    loss = assistance.get("backend_loss")
-    if (
-        loss
-        and loss["automatic_recovery"]
-        and reason
-        in {"user_paused", "cancelled", "skip-current", "select-current", "worker_restarted"}
-    ):
-        loss["automatic_recovery"] = False
-        changed = True
-    if "stop" in assistance:
-        if (
-            "outcome" not in assistance
-            and "superseded" not in assistance
-            and reason in ASSISTANCE_CONTROL_REASONS
-            and assistance["stop"]["reason"] not in ASSISTANCE_CONTROL_REASONS
-        ):
-            assistance["superseded"] = {"reason": reason, "at": time.time()}
-            changed = True
-        return changed
-    assistance.update(
-        status="stopping",
-        stop={
-            "request_id": request_id or uuid4().hex,
-            "reason": reason,
-            "requested_at": time.time(),
-            "tools_revoked": True,
-            "local_tools_drained": False,
-            "process_stopped": False,
-            "native_turn_id": None,
-            "native_turn_status": "unknown",
-            "stop_status": "stopping",
-            "observed_at": None,
-        },
-    )
-    return True
-
-
 def mark_assistance_backend_lost(state, reference):
     """Retain an unavailable backend generation without confusing it with UI silence."""
     if not isinstance(reference, dict) or not isinstance(reference.get("binding"), dict):
@@ -1485,19 +1043,6 @@ def assistance_completion(job):
     ):
         return None
     return deepcopy(assistance["outcome"])
-
-
-def assistance_stop_pending(job):
-    assistance = job.get("assistance")
-    if not assistance:
-        return False
-    stop = assistance.get("stop") or {}
-    return (
-        assistance["status"] not in {"stopped", "released"}
-        or stop.get("tools_revoked") is not True
-        or stop.get("local_tools_drained") is not True
-        or stop.get("process_stopped") is not True
-    )
 
 
 def adopt_assistance_stop(job, assistance_ref, progress, *, request_id):
@@ -2358,13 +1903,14 @@ class WorkerStore:
         if any(
             "assistance" in job
             and not valid_assistance(job["assistance"], job["application_id"])
+            or not takeover_record.valid_generation_counter(job)
             or "assistance_history" in job
             and (
-                not isinstance(job["assistance_history"], list)
-                or len(job["assistance_history"]) > ASSISTANCE_HISTORY_LIMIT
+                not takeover_record.valid_history(job["assistance_history"])
                 or any(
                     not valid_assistance(row, job["application_id"])
                     or row["status"] not in {"stopped", "released"}
+                    and not takeover_record.valid_retirement(row.get("retired"))
                     for row in job["assistance_history"]
                 )
             )
@@ -2884,7 +2430,6 @@ class WorkerStore:
                 raise PortalDataError("native_handoff_conflict", "原交接标识不能更换范围。", 409)
             assistance = job.get("assistance") or {}
             runtime = state.get("runtime") or {}
-            page = job.get("page_observation") or {}
             now = time.time()
             retained_material = (
                 self.native_material_intent(state, job, expected_ref, request_id=request_id)
@@ -2919,8 +2464,7 @@ class WorkerStore:
                     )
                     for event in job["observations"]
                 )
-                and 0 <= now - runtime.get("observed_at", 0) < 6
-                and 0 <= now - page.get("at", 0) < 6
+                and PAGE_SCOPE.current(state, job, now).valid
             )
             if phase == "prepared":
                 from .cua_driver import reviewed_native_assistance_policy
@@ -3344,7 +2888,6 @@ class WorkerStore:
             )
             assistance = (job or {}).get("assistance")
             runtime = state.get("runtime") or {}
-            page = (job or {}).get("page_observation") or {}
             now = time.time()
             if (
                 not assistance
@@ -3360,8 +2903,7 @@ class WorkerStore:
                 or material_edit_pending(job)
                 or state.get("worker_error")
                 or self.stop_reason()
-                or not 0 <= now - runtime.get("observed_at", 0) < 6
-                or not 0 <= now - page.get("at", 0) < 6
+                or not PAGE_SCOPE.current(state, job, now).valid
             ):
                 raise PortalDataError(
                     "assistance_binding_changed",
@@ -4341,6 +3883,7 @@ class WorkerService:
         native_assistance_policy: dict | None = None,
     ):
         self.native_assistance_policy = validate_native_assistance_policy(native_assistance_policy)
+        self.takeover_budget = DEFAULT_BUDGET
         if self.native_assistance_policy is not None and (
             not live or not cua or synthetic_browser_root is not None
         ):
@@ -4444,7 +3987,7 @@ class WorkerService:
         return bool(
             not exited
             and job.get("reason") not in {"page_lost", "page_closed", "page_crashed"}
-            and 0 <= now - runtime["observed_at"] < 6
+            and PAGE_SCOPE.runtime_current(state, now)
             and page.get("run_id") == runtime["id"]
             and page.get("event") == "observed"
             and isinstance(page.get("page_id"), str)
@@ -4485,7 +4028,7 @@ class WorkerService:
             or OWNED_PAGE_OBSERVATION not in runtime.get("capabilities", [])
             or not self._page_current(state, job)
             or state.get("worker_error", "") not in {"", "control_connection_lost"}
-            or not 0 <= time.time() - job["page_observation"].get("at", 0) < 6
+            or not PAGE_SCOPE.page_current(job)
         ):
             return None
         return {
@@ -4594,7 +4137,7 @@ class WorkerService:
                 "exited"
                 if managed and exit_code is not None
                 else "current"
-                if runtime and 0 <= age < 6
+                if runtime and 0 <= age < PAGE_SCOPE.window
                 else "stale"
                 if runtime
                 else "historical"
@@ -5356,18 +4899,21 @@ class WorkerService:
             self.store.save(state)
         return self.recover_backend(request_id, pipeline_id)
 
-    def _new_assistance(self, state, job, binding, request_id, *, generation=1):
-        job["assistance"] = {
-            "protocol": CODEX_ASSISTANCE,
-            "id": uuid4().hex,
-            "generation": generation,
-            "request_id": request_id,
-            "claim_request_id": None,
-            "status": "requested",
-            "active_writer": "none",
-            "binding": binding,
-            "page_writes_enabled": False,
-        }
+    def _new_assistance(self, state, job, binding, request_id):
+        takeover_record.begin(
+            job,
+            {
+                "protocol": CODEX_ASSISTANCE,
+                "id": uuid4().hex,
+                "generation": takeover_record.next_generation(job),
+                "request_id": request_id,
+                "claim_request_id": None,
+                "status": "requested",
+                "active_writer": "none",
+                "binding": binding,
+                "page_writes_enabled": False,
+            },
+        )
         if self.native_assistance_policy is not None:
             job["assistance"].update(
                 protocol=CODEX_NATIVE_ASSISTANCE,
@@ -5481,10 +5027,7 @@ class WorkerService:
             if (
                 previous
                 and previous["status"] in {"requested", "claimed", "stopping", "stop_unknown"}
-                or any(
-                    (row.get("dispatch") or {}).get("request_id") == request_id
-                    for row in job.get("assistance_history", [])
-                )
+                or takeover_record.request_conflict(job, request_id)
             ):
                 raise PortalDataError(
                     "assistance_request_conflict", "已有接管记录，不能另建操作范围。", 409
@@ -5507,17 +5050,8 @@ class WorkerService:
                 automated_owner(self.store.root, state["batch_id"], job["application_id"]),
                 "automated",
             )
-            if previous:
-                job.setdefault("assistance_history", []).append(deepcopy(previous))
             binding = assistance_binding(state, job)
-            assistance = self._new_assistance(
-                state,
-                job,
-                binding,
-                request_id,
-                generation=1
-                + max((row["generation"] for row in job.get("assistance_history", [])), default=0),
-            )
+            assistance = self._new_assistance(state, job, binding, request_id)
             assistance.update(
                 status="claimed",
                 active_writer="codex",
@@ -5527,6 +5061,8 @@ class WorkerService:
                     "blocker": current,
                     "requested_at": time.time(),
                     "continue_serial": binding["resume_serial"],
+                    # Every layer's deadline for this takeover, fixed when it is sent.
+                    "budget": self.takeover_budget.to_dict(),
                 },
             )
             if current["code"] in TAKEOVER_UNKNOWN_REASONS and job.get("intent"):
@@ -6533,7 +6069,7 @@ class WorkerService:
                     or assistance
                     and assistance.get("active_writer") != "script"
                     and not retired
-                    or len(job.get("assistance_history", [])) >= ASSISTANCE_HISTORY_LIMIT
+                    or not takeover_record.capacity_left(job)
                     # Opening the page sends no application data; any other unknown
                     # action still waits for its result.
                     or (job.get("intent") or {}).get("action") not in (None, "open")
@@ -6553,19 +6089,8 @@ class WorkerService:
                     )
                 if (state.get("page_reopen") or {}).get("request_id") == request_id:
                     return self.snapshot()
-                retired_stop = None
-                if assistance:
-                    # A takeover, stopped or finished, belonged to the closed page.
-                    row = job.pop("assistance")
-                    if row["status"] not in {"stopped", "released"}:
-                        # Its native driver exited with the old run: nothing can still
-                        # be in flight. The unconfirmed stop stays in the reopen record.
-                        retired_stop = deepcopy(row["stop"])
-                        row["stop"].update(
-                            stop_status="stopped", local_tools_drained=True, observed_at=time.time()
-                        )
-                        row["status"] = "stopped"
-                    job["assistance_history"] = [*job.get("assistance_history", []), row]
+                # A takeover, stopped or finished, belonged to the closed page.
+                retired_stop = takeover_record.retire_for_reopen(job)
                 job["observations"].append(
                     {
                         "action": "page_reopen_requested",

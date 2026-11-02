@@ -58,6 +58,8 @@ def make_report(status="blocked_segment_resolved", **changes):
         "summary": "Country selected",
         "unresolved_action_ids": [],
         "fields": [{"field_id": "country", "state": "filled"}],
+        # The Adapter's schema requires every property; it is null without a next field.
+        "next_step": None,
     }
     if status == "blocked_segment_resolved":
         claimed["next_step"] = {"kind": "return_to_script", "field_id": "phone"}
@@ -120,6 +122,7 @@ class Adapter:
             {
                 "handoff_id": "native-run",
                 "generation": 1,
+                "phase": "returned",
                 "revoked": True,
                 "return_ready": not unknown,
                 "local_tools_drained": True,
@@ -394,7 +397,7 @@ def test_return_maps_script_questions_with_hosted_ids_by_unique_label(returning,
 
     monkeypatch.setattr(ctx.runner, "_fill_route", route)
     report = make_report()
-    del report["claimed"]["next_step"]
+    report["claimed"]["next_step"] = None
     report["claimed_sha256"] = sha(report["claimed"])
     run_turn(ctx, report=report)
     ctx.runner._service_assistance_return()

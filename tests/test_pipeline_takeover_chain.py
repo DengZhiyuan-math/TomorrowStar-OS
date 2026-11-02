@@ -79,6 +79,7 @@ def chain(returning, tmp_path):
         state = worker.store.load()
         job = state["jobs"][0]
         job.pop("assistance")
+        job.pop("assistance_generation", None)
         job.pop("native_handoff_runs", None)
         worker.store.save(state)
         state = worker.store.load()

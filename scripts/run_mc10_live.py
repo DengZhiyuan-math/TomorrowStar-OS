@@ -19,7 +19,9 @@ sys.path[:0] = [str(ROOT / "src"), str(ROOT / "tests")]
 
 from codex_live_guards import assert_isolated_codex_home, codex_home_names  # noqa: E402
 
-from career_evidence_graph.application_codex_assist import PROTOCOL_VERSION  # noqa: E402
+from career_evidence_graph.application_codex_assist import (  # noqa: E402
+    protocol_version_supported,
+)
 
 LIVE_FILE = "tests/test_worker_native_live_model_browser.py"
 CASES = {
@@ -103,8 +105,9 @@ def run(case, *, check_only=False, environment=None, repo=ROOT, execute=None):
         env={"HOME": str(home), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LANG": "en_US.UTF-8"},
         check=False,
     )
-    if version.returncode or version.stdout.strip() != "codex-cli " + PROTOCOL_VERSION:
-        raise ValueError("Codex version does not match the accepted protocol pin")
+    # The takeover handshake checks compatibility; the CLI version is only a floor.
+    if version.returncode or not protocol_version_supported(version.stdout):
+        raise ValueError("Codex version is below the accepted protocol minimum")
     source = source_manifest(repo)
     identity = {
         "source_sha256": hashlib.sha256(json.dumps(source, sort_keys=True).encode()).hexdigest(),

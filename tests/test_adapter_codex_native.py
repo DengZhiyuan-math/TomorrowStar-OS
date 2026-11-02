@@ -14,6 +14,7 @@ from career_evidence_graph import cua_driver
 from career_evidence_graph.application_codex_assist import CodexAdapter, CodexAssistConfig
 from career_evidence_graph.application_worker import valid_assistance_report
 from career_evidence_graph.career_portal_data import PortalDataError
+from career_evidence_graph.cua_driver import NativeHandoffPort
 from career_evidence_graph.validation.hashing import record_digest as digest
 
 
@@ -175,6 +176,9 @@ for line in sys.stdin:
         receiver_yielded = True
         revoked = False
         calls = None
+        timeout = 15
+        handoff_transition_inflight = False
+        control_inflight = False
 
         def yield_to(self, ready, **kwargs):
             assert kwargs["scope"] == scope
@@ -239,7 +243,7 @@ def test_native_takeover_hands_json_to_verified_native_tool_catalog(tmp_path, mo
             ref,
             request_id="native-start",
             delivery=packet,
-            native_client=native,
+            native_client=NativeHandoffPort(native),
             native_scope=scope,
             driver_executable=driver,
             before_yield=lambda intent: events.append("before"),
@@ -322,7 +326,7 @@ def test_native_takeover_reuses_the_named_thread_mcp_connection(tmp_path, monkey
             ref,
             request_id="native-named-catalog",
             delivery=packet,
-            native_client=native,
+            native_client=NativeHandoffPort(native),
             native_scope=scope,
             driver_executable=driver,
             before_yield=lambda intent: None,
@@ -395,9 +399,9 @@ def test_lazy_native_recipient_is_granted_during_catalog_before_the_model_turn(
 
 
 def test_slow_thread_start_within_its_own_bound_still_reaches_the_model_turn(tmp_path, monkeypatch):
-    # Actual 0.165 thread/start took 4.8-5.1 s against the 2 s request default.
+    # Actual 0.165 thread/start took 4.8-5.1 s against the then 2 s request default.
     config, ref, scope, packet, driver, native, events = native_case(tmp_path, monkeypatch)
-    assert config.request_timeout == 2.0
+    config = CodexAssistConfig.from_dict(config.to_dict() | {"request_timeout": 2.0})
     config.executable.with_suffix(".settings").write_text(
         json.dumps({"lazy_catalog": True, "thread_start_delay": 2.5})
     )
@@ -485,7 +489,7 @@ def start_case(
         ref,
         request_id="native-start",
         delivery=packet,
-        native_client=native,
+        native_client=NativeHandoffPort(native),
         native_scope=scope,
         driver_executable=driver,
         before_yield=before_yield,
@@ -730,7 +734,7 @@ def test_observed_receipt_save_failure_during_completed_revoke_stays_unknown(tmp
             ref,
             request_id="fresh-request",
             delivery=packet,
-            native_client=native,
+            native_client=NativeHandoffPort(native),
             native_scope=scope,
             driver_executable=driver,
             before_yield=lambda _: None,
@@ -750,7 +754,7 @@ def test_observed_receipt_save_failure_during_completed_revoke_stays_unknown(tmp
                 changed_ref,
                 request_id="fresh-reference",
                 delivery=changed_packet,
-                native_client=native,
+                native_client=NativeHandoffPort(native),
                 native_scope=scope,
                 driver_executable=driver,
                 before_yield=lambda _: None,
@@ -807,7 +811,7 @@ def test_lost_native_turn_ack_stays_unknown_without_starting_a_second_run(tmp_pa
             ref,
             request_id="different-retry-id",
             delivery=packet,
-            native_client=native,
+            native_client=NativeHandoffPort(native),
             native_scope=scope,
             driver_executable=driver,
             before_yield=lambda intent: None,
@@ -837,8 +841,14 @@ def test_repeated_native_metadata_poll_does_not_repeat_journal_writes(tmp_path, 
         adapter.close()
 
 
-def test_routine_native_status_poll_has_the_driver_action_bound(tmp_path, monkeypatch):
-    """A slow status answer while a write awaits admission is not a lost scope."""
+def test_routine_native_status_poll_has_the_budget_status_deadline(tmp_path, monkeypatch):
+    """A slow status answer while a write awaits admission is not a lost scope.
+
+    The poll has its own budget deadline, inside the driver's action bound, so one
+    poll and its admission still fit the driver's admission time.
+    """
+    from career_evidence_graph.application_takeover_budget import DEFAULT_BUDGET
+
     config, ref, scope, packet, driver, native, events = native_case(tmp_path, monkeypatch)
     native.timeout = 15
     status, timeouts = native.handoff_status, []
@@ -851,7 +861,7 @@ def test_routine_native_status_poll_has_the_driver_action_bound(tmp_path, monkey
     adapter, run = start_case(config, ref, scope, packet, driver, native)
     try:
         adapter.progress(run.run_id)
-        assert timeouts and set(timeouts) == {15}
+        assert timeouts and set(timeouts) == {DEFAULT_BUDGET.status_poll}
     finally:
         adapter.close()
 
@@ -989,7 +999,7 @@ def test_native_takeover_refuses_an_unbound_or_legacy_reference_before_launch(
             ref,
             request_id="refused",
             delivery=packet,
-            native_client=native,
+            native_client=NativeHandoffPort(native),
             native_scope=scope,
             driver_executable=driver,
             before_yield=lambda intent: None,
@@ -1464,7 +1474,7 @@ def test_the_model_pattern_excludes_common_unprintable_page_text():
     # Copied labels carry these; the Adapter drops them, so generation must not emit them.
     import re
 
-    from career_evidence_graph.application_codex_assist import _LINE
+    from career_evidence_graph.application_takeover_record import _LINE
 
     for character in "\x85\xa0\xad\u1680\u2000\u200b\u2028\u2029\u202f\u2060\u3000\ufeff":
         assert not character.isprintable()
@@ -1659,7 +1669,7 @@ def test_native_takeover_carries_only_the_dispatched_pending_intent(tmp_path, mo
             ref,
             request_id="native-start",
             delivery=packet,
-            native_client=native,
+            native_client=NativeHandoffPort(native),
             native_scope=scope,
             driver_executable=driver,
             before_yield=lambda intent: events.append("before"),
@@ -1710,7 +1720,7 @@ def test_native_takeover_refuses_any_other_pending_action_before_launch(
             ref,
             request_id="refused",
             delivery=packet,
-            native_client=native,
+            native_client=NativeHandoffPort(native),
             native_scope=scope,
             driver_executable=driver,
             before_yield=lambda intent: None,
@@ -1828,5 +1838,66 @@ def test_current_generation_row_with_another_scope_is_still_refused(tmp_path, mo
     adapter, run = start_case(config, ref, scope, packet, driver, native)
     try:
         assert run.status == "unknown" and run.error_code == "native_handoff_status_unknown"
+    finally:
+        adapter.close()
+
+
+def test_dispatched_budget_sets_each_native_deadline_and_must_fit_the_driver(tmp_path, monkeypatch):
+    """The Worker's budget, not the client's own bound, sets every native deadline."""
+    from dataclasses import replace
+
+    from career_evidence_graph.application_takeover_budget import DEFAULT_BUDGET
+
+    config, ref, scope, packet, driver, native, events = native_case(tmp_path, monkeypatch)
+    adapter = CodexAdapter(config)
+    arguments = dict(
+        request_id="native-start",
+        delivery=packet,
+        native_client=NativeHandoffPort(native),
+        native_scope=scope,
+        driver_executable=driver,
+        before_yield=lambda intent: None,
+        after_yield=lambda receipt: None,
+        pump=lambda: True,
+        before_native_call=lambda call: True,
+    )
+    try:
+        native.timeout = 10  # below the budget's 12 s status poll
+        with pytest.raises(ValueError):
+            adapter.start_takeover(ref, budget=DEFAULT_BUDGET, **arguments)
+        assert not native.granted and events == []
+        native.timeout = 15
+        budget = replace(DEFAULT_BUDGET, status_poll=7.0, stop=4.0)
+        statuses, revokes = [], []
+        status, revoke = native.handoff_status, native.revoke_handoff
+        native.handoff_status = lambda **kw: statuses.append(kw["timeout"]) or status(**kw)
+        native.revoke_handoff = lambda **kw: revokes.append(kw["timeout"]) or revoke(**kw)
+        run = adapter.start_takeover(ref, budget=budget, **arguments)
+        assert run.status == "ready"
+        adapter.progress(run.run_id)
+        adapter.stop(run.run_id, request_id="stop-budget")
+        assert set(statuses) == {7.0} and set(revokes) == {4.0}
+        start = next(m for m in recorded(config) if m.get("method") == "thread/start")
+        server = start["params"]["config"]["mcp_servers"]["cua_takeover"]
+        assert (server["startup_timeout_sec"], server["tool_timeout_sec"]) == (30, 60)
+    finally:
+        adapter.close()
+
+
+def test_unconfirmed_native_stop_is_only_reread_until_the_driver_proves_it(tmp_path, monkeypatch):
+    """After stop_unknown nothing is revoked or interrupted again; a status read decides."""
+    config, ref, scope, packet, driver, native, events = native_case(tmp_path, monkeypatch)
+    adapter, run = start_case(config, ref, scope, packet, driver, native)
+    try:
+        native.active = 1  # a native call is still in flight when the stop is sent
+        first = adapter.stop(run.run_id, request_id="stop-one")
+        assert (first.stop_status, first.error_code) == ("unknown", "stop_unknown")
+        sent = [m.get("method") for m in recorded(config) if "method" in m]
+        assert events.count("revoke") == 1
+        native.active = 0
+        again = adapter.stop(run.run_id, request_id="stop-one")
+        assert again.stop_status == "stopped" and again.error_code is None
+        assert events.count("revoke") == 1
+        assert [m.get("method") for m in recorded(config) if "method" in m] == sent
     finally:
         adapter.close()

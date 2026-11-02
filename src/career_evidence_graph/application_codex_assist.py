@@ -21,22 +21,55 @@ import tempfile
 import threading
 import time
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from ._vendor.job_apply_store import StoreError
+from .application_takeover_budget import DEFAULT_BUDGET, TakeoverBudget
+from .application_takeover_record import (
+    MAX_REPORT_CHARS,
+    REPORT_SCHEMA,
+    native_return_proven,
+    report_matches,
+)
 from .codex_cli import CodexCLIError, validate_codex_executable, validate_codex_home
 from .cua_driver import (
     NATIVE_HANDOFF_PROTOCOL,
     NATIVE_HANDOFF_TOOLS,
+    NativeHandoffPort,
+    valid_page_scope,
     validate_fixed_material_resolution,
     validate_native_assistance_policy,
-    validate_native_material_metadata,
 )
 from .validation.hashing import record_digest as digest
 from .worker_process_identity import process_identity, valid_process_identity
 
+# Compatibility is what `initialize` returns and the takeover tool catalog Codex lists
+# for the fixed four tools; the CLI version is only a floor, recorded as observed.
 PROTOCOL_VERSION = "0.166.0-alpha.5.1"
+MINIMUM_PROTOCOL_VERSION = PROTOCOL_VERSION
+_VERSION = re.compile(r"(?:codex-cli )?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?")
+
+
+def protocol_version_key(text):
+    """An ordering key for ``codex-cli X.Y.Z[-pre]``, or None when it is not one."""
+    match = _VERSION.fullmatch(text.strip()) if isinstance(text, str) else None
+    if match is None:
+        return None
+    release = tuple(int(part) for part in match.groups()[:3])
+    if match[4] is None:
+        return (*release, 1, ())
+    pre = tuple(
+        (0, int(item), "") if item.isdigit() else (1, 0, item) for item in match[4].split(".")
+    )
+    return (*release, 0, pre)
+
+
+def protocol_version_supported(text, minimum=MINIMUM_PROTOCOL_VERSION):
+    key = protocol_version_key(text)
+    return key is not None and key >= protocol_version_key(minimum)
+
+
 _DISABLED_FEATURES = (
     "apps",
     "plugins",
@@ -52,84 +85,10 @@ _DISABLED_FEATURES = (
     "memories",
 )
 _MAX_FRAME_BYTES = 1_048_576
-_MAX_REPORT_CHARS = 65_536
-# Actual 0.165 thread/start took 4.8-5.1 s; other requests keep the short default.
-# Above the takeover tool server's own 30 s startup, so its failure is reported.
-_THREAD_START_TIMEOUT = 45.0
-# Report text limits live in the schema itself. Strict outputs enforce `pattern`
-# while generating; they reject `maxLength`, so the model reads each bound from its
-# `description` and `_matches` enforces it, no looser than the Worker's adoption check.
-# Excludes controls and the invisible separators copied page text carries; `isprintable`
-# below remains the final check for any rarer unprintable character.
-# Non-ASCII members are literal characters (JSON escapes them), not regex `\\u` escapes,
-# which some regex dialects lack.
-_LINE = (
-    "^[^\\x00-\\x1f\x7f-\xa0\xad\u1680\u180e\u2000-\u200f\u2028-\u202f\u205f-\u206f\u3000\ufeff]+$"
-)
-
-
-def _text(limit):
-    return {
-        "type": "string",
-        "maxLength": limit,
-        "pattern": _LINE,
-        "description": f"Non-empty single-line printable text, at most {limit} characters.",
-    }
-
-
-_ID = _text(128)
-_REPORT_SCHEMA = {
-    "type": "object",
-    "additionalProperties": False,
-    "properties": {
-        "status": {
-            "type": "string",
-            "enum": [
-                "blocked_segment_resolved",
-                "ready_for_review",
-                "needs_input",
-                "needs_recheck",
-            ],
-        },
-        "summary": {
-            "type": "string",
-            "maxLength": 2000,
-            "description": "At most 2000 characters.",
-        },
-        "unresolved_action_ids": {"type": "array", "items": _ID, "maxItems": 1000},
-        "fields": {
-            "type": "array",
-            "maxItems": 1000,
-            "items": {
-                "type": "object",
-                "additionalProperties": False,
-                "properties": {"field_id": _ID, "state": _text(64)},
-                "required": ["field_id", "state"],
-            },
-        },
-        "next_step": {
-            "anyOf": [
-                {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "properties": {
-                        "kind": _text(64),
-                        "field_id": dict(
-                            _ID,
-                            type=["string", "null"],
-                            description="Null when no next field is named; otherwise "
-                            "non-empty single-line printable text, at most 128 characters.",
-                        ),
-                    },
-                    "required": ["kind", "field_id"],
-                },
-                {"type": "null"},
-            ]
-        },
-    },
-    # Strict structured outputs require every property; optional ones are nullable.
-    "required": ["status", "summary", "unresolved_action_ids", "fields", "next_step"],
-}
+_MAX_REPORT_CHARS = MAX_REPORT_CHARS
+# The report schema is the takeover record's one rule; the Worker adopts what it keeps.
+_REPORT_SCHEMA = REPORT_SCHEMA
+_matches = report_matches
 
 
 def _without_length_bounds(schema):
@@ -144,48 +103,13 @@ def _without_length_bounds(schema):
 _OUTPUT_SCHEMA = _without_length_bounds(_REPORT_SCHEMA)
 
 
-def _matches(value, schema):
-    """Check the small JSON Schema subset used by `_REPORT_SCHEMA`."""
-    if "anyOf" in schema:
-        return any(_matches(value, option) for option in schema["anyOf"])
-    if schema["type"] == "null":
-        return value is None
-    if isinstance(schema["type"], list):
-        # Only nullable scalars use a type list.
-        (kind,) = set(schema["type"]) - {"null"}
-        return value is None or _matches(value, dict(schema, type=kind))
-    if schema["type"] == "string":
-        return (
-            isinstance(value, str)
-            and value in schema.get("enum", (value,))
-            and len(value) <= schema.get("maxLength", len(value))
-            and (
-                "pattern" not in schema
-                or bool(re.fullmatch(schema["pattern"], value))
-                and value.isprintable()
-            )
-        )
-    if schema["type"] == "array":
-        return (
-            isinstance(value, list)
-            and len(value) <= schema["maxItems"]
-            and all(_matches(item, schema["items"]) for item in value)
-        )
-    properties = schema["properties"]
-    return (
-        isinstance(value, dict)
-        and set(schema["required"]) <= set(value) <= set(properties)
-        and all(_matches(item, properties[key]) for key, item in value.items())
-    )
-
-
 @dataclass(frozen=True)
 class CodexAssistConfig:
     executable: Path
     runtime: Path
     home: Path
     expected_version: str = PROTOCOL_VERSION
-    request_timeout: float = 2.0
+    request_timeout: float = 10.0
     stop_timeout: float = 1.0
     native_assistance_policy: dict | None = None
 
@@ -204,7 +128,8 @@ class CodexAssistConfig:
                 raise ValueError("Codex assistance requires explicit existing directories")
             object.__setattr__(self, name, path.resolve())
         object.__setattr__(self, "home", Path(validate_codex_home(self.home)))
-        if self.expected_version != PROTOCOL_VERSION:
+        # ``expected_version`` is the accepted floor; a newer CLI passes on capabilities.
+        if not protocol_version_supported(self.expected_version):
             raise ValueError("Codex assistance protocol version is unsupported")
         for value in (self.request_timeout, self.stop_timeout):
             if isinstance(value, bool) or not isinstance(value, (float, int)):
@@ -295,11 +220,11 @@ class _Run:
         self.native_turn_status = "idle"
         self.stopping_io = False
         self.native = None
+        # Every deadline of this run; a takeover carries the Worker's dispatched budget.
+        self.budget = DEFAULT_BUDGET
         self.report = None
 
 
-STARTUP_REQUEST_TIMEOUT = 30.0
-NATIVE_STATUS_TIMEOUT = 5.0
 STARTUP_METHODS = frozenset({"initialize", "config/read", "thread/start", "mcpServerStatus/list"})
 
 
@@ -322,6 +247,14 @@ class CodexAdapter:
         self._runs: dict[str, _Run] = {}
         self._requests: dict[str, tuple[str, str]] = {}
         self._bindings: dict[str, str] = {}
+        self._observed_version: str | None = None
+        # A run without a dispatched budget keeps the configured request and stop deadlines.
+        self._configured_budget = replace(
+            DEFAULT_BUDGET,
+            request=config.request_timeout,
+            stop=config.stop_timeout,
+            driver_timeout=max(DEFAULT_BUDGET.driver_timeout, config.stop_timeout),
+        )
 
     def _environment(self):
         return {
@@ -414,6 +347,7 @@ class CodexAdapter:
         pump,
         before_native_call,
         pending_action_id: str | None = None,
+        budget: TakeoverBudget | None = None,
     ) -> AssistRunProgress:
         """Start a native MCP turn only after original-host, same-Page handover.
 
@@ -421,6 +355,9 @@ class CodexAdapter:
         carries (its ``pending_intent_ref``); only that unknown action may be pending.
         """
         policy = validate_native_assistance_policy(self.config.native_assistance_policy)
+        # The Worker passes the budget it fixed at dispatch; a direct caller keeps the
+        # configured request and stop deadlines.
+        budget = self._configured_budget if budget is None else budget
         if (
             policy is None
             or not isinstance(assistance_ref, dict)
@@ -432,13 +369,12 @@ class CodexAdapter:
                 callable(callback)
                 for callback in (before_yield, after_yield, pump, before_native_call)
             )
-            or getattr(native_client, "native_session", None) is not True
-            or getattr(native_client, "driver_sha256", None) != policy["driver_sha256"]
-            or not all(
-                callable(getattr(native_client, name, None))
-                for name in ("yield_to", "handoff_status", "revoke_handoff", "admit_call")
-            )
-            or not isinstance(getattr(native_client, "socket_path", None), str)
+            or not isinstance(native_client, NativeHandoffPort)
+            or not isinstance(budget, TakeoverBudget)
+            # The budget's control deadlines must fit the session's real action bound.
+            or not budget.fits_driver(native_client.action_timeout)
+            or native_client.driver_sha256 != policy["driver_sha256"]
+            or not isinstance(native_client.socket_path, str)
             or not Path(native_client.socket_path).is_absolute()
         ):
             raise ValueError("Native takeover requires the trusted original host and policy")
@@ -456,18 +392,7 @@ class CodexAdapter:
         context = delivery["page_context"]
         actual_scope = context.get("native_scope") or {}
         if (
-            not isinstance(native_scope, dict)
-            or set(native_scope) != {"target_id", "tab_id", "expected_document"}
-            or any(
-                not isinstance(native_scope[k], str) or not 1 <= len(native_scope[k]) <= 512
-                for k in ("target_id", "tab_id")
-            )
-            or not isinstance(native_scope["expected_document"], dict)
-            or set(native_scope["expected_document"]) != {"frame_id", "loader_id", "url"}
-            or any(
-                not isinstance(v, str) or not 1 <= len(v) <= 20000
-                for v in native_scope["expected_document"].values()
-            )
+            not valid_page_scope(native_scope)
             or context.get("status") != "captured"
             or context.get("document") != native_scope["expected_document"]
             or not isinstance(actual_scope, dict)
@@ -476,7 +401,7 @@ class CodexAdapter:
         ):
             raise ValueError("Native takeover requires the captured original Page scope")
         executable = self._native_executable(driver_executable, policy["driver_sha256"])
-        if getattr(native_client, "driver_executable", None) != str(executable):
+        if native_client.driver_executable != str(executable):
             raise ValueError("Native takeover requires the original reviewed host executable")
         native = {
             "client": native_client,
@@ -499,6 +424,7 @@ class CodexAdapter:
             "published": None,
             "persistence_failed": False,
             "failed_receipt": None,
+            "budget": budget,
         }
         return self._start(assistance_ref, request_id=request_id, pump=pump, native=native)
 
@@ -607,6 +533,7 @@ class CodexAdapter:
             context_handler,
         )
         run.native = native
+        run.budget = native["budget"] if native is not None else self._configured_budget
         self._runs[run_id] = run
         self._requests[request_id] = binding, run_id
         self._bindings[binding] = run_id
@@ -619,11 +546,15 @@ class CodexAdapter:
                 cwd=self.config.runtime,
                 check=False,
             )
-            if (
-                version.returncode
-                or version.stdout.strip() != ("codex-cli " + self.config.expected_version).encode()
+            observed = version.stdout.decode(errors="replace").strip()[:100]
+            if version.returncode or not protocol_version_supported(
+                observed, self.config.expected_version
             ):
+                print(f"version_unsupported: {observed!r}", flush=True)
                 raise _ProtocolFailure("version_unsupported")
+            if observed != self._observed_version:
+                self._observed_version = observed
+                print(f"codex_cli_version: {observed}", flush=True)
             if native is not None:
                 self._native_rendezvous(run)
             run.process = subprocess.Popen(
@@ -727,7 +658,7 @@ class CodexAdapter:
                         else {}
                     ),
                 },
-                timeout=max(self.config.request_timeout, _THREAD_START_TIMEOUT),
+                timeout=run.budget.thread_start,
             )
             thread = result.get("thread")
             thread_id = thread.get("id") if isinstance(thread, dict) else None
@@ -828,138 +759,14 @@ class CodexAdapter:
             ],
             "enabled": True,
             "required": True,
-            "startup_timeout_sec": 30,
+            "startup_timeout_sec": math.ceil(run.budget.startup),
             # A write waits in this call for the Worker's admission, which took
             # 11-14 s per write (2026-11-02); at 15 s Codex cancelled one in flight.
-            "tool_timeout_sec": 60,
+            "tool_timeout_sec": math.ceil(run.budget.tool_call),
             "enabled_tools": list(NATIVE_HANDOFF_TOOLS),
             # approvalPolicy "never" otherwise refuses every non-read-only tool call.
             "tools": {name: {"approval_mode": "approve"} for name in NATIVE_HANDOFF_TOOLS},
         }
-
-    @staticmethod
-    def _native_metadata(value, *, initial=False):
-        fields = {
-            "handoff_id",
-            "generation",
-            "phase",
-            "revoked",
-            "active_calls",
-            "local_tools_drained",
-            "return_ready",
-            "calls",
-        }
-        required = (
-            {"handoff_id", "generation", "local_tools_drained", "yielded"} if initial else fields
-        )
-        if (
-            not isinstance(value, dict)
-            or not required <= set(value)
-            or "host_return_credential" in value
-        ):
-            raise _ProtocolFailure("native_handoff_status_unknown")
-        if (
-            not isinstance(value["handoff_id"], str)
-            or not 1 <= len(value["handoff_id"]) <= 200
-            or not value["handoff_id"].isprintable()
-            or type(value["generation"]) is not int
-            or value["generation"] < 0
-            or type(value["local_tools_drained"]) is not bool
-            or initial
-            and type(value["yielded"]) is not bool
-        ):
-            raise _ProtocolFailure("native_handoff_status_unknown")
-        result = {k: value[k] for k in fields if k in value}
-        if initial:
-            result["yielded"] = value["yielded"]
-        if not initial and (
-            not isinstance(value["phase"], str)
-            or not value["phase"].isidentifier()
-            or any(type(value[k]) is not bool for k in ("revoked", "return_ready"))
-            or type(value["active_calls"]) is not int
-            or value["active_calls"] < 0
-            or value["local_tools_drained"] != (value["active_calls"] == 0)
-            or value["return_ready"]
-            and not value["local_tools_drained"]
-            or not isinstance(value["calls"], list)
-            or len(value["calls"]) > 1000
-        ):
-            raise _ProtocolFailure("native_handoff_status_unknown")
-        if "calls" in result:
-            calls = []
-            allowed = {
-                "call_id",
-                "tool",
-                "arguments_digest",
-                "status",
-                "generation",
-                "sequence",
-                "mutation",
-                "semantic_verified",
-                "scope",
-                "text_sha256",
-                "native_ref",
-                "field_hint",
-            }
-            for row in result["calls"]:
-                if not isinstance(row, dict):
-                    raise _ProtocolFailure("native_handoff_status_unknown")
-                if row.get("tool") == "browser_deliver_material":
-                    try:
-                        calls.append(validate_native_material_metadata(row))
-                    except ValueError:
-                        raise _ProtocolFailure("native_handoff_status_unknown") from None
-                    continue
-                # Raw native arguments/results remain in native custody, not the Worker receipt.
-                item = {k: row[k] for k in allowed if k in row}
-                if (
-                    not isinstance(item.get("call_id"), str)
-                    or not 1 <= len(item["call_id"]) <= 128
-                    or not item["call_id"].isprintable()
-                    or item.get("tool") not in NATIVE_HANDOFF_TOOLS
-                    or not isinstance(item.get("arguments_digest"), str)
-                    or len(item["arguments_digest"]) != 64
-                    or any(c not in "0123456789abcdef" for c in item["arguments_digest"])
-                    or item.get("status")
-                    not in {"awaiting_host", "in_flight", "observed", "not_sent", "unknown"}
-                    or any(
-                        type(item.get(k)) is not int or item[k] <= 0
-                        for k in ("generation", "sequence")
-                    )
-                    or type(item.get("mutation")) is not bool
-                    or item.get("semantic_verified") is not False
-                    or item["mutation"] != (item["tool"] != "get_browser_state")
-                    or not isinstance(item.get("scope"), dict)
-                    or (
-                        item["mutation"]
-                        and (
-                            not isinstance(item.get("native_ref"), str)
-                            or not 1 <= len(item["native_ref"]) <= 256
-                            or not item["native_ref"].isprintable()
-                            or not isinstance(item.get("field_hint"), dict)
-                            or set(item["field_hint"]) != {"role", "name"}
-                            or any(
-                                not isinstance(v, str) or len(v) > 1000
-                                for v in item["field_hint"].values()
-                            )
-                        )
-                    )
-                    or (not item["mutation"] and ("native_ref" in item or "field_hint" in item))
-                    or (
-                        item["tool"] == "browser_type"
-                        and (
-                            not isinstance(item.get("text_sha256"), str)
-                            or len(item["text_sha256"]) != 64
-                            or any(c not in "0123456789abcdef" for c in item["text_sha256"])
-                        )
-                    )
-                ):
-                    raise _ProtocolFailure("native_handoff_status_unknown")
-                calls.append(item)
-            if len({call["call_id"] for call in calls}) != len(calls):
-                raise _ProtocolFailure("native_handoff_status_unknown")
-            result["calls"] = calls
-        return json.loads(json.dumps(result, allow_nan=False))
 
     def _native_activate(self, run):
         native = run.native
@@ -1031,7 +838,6 @@ class CodexAdapter:
                 driver_executable=native["driver"],
                 pump=lambda: self._native_owner_pump(run),
             )
-            receipt = self._native_metadata(receipt, initial=True)
             yielded = receipt.pop("yielded")
             native["receipt"] = receipt
             if yielded is not True:
@@ -1091,7 +897,8 @@ class CodexAdapter:
         native["published"] = canonical
 
     def _native_status(self, run, value):
-        value = self._native_metadata(value)
+        # The driver's handoff port returns only receipts that passed its one check.
+        value = json.loads(json.dumps(value))
         native = run.native
         original = native.get("receipt")
         if original and any(value[k] != original[k] for k in ("handoff_id", "generation")):
@@ -1208,7 +1015,7 @@ class CodexAdapter:
                 call["arguments_digest"],
                 "allow" if allow else "deny",
                 pump=None,
-                timeout=self.config.stop_timeout,
+                timeout=run.budget.admit,
                 **({"material_resolution": resolution} if allow and is_material else {}),
             )
             acknowledged = self._native_status(run, result)
@@ -1236,9 +1043,7 @@ class CodexAdapter:
                 # A routine poll while Codex holds control has the driver's own action
                 # bound: it took over 1 s while Codex connected (2026-10-31) and over
                 # 5 s with a write awaiting admission (2026-11-01). Stops keep their own.
-                timeout=getattr(native["client"], "timeout", NATIVE_STATUS_TIMEOUT)
-                if timeout is None
-                else timeout,
+                timeout=run.budget.status_poll if timeout is None else timeout,
             )
             if native["revoke_requested"] and not revoked:
                 # This poll's own owner pump stopped the run and journaled the later,
@@ -1270,10 +1075,7 @@ class CodexAdapter:
 
     @staticmethod
     def _native_control_inflight(run):
-        return any(
-            getattr(run.native["client"], key, False)
-            for key in ("handoff_transition_inflight", "control_inflight")
-        )
+        return run.native["client"].control_busy
 
     def _native_revoke(self, run):
         native = run.native
@@ -1282,7 +1084,7 @@ class CodexAdapter:
         native["revoking"] = True
         try:
             if not native["revoke_requested"]:
-                value = native["client"].revoke_handoff(pump=None, timeout=self.config.stop_timeout)
+                value = native["client"].revoke_handoff(pump=None, timeout=run.budget.stop)
                 native["revoke_requested"] = True
                 self._native_status(run, value)
             else:
@@ -1336,9 +1138,9 @@ class CodexAdapter:
         try:
             descriptor = run.process.stdin.fileno()
             selector.register(descriptor, selectors.EVENT_WRITE)
-            timeout = self.config.request_timeout if timeout is None else timeout
+            timeout = run.budget.request if timeout is None else timeout
             if run.tools_revoked:
-                timeout = min(timeout, self.config.stop_timeout)
+                timeout = min(timeout, run.budget.stop)
             deadline, sent = time.monotonic() + timeout, 0
             while sent < len(data):
                 if tool_result:
@@ -1407,12 +1209,8 @@ class CodexAdapter:
     def _request(self, run, method, params, *, timeout=None):
         if timeout is None:
             # Starting a thread launches the required takeover tool server (its own
-            # startup allows 30 s); 2 s let real runs time out (2026-10-31).
-            timeout = (
-                max(self.config.request_timeout, STARTUP_REQUEST_TIMEOUT)
-                if method in STARTUP_METHODS
-                else self.config.request_timeout
-            )
+            # startup bound); 2 s let real runs time out (2026-10-31).
+            timeout = run.budget.startup if method in STARTUP_METHODS else run.budget.request
         deadline = time.monotonic() + timeout
         run.next_request += 1
         identifier = run.next_request
@@ -1841,6 +1639,10 @@ class CodexAdapter:
         self._native_revoke(run)
         if run.native_turn_status == "running":
             run.native_turn_status = "unknown"
+        self._terminate(run)
+
+    def _terminate(self, run):
+        """End the local Codex process; signals only, never a protocol request."""
         process = run.process
         if process is not None:
             with suppress(OSError, ValueError):
@@ -1850,18 +1652,20 @@ class CodexAdapter:
                     with suppress(OSError):
                         os.killpg(process.pid, sig)
                 try:
-                    process.wait(timeout=self.config.stop_timeout)
+                    process.wait(timeout=run.budget.stop)
                     break
                 except subprocess.TimeoutExpired:
                     continue
             run.stop_reader.set()
             if run.reader:
-                run.reader.join(timeout=self.config.stop_timeout)
+                run.reader.join(timeout=run.budget.stop)
             process.stdout.close()
 
     def stop(self, run_id: str, *, request_id: str) -> AssistRunProgress:
         self._request_id(request_id)
         run = self._runs[run_id]
+        if run.stop_status == "unknown":
+            return self._recheck_stop(run)
         run.tools_revoked = True
         self._native_revoke(run)
         if run.stop_status == "stopped":
@@ -1879,7 +1683,7 @@ class CodexAdapter:
             return
         run.stopping_io = True
         try:
-            deadline = time.monotonic() + self.config.stop_timeout
+            deadline = time.monotonic() + run.budget.stop
             try:
                 if not run.reader_error:
                     for _ in range(64):
@@ -1917,19 +1721,34 @@ class CodexAdapter:
             run.stopping_io = False
         self._stop_result(run)
 
-    def _stop_result(self, run):
+    def _recheck_stop(self, run):
+        """After an unconfirmed stop, only read: no revoke or interrupt is sent again.
+
+        The driver's status read alone turns it into a proven stop once the handoff
+        is revoked, drained and returned and the Codex process is gone.
+        """
+        if run.process is not None and run.process.poll() is None:
+            # A local process the first stop could not end is still only signalled.
+            self._terminate(run)
+        native = run.native
+        if native is not None and native["yield_started"]:
+            try:
+                self._native_refresh(run, timeout=run.budget.stop)
+            except _ProtocolFailure as error:
+                if str(error) == "native_receipt_persistence_failed":
+                    raise
+        self._stop_result(run, recheck=True)
+        return self._snapshot(run)
+
+    def _stop_result(self, run, *, recheck=False):
         stopped = run.process is None or run.process.poll() is not None
         if run.reader and run.reader.is_alive():
             stopped = False
         native_stopped = True
         if run.native is not None and run.native["yield_started"]:
-            self._native_revoke(run)
-            native_status = run.native.get("status") or {}
-            native_stopped = (
-                native_status.get("revoked") is True
-                and native_status.get("local_tools_drained") is True
-                and native_status.get("return_ready") is True
-            )
+            if not recheck:
+                self._native_revoke(run)
+            native_stopped = native_return_proven(run.native.get("status"))
         run.stop_status = "stopped" if stopped and native_stopped else "unknown"
         persistence_failed = bool(run.native and run.native["persistence_failed"])
         run.status = "unknown" if persistence_failed else run.stop_status

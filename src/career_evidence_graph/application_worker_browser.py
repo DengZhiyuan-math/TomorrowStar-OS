@@ -29,6 +29,9 @@ from .application_automation import _job_identity, validate_application_target
 from .application_codex_assist import CodexAdapter, CodexAssistConfig
 from .application_execution import automated_owner, release_execution, require_execution
 from .application_information import fact_for
+from .application_page_scope import PAGE_SCOPE
+from .application_takeover_budget import DEFAULT_BUDGET, TakeoverBudget
+from .application_takeover_record import settle_unstarted_stop, stop_evidence_proven
 from .application_worker import (
     CONTROLLER_HANDOFF_INSPECTION,
     OWNED_PAGE_OBSERVATION,
@@ -70,7 +73,7 @@ from .ashby_drafts import DraftSession
 from .ashby_drafts import supports as supports_ashby_drafts
 from .ats_forms import FORMS, form_for
 from .career_portal_data import ApplicationStore, PortalDataError
-from .cua_driver import managed_cua_browser, sync_login_state
+from .cua_driver import managed_cua_browser, native_handoff_port, sync_login_state
 from .loaded_code import load_worker_modules, loaded_runtime_revision
 from .owned_browser_cdp import OwnedCDP, browser_budget, pause_browser_budget, pump_events
 from .owned_browser_cdp import screenshot as owned_screenshot
@@ -357,6 +360,10 @@ def _abort(route) -> None:
     # failed abort is not a lost browser connection (seen on a job board, 2026-10-31).
     with suppress(Error):
         route.abort("blockedbyclient")
+
+
+# How often an unconfirmed takeover stop is re-read (a status read, never a resend).
+STOP_RECHECK_INTERVAL = 2.0
 
 
 class ApplicationRunner:
@@ -2376,8 +2383,21 @@ class ApplicationRunner:
                 )
                 assistance = (job or {}).get("assistance")
                 runtime = state.get("runtime") or {}
-                observed = (job or {}).get("page_observation") or {}
                 now = time.time()
+                if (
+                    job
+                    and page is not None
+                    and not page.is_closed()
+                    and PAGE_SCOPE.refresh_due(state, job, now)
+                    and PAGE_SCOPE.current(state, job, now).valid
+                    and PAGE_SCOPE.refresh(state, job, now, run_id=self.run_id)
+                ):
+                    # This page thread holds the original handle: each check before and
+                    # after a read renews a still-current observation, so a slow read
+                    # (page age P95 7.2 s, 2026-11-02) is not mistaken for a lost scope.
+                    # An observation that already expired is never renewed here.
+                    self.persist(state)
+                scope = PAGE_SCOPE.current(state, job, now)
                 if (
                     not job
                     or not assistance
@@ -2406,8 +2426,7 @@ class ApplicationRunner:
                     or runtime.get("id") != self.run_id
                     or (runtime.get("source") or {}).get("sha256") != self._page_source
                     or not self._page_source
-                    or not 0 <= now - runtime.get("observed_at", 0) < 6
-                    or not 0 <= now - observed.get("at", 0) < 6
+                    or not scope.valid
                     or state.get("worker_error")
                 ):
                     # The private log keeps which part of the page scope changed.
@@ -2431,8 +2450,9 @@ class ApplicationRunner:
                                 "run": runtime.get("id") == self.run_id,
                                 "source": (runtime.get("source") or {}).get("sha256")
                                 == self._page_source,
-                                "runtime_age": round(now - runtime.get("observed_at", 0), 1),
-                                "page_age": round(now - observed.get("at", 0), 1),
+                                "scope_changed": scope.changed,
+                                "runtime_age": scope.runtime_age and round(scope.runtime_age, 1),
+                                "page_age": scope.page_age and round(scope.page_age, 1),
                                 "worker_error": state.get("worker_error"),
                             }
                         ),
@@ -2976,16 +2996,17 @@ class ApplicationRunner:
         """Deliver JSON, then let the original native session execute its own tools."""
         reference = deepcopy(assistance_ref)
         policy = self.native_assistance_policy
-        client = getattr(self.cua, "client", None)
-        executable = getattr(client, "driver_executable", None)
+        # The Adapter gets only the session's narrow handoff Interface.
+        port = native_handoff_port(getattr(self.cua, "client", None))
+        executable = port and port.driver_executable
         if (
             policy is None
             or self.codex_assist is None
             or reference.get("protocol") != "codex-assistance/native/v1"
             or reference.get("page_writes_enabled") is not True
             or reference.get("native_policy_digest") != digest(policy)
-            or getattr(client, "native_session", False) is not True
-            or getattr(client, "driver_sha256", None) != policy["driver_sha256"]
+            or port is None
+            or port.driver_sha256 != policy["driver_sha256"]
             or executable is None
         ):
             print("native_assistance_unavailable: worker capability", flush=True)
@@ -3114,6 +3135,8 @@ class ApplicationRunner:
             records = {row["call_id"]: row for row in latest.get("calls", [])}
             records[call["call_id"]] = deepcopy(call)
             receipt = {
+                "phase": "active",
+                "revoked": False,
                 **latest,
                 "calls": list(records.values()),
                 "active_calls": 1,
@@ -3155,6 +3178,9 @@ class ApplicationRunner:
             if row["application_id"] == reference["binding"]["application_id"]
         )
         pending_intent = held["intent"] if takeover_pending_intent(held) else None
+        # The budget the Worker fixed at dispatch; an older dispatch has the default.
+        saved_budget = ((held.get("assistance") or {}).get("dispatch") or {}).get("budget")
+        budget = TakeoverBudget.from_dict(saved_budget) if saved_budget else DEFAULT_BUDGET
         try:
             result = self.codex_assist.start_takeover(
                 reference,
@@ -3162,7 +3188,8 @@ class ApplicationRunner:
                 delivery=delivery,
                 pending_action_id=pending_intent
                 and (pending_intent.get("attempt_id") or digest(pending_intent)),
-                native_client=client,
+                native_client=port,
+                budget=budget,
                 native_scope=call_scope,
                 driver_executable=executable,
                 before_yield=before_yield,
@@ -3258,19 +3285,7 @@ class ApplicationRunner:
                         and assistance.get("binding", {}).get("run_id") == self.run_id
                         and (state.get("runtime") or {}).get("id") == self.run_id
                     ):
-                        changed |= adopt_assistance_stop(
-                            job,
-                            assistance_reference(assistance),
-                            {
-                                "tools_revoked": True,
-                                "local_tools_drained": True,
-                                "process_stopped": True,
-                                "native_turn_id": None,
-                                "native_turn_status": "idle",
-                                "stop_status": "stopped",
-                            },
-                            request_id=assistance["stop"]["request_id"],
-                        )
+                        changed |= settle_unstarted_stop(job)
                         changed |= self._paused_assistance_wait(job)
                 if changed:
                     self.persist(state)
@@ -3360,7 +3375,9 @@ class ApplicationRunner:
             if stopped.stop_status == "stopped":
                 self._assistance_stop_retry = (None, 0.0, 0.0)
             else:
-                delay = min(max(delay * 2, 1.0), 30.0) if retry_run == run_id else 1.0
+                # An unconfirmed stop is only re-read on later ticks; the Adapter
+                # sends no second revoke, interrupt or signal (2026-11-02: 379 resends).
+                delay = STOP_RECHECK_INTERVAL
                 self._assistance_stop_retry = (run_id, time.monotonic() + delay, delay)
             if matched:
                 with self.store.applications.write_lock():
@@ -3398,12 +3415,7 @@ class ApplicationRunner:
                         # stops keep the run so a later tick still records the loss.
                         self._assistance_run = None
                         self._assistance_baseline = None
-            elif (
-                stopped.stop_status == "stopped"
-                and stopped.process_stopped
-                and stopped.tools_revoked
-                and stopped.local_tools_drained
-            ):
+            elif stop_evidence_proven(asdict(stopped)):
                 # The job no longer holds this run's record (archived on Continue or
                 # replaced by a new claim) and its stop is proven: release the handle
                 # so the job's current claim can start.
@@ -3937,8 +3949,7 @@ class ApplicationRunner:
             now = time.time()
             state["worker_heartbeat"] = now
             state["worker_pid"] = os.getpid()
-            if state.get("runtime"):
-                state["runtime"]["observed_at"] = now
+            PAGE_SCOPE.refresh(state, now=now)
             for job in state["jobs"]:
                 page = self.pages.get(job["application_id"])
                 if page in self.blocked_pages and job["status"] not in {
