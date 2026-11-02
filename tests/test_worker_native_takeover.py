@@ -364,7 +364,7 @@ def test_native_control_pump_keeps_progress_while_renderer_scope_read_is_busy(
 
     monkeypatch.setattr(page.context, "new_cdp_session", busy_renderer)
 
-    def deliver_events():
+    def deliver_events(idle_ms=250):
         delivered.append("browser-events")
         if change == "pause":
             service.request("pause", {"controller": "synthetic-controller"})
@@ -1070,3 +1070,17 @@ def test_unconfirmed_stop_is_retried_with_backoff_not_every_tick(native_page, mo
     # Retried after 1 s, 2 s, then 4 s: still retried, but not on each tick.
     assert stops == pytest.approx([1000.0, 1001.1, 1003.6, 1007.6])
     assert runner._assistance_run is not None
+
+
+def test_codex_event_pump_does_not_idle_while_a_write_waits(native_page, monkeypatch):
+    # The driver drops a write not admitted within 15 s; each idle wait delayed it.
+    import career_evidence_graph.application_worker_browser as module
+
+    _, runner, _, ref, _, _ = native_page
+    waits = []
+    monkeypatch.setattr(module, "pump_events", lambda context, ms: waits.append(ms))
+    runner.context = object()
+    runner.pump_codex_events(ref)
+    assert waits and set(waits) == {5}
+    runner.pump()
+    assert waits[-1] == 250

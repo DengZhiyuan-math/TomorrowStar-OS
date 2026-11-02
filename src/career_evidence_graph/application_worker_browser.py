@@ -658,14 +658,14 @@ class ApplicationRunner:
             }
         )
 
-    def pump(self) -> None:
+    def pump(self, idle_ms: int = 250) -> None:
         if self.shared_fault:
             time.sleep(0.25)
             return
         try:
             # A local timer and owned task keep control moving without throwing
             # SIGALRM into Playwright's dispatcher, including under an outer scope.
-            pump_events(self.context, 5 if self.work_progressed else 250)
+            pump_events(self.context, 5 if self.work_progressed else idle_ms)
         except TimeoutError:
             pass
         except Error as error:
@@ -3489,7 +3489,9 @@ class ApplicationRunner:
         """Keep control and browser events alive without executing queued page work."""
         self.tick(control_only=True)
         if self.context is not None:
-            self.pump()
+            # Codex's own loop paces these calls; an idle wait here only delays a
+            # write's admission, which the driver drops after 15 s (2026-11-02).
+            self.pump(idle_ms=5)
         return self.assistance_read_permitted(assistance_ref, document=document)
 
     def _fill_route(self, page, question):
