@@ -27,7 +27,13 @@ def native_case(tmp_path, monkeypatch):
     policy = {
         "protocol": "cua-trusted-handoff/v1",
         "driver_sha256": driver_hash,
-        "tools": ["get_browser_state", "browser_click", "browser_type", "browser_deliver_material"],
+        "tools": [
+            "get_browser_state",
+            "browser_click",
+            "browser_type",
+            "browser_deliver_material",
+            "browser_set_value",
+        ],
         "type_mode": "insert_text",
     }
     ref = {
@@ -132,7 +138,7 @@ for line in sys.stdin:
              'authStatus':'unsupported','pluginId':None,'httpOrigin':None,'resources':[],
              'resourceTemplates':[],'tools':{name:{'name':name,'inputSchema':{'type':'object'}}
              for name in (['get_browser_state','browser_click','browser_type',
-                           'browser_deliver_material']
+                           'browser_deliver_material','browser_set_value']
                           + settings.get('extra_tools',[]))}}], 'nextCursor':None}
         catalog['data'][0].update(settings.get('catalog_extra',{}))
         if (settings.get('require_thread_catalog')
@@ -285,9 +291,10 @@ def test_native_takeover_hands_json_to_verified_native_tool_catalog(tmp_path, mo
                     "browser_click",
                     "browser_type",
                     "browser_deliver_material",
+                    "browser_set_value",
                 ],
                 # Without per-tool approve, approvalPolicy "never" refuses every
-                # non-read-only call (actual C1 r2); only the four tools are approved.
+                # non-read-only call (actual C1 r2); only the handoff tools are approved.
                 "tools": {
                     name: {"approval_mode": "approve"}
                     for name in (
@@ -295,6 +302,7 @@ def test_native_takeover_hands_json_to_verified_native_tool_catalog(tmp_path, mo
                         "browser_click",
                         "browser_type",
                         "browser_deliver_material",
+                        "browser_set_value",
                     )
                 },
             }
@@ -1023,6 +1031,7 @@ def test_native_policy_configuration_roundtrips_without_sharing_mutable_tools(
         "browser_click",
         "browser_type",
         "browser_deliver_material",
+        "browser_set_value",
     ]
 
 
@@ -1552,6 +1561,10 @@ def test_native_final_report_is_bound_to_the_active_turn(tmp_path, monkeypatch):
         instructions = thread["params"]["developerInstructions"]
         assert "next_step" in instructions and "null" in instructions
         assert "schema" in instructions
+        # Non-text controls use the DOM set_value tool; only unsupported ones return.
+        assert "with browser_set_value" in instructions
+        assert "browser_deliver_material" in instructions
+        assert "none of these tools supports" in instructions
         current = settle(adapter, run, config)
         assert current.native_turn_status == "completed"
         report = current.report

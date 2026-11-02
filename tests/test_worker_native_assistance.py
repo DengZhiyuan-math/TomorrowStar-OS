@@ -12,7 +12,13 @@ from career_evidence_graph.application_worker import WorkerService, digest
 POLICY = {
     "protocol": "cua-trusted-handoff/v1",
     "driver_sha256": "a" * 64,
-    "tools": ["get_browser_state", "browser_click", "browser_type", "browser_deliver_material"],
+    "tools": [
+        "get_browser_state",
+        "browser_click",
+        "browser_type",
+        "browser_deliver_material",
+        "browser_set_value",
+    ],
     "type_mode": "insert_text",
 }
 

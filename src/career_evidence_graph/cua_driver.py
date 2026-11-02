@@ -37,7 +37,7 @@ from .worker_process_identity import (
 
 # Reviewed release build of the restricted-metadata native successor, signed with the
 # pinned private identity. A version string alone cannot admit it.
-_NATIVE_HANDOFF_DRIVER_SHA256 = "c1ad41a61c5aa5cd9948cf2549413c57e3d7f215223d2a3310bf2306239122df"
+_NATIVE_HANDOFF_DRIVER_SHA256 = "2a5792ac7bb50c0da87d88824f6894f36f4f280a18ccbb1b063bd5d0c4811fa5"
 # The App bundles one cua-driver, so the script route admits the same reviewed bytes.
 _OWNED_DRIVER_SHA256 = _NATIVE_HANDOFF_DRIVER_SHA256
 NATIVE_HANDOFF_PROTOCOL = "cua-trusted-handoff/v1"
@@ -46,7 +46,11 @@ NATIVE_HANDOFF_TOOLS = (
     "browser_click",
     "browser_type",
     "browser_deliver_material",
+    # DOM value with read-back for date, select, checkbox and radio controls.
+    "browser_set_value",
 )
+# Tools whose call rows carry the SHA-256 of the requested text or value.
+_HASHED_VALUE_TOOLS = frozenset({"browser_type", "browser_set_value"})
 
 
 def validate_fixed_material_resolution(value, *, material_ref=None):
@@ -304,10 +308,10 @@ def _valid_handoff_call(row):
     mutation = tool != "get_browser_state"
     return bool(
         isinstance(row, dict)
-        and tool in {"get_browser_state", "browser_click", "browser_type"}
+        and tool in {"get_browser_state", "browser_click", *_HASHED_VALUE_TOOLS}
         and set(row)
         == _CALL_FIELDS
-        | ({"text_sha256"} if tool == "browser_type" else set())
+        | ({"text_sha256"} if tool in _HASHED_VALUE_TOOLS else set())
         | ({"native_ref", "field_hint"} if mutation else set())
         and _printable(row["call_id"], 128)
         and isinstance(row["arguments_digest"], str)
@@ -326,7 +330,7 @@ def _valid_handoff_call(row):
             and all(isinstance(v, str) and len(v) <= 1000 for v in row["field_hint"].values())
         )
         and (
-            tool != "browser_type"
+            tool not in _HASHED_VALUE_TOOLS
             or isinstance(row["text_sha256"], str)
             and _HEX64.fullmatch(row["text_sha256"])
         )

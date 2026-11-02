@@ -37,6 +37,13 @@ READ = {
     for key, value in CLICK.items()
     if key not in {"native_ref", "field_hint"} | {"call_id", "tool", "mutation"}
 } | {"call_id": "read-1", "tool": "get_browser_state", "mutation": False}
+SET_VALUE = dict(
+    CLICK,
+    call_id="set-1",
+    tool="browser_set_value",
+    field_hint={"role": "checkbox", "name": "I agree"},
+    text_sha256="b" * 64,
+)
 STATUS = {
     "handoff_id": "handoff",
     "generation": 1,
@@ -69,6 +76,11 @@ def changed(**changes):
         changed(calls=[dict(READ, native_ref="ref")]),
         changed(calls=[dict(CLICK, text_sha256="b" * 64)]),
         changed(calls=[dict(CLICK, scope={"target_id": "target"})]),
+        changed(calls=[{k: v for k, v in SET_VALUE.items() if k != "text_sha256"}]),
+        changed(calls=[{k: v for k, v in SET_VALUE.items() if k != "field_hint"}]),
+        changed(calls=[dict(SET_VALUE, mutation=False)]),
+        changed(calls=[dict(SET_VALUE, text_sha256="B" * 64)]),
+        changed(calls=[dict(SET_VALUE, material_ref="c" * 64)]),
         changed(phase="not an identifier"),
     ],
 )
@@ -85,6 +97,8 @@ def test_grant_and_status_are_the_two_receipt_forms():
     assert validate_handoff_receipt(grant, grant=True) == grant
     assert validate_handoff_receipt(dict(grant, yielded=True), grant=True)["yielded"] is True
     assert validate_handoff_receipt(STATUS) == STATUS
+    with_set_value = changed(calls=[CLICK, READ, SET_VALUE])
+    assert validate_handoff_receipt(with_set_value) == with_set_value
     assert worker._native_handoff_receipt(grant) == grant
     with pytest.raises(PortalDataError):
         worker._native_handoff_receipt(dict(grant, yielded=True))

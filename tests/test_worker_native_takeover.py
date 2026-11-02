@@ -328,6 +328,76 @@ def test_native_mutation_is_recorded_only_after_current_field_and_scope_check(na
     assert admitted == [change == "valid"]
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "allowed"),
+    [
+        ("Email", "saved@example.invalid", True),
+        ("I agree to the privacy policy", "true", True),
+        ("I agree to the privacy policy", "false", True),
+        ("Email", "other@example.invalid", False),
+        ("Email", "True", False),
+    ],
+)
+def test_native_set_value_admits_only_a_confirmed_fact_or_a_checked_state(
+    native_page, field, value, allowed
+):
+    from test_application_information import answer
+
+    from career_evidence_graph._vendor import job_apply_store as helper
+
+    service, runner, page, ref, calls, _ = native_page
+    page.field_value = ""
+    helper.atomic_write_json(
+        service.store.answers.root / "answers.json",
+        {
+            "schemaVersion": 1,
+            "answers": dict([answer("Email", "saved@example.invalid")]),
+            "metadata": {},
+        },
+    )
+    admitted = []
+
+    class Adapter:
+        def start_takeover(self, original, **kwargs):
+            kwargs["before_yield"](
+                {
+                    "application_ref_digest": digest(ref),
+                    "scope": kwargs["native_scope"],
+                    "request_id": kwargs["request_id"],
+                }
+            )
+            kwargs["after_yield"](
+                {"handoff_id": "native-run", "generation": 1, "local_tools_drained": True}
+            )
+            call = {
+                "call_id": "native-set-value",
+                "tool": "browser_set_value",
+                "arguments_digest": "b" * 64,
+                "status": "awaiting_host",
+                "generation": 1,
+                "sequence": 1,
+                "mutation": True,
+                "semantic_verified": False,
+                "scope": kwargs["native_scope"],
+                "native_ref": "fresh-native-ref",
+                "field_hint": {"role": "checkbox", "name": field},
+                "text_sha256": hashlib.sha256(value.encode()).hexdigest(),
+            }
+            admitted.append(kwargs["before_native_call"](call))
+            row = service.store.load()["jobs"][0]["native_handoff_runs"][-1]
+            recorded = [c["call_id"] for c in row["events"][-1]["receipt"].get("calls", [])]
+            assert ("native-set-value" in recorded) is admitted[-1]
+            return SimpleNamespace(run_id="adapter-native-run")
+
+        def progress(self, run_id):
+            return SimpleNamespace(status="ready", tools_revoked=False)
+
+    runner.codex_assist = Adapter()
+    runner._service_assistance_stop = lambda: None
+    runner.start_native_assistance(ref, request_id="native-set-value")
+    assert admitted == [allowed]
+
+
 @pytest.mark.parametrize("change", ["unchanged", "pause", "page_replaced", "expired_owner"])
 def test_native_control_pump_keeps_progress_while_renderer_scope_read_is_busy(
     native_page, monkeypatch, change

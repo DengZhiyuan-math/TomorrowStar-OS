@@ -662,13 +662,17 @@ class CodexAdapter:
                                 "next_step is null, or its field_id null, when no next field "
                                 "is named. Turn completion is not verified application "
                                 "completion. Use browser_type only for text inputs (text, "
-                                "email, tel, url, number, search, textarea). Do not set date, "
-                                "select/combobox, radio, checkbox or file controls with "
-                                "browser_type or browser_click; the Worker's script fills them "
-                                "after return. Name the first such field in next_step with "
-                                "kind return_to_script, and list the others in fields with "
-                                "state left_for_script. Never retry browser_type on a field "
-                                "after an unknown or refused result."
+                                "email, tel, url, number, search, textarea). Set date, select, "
+                                "radio and checkbox controls with browser_set_value: value is "
+                                "a supplied confirmed answer or one of the control's options, "
+                                '"true"/"false" for a checkbox or radio, YYYY-MM-DD for a '
+                                "date; pass expected_value only to name the value the latest "
+                                "snapshot shows. Deliver files only with "
+                                "browser_deliver_material. Name the first control none of "
+                                "these tools supports in next_step with kind return_to_script, "
+                                "and list the others in fields with state left_for_script. "
+                                "Never retry a tool on a field after an unknown or refused "
+                                "result."
                             )
                         }
                         if native

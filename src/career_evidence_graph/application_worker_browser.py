@@ -3137,7 +3137,7 @@ class ApplicationRunner:
             if current.get("intent") is not None and not takeover_pending_intent(current):
                 return False
             self.store.validate_native_answers(reference, delivery["answers"])
-            if call.get("tool") == "browser_type":
+            if call.get("tool") in {"browser_type", "browser_set_value"}:
                 field_name = (call.get("field_hint") or {}).get("name")
                 if not isinstance(field_name, str) or not field_name.strip():
                     return False
@@ -3149,6 +3149,11 @@ class ApplicationRunner:
                     and fact.get("status") == "confirmed"
                     and isinstance(fact.get("value"), str)
                 }
+                if call["tool"] == "browser_set_value":
+                    # A checkbox or radio state; the driver accepts these words only there.
+                    allowed |= {
+                        hashlib.sha256(word.encode()).hexdigest() for word in ("true", "false")
+                    }
                 if call.get("text_sha256") not in allowed:
                     return False
             # Persist the exact native request metadata before the host admits it.

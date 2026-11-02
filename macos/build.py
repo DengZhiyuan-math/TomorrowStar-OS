@@ -68,14 +68,15 @@ def copy_cua_driver(resources: Path, driver: Path) -> dict:
         "local_divergence": (
             "windowless ownership, scope retention, snapshot and exit repairs; trusted native "
             "handoff and bound material delivery; restricted handoff metadata; receiver grant "
-            "wait and host admission time from the takeover budget"
+            "wait and host admission time from the takeover budget; DOM set_value with read-back "
+            "for date, select, checkbox and radio controls in native handoff"
         ),
         # MC-10 successor source tree and its divergence from the sealed MC-06 source.
         "source_manifest_sha256": (
-            "9c73ac58fa1b056e61fb054ccb8d1904c149a4a659c7f798ccbb4189b21ca45f"
+            "601dbbcc3d14c6c836082b4be6c5cdc89a6c5cc5907b5f359cfbe20c7083431d"
         ),
         "source_divergence_patch_sha256": (
-            "234fccdf5994ef654b4b8857d18d7b942258a904657a5ae17ada7bef8a07d49a"
+            "6b0bcf057f500dbd98f41203beff818d52d41ff71012ff16ffba79c3eab2de30"
         ),
         "build_profile": "release, signed with the pinned private identity",
         "additional_local_divergence": (
