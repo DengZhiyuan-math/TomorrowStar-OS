@@ -13,6 +13,7 @@ import pytest
 from career_evidence_graph import cua_driver
 from career_evidence_graph.application_codex_assist import CodexAdapter, CodexAssistConfig
 from career_evidence_graph.application_worker import valid_assistance_report
+from career_evidence_graph.career_portal_data import PortalDataError
 from career_evidence_graph.validation.hashing import record_digest as digest
 
 
@@ -851,6 +852,37 @@ def test_routine_native_status_poll_has_the_driver_action_bound(tmp_path, monkey
     try:
         adapter.progress(run.run_id)
         assert timeouts and set(timeouts) == {15}
+    finally:
+        adapter.close()
+
+
+def test_status_read_before_its_own_pump_revoked_is_not_saved_after_the_revoke(
+    tmp_path, monkeypatch
+):
+    """A stop run by the poll's own owner pump journals the later, revoked receipt."""
+    config, ref, scope, packet, driver, native, events = native_case(tmp_path, monkeypatch)
+    durable = []
+
+    def persist(receipt):
+        # The store refuses a granted phase after a stopping one.
+        if durable and durable[-1].get("revoked") and not receipt.get("revoked"):
+            raise PortalDataError("native_handoff_unresolved", "synthetic", 409)
+        durable.append(deepcopy(receipt))
+
+    adapter, run = start_case(config, ref, scope, packet, driver, native, after_yield=persist)
+    status = native.handoff_status
+
+    def handoff_status(**kwargs):
+        value = status(**kwargs)
+        if kwargs.get("pump") is not None and not native.revoked:
+            adapter.stop(run.run_id, request_id="stop-in-owner-pump")
+        return value
+
+    try:
+        native.handoff_status = handoff_status
+        current = adapter.progress(run.run_id)
+        assert durable[-1].get("revoked") and current.tools_revoked
+        assert current.error_code != "native_receipt_persistence_failed"
     finally:
         adapter.close()
 

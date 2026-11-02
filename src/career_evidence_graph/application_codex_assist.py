@@ -1221,6 +1221,7 @@ class CodexAdapter:
             native["status"] = None
             return
         native["polling"] = True
+        revoked = native["revoke_requested"]
         try:
             value = native["client"].handoff_status(
                 pump=lambda: self._native_owner_pump(run),
@@ -1231,6 +1232,10 @@ class CodexAdapter:
                 if timeout is None
                 else timeout,
             )
+            if native["revoke_requested"] and not revoked:
+                # This poll's own owner pump stopped the run and journaled the later,
+                # revoked receipt; the status read before it must not follow (2026-11-02).
+                return
             value = self._native_status(run, value)
             if not run.tools_revoked and not value["revoked"]:
                 if any(call["status"] == "unknown" for call in value["calls"]):
