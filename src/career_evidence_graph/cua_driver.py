@@ -766,7 +766,10 @@ class NativeCuaSessionClient:
                     raise ValueError("Invalid native service response")
                 self.reply_sequence = self.sequence
                 if not value["ok"]:
-                    raise PortalDataError("cua_refused", "原生驱动拒绝本次操作。", 409)
+                    # The driver's refusal code stays as the private cause only.
+                    raise PortalDataError("cua_refused", "原生驱动拒绝本次操作。", 409) from (
+                        ValueError(str(value.get("error"))[:200])
+                    )
                 return value.get("result")
         raise TimeoutError("native service response deadline")
 

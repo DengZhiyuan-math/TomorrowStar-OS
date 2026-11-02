@@ -814,3 +814,20 @@ def test_yield_receipt_requires_boolean_grant(tmp_path, monkeypatch, yielded):
             assert not any(r["method"] == "trusted_session_handoff_admit" for r in requests)
         finally:
             client.close()
+
+
+def test_native_refusal_keeps_the_driver_code_as_its_private_cause(tmp_path):
+    with native_service(tmp_path) as (path, options, process, _, _):
+        client = NativeCuaSessionClient(path, process, options, driver_sha256="1" * 64, timeout=1)
+        ours, driver = socket.socketpair()
+        try:
+            ours.setblocking(False)
+            driver.sendall(b'{"ok": false, "error": "handoff_receiver_unavailable"}\n')
+            with pytest.raises(PortalDataError) as refused:
+                client._exchange(ours, {"method": "trusted_session_yield"})
+            assert refused.value.code == "cua_refused"
+            assert str(refused.value.__cause__) == "handoff_receiver_unavailable"
+        finally:
+            ours.close()
+            driver.close()
+            client.close()
