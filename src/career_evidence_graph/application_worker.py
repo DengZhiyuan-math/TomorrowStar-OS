@@ -467,14 +467,8 @@ def _native_handoff_receipt(value):
         ) from error
 
 
-def _native_stop_proven(receipt):
-    return bool(
-        isinstance(receipt, dict)
-        and receipt.get("local_tools_drained") is True
-        and receipt.get("revoked") is True
-        and receipt.get("active_calls") == 0
-        and receipt.get("return_ready") is True
-    )
+# The driver's proof that a handoff is over is the takeover record's one rule.
+_native_stop_proven = takeover_record.native_return_proven
 
 
 def _validate_native_handoff_runs(runs):
@@ -700,6 +694,7 @@ def valid_assistance(assistance, application_id):
         or set(assistance)
         - fields
         - {"stop", "backend_authority", "backend_loss", "report", "outcome", "superseded"}
+        - {"retired"}
         - (
             {"native_policy_digest", "dispatch"}
             if assistance.get("protocol") == CODEX_NATIVE_ASSISTANCE
@@ -1916,6 +1911,7 @@ class WorkerStore:
                 or any(
                     not valid_assistance(row, job["application_id"])
                     or row["status"] not in {"stopped", "released"}
+                    and not takeover_record.valid_retirement(row.get("retired"))
                     for row in job["assistance_history"]
                 )
             )

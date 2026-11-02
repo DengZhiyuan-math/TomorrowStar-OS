@@ -26,7 +26,12 @@ from pathlib import Path
 
 from ._vendor.job_apply_store import StoreError
 from .application_takeover_budget import DEFAULT_BUDGET, TakeoverBudget
-from .application_takeover_record import MAX_REPORT_CHARS, REPORT_SCHEMA, report_matches
+from .application_takeover_record import (
+    MAX_REPORT_CHARS,
+    REPORT_SCHEMA,
+    native_return_proven,
+    report_matches,
+)
 from .codex_cli import CodexCLIError, validate_codex_executable, validate_codex_home
 from .cua_driver import (
     NATIVE_HANDOFF_PROTOCOL,
@@ -1634,6 +1639,10 @@ class CodexAdapter:
         self._native_revoke(run)
         if run.native_turn_status == "running":
             run.native_turn_status = "unknown"
+        self._terminate(run)
+
+    def _terminate(self, run):
+        """End the local Codex process; signals only, never a protocol request."""
         process = run.process
         if process is not None:
             with suppress(OSError, ValueError):
@@ -1655,6 +1664,8 @@ class CodexAdapter:
     def stop(self, run_id: str, *, request_id: str) -> AssistRunProgress:
         self._request_id(request_id)
         run = self._runs[run_id]
+        if run.stop_status == "unknown":
+            return self._recheck_stop(run)
         run.tools_revoked = True
         self._native_revoke(run)
         if run.stop_status == "stopped":
@@ -1710,19 +1721,34 @@ class CodexAdapter:
             run.stopping_io = False
         self._stop_result(run)
 
-    def _stop_result(self, run):
+    def _recheck_stop(self, run):
+        """After an unconfirmed stop, only read: no revoke or interrupt is sent again.
+
+        The driver's status read alone turns it into a proven stop once the handoff
+        is revoked, drained and returned and the Codex process is gone.
+        """
+        if run.process is not None and run.process.poll() is None:
+            # A local process the first stop could not end is still only signalled.
+            self._terminate(run)
+        native = run.native
+        if native is not None and native["yield_started"]:
+            try:
+                self._native_refresh(run, timeout=run.budget.stop)
+            except _ProtocolFailure as error:
+                if str(error) == "native_receipt_persistence_failed":
+                    raise
+        self._stop_result(run, recheck=True)
+        return self._snapshot(run)
+
+    def _stop_result(self, run, *, recheck=False):
         stopped = run.process is None or run.process.poll() is not None
         if run.reader and run.reader.is_alive():
             stopped = False
         native_stopped = True
         if run.native is not None and run.native["yield_started"]:
-            self._native_revoke(run)
-            native_status = run.native.get("status") or {}
-            native_stopped = (
-                native_status.get("revoked") is True
-                and native_status.get("local_tools_drained") is True
-                and native_status.get("return_ready") is True
-            )
+            if not recheck:
+                self._native_revoke(run)
+            native_stopped = native_return_proven(run.native.get("status"))
         run.stop_status = "stopped" if stopped and native_stopped else "unknown"
         persistence_failed = bool(run.native and run.native["persistence_failed"])
         run.status = "unknown" if persistence_failed else run.stop_status

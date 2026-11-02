@@ -14,6 +14,7 @@ BLOCKER = {
     "observed_at": 1.0,
 }
 PROVEN = {
+    "stop_status": "stopped",
     "tools_revoked": True,
     "local_tools_drained": True,
     "process_stopped": True,
@@ -74,3 +75,45 @@ def test_adapter_and_worker_share_one_report_rule():
     assert worker.valid_assistance_report is record.valid_assistance_report
     assert worker.revoke_assistance is record.revoke_assistance
     assert worker.record_takeover_failure is record.record_takeover_failure
+
+
+def test_one_stop_definition_reads_saved_stops_progress_and_driver_receipts():
+    assert record.stop_evidence_proven(PROVEN)
+    assert not record.stop_evidence_proven(dict(PROVEN, stop_status="unknown"))
+    assert not record.stop_evidence_proven(dict(PROVEN, local_tools_drained=False))
+    returned = {"revoked": True, "local_tools_drained": True, "active_calls": 0}
+    assert record.native_return_proven(dict(returned, return_ready=True))
+    assert not record.native_return_proven(dict(returned, return_ready=False))
+    assert worker._native_stop_proven is record.native_return_proven
+    assert worker.assistance_stop_pending({"assistance": row(1, status="stop_unknown")})
+
+
+def test_reopen_keeps_the_observed_stop_and_retirement_proves_it():
+    unknown = dict(PROVEN, stop_status="unknown", local_tools_drained=False, request_id="s")
+    job = {"assistance": row(3, status="stop_unknown", stop=unknown)}
+    retired_stop = record.retire_for_reopen(job)
+    (kept,) = job["assistance_history"]
+    assert retired_stop == unknown and kept["stop"] == unknown
+    assert kept["status"] == "stop_unknown" and kept["retired"]["reason"] == "page_reopened"
+    assert record.stop_proven(kept) and record.capacity_left(job)
+    assert record.next_generation(job) == 4
+
+
+def test_unstarted_takeover_stop_is_settled_by_the_record():
+    stop = {
+        "request_id": "stop",
+        "reason": "assistance_unavailable",
+        "requested_at": 1.0,
+        "tools_revoked": True,
+        "local_tools_drained": False,
+        "process_stopped": False,
+        "native_turn_id": None,
+        "native_turn_status": "unknown",
+        "stop_status": "stopping",
+        "observed_at": None,
+    }
+    job = {"assistance": {"status": "stopping", "stop": stop}}
+    assert record.settle_unstarted_stop(job)
+    assert job["assistance"]["status"] == "stopped"
+    assert record.valid_assistance_stop(job["assistance"]["stop"], "stopped")
+    assert not record.settle_unstarted_stop(job)

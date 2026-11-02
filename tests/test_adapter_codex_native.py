@@ -1882,3 +1882,22 @@ def test_dispatched_budget_sets_each_native_deadline_and_must_fit_the_driver(tmp
         assert (server["startup_timeout_sec"], server["tool_timeout_sec"]) == (30, 60)
     finally:
         adapter.close()
+
+
+def test_unconfirmed_native_stop_is_only_reread_until_the_driver_proves_it(tmp_path, monkeypatch):
+    """After stop_unknown nothing is revoked or interrupted again; a status read decides."""
+    config, ref, scope, packet, driver, native, events = native_case(tmp_path, monkeypatch)
+    adapter, run = start_case(config, ref, scope, packet, driver, native)
+    try:
+        native.active = 1  # a native call is still in flight when the stop is sent
+        first = adapter.stop(run.run_id, request_id="stop-one")
+        assert (first.stop_status, first.error_code) == ("unknown", "stop_unknown")
+        sent = [m.get("method") for m in recorded(config) if "method" in m]
+        assert events.count("revoke") == 1
+        native.active = 0
+        again = adapter.stop(run.run_id, request_id="stop-one")
+        assert again.stop_status == "stopped" and again.error_code is None
+        assert events.count("revoke") == 1
+        assert [m.get("method") for m in recorded(config) if "method" in m] == sent
+    finally:
+        adapter.close()

@@ -30,6 +30,7 @@ from .application_codex_assist import CodexAdapter, CodexAssistConfig
 from .application_execution import automated_owner, release_execution, require_execution
 from .application_information import fact_for
 from .application_takeover_budget import DEFAULT_BUDGET, TakeoverBudget
+from .application_takeover_record import settle_unstarted_stop, stop_evidence_proven
 from .application_worker import (
     CONTROLLER_HANDOFF_INSPECTION,
     OWNED_PAGE_OBSERVATION,
@@ -359,6 +360,10 @@ def _abort(route) -> None:
     # failed abort is not a lost browser connection (seen on a job board, 2026-10-31).
     with suppress(Error):
         route.abort("blockedbyclient")
+
+
+# How often an unconfirmed takeover stop is re-read (a status read, never a resend).
+STOP_RECHECK_INTERVAL = 2.0
 
 
 class ApplicationRunner:
@@ -3267,19 +3272,7 @@ class ApplicationRunner:
                         and assistance.get("binding", {}).get("run_id") == self.run_id
                         and (state.get("runtime") or {}).get("id") == self.run_id
                     ):
-                        changed |= adopt_assistance_stop(
-                            job,
-                            assistance_reference(assistance),
-                            {
-                                "tools_revoked": True,
-                                "local_tools_drained": True,
-                                "process_stopped": True,
-                                "native_turn_id": None,
-                                "native_turn_status": "idle",
-                                "stop_status": "stopped",
-                            },
-                            request_id=assistance["stop"]["request_id"],
-                        )
+                        changed |= settle_unstarted_stop(job)
                         changed |= self._paused_assistance_wait(job)
                 if changed:
                     self.persist(state)
@@ -3369,7 +3362,9 @@ class ApplicationRunner:
             if stopped.stop_status == "stopped":
                 self._assistance_stop_retry = (None, 0.0, 0.0)
             else:
-                delay = min(max(delay * 2, 1.0), 30.0) if retry_run == run_id else 1.0
+                # An unconfirmed stop is only re-read on later ticks; the Adapter
+                # sends no second revoke, interrupt or signal (2026-11-02: 379 resends).
+                delay = STOP_RECHECK_INTERVAL
                 self._assistance_stop_retry = (run_id, time.monotonic() + delay, delay)
             if matched:
                 with self.store.applications.write_lock():
@@ -3407,12 +3402,7 @@ class ApplicationRunner:
                         # stops keep the run so a later tick still records the loss.
                         self._assistance_run = None
                         self._assistance_baseline = None
-            elif (
-                stopped.stop_status == "stopped"
-                and stopped.process_stopped
-                and stopped.tools_revoked
-                and stopped.local_tools_drained
-            ):
+            elif stop_evidence_proven(asdict(stopped)):
                 # The job no longer holds this run's record (archived on Continue or
                 # replaced by a new claim) and its stop is proven: release the handle
                 # so the job's current claim can start.

@@ -300,20 +300,51 @@ def valid_assistance_stop(stop, status):
     )
 
 
+def native_return_proven(receipt):
+    """The driver's own proof that a handoff is over: revoked, drained and returned."""
+    return bool(
+        isinstance(receipt, dict)
+        and receipt.get("revoked") is True
+        and receipt.get("local_tools_drained") is True
+        and receipt.get("active_calls", 0) == 0
+        and receipt.get("return_ready") is True
+    )
+
+
+def stop_evidence_proven(stop):
+    """Stop evidence (a saved stop or the Adapter's progress) that proves the stop."""
+    return bool(
+        isinstance(stop, dict)
+        and stop.get("stop_status") == "stopped"
+        and stop.get("tools_revoked") is True
+        and stop.get("local_tools_drained") is True
+        and stop.get("process_stopped") is True
+    )
+
+
+def valid_retirement(value):
+    return bool(
+        isinstance(value, dict)
+        and set(value) == {"reason", "at"}
+        and value["reason"] == "page_reopened"
+        and valid_timestamp(value["at"])
+    )
+
+
 def stop_proven(assistance):
     """The one definition of a proven stop: no Codex tool can still reach the page.
 
     Tools are revoked, local tool calls drained and the native process stopped. A
-    record without a takeover (None or empty) has nothing left to stop.
+    takeover retired with its closed page is over too: reopening requires that the
+    old run, and the native driver that held its tools, had exited. A record without
+    a takeover (None or empty) has nothing left to stop.
     """
     if not assistance:
         return True
-    stop = assistance.get("stop") or {}
-    return (
-        assistance.get("status") in {"stopped", "released"}
-        and stop.get("tools_revoked") is True
-        and stop.get("local_tools_drained") is True
-        and stop.get("process_stopped") is True
+    if valid_retirement(assistance.get("retired")):
+        return True
+    return assistance.get("status") in {"stopped", "released"} and stop_evidence_proven(
+        assistance.get("stop")
     )
 
 
@@ -511,7 +542,8 @@ def retire_for_reopen(job):
     """Retire the closed page's takeover; return the unconfirmed stop it carried, if any.
 
     Reopen runs only after the old run exited and its native driver went with it, so
-    nothing can still be in flight. An unconfirmed stop is kept for the reopen record.
+    nothing can still be in flight. The stop record stays exactly as observed; the
+    retirement itself is what `stop_proven` reads.
     """
     row = job.pop("assistance", None)
     if not row:
@@ -519,7 +551,27 @@ def retire_for_reopen(job):
     retired_stop = None
     if row["status"] not in {"stopped", "released"}:
         retired_stop = deepcopy(row["stop"])
-        row["stop"].update(stop_status="stopped", local_tools_drained=True, observed_at=time.time())
-        row["status"] = "stopped"
+        row["retired"] = {"reason": "page_reopened", "at": time.time()}
     archive(job, row)
     return retired_stop
+
+
+def settle_unstarted_stop(job):
+    """A takeover whose run never started reached nothing; its stop is proven as is.
+
+    Only the runner that owns the claim decides that no run started (it refused or
+    never began the dispatch); this transition records that conclusion.
+    """
+    assistance = job.get("assistance")
+    stop = (assistance or {}).get("stop")
+    if not assistance or assistance.get("status") != "stopping" or not stop:
+        return False
+    stop.update(
+        local_tools_drained=True,
+        process_stopped=True,
+        native_turn_status="idle" if stop["native_turn_id"] is None else "unknown",
+        stop_status="stopped",
+        observed_at=time.time(),
+    )
+    assistance["status"] = "stopped"
+    return True
