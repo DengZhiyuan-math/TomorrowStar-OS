@@ -12,7 +12,6 @@ from __future__ import annotations
 import math
 import time
 from dataclasses import dataclass
-from typing import NamedTuple
 
 from .application_takeover_budget import DEFAULT_BUDGET
 
@@ -20,7 +19,8 @@ from .application_takeover_budget import DEFAULT_BUDGET
 REFRESH_AFTER = 1.0
 
 
-class ScopeCheck(NamedTuple):
+@dataclass(frozen=True)
+class ScopeCheck:
     valid: bool
     # The first part that is no longer current, or None.
     changed: str | None

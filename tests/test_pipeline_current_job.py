@@ -377,7 +377,14 @@ def test_codex_filling_complete_projects_manual_submit_wait_not_submitted(curren
     state = worker.store.load()
     current = state["jobs"][0]
     now = time.time()
-    claimed = {"status": "ready_for_review", "summary": "Form filled", "unresolved_action_ids": []}
+    # Every schema property is present, as the Adapter's report check requires.
+    claimed = {
+        "status": "ready_for_review",
+        "summary": "Form filled",
+        "unresolved_action_ids": [],
+        "fields": [],
+        "next_step": None,
+    }
     report = {
         "protocol": "assistance-report/v1",
         "request_id": "report-one",

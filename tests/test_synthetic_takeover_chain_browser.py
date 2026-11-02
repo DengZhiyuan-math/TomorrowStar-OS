@@ -123,6 +123,7 @@ def report(status, field_id, next_field=None, summary="Selected"):
         "summary": summary,
         "unresolved_action_ids": [],
         "fields": [{"field_id": field_id, "state": "filled"}],
+        "next_step": None,
     }
     if next_field is not None:
         claimed["next_step"] = {"kind": "return_to_script", "field_id": next_field}
