@@ -84,6 +84,15 @@ from .validation.hashing import record_digest as digest
 from .workable_uploads import ResumeUpload, job_shortcode
 from .worker_process_identity import process_identity
 
+# A checkbox or radio state is admitted only from the field's own confirmed fact, so
+# Codex cannot tick consents nobody saved (2026-11-03 audit).
+NATIVE_AFFIRMATIVE_FACT_VALUES = frozenset(
+    {"yes", "true", "y", "ja", "agree", "agreed", "accept", "accepted", "同意", "是"}
+)
+NATIVE_NEGATIVE_FACT_VALUES = frozenset(
+    {"no", "false", "n", "nein", "disagree", "decline", "不同意", "否"}
+)
+
 # Fixed DOM reads. Page text and model output never become executable code.
 INSPECT = FORMS["lever"].inspect_script()
 
@@ -3142,18 +3151,23 @@ class ApplicationRunner:
                 if not isinstance(field_name, str) or not field_name.strip():
                     return False
                 expected_fact = fact_for(field_name)
-                allowed = {
-                    hashlib.sha256(fact["value"].encode()).hexdigest()
+                values = [
+                    fact["value"]
                     for fact in delivery["answers"]["facts"]
                     if fact.get("fact") == expected_fact
                     and fact.get("status") == "confirmed"
                     and isinstance(fact.get("value"), str)
-                }
+                ]
+                allowed = {hashlib.sha256(value.encode()).hexdigest() for value in values}
                 if call["tool"] == "browser_set_value":
-                    # A checkbox or radio state; the driver accepts these words only there.
-                    allowed |= {
-                        hashlib.sha256(word.encode()).hexdigest() for word in ("true", "false")
-                    }
+                    # A checkbox or radio state follows the field's confirmed yes or no.
+                    words = {value.strip().casefold() for value in values}
+                    for state, vocabulary in (
+                        ("true", NATIVE_AFFIRMATIVE_FACT_VALUES),
+                        ("false", NATIVE_NEGATIVE_FACT_VALUES),
+                    ):
+                        if words & vocabulary:
+                            allowed.add(hashlib.sha256(state.encode()).hexdigest())
                 if call.get("text_sha256") not in allowed:
                     return False
             # Persist the exact native request metadata before the host admits it.

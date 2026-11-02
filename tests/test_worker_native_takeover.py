@@ -332,14 +332,18 @@ def test_native_mutation_is_recorded_only_after_current_field_and_scope_check(na
     ("field", "value", "allowed"),
     [
         ("Email", "saved@example.invalid", True),
-        ("I agree to the privacy policy", "true", True),
-        ("I agree to the privacy policy", "false", True),
         ("Email", "other@example.invalid", False),
         ("Email", "True", False),
+        # Data-processing consent saved as "Yes" admits only the checked state.
+        ("I consent to the processing of my personal data", "true", True),
+        ("I consent to the processing of my personal data", "false", False),
+        # No saved fact: neither state is the user's answer.
+        ("Subscribe to newsletter", "true", False),
+        ("Subscribe to newsletter", "false", False),
     ],
 )
 def test_native_set_value_admits_only_a_confirmed_fact_or_a_checked_state(
-    native_page, field, value, allowed
+    native_page, monkeypatch, field, value, allowed
 ):
     from test_application_information import answer
 
@@ -351,10 +355,30 @@ def test_native_set_value_admits_only_a_confirmed_fact_or_a_checked_state(
         service.store.answers.root / "answers.json",
         {
             "schemaVersion": 1,
-            "answers": dict([answer("Email", "saved@example.invalid")]),
+            "answers": dict(
+                [
+                    answer("Email", "saved@example.invalid"),
+                    answer("I consent to the processing of my personal data", " Yes "),
+                ]
+            ),
             "metadata": {},
         },
     )
+    # The synthetic page also shows the consent and newsletter checkboxes.
+    answers_for_page = service.store._native_assistance_answers
+
+    def with_checkboxes(job, page_context):
+        page_context = deepcopy(page_context)
+        page_context["data"]["fields"] += [
+            {"id": label, "label": label, "type": "checkbox", "value": "false"}
+            for label in (
+                "I consent to the processing of my personal data",
+                "Subscribe to newsletter",
+            )
+        ]
+        return answers_for_page(job, page_context)
+
+    monkeypatch.setattr(service.store, "_native_assistance_answers", with_checkboxes)
     admitted = []
 
     class Adapter:
@@ -369,6 +393,11 @@ def test_native_set_value_admits_only_a_confirmed_fact_or_a_checked_state(
             kwargs["after_yield"](
                 {"handoff_id": "native-run", "generation": 1, "local_tools_drained": True}
             )
+            facts = {
+                fact["fact"]: fact.get("value") for fact in kwargs["delivery"]["answers"]["facts"]
+            }
+            assert facts["data_processing_consent"] == " Yes "
+            assert facts["email"] == "saved@example.invalid"
             call = {
                 "call_id": "native-set-value",
                 "tool": "browser_set_value",
