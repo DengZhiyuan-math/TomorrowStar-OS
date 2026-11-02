@@ -12,6 +12,7 @@ import json
 import math
 import os
 import queue
+import re
 import selectors
 import signal
 import stat
@@ -36,7 +37,32 @@ from .cua_driver import (
 from .validation.hashing import record_digest as digest
 from .worker_process_identity import process_identity, valid_process_identity
 
+# Compatibility is what `initialize` returns and the takeover tool catalog Codex lists
+# for the fixed four tools; the CLI version is only a floor, recorded as observed.
 PROTOCOL_VERSION = "0.166.0-alpha.5.1"
+MINIMUM_PROTOCOL_VERSION = PROTOCOL_VERSION
+_VERSION = re.compile(r"(?:codex-cli )?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?")
+
+
+def protocol_version_key(text):
+    """An ordering key for ``codex-cli X.Y.Z[-pre]``, or None when it is not one."""
+    match = _VERSION.fullmatch(text.strip()) if isinstance(text, str) else None
+    if match is None:
+        return None
+    release = tuple(int(part) for part in match.groups()[:3])
+    if match[4] is None:
+        return (*release, 1, ())
+    pre = tuple(
+        (0, int(item), "") if item.isdigit() else (1, 0, item) for item in match[4].split(".")
+    )
+    return (*release, 0, pre)
+
+
+def protocol_version_supported(text, minimum=MINIMUM_PROTOCOL_VERSION):
+    key = protocol_version_key(text)
+    return key is not None and key >= protocol_version_key(minimum)
+
+
 _DISABLED_FEATURES = (
     "apps",
     "plugins",
@@ -98,7 +124,8 @@ class CodexAssistConfig:
                 raise ValueError("Codex assistance requires explicit existing directories")
             object.__setattr__(self, name, path.resolve())
         object.__setattr__(self, "home", Path(validate_codex_home(self.home)))
-        if self.expected_version != PROTOCOL_VERSION:
+        # ``expected_version`` is the accepted floor; a newer CLI passes on capabilities.
+        if not protocol_version_supported(self.expected_version):
             raise ValueError("Codex assistance protocol version is unsupported")
         for value in (self.request_timeout, self.stop_timeout):
             if isinstance(value, bool) or not isinstance(value, (float, int)):
@@ -216,6 +243,7 @@ class CodexAdapter:
         self._runs: dict[str, _Run] = {}
         self._requests: dict[str, tuple[str, str]] = {}
         self._bindings: dict[str, str] = {}
+        self._observed_version: str | None = None
 
     def _environment(self):
         return {
@@ -513,11 +541,15 @@ class CodexAdapter:
                 cwd=self.config.runtime,
                 check=False,
             )
-            if (
-                version.returncode
-                or version.stdout.strip() != ("codex-cli " + self.config.expected_version).encode()
+            observed = version.stdout.decode(errors="replace").strip()[:100]
+            if version.returncode or not protocol_version_supported(
+                observed, self.config.expected_version
             ):
+                print(f"version_unsupported: {observed!r}", flush=True)
                 raise _ProtocolFailure("version_unsupported")
+            if observed != self._observed_version:
+                self._observed_version = observed
+                print(f"codex_cli_version: {observed}", flush=True)
             if native is not None:
                 self._native_rendezvous(run)
             run.process = subprocess.Popen(

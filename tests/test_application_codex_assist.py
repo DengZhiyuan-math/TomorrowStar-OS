@@ -31,6 +31,7 @@ def server(tmp_path, scenario="normal"):
         + "record({'argv':sys.argv[1:],'env_keys':sorted(os.environ)})\n"
         + "if sys.argv[1:]==['--version']:\n"
         + "    if SCENARIO=='wrong_version': print('codex-cli 0.1');sys.exit(0)\n"
+        + "    if SCENARIO=='newer_version': print('codex-cli 0.171.2');sys.exit(0)\n"
         + "    if SCENARIO=='vanish': Path(__file__).unlink()\n"
         + "    print('codex-cli 0.166.0-alpha.5.1');sys.exit(0)\n"
         + "for line in sys.stdin:\n"
@@ -324,3 +325,25 @@ def test_progress_yields_after_a_bounded_batch_instead_of_draining_every_notific
         assert result.error_code == "response_shape_invalid"
     finally:
         adapter.close()
+
+
+def test_a_newer_cli_starts_on_its_capabilities_and_records_its_version(tmp_path, capsys):
+    executable = server(tmp_path, "newer_version")
+    adapter = CodexAdapter(config(tmp_path, executable))
+    run = adapter.start({"assistance_id": "assist-1"}, request_id="start-1")
+    assert run.status == "ready", run.error_code
+    adapter.close()
+    assert "codex_cli_version: codex-cli 0.171.2" in capsys.readouterr().out
+
+
+def test_protocol_version_floor_orders_prereleases_below_their_release():
+    from career_evidence_graph.application_codex_assist import (
+        MINIMUM_PROTOCOL_VERSION,
+        protocol_version_supported,
+    )
+
+    assert protocol_version_supported("codex-cli " + MINIMUM_PROTOCOL_VERSION)
+    for newer in ["codex-cli 0.166.0-alpha.5.2", "codex-cli 0.166.0", "0.167.0-beta.1"]:
+        assert protocol_version_supported(newer), newer
+    for older in ["codex-cli 0.166.0-alpha.5", "codex-cli 0.165.9", "codex-cli 0.1", "", None]:
+        assert not protocol_version_supported(older), older
