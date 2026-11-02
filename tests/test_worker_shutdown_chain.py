@@ -66,6 +66,8 @@ def test_backend_stop_terminates_its_worker_and_escalates_when_ignored(trigger, 
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         text=True,
+        # The checkout's package, not a stale venv copy (tests/test_application_flow.py).
+        env=os.environ | {"PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")},
     )
     events, worker = [], None
     try:
