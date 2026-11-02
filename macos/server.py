@@ -354,11 +354,24 @@ def backend_exit_recorder(diagnostics):
     return record
 
 
+WORKER_STOP_SECONDS = 10
+
+
 def serve_with_parent_pipe(server, diagnostics, ready, *, native_bridge=None, record_event=None):
     """Keep the existing EOF shutdown contract and retain only its causal metadata."""
     record = record_event if record_event is not None else backend_exit_recorder(diagnostics)
     shutdown_reason = None
     shutdown_lock = threading.RLock()
+    worker = getattr(server, "worker_service", None)
+    # The worker leads its own session, so it must be stopped explicitly with the backend.
+    worker_stop = threading.Thread(
+        target=lambda: worker.stop_process(record, timeout=WORKER_STOP_SECONDS), daemon=True
+    )
+
+    def stop_worker():
+        with shutdown_lock:
+            if worker is not None and worker_stop.ident is None:
+                worker_stop.start()
 
     def stop(reason, received_signal=None):
         nonlocal shutdown_reason
@@ -370,6 +383,7 @@ def serve_with_parent_pipe(server, diagnostics, ready, *, native_bridge=None, re
             if shutdown_reason is None:
                 shutdown_reason = reason
                 record("backend_shutdown_requested", reason=reason)
+                stop_worker()
                 # HTTPServer.shutdown must run outside the serve_forever thread.
                 threading.Thread(target=server.shutdown, daemon=True).start()
 
@@ -416,6 +430,9 @@ def serve_with_parent_pipe(server, diagnostics, ready, *, native_bridge=None, re
     finally:
         if native_bridge is not None:
             native_bridge.close()
+        stop_worker()
+        if worker is not None:
+            worker_stop.join(WORKER_STOP_SECONDS + 10)
         record(
             "backend_shutdown_complete" if completed else "backend_shutdown_failed",
             reason=shutdown_reason or "serve_returned",

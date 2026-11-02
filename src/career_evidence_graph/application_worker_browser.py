@@ -5774,6 +5774,11 @@ class ApplicationRunner:
         self.update(job, batch_id, status="ready_for_review", reason="", intent=None)
 
 
+# Seconds a stop request may wait for the current call before it is interrupted.
+STOP_GRACE_SECONDS = 5
+PARENT_POLL_SECONDS = 1
+
+
 def main(argv: list[str] | None = None, *, expected_sources: dict | None = None) -> int:
     parser = argparse.ArgumentParser(description="Independent Lever / Greenhouse preview worker")
     parser.add_argument("--applications", type=Path, required=True)
@@ -5878,22 +5883,44 @@ def main(argv: list[str] | None = None, *, expected_sources: dict | None = None)
             parser.error("Synthetic browser records must contain only the fixed synthetic job.")
     descriptor = os.open(store.root / ".worker.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     previous_term = signal.getsignal(signal.SIGTERM)
-    stop_requested, runner = False, None
-    codex_assist = None
+    stop_requested, runner, looping = False, None, True
+    codex_assist = escalation = None
+    finished = threading.Event()
     if args.cua:
 
         def stop_cua(_signum, _frame):
-            nonlocal stop_requested
+            nonlocal stop_requested, looping, escalation
+            if stop_requested:
+                # The first request was not honoured in time: leave the stuck call so
+                # the browser session still closes its driver and Chrome.
+                if looping:
+                    looping = False
+                    raise KeyboardInterrupt("worker_stop_timeout")
+                return
             stop_requested = True
+            escalation = threading.Timer(STOP_GRACE_SECONDS, os.kill, (os.getpid(), signal.SIGTERM))
+            escalation.daemon = True
+            escalation.start()
             if runner is not None:
                 runner.event("worker_stopped")
                 # A dead Playwright driver leaves the current sync call spinning on
                 # its finished dispatcher; only an exception can leave that call.
                 fiber = getattr(getattr(runner, "context", None), "_dispatcher_fiber", None)
                 if getattr(fiber, "dead", False):
+                    looping = False
                     raise KeyboardInterrupt("playwright_dispatcher_dead")
 
         signal.signal(signal.SIGTERM, stop_cua)
+    parent = os.getppid()
+
+    def watch_parent():
+        # An orphaned worker stops through its ordinary SIGTERM path.
+        while not finished.wait(PARENT_POLL_SECONDS):
+            if os.getppid() != parent:
+                os.kill(os.getpid(), signal.SIGTERM)
+                return
+
+    threading.Thread(target=watch_parent, daemon=True).start()
     try:
         try:
             fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -5985,6 +6012,7 @@ def main(argv: list[str] | None = None, *, expected_sources: dict | None = None)
                     with suppress(Error, OSError, ValueError):
                         login_seen = sync_login_state(store.root, context, login_seen)
                     next_login_save = time.monotonic() + 10
+            looping = False
             with store.applications.write_lock():
                 state = store.load()
                 state.update(control="paused", worker_error="worker_stopped")
@@ -6012,6 +6040,9 @@ def main(argv: list[str] | None = None, *, expected_sources: dict | None = None)
         print(str(exc), flush=True)
         return 2
     finally:
+        finished.set()
+        if escalation is not None:
+            escalation.cancel()
         if codex_assist is not None:
             codex_assist.close()
         if args.cua:
