@@ -203,7 +203,9 @@ def test_followup_repair_reuses_accepted_evaluator_only_with_known_bound_planner
             resume_from=old,
         )
 
-    if alteration != "retrieval":
+    # Engine and component hashes are provenance: like the retrieval repair itself,
+    # an App rebuild alone must not discard the accepted evaluator (batch 1-A).
+    if alteration not in {"retrieval", "engine", "fact_reader"}:
         with pytest.raises(PortalDataError):
             resume()
         assert retry.calls == []

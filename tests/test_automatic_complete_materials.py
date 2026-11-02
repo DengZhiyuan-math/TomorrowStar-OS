@@ -8,6 +8,7 @@ from test_application_resume import task_resume as task_resume
 from test_full_latex_generation import full_latex as full_latex
 from test_full_latex_generation import generate
 
+from career_evidence_graph.application_input_binding import configuration_revision
 from career_evidence_graph.career_portal_data import PortalDataError
 
 
@@ -117,7 +118,6 @@ def test_default_flow_runs_full_generation_export_and_system_binding(full_latex,
 
     from career_evidence_graph.application_flow import ApplicationFlowService
     from career_evidence_graph.application_prism import source_snapshot
-    from career_evidence_graph.application_worker import digest
 
     store, job, sources, analysis, calls, project, _, inputs = full_latex
     store.prism_client = SyntheticCompiler()
@@ -152,7 +152,9 @@ def test_default_flow_runs_full_generation_export_and_system_binding(full_latex,
             "resume": generate_task,
             "export": export_task,
             "prism_source": source_snapshot,
-            "prism_export_configuration": lambda: digest(store.prism_client.configuration()),
+            "prism_export_configuration": lambda: configuration_revision(
+                store.prism_client.configuration()
+            ),
             "verify_draft": lambda task: store.draft(task["draft_id"]),
             "verify_materials": lambda task: store.read_export(task["resume_id"]),
         },
@@ -369,7 +371,6 @@ def test_pipeline_real_full_materials_reaches_fake_worker_manual_submit_boundary
     from career_evidence_graph.application_flow import ApplicationFlowService, job_input_revision
     from career_evidence_graph.application_pipeline import ApplicationPipeline
     from career_evidence_graph.application_prism import source_snapshot
-    from career_evidence_graph.application_worker import digest
 
     store, original, sources, analysis, calls, project, _, inputs = full_latex
     job = store.applications.update_application(
@@ -455,7 +456,7 @@ def test_pipeline_real_full_materials_reaches_fake_worker_manual_submit_boundary
             "export": export_task,
             "automatic_latex_base": lambda _: source_snapshot(project, "main.tex"),
             "prism_source": source_snapshot,
-            "prism_export_configuration": lambda: digest(compiler.configuration()),
+            "prism_export_configuration": lambda: configuration_revision(compiler.configuration()),
             "verify_draft": lambda task: store.draft(task["draft_id"]),
             "verify_materials": lambda task: store.read_export(task["resume_id"]),
             "prepare_worker": prepare_transport,

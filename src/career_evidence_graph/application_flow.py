@@ -19,6 +19,16 @@ from ._vendor import job_apply_store as helper
 from .application_eligibility import qualification_status as qualification_status
 from .application_eligibility import task_eligibility as task_eligibility
 from .application_information import COUNTRIES
+from .application_input_binding import (
+    CONFIGURATION_INPUT_KEYS,
+    analysis_reuse_candidate,
+    configuration_revision,
+    rebind_record,
+    resolution_input_revision,
+    reusable,
+    same_revision,
+    task_binding,
+)
 from .application_input_binding import LIBRARY_INPUT_KEYS as LIBRARY_INPUT_KEYS
 from .application_input_binding import analysis_input_binding as analysis_input_binding
 from .application_input_binding import job_input_revision as job_input_revision
@@ -1070,11 +1080,11 @@ class ApplicationFlowService:
 
         def generate_resume(task):
             fixed = self.fixed_writing_inputs(task)
-            if fixed is None and (
-                retained_configuration_inputs(
-                    task, self.input_provider(task["application_id"])["inputs"]
-                )
-                != task["inputs"]
+            if (
+                fixed is None
+                and task_binding(
+                    task, self.input_provider(task["application_id"])["inputs"], stage="resume"
+                ).stale
             ):
                 raise PortalDataError(
                     "flow_inputs_stale", "岗位或材料配置已变化，请更新任务。", 409
@@ -1190,7 +1200,7 @@ class ApplicationFlowService:
             bound_material_candidate=self.prepare_bound_candidate,
         )
         if not self.preparation_only:
-            self.callbacks["prism_export_configuration"] = lambda: digest(
+            self.callbacks["prism_export_configuration"] = lambda: configuration_revision(
                 (resumes.prism_client or PrismClient()).configuration()
             )
             return
@@ -1210,7 +1220,9 @@ class ApplicationFlowService:
             ),
             group_state=lambda task: resumes.group_review_state(task["draft_id"]),
             prism_open=lambda binding: prism_client().open(binding),
-            prism_export_configuration=lambda: digest(prism_client().configuration()),
+            prism_export_configuration=lambda: configuration_revision(
+                prism_client().configuration()
+            ),
             import_latex=lambda task, source: resumes.import_latex_for_task(
                 task["application_id"],
                 task["application_revision"],
@@ -1254,8 +1266,10 @@ class ApplicationFlowService:
             job_input_revision(application) != task["inputs"]["jd_revision"]
             or sources["revision"] != task["inputs"]["sources_revision"]
             or benchmark_revision != task["inputs"]["historical_benchmark_revision"]
-            or self.analysis.configuration_revision()
-            != task["inputs"]["analysis_configuration_revision"]
+            or not same_revision(
+                task["inputs"]["analysis_configuration_revision"],
+                self.analysis.configuration_revision(),
+            )
         ):
             raise PortalDataError("flow_inputs_stale", "岗位或资料配置已变化，请更新任务。", 409)
         attempt = task["stages"]["analysis"]
@@ -1299,7 +1313,7 @@ class ApplicationFlowService:
         sources = self._analysis_sources()
         if (
             sources["revision"] != resolved.get("sources_revision")
-            or self._identity(application) != resolved
+            or reusable("materials", resolved, self._identity(application)).stale
         ):
             raise PortalDataError("flow_inputs_stale", "资料已变化，请保留原分析并重新读取。", 409)
         progress = self.analysis.reuse(application, sources, previous, request_id=uuid4().hex)
@@ -1307,7 +1321,7 @@ class ApplicationFlowService:
             return None
         result = self._analysis_report(progress)
         current = self.applications.get_application(task["application_id"])
-        if self._identity(current) != resolved:
+        if reusable("materials", resolved, self._identity(current)).stale:
             raise PortalDataError("flow_inputs_stale", "资料已变化，请保留原分析并重新读取。", 409)
         benchmark, _ = self._analysis_benchmark(sources)
         return result | {"historical_reference": compare_benchmark(result.get("score"), benchmark)}
@@ -1344,8 +1358,7 @@ class ApplicationFlowService:
                     self._closed.is_set()
                     or task["status"] == "cancelled"
                     or task["job_binding"] != expected["job_binding"]
-                    or analysis_input_binding(task["inputs"])
-                    != analysis_input_binding(expected["inputs"])
+                    or not reusable("analysis", expected["inputs"], task["inputs"]).reusable
                 ):
                     return False
                 if refresh is None:
@@ -1480,14 +1493,13 @@ class ApplicationFlowService:
             # not reinterpret its JD, material selection or generation settings.
             return {**application, **fixed["analysis"].get("job_brief", {}).get("job", {})}
         inputs = self._identity(application, None if self.input_provider else task["inputs"])
-        inputs = retained_configuration_inputs(task, inputs)
-        expected = task["inputs"]
-        if stage == "analysis":
-            inputs, expected = analysis_input_binding(inputs), analysis_input_binding(expected)
-        elif self.preparation_only and task.get("origin") == "existing_latex":
-            inputs = {k: v for k, v in inputs.items() if k != "resume_configuration_revision"}
-            expected = {k: v for k, v in expected.items() if k != "resume_configuration_revision"}
-        if job_input_revision(application) != task["job_binding"] or inputs != expected:
+        binding = task_binding(
+            task,
+            inputs,
+            stage="analysis" if stage == "analysis" else "materials",
+            preparation_only=self.preparation_only,
+        )
+        if job_input_revision(application) != task["job_binding"] or binding.stale:
             raise PortalDataError("flow_inputs_stale", "JD 或职业资料已变化，请更新任务。", 409)
         if stage != "analysis" and task.get("latex_base"):
             self.verify_latex_base(task)
@@ -1880,12 +1892,12 @@ class ApplicationFlowService:
         inputs = retained_configuration_inputs(task, self._identity(app, None))
         # A completed generator setting belongs to these retained materials, including
         # during a contact-only change. It is not an implicit regeneration request.
-        for key in ("analysis_configuration_revision", "resume_configuration_revision"):
+        for key in CONFIGURATION_INPUT_KEYS:
             if key in task["inputs"]:
                 inputs[key] = task["inputs"][key]
         if (
             job_input_revision(app) != task["job_binding"]
-            or analysis_input_binding(inputs) != analysis_input_binding(task["inputs"])
+            or not reusable("analysis", task["inputs"], inputs).reusable
             or inputs.get("information_library_root")
             != task["inputs"].get("information_library_root")
         ):
@@ -2241,11 +2253,23 @@ class ApplicationFlowService:
             application = self.applications.get_application(task["application_id"])
             if application["revision"] != application_revision:
                 raise PortalDataError("conflict", "投递记录已变化，请重新打开。", 409)
-            resolved = self._identity(application, inputs)
-            resolved = retained_configuration_inputs(task, resolved, adopt_libraries=True)
+            current = self._identity(application, inputs)
+            resolved = retained_configuration_inputs(task, current, adopt_libraries=True)
             changed = (
                 resolved != task["inputs"] or job_input_revision(application) != task["job_binding"]
             )
+            if changed:
+                # A real change replaces the saved inputs, so a legacy configuration
+                # revision is rebound to its semantic successor here, once, on record.
+                upgraded = retained_configuration_inputs(
+                    task, current, adopt_libraries=True, keep_legacy=False
+                )
+                legacy = reusable("materials", resolved, upgraded)
+                if legacy.rebind:
+                    task.setdefault("input_rebinds", []).append(
+                        rebind_record(resolved, upgraded, legacy, time.time())
+                    )
+                    resolved = upgraded
             if changed and (
                 task.get("cover_letter", {}).get("status") in {"queued", "running", "needs_recheck"}
                 or task.get("worker_preparation", {}).get("status") == "pending"
@@ -2282,28 +2306,7 @@ class ApplicationFlowService:
                 and task["stages"]["analysis"]["status"] == "complete"
                 and task.get("analysis_id")
                 and job_input_revision(application) == task["job_binding"]
-                and analysis_resolved.get("sources_revision")
-                != analysis_expected.get("sources_revision")
-                and {
-                    k: v
-                    for k, v in analysis_resolved.items()
-                    if k
-                    not in {
-                        "sources_revision",
-                        "historical_benchmark_revision",
-                        "analysis_configuration_revision",
-                    }
-                }
-                == {
-                    k: v
-                    for k, v in analysis_expected.items()
-                    if k
-                    not in {
-                        "sources_revision",
-                        "historical_benchmark_revision",
-                        "analysis_configuration_revision",
-                    }
-                }
+                and analysis_reuse_candidate(analysis_expected, analysis_resolved)
             ):
                 reused_analysis = reuse(deepcopy(task), deepcopy(resolved))
                 analysis_changed = reused_analysis is None
@@ -2328,13 +2331,7 @@ class ApplicationFlowService:
                         | {
                             "analysis_id": reused_analysis["id"],
                             "analysis_input_revision": digest(analysis_input_binding(resolved)),
-                            "input_revision": digest(
-                                {
-                                    k: v
-                                    for k, v in resolved.items()
-                                    if k != "resume_configuration_revision"
-                                }
-                            ),
+                            "input_revision": resolution_input_revision(resolved),
                             "inherited_from": {
                                 "analysis_id": task["analysis_id"],
                                 "resolution_revision": digest(resolution),
@@ -4417,13 +4414,7 @@ class ApplicationFlowService:
                         if "information_library_root" in task["inputs"]
                         else {}
                     ),
-                    "input_revision": digest(
-                        {
-                            k: v
-                            for k, v in task["inputs"].items()
-                            if k != "resume_configuration_revision"
-                        }
-                    ),
+                    "input_revision": resolution_input_revision(task["inputs"]),
                     "at": time.time(),
                 }
             )
@@ -6347,8 +6338,10 @@ class ApplicationFlowService:
             or task["stages"]["resume"].get("regenerate")
             or result.get("application_id") != task["application_id"]
             or result.get("analysis_binding", {}).get("analysis_id") != task["analysis_id"]
-            or result.get("resume_configuration_revision")
-            != task["inputs"].get("resume_configuration_revision")
+            or not same_revision(
+                result.get("resume_configuration_revision"),
+                task["inputs"].get("resume_configuration_revision"),
+            )
             or not isinstance(result.get("reuse_binding"), dict)
         ):
             raise PortalDataError("flow_materials_mismatch", "当前材料采用关系不能核验。", 409)

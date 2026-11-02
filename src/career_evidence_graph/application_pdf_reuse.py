@@ -18,6 +18,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field
 
 from ._vendor import job_apply_store as helper
+from .application_input_binding import configuration_current, configuration_revision, same_revision
 from .career_portal_data import PortalDataError
 from .codex_cli import CodexCLIError, run_codex_exec
 from .validation.hashing import record_digest as digest
@@ -638,7 +639,7 @@ def _save(store, task, analysis, source, acceptance, raw, suitability):
         "id": identifier,
         "application_id": task["application_id"],
         "analysis_binding": {"analysis_id": analysis["id"]},
-        "resume_configuration_revision": digest(store.configuration()),
+        "resume_configuration_revision": configuration_revision(store.configuration()),
         "pdf_sha256": hashlib.sha256(raw).hexdigest(),
         "file_base64": base64.b64encode(raw).decode(),
         "filename": f"job-resume-{identifier[:8]}.pdf",
@@ -679,9 +680,15 @@ def verify_reuse(store, task, result, history):
         or binding.get("policy_version") != POLICY_VERSION
         or binding.get("target") != _target(task)
         or result.get("application_id") != task.get("application_id")
-        or result.get("resume_configuration_revision")
-        != task.get("inputs", {}).get(
-            "resume_configuration_revision", digest(store.configuration())
+        or not (
+            same_revision(
+                result.get("resume_configuration_revision"),
+                task["inputs"]["resume_configuration_revision"],
+            )
+            if "resume_configuration_revision" in task.get("inputs", {})
+            else configuration_current(
+                result.get("resume_configuration_revision"), store.configuration()
+            )
         )
         or result.get("analysis_binding") != {"analysis_id": task.get("analysis_id")}
         or binding.get("suitability", {}).get("approved") is not True

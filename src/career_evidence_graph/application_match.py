@@ -19,6 +19,13 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, Validation
 
 from ._vendor import job_apply_store as helper
 from .application_inference import Inference, validate_inference
+from .application_input_binding import (
+    bound_revision,
+    configuration_revision,
+    revision_matches,
+    same_configuration,
+    same_revision,
+)
 from .application_input_limits import MAX_MATCH_CONTEXT_BYTES as MAX_PROMPT_BYTES  # noqa: F401
 from .application_input_limits import context_limits as context_limits
 from .application_match_scoring import calculate_match_score as calculate_match_score
@@ -394,8 +401,8 @@ def configure_second_opinion(scorer):
     SECOND_OPINION = scorer
 
 
-def match_configuration(environment=None) -> dict:
-    """Describe the loaded engine and requested model policy without a model call."""
+def match_provenance(environment=None) -> dict:
+    """Record which engine and Codex executable ran; never part of the revision."""
     environment = dict(os.environ) if environment is None else environment
     from .application_matching_pipeline import ENGINE_SHA256 as retrieval_engine
 
@@ -425,19 +432,9 @@ def match_configuration(environment=None) -> dict:
         except (OSError, RuntimeError):
             pass
     return {
-        "policy_version": POLICY_VERSION,
-        "prompt_version": PROMPT_VERSION,
-        "context_limits": context_limits(environment),
         "engine_sha256": _ENGINE_SHA256,
         "retrieval_engine_sha256": retrieval_engine,
         "retrieval_component_sha256": _RETRIEVAL_COMPONENTS,
-        "output_schema_sha256": digest(_ModelOutput.model_json_schema()),
-        "inference_schema_sha256": digest(_ControlledOutput.model_json_schema()),
-        "inference_policy_revision": digest(INFERENCE_POLICY),
-        "requested_model": CodexCLIConfig.model_fields["requested_model"].default,
-        "evaluation_model": MATCH_MODEL,
-        "reasoning_effort": CodexCLIConfig.model_fields["reasoning_effort"].default,
-        "sandbox": CodexCLIConfig.model_fields["sandbox"].default,
         "executable": requested,
         "resolved_executable": resolved,
         "executable_status": "available" if resolved else "unavailable",
@@ -446,8 +443,31 @@ def match_configuration(environment=None) -> dict:
     }
 
 
+def match_business_configuration(environment=None) -> dict:
+    """The policy, prompt, schemas and model settings that decide a match result."""
+    environment = dict(os.environ) if environment is None else environment
+    return {
+        "policy_version": POLICY_VERSION,
+        "prompt_version": PROMPT_VERSION,
+        "context_limits": context_limits(environment),
+        "output_schema_sha256": digest(_ModelOutput.model_json_schema()),
+        "inference_schema_sha256": digest(_ControlledOutput.model_json_schema()),
+        "inference_policy_revision": digest(INFERENCE_POLICY),
+        "requested_model": CodexCLIConfig.model_fields["requested_model"].default,
+        "evaluation_model": MATCH_MODEL,
+        "reasoning_effort": CodexCLIConfig.model_fields["reasoning_effort"].default,
+        "sandbox": CodexCLIConfig.model_fields["sandbox"].default,
+    }
+
+
+def match_configuration(environment=None) -> dict:
+    """The recorded configuration: business settings beside provenance-only fields."""
+    return match_business_configuration(environment) | match_provenance(environment)
+
+
 def match_configuration_revision(environment=None) -> str:
-    return digest(match_configuration(environment))
+    """Only business settings bind; an App rebuild or Codex update keeps the revision."""
+    return configuration_revision(match_business_configuration(environment))
 
 
 def _prompt_requirements(requirements):
@@ -1001,8 +1021,10 @@ def _reuse_retrieved_analysis(
         or packet.get("sources") != evaluation.get("material_packet_sources")
         or inputs.get("source_snapshot_revision") != report.get("input_source_snapshot_revision")
         or digest(inputs.get("job")) != report.get("jd_revision")
-        or digest(inputs.get("configuration")) != report.get("configuration_revision")
-        or digest(final_inputs.get("configuration")) != report.get("configuration_revision")
+        or not revision_matches(inputs.get("configuration"), report.get("configuration_revision"))
+        or not revision_matches(
+            final_inputs.get("configuration"), report.get("configuration_revision")
+        )
         or final_inputs.get("application_id") != report.get("application_id")
         or final_inputs.get("job") != inputs.get("job")
         or final_report.get("configuration_revision") != report.get("configuration_revision")
@@ -1016,26 +1038,12 @@ def _reuse_retrieved_analysis(
         )
     ):
         raise PortalDataError("flow_analysis_mismatch", "已完成分析的资料包或评估不能核验。", 409)
-    diagnostic_fields = {
-        "engine_sha256",
-        "retrieval_engine_sha256",
-        "retrieval_component_sha256",
-        "resolved_executable",
-        "executable_status",
-        "executable_metadata_revision",
-    }
-    old_configuration = {
-        key: value for key, value in inputs["configuration"].items() if key not in diagnostic_fields
-    }
-    current_configuration = {
-        key: value for key, value in match_configuration().items() if key not in diagnostic_fields
-    }
     if (
         report.get("application_id") != application["id"]
         or inputs.get("application_id") != application["id"]
         or inputs.get("job") != job
         or report.get("jd_revision") != digest(job)
-        or old_configuration != current_configuration
+        or not same_configuration(inputs["configuration"], match_configuration())
         or report.get("policy_version") != POLICY_VERSION
     ):
         return None
@@ -1166,7 +1174,7 @@ def reuse_analysis(
         or original.get("revision") != report.get("source_snapshot_revision")
         or inputs.get("source_snapshot_revision") != original.get("revision")
         or inputs.get("application_id") != report.get("application_id")
-        or digest(inputs.get("configuration")) != report.get("configuration_revision")
+        or not revision_matches(inputs.get("configuration"), report.get("configuration_revision"))
     ):
         raise PortalDataError("flow_analysis_mismatch", "原分析来源不能核验，请保留原记录。", 409)
     context = helper.read_json_object(original_directory / "context-input.json", "analysis context")
@@ -1180,7 +1188,7 @@ def reuse_analysis(
         report.get("application_id") != application["id"]
         or inputs.get("job") != job
         or report.get("jd_revision") != digest(job)
-        or report.get("configuration_revision") != match_configuration_revision()
+        or not same_configuration(inputs.get("configuration"), match_configuration())
         or report.get("policy_version") != POLICY_VERSION
     ):
         return None
@@ -1550,7 +1558,7 @@ def _analyze_loaded_job(
         "jd_revision": digest(job),
         "source_snapshot_revision": snapshot["revision"],
         "context_revision": hashlib.sha256(prompt.encode()).hexdigest(),
-        "configuration_revision": digest(configuration),
+        "configuration_revision": configuration_revision(configuration),
         "role_understanding": output["role_understanding"],
         **({"job_brief": deepcopy(brief)} if brief is not None else {}),
         "requirements": requirements,
@@ -1683,7 +1691,9 @@ class Analysis:
         return path
 
     def configuration_revision(self):
-        return digest({"engine": match_configuration_revision(), "adapter": self.adapter_revision})
+        return bound_revision(
+            {"engine": match_configuration_revision(), "adapter": self.adapter_revision}
+        )
 
     def _directory(self, attempt_id):
         if not isinstance(attempt_id, str) or re.fullmatch(r"[a-f0-9]{32}", attempt_id) is None:
@@ -1761,7 +1771,9 @@ class Analysis:
             or report.get("application_id") != inputs.get("application_id")
             or report.get("application_revision") != inputs.get("application_revision")
             or report.get("jd_revision") != digest(inputs.get("job"))
-            or report.get("configuration_revision") != digest(inputs.get("configuration"))
+            or not revision_matches(
+                inputs.get("configuration"), report.get("configuration_revision")
+            )
             or report.get("input_source_snapshot_revision", report.get("source_snapshot_revision"))
             != inputs.get("source_snapshot_revision")
             or bound.get("revision") != inputs.get("source_snapshot_revision")
@@ -1974,7 +1986,9 @@ class Analysis:
                 binding.get("application_id") != expected["application_id"]
                 or binding.get("job") != expected["job"]
                 or binding.get("sources_revision") != expected["sources_revision"]
-                or digest(binding.get("configuration")) != expected["configuration_revision"]
+                or not revision_matches(
+                    binding.get("configuration"), expected["configuration_revision"]
+                )
             ):
                 raise PortalDataError("match_resume_invalid", "原分析阶段绑定不能核验。", 409)
         return saved
@@ -2205,7 +2219,9 @@ class Analysis:
             or result.get("input_source_snapshot_revision", result.get("source_snapshot_revision"))
             != binding["sources_revision"]
             or binding.get("operation") != "reuse"
-            and result.get("configuration_revision") != binding["configuration_revision"]
+            and not same_revision(
+                result.get("configuration_revision"), binding["configuration_revision"]
+            )
         ):
             raise PortalDataError("flow_analysis_mismatch", "分析报告与本次请求输入不符。", 409)
 

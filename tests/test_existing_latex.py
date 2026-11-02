@@ -9,9 +9,9 @@ from test_application_flow import wait_for
 from test_application_prism import compiling_editor
 
 from career_evidence_graph.application_flow import ApplicationFlowService
+from career_evidence_graph.application_input_binding import configuration_revision
 from career_evidence_graph.application_prism import PrismClient, source_snapshot
 from career_evidence_graph.application_resume import ApplicationResumeStore
-from career_evidence_graph.application_worker import digest
 from career_evidence_graph.career_portal_data import CareerCatalog, PortalDataError
 
 
@@ -47,7 +47,9 @@ def existing_latex(application, tmp_path):
                 prism=prism,
             ),
             "verify_draft": verify,
-            "prism_export_configuration": lambda: digest(PrismClient().configuration()),
+            "prism_export_configuration": lambda: configuration_revision(
+                PrismClient().configuration()
+            ),
             "export": lambda task: store.export_for_draft(
                 task["draft_id"],
                 task["draft_sha256"],

@@ -17,6 +17,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from .validation.hashing import record_digest as digest
 
 Revision = Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
+# A benchmark may be bound to a legacy or a semantic (``cfg2:``) match configuration.
+ConfigurationRevision = Annotated[str, Field(pattern=r"^(cfg2:)?[a-f0-9]{64}$")]
 Percentage = Annotated[float, Field(ge=0, le=100, allow_inf_nan=False)]
 
 
@@ -62,7 +64,7 @@ class _Baseline(_StrictModel):
     schemaVersion: Annotated[int, Field(ge=1, le=1)]
     revision: Revision
     source_snapshot_revision: Revision
-    configuration_revision: Revision
+    configuration_revision: ConfigurationRevision
     policy_version: Literal["documentary-match/v1"]
     evaluated_at: str
     historical_materials_available: bool

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import fcntl
+import json
+import os
 import re
 import threading
 import time
@@ -28,6 +30,17 @@ from .validation.hashing import record_digest as digest
 
 PROTOCOL = "application-pipeline/v1"
 POLICY = "email-to-manual-submit/v1"
+QUEUE_ASSERTION_LOG = "queue-state-assertions.jsonl"
+
+
+def queue_state(state):
+    """Read-only projection of the queue control fields (batch 1-D, before C4)."""
+    return {
+        key: state.get(key)
+        for key in ("control", "status", "resume_status", "wait_reason", "active_task_id")
+    }
+
+
 # Flow material edits that first confirm the current job's Worker stop.
 MATERIAL_EDIT_ACTIONS = {
     "edit-material",
@@ -72,6 +85,7 @@ class ApplicationPipeline:
             raise PortalDataError("pipeline_invalid", "自动流程记录不能使用符号链接。", 409)
         self._guard = threading.RLock()
         self._closed = threading.Event()
+        self._saved_control = None
         self._runtime_error = ""
         self._refresh_entry = ContextVar("pipeline_paused_refresh_entry", default=None)
         self._preparation_serial = 0
@@ -144,8 +158,38 @@ class ApplicationPipeline:
         with self.flow.applications.write_lock():
             if self.path.is_symlink():
                 raise PortalDataError("pipeline_invalid", "自动流程记录不能使用符号链接。", 409)
+            self._assert_resume_cleared(state)
             state["revision"] = digest({k: v for k, v in state.items() if k != "revision"})
             helper.atomic_write_json(self.path, state)
+            self._saved_control = state.get("control")
+
+    def _assert_resume_cleared(self, state):
+        """A save that resumes the queue must not keep the old wait fields."""
+        previous = self._saved_control
+        if previous is None:
+            try:
+                previous = helper.read_json_object(self.path, "application pipeline").get("control")
+            except (OSError, ValueError, helper.StoreError):
+                previous = None
+        if previous == "paused" and state.get("control") == "running":
+            leftover = [key for key in ("wait_reason", "resume_status") if key in state]
+            if leftover:
+                self._queue_assertion("resume_kept_wait_fields", state, leftover)
+
+    def _queue_assertion(self, code, state, fields):
+        """Record a queue-state inconsistency privately; never raises, never transitions."""
+        row = {"code": code, "fields": fields, "state": queue_state(state), "at": time.time()}
+        try:
+            path = self.path.with_name(QUEUE_ASSERTION_LOG)
+            if path.is_symlink():
+                return
+            descriptor = os.open(
+                path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600
+            )
+            with os.fdopen(descriptor, "a", encoding="utf-8") as handle:
+                handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+        except (OSError, TypeError, ValueError):
+            pass
 
     def snapshot(self):
         with self._guard, self.flow.applications.write_lock():
@@ -2026,6 +2070,8 @@ class ApplicationPipeline:
         }
 
     def _stop(self, state, status, message):
+        if not state.get("resume_status"):
+            self._queue_assertion("stop_without_resume_status", state, ["resume_status"])
         state.update(control="paused", status=status)
         self._notify(state, status, message)
         self._save(state)

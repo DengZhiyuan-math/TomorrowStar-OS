@@ -799,16 +799,21 @@ def test_snapshot_tampering_is_rejected_before_the_model_runs(match_inputs, tmp_
     assert calls == []
 
 
-def test_configuration_revision_binds_engine_schema_and_requested_runtime(monkeypatch):
+def test_configuration_revision_binds_schema_and_settings_but_not_executable(monkeypatch):
     from career_evidence_graph.application_match import (
         match_configuration,
         match_configuration_revision,
     )
 
     initial = match_configuration_revision()
+    assert initial.startswith("cfg2:")
     assert len(match_configuration()["engine_sha256"]) == 64
     assert len(match_configuration()["output_schema_sha256"]) == 64
+    # The Codex path is provenance: recorded, never part of the revision (APP-15).
     monkeypatch.setenv("TOMORROWSTAR_CODEX_EXECUTABLE", "/synthetic/other-codex")
+    assert match_configuration()["executable"] == "/synthetic/other-codex"
+    assert match_configuration_revision() == initial
+    monkeypatch.setattr("career_evidence_graph.application_match.PROMPT_VERSION", "synthetic/v0")
     assert match_configuration_revision() != initial
     assert match_configuration()["sandbox"] == "read-only"
 
@@ -859,11 +864,12 @@ def test_configuration_tracks_path_resolution_and_replacement_without_running_cl
 def test_model_uses_the_same_frozen_environment_as_its_configuration(
     match_inputs, tmp_path, monkeypatch
 ):
+    from career_evidence_graph.application_input_binding import configuration_revision
     from career_evidence_graph.application_match import analyze_job, match_configuration
 
     application, snapshot = match_inputs
     original_path = os.environ.get("PATH", "")
-    expected = digest(match_configuration(dict(os.environ)))
+    expected = configuration_revision(match_configuration(dict(os.environ)))
     wrapped = model_runner(model_output(snapshot), [])
 
     def run(config, prompt, **kwargs):

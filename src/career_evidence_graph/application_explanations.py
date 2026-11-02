@@ -369,11 +369,12 @@ def job_explanation(
     resume_sources=None,
 ):
     from .application_input_binding import (
-        analysis_input_binding,
         job_input_revision,
         retained_configuration_inputs,
+        reusable,
     )
 
+    saved_inputs = task["inputs"] if task else {}
     if task:
         current_inputs = retained_configuration_inputs(task, current_inputs)
     analysis = adopted_analysis(task)
@@ -500,10 +501,12 @@ def job_explanation(
         and (
             bool(recheck) and not normal_stale
             if normal_refresh
-            else analysis_input_binding(task["inputs"]) == analysis_input_binding(current_inputs)
+            else reusable("analysis", saved_inputs, current_inputs).reusable
         )
     )
-    materials_fresh = fresh and (task is None or task["inputs"] == current_inputs)
+    materials_fresh = fresh and (
+        task is None or reusable("materials", saved_inputs, current_inputs).reusable
+    )
     status = "not_started" if task is None else task["status"] if fresh else "stale"
     if (
         fresh

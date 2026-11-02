@@ -687,9 +687,7 @@ def task_resume(tmp_path):
     return store, job, sources, analysis, calls
 
 
-def test_resume_configuration_binds_cli_bytes_metadata_and_isolates_injected_stores(
-    task_resume, tmp_path
-):
+def test_resume_configuration_ignores_cli_bytes_and_isolates_injected_stores(task_resume, tmp_path):
     from career_evidence_graph.application_resume import resume_configuration_revision
 
     store, _, _, _, _ = task_resume
@@ -699,8 +697,9 @@ def test_resume_configuration_binds_cli_bytes_metadata_and_isolates_injected_sto
     environment = {"TOMORROWSTAR_CODEX_EXECUTABLE": str(executable), "PATH": ""}
     first = resume_configuration_revision(environment=environment)
     assert resume_configuration_revision(environment=environment) == first
+    # The Codex executable is provenance (batch 1-A): a CLI update keeps the revision.
     executable.write_text("#!/bin/sh\nexit 1\n")
-    assert resume_configuration_revision(environment=environment) != first
+    assert resume_configuration_revision(environment=environment) == first
     duplicate = ApplicationResumeStore(
         store.applications,
         store.catalog,

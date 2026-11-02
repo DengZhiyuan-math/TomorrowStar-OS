@@ -22,6 +22,7 @@ from career_evidence_graph.application_flow import (
     analysis_input_binding,
     retained_configuration_inputs,
 )
+from career_evidence_graph.application_input_binding import configuration_revision
 from career_evidence_graph.application_prism import PrismClient
 from career_evidence_graph.application_worker import digest
 from career_evidence_graph.career_portal_data import PortalDataError
@@ -97,7 +98,7 @@ def _completed_case(data, retained, state, draft, tmp_path, monkeypatch):
         "draft_id": draft["id"],
         "pdf_sha256": "f" * 64,
         "automatic_materials": True,
-        "export_configuration_revision": digest(PrismClient().configuration()),
+        "export_configuration_revision": configuration_revision(PrismClient().configuration()),
     }
     reads = []
     monkeypatch.setattr(
@@ -255,7 +256,6 @@ def test_attach_refuses_unresolved_operations(completed, unknown):
 
 
 def test_presentation_feedback_requires_a_matching_completed_reconnection_receipt():
-    from career_evidence_graph.application_worker import digest
 
     task = {"inputs": {"facts": "same", FEEDBACK_KEY: "a" * 64}, "stages": {}}
     assert FEEDBACK_KEY not in retained_configuration_inputs(task, {"facts": "same"})

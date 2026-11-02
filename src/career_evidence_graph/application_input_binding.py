@@ -98,15 +98,29 @@ def record_revision_matches(record, revision) -> bool:
 
 
 def same_revision(saved, current) -> bool:
-    """Two configuration revisions agree, or one predates the semantic format.
+    """Two task-input configuration revisions agree, or one predates ``cfg2:``.
 
     A legacy value also hashed provenance and cannot be split again; it is bound
-    once to the current revision instead of invalidating saved work.
+    once to the current revision instead of invalidating saved work. Use this only
+    for task-input configuration keys and the analysis they bind, never for receipt
+    integrity, which ``revision_matches`` checks against the recorded configuration.
     """
     return saved == current or (
         isinstance(saved, str)
         and isinstance(current, str)
         and legacy_revision(saved) != legacy_revision(current)
+    )
+
+
+def configuration_current(saved_revision, configuration) -> bool:
+    """A saved receipt revision describes this configuration, in either format."""
+    return revision_matches(configuration, saved_revision)
+
+
+def task_configuration_current(task_revision, configuration) -> bool:
+    """A recorded configuration still serves a task input bound before ``cfg2:``."""
+    return revision_matches(configuration, task_revision) or same_revision(
+        task_revision, configuration_revision(configuration)
     )
 
 
@@ -155,11 +169,15 @@ def retained_presentation_input(task, inputs):
         inputs[FEEDBACK_KEY] = value
 
 
-def retained_configuration_inputs(task, inputs, *, completed_stages=None, adopt_libraries=False):
+def retained_configuration_inputs(
+    task, inputs, *, completed_stages=None, adopt_libraries=False, keep_legacy=True
+):
     """Keep completed results bound to the configuration that produced them.
 
     ``adopt_libraries`` is the user's explicit sync, which takes current library
     revisions; every other caller keeps those of the completed analysis.
+    ``keep_legacy`` keeps a saved pre-``cfg2:`` configuration revision in place of
+    the current semantic one; only an explicit input update rebinds it.
     """
     resolved = deepcopy(inputs)
     retained_presentation_input(task, resolved)
@@ -218,7 +236,35 @@ def retained_configuration_inputs(task, inputs, *, completed_stages=None, adopt_
                     resolved[key] = task["inputs"][key]
                 else:
                     resolved.pop(key, None)
+    if keep_legacy:
+        # Saved drafts, exports and receipts copy the task inputs byte for byte,
+        # so the legacy value stays until a real input change rebinds it.
+        binding = reusable("materials", task["inputs"], resolved)
+        resolved = rebound_inputs(resolved, task["inputs"], binding)
     return resolved
+
+
+def task_binding(task, current, *, stage, preparation_only=False) -> InputBinding:
+    """The one freshness question Flow and readiness ask about a saved task."""
+    return reusable(
+        stage,
+        task["inputs"],
+        retained_configuration_inputs(task, current),
+        origin=task.get("origin") if preparation_only else None,
+    )
+
+
+def analysis_reuse_candidate(saved, current) -> bool:
+    """Only consumed career sources and run settings differ from the completed analysis.
+
+    The Analysis adapter then checks consumed facts and semantic configuration;
+    App fingerprints must not hide an otherwise reusable completed analysis.
+    """
+    ignored = {"sources_revision", *OPERATIONAL_INPUT_KEYS, "analysis_configuration_revision"}
+    old, new = analysis_input_binding(saved), analysis_input_binding(current)
+    return old.get("sources_revision") != new.get("sources_revision") and _without(
+        old, ignored
+    ) == _without(new, ignored)
 
 
 def latest_preparation_task(tasks, application_id=None):

@@ -39,7 +39,7 @@ def test_registration_failure_preserves_existing_pdf_without_playwright(
 
 
 @pytest.mark.parametrize("builtin", [True, False])
-def test_export_configuration_binds_only_builtin_registration_engine(
+def test_export_configuration_records_only_builtin_registration_engine(
     task_resume, monkeypatch, builtin
 ):
     from career_evidence_graph import chrome_registration
@@ -58,7 +58,8 @@ def test_export_configuration_binds_only_builtin_registration_engine(
     if builtin:
         assert original["renderer"].get("registration_engine_sha256") == "a" * 64
         assert changed["renderer"].get("registration_engine_sha256") == "b" * 64
-        assert before != after
+        # The registration engine is recorded as provenance, not bound (batch 1-A).
+        assert before == after
     else:
         assert "registration_engine_sha256" not in original["renderer"]
         assert original == changed and before == after

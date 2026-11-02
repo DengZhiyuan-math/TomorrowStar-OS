@@ -14,10 +14,10 @@ from test_pipeline_current_job import current_pipeline as current_pipeline
 from test_pipeline_recommendation_queue import drive
 
 from career_evidence_graph.application_flow import ApplicationFlowService, job_input_revision
+from career_evidence_graph.application_input_binding import configuration_revision
 from career_evidence_graph.application_intake import ApplicationIntakeService
 from career_evidence_graph.application_pipeline import ApplicationPipeline
 from career_evidence_graph.application_prism import source_snapshot
-from career_evidence_graph.application_worker import digest
 
 
 @pytest.fixture
@@ -112,7 +112,7 @@ def routed_pipeline(full_latex, tmp_path, request):
             "export": export,
             "automatic_latex_base": lambda _: source_snapshot(project, "main.tex"),
             "prism_source": source_snapshot,
-            "prism_export_configuration": lambda: digest(compiler.configuration()),
+            "prism_export_configuration": lambda: configuration_revision(compiler.configuration()),
             "verify_draft": lambda task: store.draft(task["draft_id"]),
             "verify_materials": lambda task: store.read_export(task["resume_id"]),
             "prepare_worker": prepare,

@@ -13,6 +13,7 @@ from test_full_latex_generation import full_latex as full_latex
 from test_full_latex_generation import generate
 from test_standalone_prism_review import FakePrism
 
+from career_evidence_graph.application_input_binding import configuration_revision
 from career_evidence_graph.application_worker import digest
 from career_evidence_graph.career_portal_data import PortalDataError
 
@@ -94,7 +95,7 @@ def test_explicit_transport_configuration_is_used_without_real_prism(reviewed_la
         prism=draft["source_checkpoint"],
         group_reviews=receipts,
     )
-    assert result["export_configuration_revision"] == digest(
+    assert result["export_configuration_revision"] == configuration_revision(
         {"kind": "synthetic-fixed-pdf", "synthetic": True}
     )
     assert store.group_prism_client.calls == ["compile"]

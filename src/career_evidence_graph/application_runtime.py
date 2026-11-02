@@ -12,6 +12,7 @@ from functools import partial
 from pathlib import Path
 
 from ._vendor.job_apply_store import StoreError
+from .application_input_binding import bound_revision
 from .application_readiness import ReadinessProbe
 from .application_resume import ApplicationResumeStore, career_source_snapshot
 from .application_worker import WorkerService
@@ -509,7 +510,7 @@ def _assemble(
                     "sources_revision": sources["revision"],
                     "resume_configuration_revision": resume_configuration_revision(flow_resumes),
                     "historical_benchmark_revision": benchmark_revision,
-                    "analysis_configuration_revision": digest(
+                    "analysis_configuration_revision": bound_revision(
                         {"engine": engine_revision, "adapter": injected_revision}
                     ),
                 },

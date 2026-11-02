@@ -11,6 +11,7 @@ from copy import deepcopy
 from pathlib import Path
 
 from .application_automation import validate_application_target
+from .application_input_binding import bound_revision, same_revision, task_configuration_current
 from .career_portal_data import CareerCatalog, PortalDataError
 
 
@@ -404,10 +405,12 @@ def verify_material_lineage(
             )
             != expected["sources_revision"]
             or not delivered
-            and digest(
-                {"engine": report.get("configuration_revision"), "adapter": analysis_adapter}
+            and not same_revision(
+                expected["analysis_configuration_revision"],
+                bound_revision(
+                    {"engine": report.get("configuration_revision"), "adapter": analysis_adapter}
+                ),
             )
-            != expected["analysis_configuration_revision"]
             or not delivered
             and report.get("policy_version") != POLICY_VERSION
         ):
@@ -557,7 +560,9 @@ def verify_material_lineage(
         if (
             draft.get("application_id") != task["application_id"]
             or draft.get("analysis_binding") != analysis_binding
-            or digest(draft.get("generation_policy")) != expected["resume_configuration_revision"]
+            or not task_configuration_current(
+                expected["resume_configuration_revision"], draft.get("generation_policy")
+            )
             or not 1 <= len(raw) <= 700_000
             or not raw.startswith(b"%PDF-")
             or draft.get("pdf_sha256") != sha

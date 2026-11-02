@@ -13,6 +13,7 @@ from .application_information import (
     information_source_snapshot,
     validate_information_source,
 )
+from .application_input_binding import same_configuration
 from .application_job_brief import (
     brief_requirements,
     create_job_brief,
@@ -68,6 +69,16 @@ def _same_upstream_binding(saved, binding):
     previous = saved.get("binding")
     if previous == binding:
         return True
+    if not isinstance(previous, dict):
+        return False
+    upstream_same = {k: v for k, v in previous.items() if k != "configuration"} == {
+        k: v for k, v in binding.items() if k != "configuration"
+    }
+    # Engine and Codex executable fields are provenance (input binding Module):
+    # an App rebuild or CLI update never decides whether saved phases are reusable.
+    configuration_same = same_configuration(
+        previous.get("configuration"), binding.get("configuration")
+    )
     if (
         saved.get("phase") == "brief"
         and not saved.get("brief")
@@ -76,29 +87,17 @@ def _same_upstream_binding(saved, binding):
     ):
         # A rejected JD reading reuses nothing; its next call runs under the current
         # configuration, and the brief itself re-checks the recorded rejection.
-        return isinstance(previous, dict) and {
-            k: v for k, v in previous.items() if k != "configuration"
-        } == {k: v for k, v in binding.items() if k != "configuration"}
-    if _known_invalid_followup(saved):
-        if not isinstance(previous, dict) or {
-            k: v for k, v in previous.items() if k != "configuration"
-        } != {k: v for k, v in binding.items() if k != "configuration"}:
-            return False
-        old, new = previous.get("configuration", {}), binding.get("configuration", {})
-        diagnostic = {"retrieval_engine_sha256", "retrieval_component_sha256"}
-        if {k: v for k, v in old.items() if k not in diagnostic} != {
-            k: v for k, v in new.items() if k not in diagnostic
-        }:
-            return False
-        return {
-            k: v
-            for k, v in old.get("retrieval_component_sha256", {}).items()
-            if k != "application_retrieval"
-        } == {
-            k: v
-            for k, v in new.get("retrieval_component_sha256", {}).items()
-            if k != "application_retrieval"
-        }
+        return upstream_same
+    if (
+        saved.get("phase") == "planning"
+        and saved.get("planner_kind") == "followup"
+        and saved.get("planner_pending") is True
+    ):
+        # A pending follow-up repair reuses accepted evaluations only after its
+        # recorded planner failure is re-validated.
+        return upstream_same and configuration_same and _known_invalid_followup(saved)
+    if upstream_same and configuration_same:
+        return True
     known_invalid_evaluation = saved.get("phase") == "evaluation" and saved.get(
         "evaluation_error"
     ) in {"match_model_invalid", "match_inference_invalid", "retrieval_execution_incomplete"}
@@ -108,26 +107,17 @@ def _same_upstream_binding(saved, binding):
         or saved.get("evaluations")
         or saved.get("evaluation_origin")
         and not known_invalid_evaluation
-        or not isinstance(previous, dict)
         or not isinstance(previous.get("configuration"), dict)
+        or not upstream_same
     ):
-        return False
-    if {k: v for k, v in previous.items() if k != "configuration"} != {
-        k: v for k, v in binding.items() if k != "configuration"
-    }:
         return False
     # No accepted evaluation is reused. Exact JD, facts, information and model
     # settings still bind upstream receipts after a pre-evaluation repair or a
     # known invalid evaluator output; unknown evaluator calls remain blocked.
-    implementation = {
-        "engine_sha256",
-        "retrieval_engine_sha256",
-        "retrieval_component_sha256",
-        "context_limits",
-    }
-    return {
-        k: v for k, v in previous.get("configuration", {}).items() if k not in implementation
-    } == {k: v for k, v in binding["configuration"].items() if k not in implementation}
+    return same_configuration(
+        {k: v for k, v in previous["configuration"].items() if k != "context_limits"},
+        {k: v for k, v in binding["configuration"].items() if k != "context_limits"},
+    )
 
 
 def _known_invalid_followup(saved):
@@ -186,7 +176,13 @@ def _resume_evaluation(
 
     if (original / "analysis.json").exists():
         report = _read_saved(original / "analysis.json")
-        reused = reuse_analysis(application, evaluation, report, original, destination)
+        # A follow-up repair re-validates the recorded response instead of adopting
+        # the completed report, even when only provenance changed since.
+        reused = (
+            None
+            if revalidate_recorded
+            else reuse_analysis(application, evaluation, report, original, destination)
+        )
         if reused is not None:
             return reused
         if not revalidate_recorded or _read_saved(original / "source-snapshot.json") != evaluation:

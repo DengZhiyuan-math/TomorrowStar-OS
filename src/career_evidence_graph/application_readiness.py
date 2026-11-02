@@ -635,7 +635,7 @@ class ReadinessProbe:
         from .application_input_binding import (
             job_input_revision,
             latest_preparation_task,
-            retained_configuration_inputs,
+            task_binding,
         )
 
         applications, evidence, flow = self.applications, self.evidence, self.flow
@@ -720,8 +720,14 @@ class ReadinessProbe:
         if task:
             try:
                 observed = flow.input_provider(task["application_id"])
+                # Same question, same answer as Flow's freshness check.
                 fresh = (
-                    retained_configuration_inputs(task, observed["inputs"]) == task["inputs"]
+                    not task_binding(
+                        task,
+                        observed["inputs"],
+                        stage="readiness",
+                        preparation_only=self.preparation_only,
+                    ).stale
                     and job_input_revision(application) == task["job_binding"]
                 )
                 if self.preparation_only:

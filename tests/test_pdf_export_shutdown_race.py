@@ -19,7 +19,7 @@ from test_existing_latex import existing_latex as existing_latex
 from test_pdf_export_flow import export_request
 
 from career_evidence_graph.application_flow import ApplicationFlowService
-from career_evidence_graph.application_worker import digest
+from career_evidence_graph.application_input_binding import configuration_revision
 from career_evidence_graph.career_portal_data import PortalDataError
 
 PDF_SAMPLE = Path(__file__).parent / "fixtures/pdf-export/current-template.pdf"
@@ -111,7 +111,9 @@ destination.write_bytes(source.read_bytes())
         {
             "export": export,
             "verify_materials": verify_materials,
-            "prism_export_configuration": lambda: digest(store.prism_client.configuration()),
+            "prism_export_configuration": lambda: configuration_revision(
+                store.prism_client.configuration()
+            ),
         }
     )
     observer = reopened = None

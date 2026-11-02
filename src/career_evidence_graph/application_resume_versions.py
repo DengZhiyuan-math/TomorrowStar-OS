@@ -15,6 +15,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from ._vendor import job_apply_store as helper
+from .application_input_binding import configuration_revision, revision_matches
 from .career_portal_data import PortalDataError
 from .validation.hashing import record_digest as digest
 
@@ -952,7 +953,7 @@ def capture(store, draft_id, draft_sha256, *, task_inputs, export_id):
         "application_id": draft["application_id"],
         "application_revision": draft["application_revision"],
         "analysis_binding": deepcopy(draft["analysis_binding"]),
-        "resume_configuration_revision": digest(draft["generation_policy"]),
+        "resume_configuration_revision": configuration_revision(draft["generation_policy"]),
         "export_configuration": {"kind": "prism-automatic-result", "contract": CONTRACT},
         "prism": binding,
         "latex_sha256": _sha(source),
@@ -967,7 +968,7 @@ def capture(store, draft_id, draft_sha256, *, task_inputs, export_id):
             template_revision=draft.get("template_revision"),
             renderer_revision=draft.get("renderer_revision"),
         )
-    intent["export_configuration_revision"] = digest(intent["export_configuration"])
+    intent["export_configuration_revision"] = configuration_revision(intent["export_configuration"])
     helper.atomic_write_json(directory / "export-intent.json", intent)
     (directory / "resume.tex").write_bytes(source)
     (directory / "resume.pdf").write_bytes(raw)
@@ -1026,9 +1027,13 @@ def read_export(store, identifier):
             or draft["application_id"] != intent["application_id"]
             or draft["application_revision"] != intent["application_revision"]
             or draft["analysis_binding"] != intent["analysis_binding"]
-            or digest(draft["generation_policy"]) != intent["resume_configuration_revision"]
+            or not revision_matches(
+                draft["generation_policy"], intent["resume_configuration_revision"]
+            )
             or intent["automatic_materials"] is not True
-            or digest(intent["export_configuration"]) != intent["export_configuration_revision"]
+            or not revision_matches(
+                intent["export_configuration"], intent["export_configuration_revision"]
+            )
             or _sha(archive) != intent["latex_archive_sha256"]
             or validate_archive(archive, intent["prism"]) != source
             or source.decode() != draft["latex_source"]

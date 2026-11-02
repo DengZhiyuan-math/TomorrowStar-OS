@@ -10,6 +10,7 @@ from test_full_latex_flow import latex_flow as latex_flow
 from test_full_latex_generation import full_latex as full_latex
 from test_group_review_flow import act, reviewed
 
+from career_evidence_graph.application_input_binding import configuration_revision
 from career_evidence_graph.application_worker import digest
 from career_evidence_graph.career_portal_data import PortalDataError
 
@@ -340,7 +341,9 @@ def test_actual_store_flow_new_pdf_never_inherits_old_material_approval(full_lat
             ),
             "group_state": lambda task: store.group_review_state(task["draft_id"]),
             "verify_draft": verify_draft,
-            "prism_export_configuration": lambda: digest(PrismClient().configuration()),
+            "prism_export_configuration": lambda: configuration_revision(
+                PrismClient().configuration()
+            ),
             "export": lambda task: store.export_for_draft(
                 task["draft_id"],
                 task["draft_sha256"],

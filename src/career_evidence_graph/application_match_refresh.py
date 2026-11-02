@@ -13,6 +13,7 @@ from threading import Lock
 from ._vendor import job_apply_store as helper
 from .application_career_library import _read as _read_private_file
 from .application_information import information_context
+from .application_input_binding import revision_matches
 from .application_match import match_configuration_revision
 from .application_match_scoring import calculate_match_score
 from .career_portal_data import PortalDataError
@@ -427,7 +428,7 @@ def _selection_failure(directory, intent, original):
     _require(
         inputs.get("application_id") == intent.get("application_id")
         and digest(inputs.get("job")) == intent.get("job_binding")
-        and digest(inputs.get("configuration")) == intent.get("configuration_revision")
+        and revision_matches(inputs.get("configuration"), intent.get("configuration_revision"))
         and snapshot.get("revision")
         == digest({key: value for key, value in snapshot.items() if key != "revision"})
         and snapshot.get("revision") == inputs.get("source_snapshot_revision")
@@ -632,7 +633,7 @@ def _reading_budget_failure(directory, intent, original):
         and progress.get("stable") == _requirements(original)
         and binding.get("application_id") == intent["application_id"]
         and digest(binding.get("job")) == intent["job_binding"]
-        and digest(binding.get("configuration")) == intent["configuration_revision"],
+        and revision_matches(binding.get("configuration"), intent["configuration_revision"]),
         "原读取阶段、岗位要求或输入绑定不能核验。",
     )
     number = progress.get("round_number")

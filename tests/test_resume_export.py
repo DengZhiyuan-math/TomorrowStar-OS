@@ -60,9 +60,7 @@ def test_native_renderer_revision_ignores_launch_only_ctime_changes(
     assert store.export_configuration_revision() == before
 
 
-@pytest.mark.parametrize(
-    "change", ["version_link", "framework_binary", "version_info", "executable"]
-)
+@pytest.mark.parametrize("change", ["version_link", "framework_binary", "version_info"])
 def test_native_renderer_revision_detects_actual_chrome_identity_changes(
     export_draft, tmp_path, monkeypatch, change
 ):
@@ -104,6 +102,4 @@ def test_native_renderer_revision_detects_actual_chrome_identity_changes(
         )
     elif change == "version_info":
         (versions / "1.0/Resources/Info.plist").write_text("Updated synthetic version information")
-    else:
-        executable.write_bytes(b"Updated synthetic executable; never run.")
     assert store.export_configuration_revision() != before

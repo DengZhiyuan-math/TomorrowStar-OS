@@ -24,7 +24,13 @@ from .application_draft import ENGINE_SHA256 as _DRAFT_ENGINE_SHA256
 from .application_full_latex import ENGINE_SHA256 as _FULL_LATEX_ENGINE_SHA256
 from .application_full_latex import MAX_PROMPT_BYTES
 from .application_group_review import ENGINE_SHA256 as _GROUP_REVIEW_ENGINE_SHA256
-from .application_input_binding import job_input_revision
+from .application_input_binding import (
+    configuration_revision,
+    job_input_revision,
+    revision_matches,
+    same_configuration,
+    same_revision,
+)
 from .application_match import POLICY_VERSION, match_configuration, match_configuration_revision
 from .application_storage import private_root
 from .career_portal_data import ApplicationStore, CareerCatalog, PortalDataError, _identifier
@@ -696,7 +702,7 @@ def _resume_configuration(tailorer="codex", model_runner="codex", *, environment
 
 def resume_configuration_revision(store=None, *, environment=None) -> str:
     """Bind the loaded resume policy and the actual configured execution boundary."""
-    return digest(
+    return configuration_revision(
         store.configuration(environment=environment)
         if store
         else _resume_configuration(environment=environment)
@@ -1057,8 +1063,10 @@ class ApplicationResumeStore:
         if (
             result.get("application_id") != task["application_id"]
             or result.get("analysis_binding", {}).get("analysis_id") != task["analysis_id"]
-            or result.get("resume_configuration_revision")
-            != task["inputs"]["resume_configuration_revision"]
+            or not same_revision(
+                result.get("resume_configuration_revision"),
+                task["inputs"]["resume_configuration_revision"],
+            )
         ):
             raise PortalDataError(
                 "flow_materials_mismatch", "简历与当前分析或材料配置不符，请保留记录。", 409
@@ -1268,8 +1276,10 @@ class ApplicationResumeStore:
             or saved.get("application_id") != task["application_id"]
             or saved.get("analysis_binding", {}).get("analysis_id") != task["analysis_id"]
             or saved.get("task_inputs") != task["inputs"]
-            or saved.get("resume_configuration_revision")
-            != task["inputs"]["resume_configuration_revision"]
+            or not same_revision(
+                saved.get("resume_configuration_revision"),
+                task["inputs"]["resume_configuration_revision"],
+            )
         ):
             raise PortalDataError(
                 "flow_draft_mismatch", "草稿与当前岗位输入不符，请核验版本。", 409
@@ -1468,7 +1478,7 @@ class ApplicationResumeStore:
         }
 
     def export_configuration_revision(self) -> str:
-        return digest(self.export_configuration())
+        return configuration_revision(self.export_configuration())
 
     def import_latex_for_task(
         self, identifier, revision, *, task_inputs, prism, content_mapping=None
@@ -1790,9 +1800,9 @@ class ApplicationResumeStore:
             "application_id": draft["application_id"],
             "application_revision": draft["application_revision"],
             "analysis_binding": draft["analysis_binding"],
-            "resume_configuration_revision": digest(draft["generation_policy"]),
+            "resume_configuration_revision": configuration_revision(draft["generation_policy"]),
             "export_configuration": configuration,
-            "export_configuration_revision": digest(configuration),
+            "export_configuration_revision": configuration_revision(configuration),
             **source_fields,
             **({"automatic_materials": True} if automatic_materials else {}),
         }
@@ -2145,7 +2155,9 @@ class ApplicationResumeStore:
                 or any(
                     manifest.get(key) != value for key, value in intent.items() if key != "status"
                 )
-                or digest(intent["export_configuration"]) != intent["export_configuration_revision"]
+                or not revision_matches(
+                    intent["export_configuration"], intent["export_configuration_revision"]
+                )
             ):
                 raise ValueError("Invalid export manifest.")
             draft, sha256 = self._export_draft(intent)
@@ -2325,7 +2337,9 @@ class ApplicationResumeStore:
             or not isinstance(intent["task_inputs"], dict)
             or not intent["task_inputs"]
             or not isinstance(intent["export_configuration"], dict)
-            or digest(intent["export_configuration"]) != intent["export_configuration_revision"]
+            or not revision_matches(
+                intent["export_configuration"], intent["export_configuration_revision"]
+            )
             or any(
                 not isinstance(intent.get(key), str)
                 or not re.fullmatch(r"[a-f0-9]{64}", intent[key])
@@ -2347,7 +2361,9 @@ class ApplicationResumeStore:
             or draft["analysis_binding"] != intent["analysis_binding"]
             or draft["application_id"] != intent["application_id"]
             or draft["application_revision"] != intent["application_revision"]
-            or digest(draft["generation_policy"]) != intent["resume_configuration_revision"]
+            or not revision_matches(
+                draft["generation_policy"], intent["resume_configuration_revision"]
+            )
         ):
             raise ValueError("Export provenance mismatch.")
         if draft.get("origin") in {"existing_latex", "generated_latex"} and (
@@ -2433,8 +2449,10 @@ class ApplicationResumeStore:
             and (
                 result.get("analysis_binding", {}).get("analysis_id") != task.get("analysis_id")
                 or task.get("origin") != "existing_latex"
-                and result.get("resume_configuration_revision")
-                != task["inputs"]["resume_configuration_revision"]
+                and not same_revision(
+                    result.get("resume_configuration_revision"),
+                    task["inputs"]["resume_configuration_revision"],
+                )
                 or task.get("origin") == "existing_latex"
                 and (
                     result.get("origin") != "existing_latex"
@@ -2807,11 +2825,13 @@ class ApplicationResumeStore:
             analysis.get("application_id") != identifier
             or analysis.get("jd_revision") != job_input_revision(application)
             or analysis.get("source_snapshot_revision") != source_snapshot.get("revision")
-            or analysis.get("configuration_revision") != match_configuration_revision()
+            or not same_revision(
+                analysis.get("configuration_revision"), match_configuration_revision()
+            )
             or analysis.get("policy_version") != POLICY_VERSION
             or source_snapshot != expected_sources
             or configuration is not None
-            and configuration != self.configuration()
+            and not same_configuration(configuration, self.configuration())
         ):
             raise PortalDataError(
                 "resume_inputs_stale", "岗位、来源或模型配置已变化，请重新分析。", 409
@@ -2968,7 +2988,7 @@ class ApplicationResumeStore:
                 "preparation_policy": draft["preparation_policy"],
                 "task_inputs": draft["task_inputs"],
                 "model_mode": draft["model_mode"],
-                "resume_configuration_revision": digest(draft["generation_policy"]),
+                "resume_configuration_revision": configuration_revision(draft["generation_policy"]),
                 "items": draft["items"],
                 "limitations": draft["limitations"],
                 "context": draft["context"],
@@ -3098,7 +3118,7 @@ class ApplicationResumeStore:
             "filename": f"job-resume-{version[:8]}.pdf",
             "file_base64": base64.b64encode(raw).decode(),
             "pdf_sha256": draft["pdf_sha256"],
-            "resume_configuration_revision": digest(draft["generation_policy"]),
+            "resume_configuration_revision": configuration_revision(draft["generation_policy"]),
             "items": draft["items"],
             "limitations": draft["limitations"],
             "context_count": len(draft["context"]),

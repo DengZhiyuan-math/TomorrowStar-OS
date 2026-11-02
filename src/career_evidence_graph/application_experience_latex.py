@@ -22,6 +22,7 @@ from .application_full_latex import (
     _invalid,
     generate_full_latex,
 )
+from .application_input_binding import configuration_current, configuration_revision
 from .application_prism import archive_sources
 from .career_portal_data import PortalDataError
 from .validation.hashing import record_digest as digest
@@ -279,7 +280,7 @@ def prepare_generation(store, identifier, revision, **request):
         "application_id": identifier,
         "application_revision": revision,
         "analysis_binding": payload["analysis"],
-        "resume_configuration_revision": digest(configuration),
+        "resume_configuration_revision": configuration_revision(configuration),
         "configuration": configuration,
         "request_revision": identity,
         "request": request,
@@ -1750,8 +1751,10 @@ def read_completed(store, task, generation_id, export_id):
         or exported.get("task_inputs") != supplied_inputs
         or exported.get("source_checkpoint") != draft.get("source_checkpoint")
         or exported.get("analysis_binding") != draft.get("analysis_binding")
-        or exported.get("export_configuration_revision")
-        != digest((store.prism_client or PrismClient()).configuration())
+        or not configuration_current(
+            exported.get("export_configuration_revision"),
+            (store.prism_client or PrismClient()).configuration(),
+        )
     ):
         raise _existing_mismatch()
     return {
