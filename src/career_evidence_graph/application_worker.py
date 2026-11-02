@@ -10,6 +10,7 @@ import logging
 import math
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -4239,7 +4240,7 @@ class WorkerService:
             return state
 
     def spawn(self) -> None:
-        if self.process and self.process.poll() is None:
+        if self._backend_closed or self.process and self.process.poll() is None:
             return
         descriptor = os.open(
             self.store.root / ".worker.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600
@@ -4318,6 +4319,30 @@ class WorkerService:
             )
         finally:
             os.close(fd)
+
+    def stop_process(self, record=lambda event: None, *, timeout: float = 10) -> None:
+        """Stop this backend's worker: SIGTERM lets it close its driver and Chrome first."""
+        # A closing backend starts no replacement worker.
+        self._backend_closed = True
+        process = self.process
+        if process is None or process.poll() is not None:
+            return
+        record("worker_terminate_requested")
+        with suppress(ProcessLookupError):
+            process.terminate()
+        try:
+            process.wait(timeout)
+        except subprocess.TimeoutExpired:
+            record("worker_kill_requested")
+            # The worker leads its own session; this also ends its unreaped helpers.
+            with suppress(ProcessLookupError, PermissionError):
+                os.killpg(process.pid, signal.SIGKILL)
+            try:
+                process.wait(5)
+            except subprocess.TimeoutExpired:
+                record("worker_stop_unconfirmed")
+                return
+        record("worker_exit_confirmed")
 
     def suspend_backend(self, *, pipeline_id, controller, batch_id, application_id):
         """Stop writes and revoke old recovery commands before each backend exit."""

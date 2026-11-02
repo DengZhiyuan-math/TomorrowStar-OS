@@ -1695,33 +1695,27 @@ def managed_hidden_chrome(playwright, temporary, driver, log, env):
     finally:
         if pid is not None and identity is not None:
             trace("cleanup_requested", launch_date=identity["launch_date"])
+            stop_owned_chrome(pid, identity["launch_date"])
+            trace("cleanup_complete", launch_date=identity["launch_date"])
+
+
+def stop_owned_chrome(pid, launch_date):
+    """End one verified Chrome launch generation: SIGTERM, then SIGKILL after 3 s."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return
+    for number in (15, 9):
+        mac_chrome_state(pid, launch_date=launch_date)
+        os.kill(pid, number)
+        until = time.monotonic() + 3
+        while time.monotonic() < until:
             try:
                 os.kill(pid, 0)
             except ProcessLookupError:
-                pass
-            else:
-                mac_chrome_state(pid, launch_date=identity["launch_date"])
-                os.kill(pid, 15)
-                until = time.monotonic() + 3
-                while time.monotonic() < until:
-                    try:
-                        os.kill(pid, 0)
-                    except ProcessLookupError:
-                        break
-                    time.sleep(0.05)
-                else:
-                    mac_chrome_state(pid, launch_date=identity["launch_date"])
-                    os.kill(pid, 9)
-                    until = time.monotonic() + 3
-                    while time.monotonic() < until:
-                        try:
-                            os.kill(pid, 0)
-                        except ProcessLookupError:
-                            break
-                        time.sleep(0.05)
-                    else:
-                        raise PortalDataError("cua_cleanup_unknown", "受管浏览器未确认停止。", 409)
-            trace("cleanup_complete", launch_date=identity["launch_date"])
+                return
+            time.sleep(0.05)
+    raise PortalDataError("cua_cleanup_unknown", "受管浏览器未确认停止。", 409)
 
 
 # Logins the user made in the worker's browser (decided 2026-10-31). Each run still
@@ -2036,6 +2030,10 @@ def managed_owned_cua_browser(
             if not cleaned:
                 raise PortalDataError("cua_cleanup_unknown", "Cua 自有资源未确认清理。", 409)
         finally:
+            # A dead or failed driver cannot close the Chrome it launched.
+            if isinstance(record.get("pid"), int) and record.get("launch_date"):
+                with suppress(PortalDataError, OSError):
+                    stop_owned_chrome(record["pid"], record["launch_date"])
             record.update(closed=cleaned, transport_failed=bool(client and client.failed))
             helper.atomic_write_json(root / "cua-runtime.json", record)
 
