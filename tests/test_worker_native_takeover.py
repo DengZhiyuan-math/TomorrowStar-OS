@@ -116,6 +116,12 @@ def test_native_start_rereads_a_page_still_settling(native_page, monkeypatch, fa
     def observe(reference, **kwargs):
         attempts.append(1)
         if len(attempts) == 1:
+            # A slow first read outlasts the observation window (2026-11-02: 7.4 s).
+            state = service.store.load()
+            state["runtime"]["observed_at"] -= 10
+            for job in state["jobs"]:
+                job["page_observation"]["at"] -= 10
+            service.store.save(state)
             raise failure
         return real(reference, **kwargs)
 

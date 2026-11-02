@@ -3014,8 +3014,12 @@ class ApplicationRunner:
                     and getattr(error, "message", None) != "owned_browser_read_timeout"
                 ):
                     raise
-                self.pump()
-                check()
+                # A slow read can outlast the observation window; the check after it
+                # refreshes the window first (seen 2026-11-02: 7.4 s).
+                if not self.pump_codex_events(reference):
+                    raise PortalDataError(
+                        "assistance_binding_changed", "原页、材料或接管范围已改变。", 409
+                    ) from error
         native_scope = self.cua.native_page_scope(page, pump=self.pump)
         native_scope["application_ref_digest"] = digest(reference)
         validate_native_assistance_scope(native_scope, reference)
