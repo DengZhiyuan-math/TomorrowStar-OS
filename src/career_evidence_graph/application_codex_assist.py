@@ -661,7 +661,14 @@ class CodexAdapter:
                                 "report within the limits each output schema field describes; "
                                 "next_step is null, or its field_id null, when no next field "
                                 "is named. Turn completion is not verified application "
-                                "completion."
+                                "completion. Use browser_type only for text inputs (text, "
+                                "email, tel, url, number, search, textarea). Do not set date, "
+                                "select/combobox, radio, checkbox or file controls with "
+                                "browser_type or browser_click; the Worker's script fills them "
+                                "after return. Name the first such field in next_step with "
+                                "kind return_to_script, and list the others in fields with "
+                                "state left_for_script. Never retry browser_type on a field "
+                                "after an unknown or refused result."
                             )
                         }
                         if native
