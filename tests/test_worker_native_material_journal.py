@@ -97,7 +97,14 @@ def material_call(bound_material_page, request):
         if kind == "text"
         else {"filename": resolved["filename"]}
     )
-    receipt = {**grant, "calls": [call]}
+    receipt = {
+        **grant,
+        "phase": "active",
+        "revoked": False,
+        "active_calls": 0,
+        "return_ready": False,
+        "calls": [call],
+    }
     return service, ref, scope, receipt, intent
 
 

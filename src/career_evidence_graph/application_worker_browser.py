@@ -70,7 +70,7 @@ from .ashby_drafts import DraftSession
 from .ashby_drafts import supports as supports_ashby_drafts
 from .ats_forms import FORMS, form_for
 from .career_portal_data import ApplicationStore, PortalDataError
-from .cua_driver import managed_cua_browser, sync_login_state
+from .cua_driver import managed_cua_browser, native_handoff_port, sync_login_state
 from .loaded_code import load_worker_modules, loaded_runtime_revision
 from .owned_browser_cdp import OwnedCDP, browser_budget, pause_browser_budget, pump_events
 from .owned_browser_cdp import screenshot as owned_screenshot
@@ -2976,16 +2976,17 @@ class ApplicationRunner:
         """Deliver JSON, then let the original native session execute its own tools."""
         reference = deepcopy(assistance_ref)
         policy = self.native_assistance_policy
-        client = getattr(self.cua, "client", None)
-        executable = getattr(client, "driver_executable", None)
+        # The Adapter gets only the session's narrow handoff Interface.
+        port = native_handoff_port(getattr(self.cua, "client", None))
+        executable = port and port.driver_executable
         if (
             policy is None
             or self.codex_assist is None
             or reference.get("protocol") != "codex-assistance/native/v1"
             or reference.get("page_writes_enabled") is not True
             or reference.get("native_policy_digest") != digest(policy)
-            or getattr(client, "native_session", False) is not True
-            or getattr(client, "driver_sha256", None) != policy["driver_sha256"]
+            or port is None
+            or port.driver_sha256 != policy["driver_sha256"]
             or executable is None
         ):
             print("native_assistance_unavailable: worker capability", flush=True)
@@ -3114,6 +3115,8 @@ class ApplicationRunner:
             records = {row["call_id"]: row for row in latest.get("calls", [])}
             records[call["call_id"]] = deepcopy(call)
             receipt = {
+                "phase": "active",
+                "revoked": False,
                 **latest,
                 "calls": list(records.values()),
                 "active_calls": 1,
@@ -3162,7 +3165,7 @@ class ApplicationRunner:
                 delivery=delivery,
                 pending_action_id=pending_intent
                 and (pending_intent.get("attempt_id") or digest(pending_intent)),
-                native_client=client,
+                native_client=port,
                 native_scope=call_scope,
                 driver_executable=executable,
                 before_yield=before_yield,

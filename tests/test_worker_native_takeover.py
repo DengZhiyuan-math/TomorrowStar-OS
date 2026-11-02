@@ -413,6 +413,7 @@ def test_returned_native_receipt_still_reconciles_an_observed_material_call(
                 {
                     "handoff_id": "native-run",
                     "generation": 1,
+                    "phase": "active",
                     "revoked": True,
                     "return_ready": True,
                     "local_tools_drained": True,
@@ -994,6 +995,7 @@ def test_reopen_retires_a_stopped_native_takeover_that_carried_calls(native_page
                 {
                     "handoff_id": "native-run",
                     "generation": 1,
+                    "phase": "active",
                     "revoked": True,
                     "return_ready": True,
                     "local_tools_drained": True,

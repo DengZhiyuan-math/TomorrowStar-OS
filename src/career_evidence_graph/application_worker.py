@@ -443,156 +443,21 @@ def validate_assistance_delivery(value, expected_ref):
 
 
 def _native_handoff_receipt(value):
+    """A journaled handoff receipt, held to the driver's one receipt rule."""
     if value is None:
         return None
-    if not isinstance(value, dict) or set(value) - {
-        "handoff_id",
-        "generation",
-        "phase",
-        "revoked",
-        "active_calls",
-        "local_tools_drained",
-        "return_ready",
-        "calls",
-    }:
-        raise PortalDataError(
-            "native_handoff_receipt_invalid", "原生交接回执包含不支持的字段。", 409
-        )
-    if (
-        "handoff_id" in value
-        and (not isinstance(value["handoff_id"], str) or not 1 <= len(value["handoff_id"]) <= 200)
-        or "generation" in value
-        and (type(value["generation"]) is not int or not 0 <= value["generation"] < 2**64)
-        or "phase" in value
-        and (not isinstance(value["phase"], str) or not 1 <= len(value["phase"]) <= 100)
-        or any(
-            type(value[key]) is not bool
-            for key in ("revoked", "local_tools_drained", "return_ready")
-            if key in value
-        )
-        or "active_calls" in value
-        and (type(value["active_calls"]) is not int or not 0 <= value["active_calls"] <= 1000)
-    ):
-        raise PortalDataError("native_handoff_receipt_invalid", "原生交接回执形状无效。", 409)
-    if (
-        "active_calls" in value
-        and "local_tools_drained" in value
-        and value["local_tools_drained"] != (value["active_calls"] == 0)
-    ):
-        raise PortalDataError("native_handoff_receipt_invalid", "原生在途与排空回执不一致。", 409)
-    calls = value.get("calls", [])
-    if not isinstance(calls, list) or len(calls) > 1000:
-        raise PortalDataError("native_handoff_receipt_invalid", "原生调用回执超过上限。", 409)
-    call_ids = set()
-    for call in calls:
-        material_fields = set()
-        if isinstance(call, dict) and call.get("tool") == "browser_deliver_material":
-            from .cua_driver import validate_native_material_metadata
+    from .cua_driver import HANDOFF_GRANT_FIELDS, validate_handoff_receipt
 
-            try:
-                validate_native_material_metadata(call)
-            except ValueError as error:
-                raise PortalDataError(
-                    "native_handoff_receipt_invalid", "原生材料调用元数据不能核验。", 409
-                ) from error
-            material_fields = {
-                "material_ref",
-                "target_descriptor",
-                "material_resolution",
-                "material_readback",
-            }
-        if (
-            not isinstance(call, dict)
-            or set(call) - {"text_sha256", "native_ref", "field_hint"} - material_fields
-            != {
-                "call_id",
-                "tool",
-                "arguments_digest",
-                "status",
-                "generation",
-                "sequence",
-                "mutation",
-                "semantic_verified",
-                "scope",
-            }
-            or not isinstance(call["call_id"], str)
-            or not 1 <= len(call["call_id"]) <= 128
-            or not call["call_id"].isprintable()
-            or call["call_id"] in call_ids
-            or not isinstance(call["tool"], str)
-            or call["tool"]
-            not in {
-                "get_browser_state",
-                "browser_click",
-                "browser_type",
-                "browser_deliver_material",
-            }
-            or not isinstance(call["arguments_digest"], str)
-            or re.fullmatch(r"[a-f0-9]{64}", call["arguments_digest"]) is None
-            or not isinstance(call["status"], str)
-            or call["status"]
-            not in {"awaiting_host", "in_flight", "observed", "not_sent", "unknown"}
-            or any(
-                type(call[k]) is not int or not 0 < call[k] < 2**64
-                for k in ("generation", "sequence")
-            )
-            or type(call["mutation"]) is not bool
-            or call["mutation"] != (call["tool"] != "get_browser_state")
-            or call["semantic_verified"] is not False
-        ):
-            raise PortalDataError("native_handoff_receipt_invalid", "原生调用元数据不能核验。", 409)
-        if call["mutation"]:
-            hint = call.get("field_hint")
-            if (
-                not isinstance(call.get("native_ref"), str)
-                or not 1 <= len(call["native_ref"]) <= 256
-                or not call["native_ref"].isprintable()
-                or not isinstance(hint, dict)
-                or set(hint) != {"role", "name"}
-                or any(not isinstance(v, str) or len(v) > 1000 for v in hint.values())
-            ):
-                raise PortalDataError(
-                    "native_handoff_receipt_invalid", "原生控件引用或字段线索无效。", 409
-                )
-        elif "native_ref" in call or "field_hint" in call:
-            raise PortalDataError(
-                "native_handoff_receipt_invalid", "只读调用不包含写入控件引用。", 409
-            )
-        call_ids.add(call["call_id"])
-        call_scope = call["scope"]
-        if (
-            not isinstance(call_scope, dict)
-            or set(call_scope) != {"target_id", "tab_id", "expected_document"}
-            or any(
-                not isinstance(call_scope[k], str) or not 1 <= len(call_scope[k]) <= 512
-                for k in ("target_id", "tab_id")
-            )
-            or not isinstance(call_scope["expected_document"], dict)
-            or set(call_scope["expected_document"]) != {"frame_id", "loader_id", "url"}
-            or any(
-                not isinstance(v, str) or not 1 <= len(v) <= 20_000
-                for v in call_scope["expected_document"].values()
-            )
-            or call["tool"] == "browser_type"
-            and (
-                not isinstance(call.get("text_sha256"), str)
-                or re.fullmatch(r"[a-f0-9]{64}", call["text_sha256"]) is None
-            )
-            or call["tool"] != "browser_type"
-            and "text_sha256" in call
-        ):
-            raise PortalDataError(
-                "native_handoff_receipt_invalid", "原生调用页面范围或文本摘要无效。", 409
-            )
     try:
-        raw = json.dumps(value, allow_nan=False).encode()
-    except (TypeError, ValueError, RecursionError) as error:
+        if isinstance(value, dict) and "yielded" in value:
+            raise ValueError("A journaled grant keeps no driver yield flag")
+        return validate_handoff_receipt(
+            value, grant=isinstance(value, dict) and set(value) == HANDOFF_GRANT_FIELDS
+        )
+    except (ValueError, TypeError, RecursionError) as error:
         raise PortalDataError(
-            "native_handoff_receipt_invalid", "原生回执必须是有界 JSON。", 409
+            "native_handoff_receipt_invalid", "原生交接回执不能核验。", 409
         ) from error
-    if len(raw) > 256_000:
-        raise PortalDataError("native_handoff_receipt_invalid", "原生回执超过交接上限。", 409)
-    return deepcopy(value)
 
 
 def _native_stop_proven(receipt):

@@ -14,6 +14,7 @@ from career_evidence_graph import cua_driver
 from career_evidence_graph.application_codex_assist import CodexAdapter, CodexAssistConfig
 from career_evidence_graph.application_worker import valid_assistance_report
 from career_evidence_graph.career_portal_data import PortalDataError
+from career_evidence_graph.cua_driver import NativeHandoffPort
 from career_evidence_graph.validation.hashing import record_digest as digest
 
 
@@ -175,6 +176,9 @@ for line in sys.stdin:
         receiver_yielded = True
         revoked = False
         calls = None
+        timeout = 15
+        handoff_transition_inflight = False
+        control_inflight = False
 
         def yield_to(self, ready, **kwargs):
             assert kwargs["scope"] == scope
@@ -239,7 +243,7 @@ def test_native_takeover_hands_json_to_verified_native_tool_catalog(tmp_path, mo
             ref,
             request_id="native-start",
             delivery=packet,
-            native_client=native,
+            native_client=NativeHandoffPort(native),
             native_scope=scope,
             driver_executable=driver,
             before_yield=lambda intent: events.append("before"),
@@ -322,7 +326,7 @@ def test_native_takeover_reuses_the_named_thread_mcp_connection(tmp_path, monkey
             ref,
             request_id="native-named-catalog",
             delivery=packet,
-            native_client=native,
+            native_client=NativeHandoffPort(native),
             native_scope=scope,
             driver_executable=driver,
             before_yield=lambda intent: None,
@@ -485,7 +489,7 @@ def start_case(
         ref,
         request_id="native-start",
         delivery=packet,
-        native_client=native,
+        native_client=NativeHandoffPort(native),
         native_scope=scope,
         driver_executable=driver,
         before_yield=before_yield,
@@ -730,7 +734,7 @@ def test_observed_receipt_save_failure_during_completed_revoke_stays_unknown(tmp
             ref,
             request_id="fresh-request",
             delivery=packet,
-            native_client=native,
+            native_client=NativeHandoffPort(native),
             native_scope=scope,
             driver_executable=driver,
             before_yield=lambda _: None,
@@ -750,7 +754,7 @@ def test_observed_receipt_save_failure_during_completed_revoke_stays_unknown(tmp
                 changed_ref,
                 request_id="fresh-reference",
                 delivery=changed_packet,
-                native_client=native,
+                native_client=NativeHandoffPort(native),
                 native_scope=scope,
                 driver_executable=driver,
                 before_yield=lambda _: None,
@@ -807,7 +811,7 @@ def test_lost_native_turn_ack_stays_unknown_without_starting_a_second_run(tmp_pa
             ref,
             request_id="different-retry-id",
             delivery=packet,
-            native_client=native,
+            native_client=NativeHandoffPort(native),
             native_scope=scope,
             driver_executable=driver,
             before_yield=lambda intent: None,
@@ -989,7 +993,7 @@ def test_native_takeover_refuses_an_unbound_or_legacy_reference_before_launch(
             ref,
             request_id="refused",
             delivery=packet,
-            native_client=native,
+            native_client=NativeHandoffPort(native),
             native_scope=scope,
             driver_executable=driver,
             before_yield=lambda intent: None,
@@ -1659,7 +1663,7 @@ def test_native_takeover_carries_only_the_dispatched_pending_intent(tmp_path, mo
             ref,
             request_id="native-start",
             delivery=packet,
-            native_client=native,
+            native_client=NativeHandoffPort(native),
             native_scope=scope,
             driver_executable=driver,
             before_yield=lambda intent: events.append("before"),
@@ -1710,7 +1714,7 @@ def test_native_takeover_refuses_any_other_pending_action_before_launch(
             ref,
             request_id="refused",
             delivery=packet,
-            native_client=native,
+            native_client=NativeHandoffPort(native),
             native_scope=scope,
             driver_executable=driver,
             before_yield=lambda intent: None,

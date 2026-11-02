@@ -122,6 +122,7 @@ class Adapter:
             {
                 "handoff_id": "native-run",
                 "generation": 1,
+                "phase": "returned",
                 "revoked": True,
                 "return_ready": not unknown,
                 "local_tools_drained": True,

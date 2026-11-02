@@ -30,9 +30,10 @@ from .codex_cli import CodexCLIError, validate_codex_executable, validate_codex_
 from .cua_driver import (
     NATIVE_HANDOFF_PROTOCOL,
     NATIVE_HANDOFF_TOOLS,
+    NativeHandoffPort,
+    valid_page_scope,
     validate_fixed_material_resolution,
     validate_native_assistance_policy,
-    validate_native_material_metadata,
 )
 from .validation.hashing import record_digest as digest
 from .worker_process_identity import process_identity, valid_process_identity
@@ -354,13 +355,9 @@ class CodexAdapter:
                 callable(callback)
                 for callback in (before_yield, after_yield, pump, before_native_call)
             )
-            or getattr(native_client, "native_session", None) is not True
-            or getattr(native_client, "driver_sha256", None) != policy["driver_sha256"]
-            or not all(
-                callable(getattr(native_client, name, None))
-                for name in ("yield_to", "handoff_status", "revoke_handoff", "admit_call")
-            )
-            or not isinstance(getattr(native_client, "socket_path", None), str)
+            or not isinstance(native_client, NativeHandoffPort)
+            or native_client.driver_sha256 != policy["driver_sha256"]
+            or not isinstance(native_client.socket_path, str)
             or not Path(native_client.socket_path).is_absolute()
         ):
             raise ValueError("Native takeover requires the trusted original host and policy")
@@ -378,18 +375,7 @@ class CodexAdapter:
         context = delivery["page_context"]
         actual_scope = context.get("native_scope") or {}
         if (
-            not isinstance(native_scope, dict)
-            or set(native_scope) != {"target_id", "tab_id", "expected_document"}
-            or any(
-                not isinstance(native_scope[k], str) or not 1 <= len(native_scope[k]) <= 512
-                for k in ("target_id", "tab_id")
-            )
-            or not isinstance(native_scope["expected_document"], dict)
-            or set(native_scope["expected_document"]) != {"frame_id", "loader_id", "url"}
-            or any(
-                not isinstance(v, str) or not 1 <= len(v) <= 20000
-                for v in native_scope["expected_document"].values()
-            )
+            not valid_page_scope(native_scope)
             or context.get("status") != "captured"
             or context.get("document") != native_scope["expected_document"]
             or not isinstance(actual_scope, dict)
@@ -398,7 +384,7 @@ class CodexAdapter:
         ):
             raise ValueError("Native takeover requires the captured original Page scope")
         executable = self._native_executable(driver_executable, policy["driver_sha256"])
-        if getattr(native_client, "driver_executable", None) != str(executable):
+        if native_client.driver_executable != str(executable):
             raise ValueError("Native takeover requires the original reviewed host executable")
         native = {
             "client": native_client,
@@ -763,130 +749,6 @@ class CodexAdapter:
             "tools": {name: {"approval_mode": "approve"} for name in NATIVE_HANDOFF_TOOLS},
         }
 
-    @staticmethod
-    def _native_metadata(value, *, initial=False):
-        fields = {
-            "handoff_id",
-            "generation",
-            "phase",
-            "revoked",
-            "active_calls",
-            "local_tools_drained",
-            "return_ready",
-            "calls",
-        }
-        required = (
-            {"handoff_id", "generation", "local_tools_drained", "yielded"} if initial else fields
-        )
-        if (
-            not isinstance(value, dict)
-            or not required <= set(value)
-            or "host_return_credential" in value
-        ):
-            raise _ProtocolFailure("native_handoff_status_unknown")
-        if (
-            not isinstance(value["handoff_id"], str)
-            or not 1 <= len(value["handoff_id"]) <= 200
-            or not value["handoff_id"].isprintable()
-            or type(value["generation"]) is not int
-            or value["generation"] < 0
-            or type(value["local_tools_drained"]) is not bool
-            or initial
-            and type(value["yielded"]) is not bool
-        ):
-            raise _ProtocolFailure("native_handoff_status_unknown")
-        result = {k: value[k] for k in fields if k in value}
-        if initial:
-            result["yielded"] = value["yielded"]
-        if not initial and (
-            not isinstance(value["phase"], str)
-            or not value["phase"].isidentifier()
-            or any(type(value[k]) is not bool for k in ("revoked", "return_ready"))
-            or type(value["active_calls"]) is not int
-            or value["active_calls"] < 0
-            or value["local_tools_drained"] != (value["active_calls"] == 0)
-            or value["return_ready"]
-            and not value["local_tools_drained"]
-            or not isinstance(value["calls"], list)
-            or len(value["calls"]) > 1000
-        ):
-            raise _ProtocolFailure("native_handoff_status_unknown")
-        if "calls" in result:
-            calls = []
-            allowed = {
-                "call_id",
-                "tool",
-                "arguments_digest",
-                "status",
-                "generation",
-                "sequence",
-                "mutation",
-                "semantic_verified",
-                "scope",
-                "text_sha256",
-                "native_ref",
-                "field_hint",
-            }
-            for row in result["calls"]:
-                if not isinstance(row, dict):
-                    raise _ProtocolFailure("native_handoff_status_unknown")
-                if row.get("tool") == "browser_deliver_material":
-                    try:
-                        calls.append(validate_native_material_metadata(row))
-                    except ValueError:
-                        raise _ProtocolFailure("native_handoff_status_unknown") from None
-                    continue
-                # Raw native arguments/results remain in native custody, not the Worker receipt.
-                item = {k: row[k] for k in allowed if k in row}
-                if (
-                    not isinstance(item.get("call_id"), str)
-                    or not 1 <= len(item["call_id"]) <= 128
-                    or not item["call_id"].isprintable()
-                    or item.get("tool") not in NATIVE_HANDOFF_TOOLS
-                    or not isinstance(item.get("arguments_digest"), str)
-                    or len(item["arguments_digest"]) != 64
-                    or any(c not in "0123456789abcdef" for c in item["arguments_digest"])
-                    or item.get("status")
-                    not in {"awaiting_host", "in_flight", "observed", "not_sent", "unknown"}
-                    or any(
-                        type(item.get(k)) is not int or item[k] <= 0
-                        for k in ("generation", "sequence")
-                    )
-                    or type(item.get("mutation")) is not bool
-                    or item.get("semantic_verified") is not False
-                    or item["mutation"] != (item["tool"] != "get_browser_state")
-                    or not isinstance(item.get("scope"), dict)
-                    or (
-                        item["mutation"]
-                        and (
-                            not isinstance(item.get("native_ref"), str)
-                            or not 1 <= len(item["native_ref"]) <= 256
-                            or not item["native_ref"].isprintable()
-                            or not isinstance(item.get("field_hint"), dict)
-                            or set(item["field_hint"]) != {"role", "name"}
-                            or any(
-                                not isinstance(v, str) or len(v) > 1000
-                                for v in item["field_hint"].values()
-                            )
-                        )
-                    )
-                    or (not item["mutation"] and ("native_ref" in item or "field_hint" in item))
-                    or (
-                        item["tool"] == "browser_type"
-                        and (
-                            not isinstance(item.get("text_sha256"), str)
-                            or len(item["text_sha256"]) != 64
-                            or any(c not in "0123456789abcdef" for c in item["text_sha256"])
-                        )
-                    )
-                ):
-                    raise _ProtocolFailure("native_handoff_status_unknown")
-                calls.append(item)
-            if len({call["call_id"] for call in calls}) != len(calls):
-                raise _ProtocolFailure("native_handoff_status_unknown")
-            result["calls"] = calls
-        return json.loads(json.dumps(result, allow_nan=False))
-
     def _native_activate(self, run):
         native = run.native
         if (
@@ -957,7 +819,6 @@ class CodexAdapter:
                 driver_executable=native["driver"],
                 pump=lambda: self._native_owner_pump(run),
             )
-            receipt = self._native_metadata(receipt, initial=True)
             yielded = receipt.pop("yielded")
             native["receipt"] = receipt
             if yielded is not True:
@@ -1017,7 +878,8 @@ class CodexAdapter:
         native["published"] = canonical
 
     def _native_status(self, run, value):
-        value = self._native_metadata(value)
+        # The driver's handoff port returns only receipts that passed its one check.
+        value = json.loads(json.dumps(value))
         native = run.native
         original = native.get("receipt")
         if original and any(value[k] != original[k] for k in ("handoff_id", "generation")):
@@ -1162,9 +1024,7 @@ class CodexAdapter:
                 # A routine poll while Codex holds control has the driver's own action
                 # bound: it took over 1 s while Codex connected (2026-10-31) and over
                 # 5 s with a write awaiting admission (2026-11-01). Stops keep their own.
-                timeout=getattr(native["client"], "timeout", NATIVE_STATUS_TIMEOUT)
-                if timeout is None
-                else timeout,
+                timeout=native["client"].action_timeout if timeout is None else timeout,
             )
             if native["revoke_requested"] and not revoked:
                 # This poll's own owner pump stopped the run and journaled the later,
@@ -1196,10 +1056,7 @@ class CodexAdapter:
 
     @staticmethod
     def _native_control_inflight(run):
-        return any(
-            getattr(run.native["client"], key, False)
-            for key in ("handoff_transition_inflight", "control_inflight")
-        )
+        return run.native["client"].control_busy
 
     def _native_revoke(self, run):
         native = run.native

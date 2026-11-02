@@ -174,7 +174,7 @@ def validate_native_material_metadata(row):
         or any(type(row[key]) is not int or row[key] <= 0 for key in ("generation", "sequence"))
         or row["mutation"] is not True
         or row["semantic_verified"] is not False
-        or not NativeCuaSessionClient._valid_borrow_scope(row["scope"])
+        or not valid_page_scope(row["scope"])
         or not isinstance(row["field_hint"], dict)
         or set(row["field_hint"]) != {"role", "name"}
         or any(
@@ -240,6 +240,152 @@ def validate_native_material_metadata(row):
             ):
                 raise ValueError("Invalid native material metadata")
     return deepcopy(row)
+
+
+def valid_page_scope(value):
+    """The one shape of a borrowed original-page scope: target, tab and exact document."""
+    return bool(
+        isinstance(value, dict)
+        and set(value) == {"target_id", "tab_id", "expected_document"}
+        and all(
+            isinstance(value[k], str) and 1 <= len(value[k]) <= 512 for k in ("target_id", "tab_id")
+        )
+        and isinstance(value["expected_document"], dict)
+        and set(value["expected_document"]) == {"frame_id", "loader_id", "url"}
+        and all(
+            isinstance(v, str) and 1 <= len(v) <= 20_000
+            for v in value["expected_document"].values()
+        )
+    )
+
+
+_CALL_STATUSES = frozenset({"awaiting_host", "in_flight", "observed", "not_sent", "unknown"})
+_CALL_FIELDS = frozenset(
+    {
+        "call_id",
+        "tool",
+        "arguments_digest",
+        "status",
+        "generation",
+        "sequence",
+        "mutation",
+        "semantic_verified",
+        "scope",
+    }
+)
+HANDOFF_RECEIPT_FIELDS = frozenset(
+    {
+        "handoff_id",
+        "generation",
+        "phase",
+        "revoked",
+        "active_calls",
+        "local_tools_drained",
+        "return_ready",
+        "calls",
+    }
+)
+HANDOFF_GRANT_FIELDS = frozenset({"handoff_id", "generation", "local_tools_drained"})
+_HEX64 = re.compile(r"[a-f0-9]{64}")
+
+
+def _printable(value, limit):
+    return isinstance(value, str) and 1 <= len(value) <= limit and value.isprintable()
+
+
+def _counter(value):
+    return type(value) is int and 0 < value < 2**64
+
+
+def _valid_handoff_call(row):
+    tool = row.get("tool") if isinstance(row, dict) else None
+    # Every native tool except the read-only page state may change the page.
+    mutation = tool != "get_browser_state"
+    return bool(
+        isinstance(row, dict)
+        and tool in {"get_browser_state", "browser_click", "browser_type"}
+        and set(row)
+        == _CALL_FIELDS
+        | ({"text_sha256"} if tool == "browser_type" else set())
+        | ({"native_ref", "field_hint"} if mutation else set())
+        and _printable(row["call_id"], 128)
+        and isinstance(row["arguments_digest"], str)
+        and _HEX64.fullmatch(row["arguments_digest"])
+        and row["status"] in _CALL_STATUSES
+        and _counter(row["generation"])
+        and _counter(row["sequence"])
+        and row["mutation"] is mutation
+        and row["semantic_verified"] is False
+        and valid_page_scope(row["scope"])
+        and (
+            not mutation
+            or _printable(row["native_ref"], 256)
+            and isinstance(row["field_hint"], dict)
+            and set(row["field_hint"]) == {"role", "name"}
+            and all(isinstance(v, str) and len(v) <= 1000 for v in row["field_hint"].values())
+        )
+        and (
+            tool != "browser_type"
+            or isinstance(row["text_sha256"], str)
+            and _HEX64.fullmatch(row["text_sha256"])
+        )
+    )
+
+
+def validate_handoff_receipt(value, *, grant=False):
+    """The one check of a native handoff receipt; every reader trusts what it returns.
+
+    ``grant`` is the receipt of the yield itself: identity and drain state, with the
+    driver's ``yielded`` answer when it comes straight from the driver. Otherwise it is
+    a full status: phase, revocation, drain, return readiness and payload-free calls.
+    A receipt that fails raises ``ValueError``; the driver Seam reports it as unknown.
+    """
+    if not isinstance(value, dict):
+        raise ValueError("Invalid native handoff receipt")
+    keys = set(value)
+    if grant:
+        valid = HANDOFF_GRANT_FIELDS <= keys <= HANDOFF_GRANT_FIELDS | {"yielded"} and (
+            "yielded" not in value or type(value["yielded"]) is bool
+        )
+    else:
+        valid = (
+            keys == HANDOFF_RECEIPT_FIELDS
+            and isinstance(value["phase"], str)
+            and len(value["phase"]) <= 100
+            and value["phase"].isidentifier()
+            and type(value["revoked"]) is bool
+            and type(value["return_ready"]) is bool
+            and type(value["active_calls"]) is int
+            and 0 <= value["active_calls"] <= 1000
+            and value["local_tools_drained"] is (value["active_calls"] == 0)
+            and (not value["return_ready"] or value["local_tools_drained"])
+            and isinstance(value["calls"], list)
+            and len(value["calls"]) <= 1000
+        )
+    if not (
+        valid
+        and _printable(value["handoff_id"], 200)
+        and type(value["generation"]) is int
+        and 0 <= value["generation"] < 2**64
+        and type(value["local_tools_drained"]) is bool
+    ):
+        raise ValueError("Invalid native handoff receipt")
+    result = deepcopy(value)
+    if not grant:
+        calls = []
+        for row in value["calls"]:
+            if isinstance(row, dict) and row.get("tool") == "browser_deliver_material":
+                calls.append(validate_native_material_metadata(row))
+            elif _valid_handoff_call(row):
+                calls.append(deepcopy(row))
+            else:
+                raise ValueError("Invalid native handoff call")
+        if len({call["call_id"] for call in calls}) != len(calls):
+            raise ValueError("Duplicate native handoff call")
+        result["calls"] = calls
+    if len(json.dumps(result, allow_nan=False).encode()) > 256_000:
+        raise ValueError("Native handoff receipt exceeds its limit")
+    return result
 
 
 def validate_native_assistance_policy(value):
@@ -877,50 +1023,28 @@ class NativeCuaSessionClient:
                 stream.close()
 
     def _adopt_handoff(self, value):
+        receipt = None
+        expected = {*HANDOFF_GRANT_FIELDS, "yielded", "host_return_credential"}
+        if isinstance(value, dict) and set(value) == expected:
+            try:
+                receipt = validate_handoff_receipt(
+                    {k: v for k, v in value.items() if k != "host_return_credential"}, grant=True
+                )
+            except ValueError:
+                receipt = None
         if (
-            not isinstance(value, dict)
-            or set(value)
-            != {
-                "handoff_id",
-                "generation",
-                "local_tools_drained",
-                "host_return_credential",
-                "yielded",
-            }
-            or type(value.get("yielded")) is not bool
-            or not isinstance(value.get("handoff_id"), str)
-            or not 1 <= len(value["handoff_id"]) <= 200
-            or type(value.get("generation")) is not int
-            or value["generation"] < 0
-            or value.get("local_tools_drained") is not True
+            receipt is None
+            or receipt["local_tools_drained"] is not True
             or not isinstance(value.get("host_return_credential"), str)
             or not 1 <= len(value["host_return_credential"]) <= 256
         ):
             self.failed = True
             raise PortalDataError("cua_handoff_unknown", "原生交接回执尚不能核验。", 409)
         self._return_credential = value["host_return_credential"]
-        self._handoff = {
-            key: value[key]
-            for key in ("handoff_id", "generation", "local_tools_drained", "yielded")
-        }
+        self._handoff = receipt
         return dict(self._handoff)
 
-    @staticmethod
-    def _valid_borrow_scope(value):
-        return bool(
-            isinstance(value, dict)
-            and set(value) == {"target_id", "tab_id", "expected_document"}
-            and all(
-                isinstance(value[k], str) and 1 <= len(value[k]) <= 512
-                for k in ("target_id", "tab_id")
-            )
-            and isinstance(value["expected_document"], dict)
-            and set(value["expected_document"]) == {"frame_id", "loader_id", "url"}
-            and all(
-                isinstance(v, str) and 1 <= len(v) <= 20_000
-                for v in value["expected_document"].values()
-            )
-        )
+    _valid_borrow_scope = staticmethod(valid_page_scope)
 
     def yield_to(
         self,
@@ -986,98 +1110,15 @@ class NativeCuaSessionClient:
         return handoff
 
     def _handoff_status(self, value):
-        if (
-            not isinstance(value, dict)
-            or set(value)
-            != {
-                "handoff_id",
-                "generation",
-                "phase",
-                "revoked",
-                "active_calls",
-                "local_tools_drained",
-                "return_ready",
-                "calls",
-            }
-            or not isinstance(value.get("handoff_id"), str)
-            or type(value.get("generation")) is not int
-            or value["generation"] < 0
-            or not isinstance(value.get("phase"), str)
-            or any(
-                type(value.get(k)) is not bool
-                for k in ("revoked", "local_tools_drained", "return_ready")
-            )
-            or type(value.get("active_calls")) is not int
-            or value["active_calls"] < 0
-            or value["local_tools_drained"] != (value["active_calls"] == 0)
-            or value["return_ready"]
-            and not value["local_tools_drained"]
-            or not isinstance(value.get("calls"), list)
-            or len(value["calls"]) > 1000
-            or any(
-                not isinstance(row, dict)
-                or set(row)
-                != (
-                    {
-                        "call_id",
-                        "tool",
-                        "arguments_digest",
-                        "status",
-                        "generation",
-                        "sequence",
-                        "mutation",
-                        "semantic_verified",
-                        "scope",
-                    }
-                    | ({"text_sha256"} if row.get("tool") == "browser_type" else set())
-                    | ({"native_ref", "field_hint"} if row.get("mutation") is True else set())
-                )
-                or not isinstance(row["call_id"], str)
-                or not 1 <= len(row["call_id"]) <= 128
-                or not isinstance(row["tool"], str)
-                or row["tool"] not in NATIVE_HANDOFF_TOOLS
-                or not isinstance(row["arguments_digest"], str)
-                or re.fullmatch(r"[a-f0-9]{64}", row["arguments_digest"]) is None
-                or not isinstance(row["status"], str)
-                or row["status"]
-                not in {"awaiting_host", "in_flight", "observed", "not_sent", "unknown"}
-                or not self._valid_borrow_scope(row["scope"])
-                or type(row["mutation"]) is not bool
-                or row["mutation"] != (row["tool"] in {"browser_click", "browser_type"})
-                or row["mutation"]
-                and (
-                    not isinstance(row["native_ref"], str)
-                    or not 1 <= len(row["native_ref"]) <= 256
-                    or not row["native_ref"].isprintable()
-                    or not isinstance(row["field_hint"], dict)
-                    or set(row["field_hint"]) != {"role", "name"}
-                    or any(
-                        not isinstance(v, str) or len(v) > 1000 for v in row["field_hint"].values()
-                    )
-                )
-                or row["tool"] == "browser_type"
-                and (
-                    not isinstance(row.get("text_sha256"), str)
-                    or re.fullmatch(r"[a-f0-9]{64}", row["text_sha256"]) is None
-                )
-                or any(type(row[k]) is not int or row[k] <= 0 for k in ("generation", "sequence"))
-                or type(row["mutation"]) is not bool
-                or row["semantic_verified"] is not False
-                for row in value["calls"]
-                if not (isinstance(row, dict) and row.get("tool") == "browser_deliver_material")
-            )
-            or self._handoff is not None
+        try:
+            value = validate_handoff_receipt(value)
+        except ValueError:
+            value = None
+        if value is None or (
+            self._handoff is not None
             and any(value[k] != self._handoff[k] for k in ("handoff_id", "generation"))
         ):
             raise PortalDataError("cua_handoff_unknown", "原生接管排空状态不能核验。", 409)
-        for row in value["calls"]:
-            if row["tool"] == "browser_deliver_material":
-                try:
-                    validate_native_material_metadata(row)
-                except ValueError:
-                    raise PortalDataError(
-                        "cua_handoff_unknown", "原生材料调用状态不能核验。", 409
-                    ) from None
         return value
 
     def handoff_status(self, *, pump=None, timeout=None):
@@ -1202,6 +1243,71 @@ class NativeCuaSessionClient:
         finally:
             self._closed = True
             self._close_socket()
+
+
+class NativeHandoffPort:
+    """The narrow Interface the Codex Adapter holds for one native handoff.
+
+    It yields the original page, admits or denies one call, reads and revokes the
+    handoff, and says whether a control request is in flight. Every receipt it returns
+    passed `validate_handoff_receipt`; nothing else of the session is reachable.
+    """
+
+    def __init__(self, client):
+        if getattr(client, "native_session", False) is not True:
+            raise ValueError("A native handoff needs the original native session")
+        self._client = client
+
+    @property
+    def driver_sha256(self):
+        return self._client.driver_sha256
+
+    @property
+    def driver_executable(self):
+        return self._client.driver_executable
+
+    @property
+    def socket_path(self):
+        return self._client.socket_path
+
+    @property
+    def action_timeout(self):
+        """The session's own action bound; no control deadline may exceed it."""
+        return self._client.timeout
+
+    @property
+    def control_busy(self):
+        """A yield or control request is in flight; a reentrant query must wait."""
+        return bool(self._client.handoff_transition_inflight or self._client.control_inflight)
+
+    @staticmethod
+    def _checked(value, *, grant=False):
+        try:
+            receipt = validate_handoff_receipt(value, grant=grant)
+        except ValueError:
+            raise PortalDataError("cua_handoff_unknown", "原生交接回执不能核验。", 409) from None
+        if grant and "yielded" not in receipt:
+            raise PortalDataError("cua_handoff_unknown", "原生交接回执不能核验。", 409)
+        return receipt
+
+    def yield_to(self, ready, **options):
+        return self._checked(self._client.yield_to(ready, **options), grant=True)
+
+    def handoff_status(self, *, pump=None, timeout=None):
+        return self._checked(self._client.handoff_status(pump=pump, timeout=timeout))
+
+    def revoke_handoff(self, *, pump=None, timeout=None):
+        return self._checked(self._client.revoke_handoff(pump=pump, timeout=timeout))
+
+    def admit_call(self, call_id, arguments_digest, decision, **options):
+        return self._checked(
+            self._client.admit_call(call_id, arguments_digest, decision, **options)
+        )
+
+
+def native_handoff_port(client):
+    """The handoff Interface of an original native session, or None for any other client."""
+    return NativeHandoffPort(client) if getattr(client, "native_session", False) is True else None
 
 
 def mac_chrome_state(
