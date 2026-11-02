@@ -1043,6 +1043,12 @@ class CodexAdapter:
             self._native_revoke(run)
             if isinstance(error, _ProtocolFailure):
                 raise
+            # The private log keeps the cause chain; the run keeps only its code.
+            causes, cause = [], error
+            while cause is not None and len(causes) < 3:
+                causes.append(f"{getattr(cause, 'code', type(cause).__name__)}: {cause}")
+                cause = cause.__cause__
+            print("native_handoff_unknown: " + " <- ".join(causes)[:500], flush=True)
             raise _ProtocolFailure("native_handoff_unknown") from error
         finally:
             native["yielding"] = False
