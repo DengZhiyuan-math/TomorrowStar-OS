@@ -398,6 +398,7 @@ class ApplicationRunner:
         self.drafts: dict[Page, DraftSession] = {}
         self.workable: dict[Page, ResumeUpload] = {}
         self.transports: list[dict] = []
+        self.routine_diagnostics: set[str] = set()
         self.requests: dict = {}
         self.request_sequence = 0
         self.sent_requests: set[tuple[str, str, str]] = set()
@@ -471,34 +472,43 @@ class ApplicationRunner:
         if job is None:
             return
         intent = deepcopy(job.get("intent"))
-        self.transports.append(
-            {
-                "action": "request_diagnostic",
-                "request_id": uuid4().hex,
-                "sequence": sequence,
-                "stage": stage,
-                "method": request.method,
-                "url": request.url,
-                "resource_type": request.resource_type,
-                "purpose": (
-                    "public_read"
-                    if stage == "request_permitted" and request.method == "GET"
-                    else "unknown"
-                ),
-                "dispatch": "not_sent" if stage == "request_blocked" else "unknown",
-                "application_id": job["application_id"],
-                "batch_id": state["batch_id"],
-                "run_id": self.run_id,
-                "page_id": self.page_ids.get(page),
-                "attempt_id": (intent or {}).get("attempt_id"),
-                "field_id": (intent or {}).get("field_id"),
-                "intent": intent,
-                "reason": reason,
-                "caused_stop": caused_stop,
-                **(facts or {}),
-                "at": time.time(),
-            }
-        )
+        row = {
+            "action": "request_diagnostic",
+            "request_id": uuid4().hex,
+            "sequence": sequence,
+            "stage": stage,
+            "method": request.method,
+            "url": request.url,
+            "resource_type": request.resource_type,
+            "purpose": (
+                "public_read"
+                if stage == "request_permitted" and request.method == "GET"
+                else "unknown"
+            ),
+            "dispatch": "not_sent" if stage == "request_blocked" else "unknown",
+            "application_id": job["application_id"],
+            "batch_id": state["batch_id"],
+            "run_id": self.run_id,
+            "page_id": self.page_ids.get(page),
+            "attempt_id": (intent or {}).get("attempt_id"),
+            "field_id": (intent or {}).get("field_id"),
+            "intent": intent,
+            "reason": reason,
+            "caused_stop": caused_stop,
+            **(facts or {}),
+            "at": time.time(),
+        }
+        if not caused_stop and stage in {"request_blocked", "request_permitted"}:
+            # A job board repeats the same polling and tracking requests: 8,626
+            # rows, 1,577 distinct, rewritten on every checkpoint save (2026-11-02).
+            # A routine repeat adds no fact; stops and rejected responses all stay.
+            seen = digest(
+                {k: v for k, v in row.items() if k not in {"request_id", "sequence", "at"}}
+            )
+            if seen in self.routine_diagnostics:
+                return
+            self.routine_diagnostics.add(seen)
+        self.transports.append(row)
 
     def transport(self, request, stage: str, status=None) -> None:
         record = self.requests.get(request)

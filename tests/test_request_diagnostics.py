@@ -68,6 +68,58 @@ def test_rejected_request_survives_reopen_with_original_field_attempt(tmp_path, 
     assert after == before
 
 
+def test_routine_repeat_of_a_recorded_request_decision_is_not_retained_again(tmp_path, monkeypatch):
+    # A job board repeated the same polling and tracking requests thousands of times.
+    service = setup_service(tmp_path, monkeypatch)
+    start_run(service.store)
+    page = SyntheticPage()
+    runner = ApplicationRunner(service.store, None)
+    state = service.store.load()
+    job = state["jobs"][0]
+    runner.pages[job["application_id"]] = page
+    runner.page_ids[page] = "synthetic-request-page"
+
+    def request(url):
+        return SimpleNamespace(method="POST", url=url, resource_type="fetch")
+
+    polled = request("https://apply.workable.com/synthetic-poll")
+    for sequence, (sent, stage, stop) in enumerate(
+        [
+            (polled, "request_blocked", False),
+            (polled, "request_blocked", False),
+            (polled, "request_permitted", False),
+            (polled, "request_permitted", False),
+            (polled, "request_blocked", True),
+            (polled, "request_blocked", True),
+            (request("https://apply.workable.com/synthetic-other"), "request_blocked", False),
+        ]
+    ):
+        runner.request_diagnostic(
+            sent,
+            page,
+            job,
+            state,
+            stage,
+            "unverified_send_path",
+            sequence=sequence,
+            caused_stop=stop,
+        )
+    runner.persist(service.store.load())
+
+    rows = [
+        (row["url"].rsplit("-", 1)[-1], row["stage"], row["caused_stop"], row["sequence"])
+        for row in service.store.load()["jobs"][0]["observations"]
+        if row.get("action") == "request_diagnostic"
+    ]
+    assert rows == [
+        ("poll", "request_blocked", False, 0),
+        ("poll", "request_permitted", False, 2),
+        ("poll", "request_blocked", True, 4),
+        ("poll", "request_blocked", True, 5),
+        ("other", "request_blocked", False, 6),
+    ]
+
+
 def test_denied_telemetry_and_permitted_public_read_keep_order_without_releasing_stop(bootstrap):
     service, runner, page = bootstrap
     before = deepcopy(service.store.load())
