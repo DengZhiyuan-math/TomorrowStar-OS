@@ -985,3 +985,32 @@ def test_unknown_result_takeover_settles_referenced_intent_by_readback_without_r
         assert job["assistance"]["status"] == "stopped"
         assert (job["status"], job["reason"]) == ("needs_recheck", "assistance_pending_intent")
         assert "outcome" not in job["assistance"]
+
+
+@pytest.mark.parametrize(
+    ("report", "reason"),
+    [
+        (make_report(status="needs_recheck"), "claimed_status"),
+        (report_next("fax"), "next_step_question_unknown"),
+    ],
+    ids=["needs_recheck_claim", "unknown_next_field"],
+)
+def test_refused_return_names_its_check_in_the_private_log(returning, capsys, report, reason):
+    """The job keeps only assistance_return_unverified; the private log says which
+    check refused (2026-11-02: a real needs_recheck return left nothing on disk)."""
+    ctx = returning
+    hosted_snapshot(ctx)
+    run_turn(ctx, report=report)
+    capsys.readouterr()
+    ctx.runner._service_assistance_return()
+    assert_waiting(ctx, "assistance_return_unverified")
+    line = next(
+        row
+        for row in capsys.readouterr().out.splitlines()
+        if row.startswith("assistance_return_unverified: ")
+    )
+    record = json.loads(line.removeprefix("assistance_return_unverified: "))
+    assert record["check"] == "assistance_outcome_unverified"
+    assert record["reason"] == [reason]
+    assert record["claimed_status"] == report["claimed"]["status"]
+    assert record["field_states"] == [["filled", 1]]

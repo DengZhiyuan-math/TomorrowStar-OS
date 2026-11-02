@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import collections
 import fcntl
 import hashlib
 import json
@@ -3640,7 +3641,35 @@ class ApplicationRunner:
                     self.persist(state)
                     self.store.sync(job, message)
                 self.persist(state)
-        except (PortalDataError, Error):
+        except (PortalDataError, Error) as error:
+            # The job keeps only the wait reason; the private log names the check
+            # (2026-11-02: a refused return left nothing to diagnose on disk).
+            causes, cause = [], error.__cause__
+            while cause is not None and len(causes) < 3:
+                causes.append(str(cause)[:200])
+                cause = cause.__cause__
+            claim = claimed if isinstance(claimed, dict) else {}
+            print(
+                f"{wait}: "
+                + json.dumps(
+                    {
+                        "check": getattr(error, "code", type(error).__name__),
+                        "message": str(error)[:200],
+                        "reason": causes,
+                        "claimed_status": claim.get("status"),
+                        "next_step": claim.get("next_step"),
+                        "field_states": sorted(
+                            collections.Counter(
+                                str(row.get("state"))
+                                for row in claim.get("fields", [])
+                                if isinstance(row, dict)
+                            ).items()
+                        ),
+                    },
+                    ensure_ascii=False,
+                ),
+                flush=True,
+            )
             with self.store.applications.write_lock():
                 state = self.store.load()
                 job = next(
@@ -3679,27 +3708,42 @@ class ApplicationRunner:
             for call in (event["receipt"] or {}).get("calls", [])
         }
 
-        def refused():
+        def refused(reason):
+            # The job keeps the code; the private log keeps which check refused.
             raise PortalDataError(
                 "assistance_outcome_unverified", "接管结果不能核验，保留原页。", 409
-            )
+            ) from ValueError(reason)
 
-        if (
-            kind is None
-            or claimed["unresolved_action_ids"]
-            or job.get("intent")
-            or run["phase"] != "stopped"
-            or run["semantic_unknown"]
-            or any(
-                call["mutation"] and call["status"] in {"awaiting_host", "in_flight", "unknown"}
-                for call in calls.values()
-            )
-            or context["document"] != run["scope"]["document"]
-            or context["data"]["validation_errors"]
-            or not self._assistance_baseline
-            or self._assistance_baseline[0] != run_id
-        ):
-            refused()
+        blocked = next(
+            (
+                name
+                for name, broken in (
+                    ("claimed_status", kind is None),
+                    ("unresolved_action_ids", bool(claimed["unresolved_action_ids"])),
+                    ("script_intent_pending", bool(job.get("intent"))),
+                    ("run_not_stopped", run["phase"] != "stopped"),
+                    ("semantic_unknown", bool(run["semantic_unknown"])),
+                    (
+                        "mutation_unsettled",
+                        any(
+                            call["mutation"]
+                            and call["status"] in {"awaiting_host", "in_flight", "unknown"}
+                            for call in calls.values()
+                        ),
+                    ),
+                    ("document_changed", context["document"] != run["scope"]["document"]),
+                    ("validation_errors", bool(context["data"]["validation_errors"])),
+                    (
+                        "baseline_missing",
+                        not self._assistance_baseline or self._assistance_baseline[0] != run_id,
+                    ),
+                )
+                if broken
+            ),
+            None,
+        )
+        if blocked:
+            refused(blocked)
 
         def keys(row):
             target = (row.get("material_target") or {}).get("worker_field", "")
@@ -3822,7 +3866,7 @@ class ApplicationRunner:
         if kind == "script_checkpoint":
             # One strict return per job; the next pending fields must be script-supported.
             if unattributed or job.get("assistance_return_count", 0) != 0:
-                refused()
+                refused("unattributed_change" if unattributed else "return_repeated")
             done = {row["field_id"] for row in attributed}
             pending = []
             for index, row in enumerate(fields):
@@ -3847,18 +3891,18 @@ class ApplicationRunner:
                     else next((q for q in pending if q.get("id") == following), None)
                 )
                 if question is None or all(q is not question for q in pending):
-                    refused()
+                    refused("next_step_question_unknown")
                 following = question["id"]
             page = self.pages.get(job["application_id"])
             with browser_deadline(5):
                 if any(self._fill_route(page, q)["executor"] == "manual" for q in pending):
-                    refused()
+                    refused("next_field_manual_route")
             outcome["checkpoint_field_id"] = following or (pending[0]["id"] if pending else None)
             if not outcome["checkpoint_field_id"]:
-                refused()
+                refused("checkpoint_field_missing")
             return outcome, writes
         if any(row["required"] and row["value_empty"] or not row["valid"] for row in verification):
-            refused()
+            refused("required_empty_or_invalid")
         verified = self.verified_intents(job)
         materials = outcome["verified"]["materials"]
         if job.get("file_sha256") and any(row.get("type") == "file" for row in fields):
@@ -3872,7 +3916,7 @@ class ApplicationRunner:
                     for intent in verified
                 )
             ):
-                refused()
+                refused("resume_upload_unverified")
             materials.append(
                 {"kind": "resume", "filename": job["filename"], "sha256": job["file_sha256"]}
             )
@@ -3890,7 +3934,7 @@ class ApplicationRunner:
         if delivery.get("status") in {"queued", "running"} or (
             delivery.get("status") == "failed" and delivery.get("requirement") != "optional"
         ):
-            refused()
+            refused("cover_letter_delivery_unsettled")
         if delivery.get("status") == "failed":
             outcome["verified"]["optional_failures"].append(
                 {
