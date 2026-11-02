@@ -2233,6 +2233,10 @@ def managed_cua_browser(
             helper.atomic_write_json(root / "cua-runtime.json", record)
 
 
+# Consecutive failed owner reads before a live driver's owner counts as lost.
+OWNER_READ_RETRIES = 3
+
+
 class CuaDriver:
     """Select one confirmed option. No arbitrary clicks, scripts or submit surface."""
 
@@ -2255,18 +2259,56 @@ class CuaDriver:
         self.ensure_scope = ensure_scope
         self.driver_owned, self.keep_owner = driver_owned, keep_owner
         self._maintaining = False
+        # Why the owner is gone for good (driver exited or client failed), or None.
+        self.owner_lost = None
+        self._owner_failures = 0
+
+    def _owner_terminal(self):
+        """The terminal cause, or None: an exited driver or failed client never recovers."""
+        process = getattr(self.client, "process", None)
+        if getattr(self.client, "failed", False):
+            return "cua_client_failed"
+        if process is not None and process.poll() is not None:
+            return "cua_driver_exited"
+        return None
+
+    def _lose_owner(self, cause):
+        # Logged once; maintenance stops and the page's reopen path takes over.
+        self.owner_lost = cause
+        print(f"cua_owner_lost: {cause}", flush=True)
 
     def maintain(self, *, pump):
-        if self._maintaining:
+        """Keep the owner alive; a terminal loss stops here, a transient one retries.
+
+        A failed read is retried on later ticks up to ``OWNER_READ_RETRIES`` times in a
+        row before it too counts as terminal (2026-11-02: 574 identical owner errors,
+        two log lines per tick, after the driver had already exited).
+        """
+        if self._maintaining or self.owner_lost is not None:
             return
         self._maintaining = True
         try:
+            cause = self._owner_terminal()
+            if cause is not None:
+                self._lose_owner(cause)
+                return
             if getattr(self.client, "handoff_transition_inflight", False) or getattr(
                 self.client, "control_inflight", False
             ):
                 pump()
             elif self.keep_owner is not None:
-                self.keep_owner(pump=pump)
+                try:
+                    self.keep_owner(pump=pump)
+                except PortalDataError as error:
+                    self._owner_failures += 1
+                    cause = self._owner_terminal()
+                    if cause is None and self._owner_failures >= OWNER_READ_RETRIES:
+                        cause = error.code
+                    if cause is not None:
+                        self._lose_owner(cause)
+                        return
+                    raise
+                self._owner_failures = 0
         finally:
             self._maintaining = False
 
