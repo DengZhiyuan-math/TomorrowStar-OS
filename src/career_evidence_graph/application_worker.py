@@ -3165,6 +3165,22 @@ class WorkerStore:
             try:
                 validate_assistance_delivery(delivery, expected_ref)
             except ValueError as error:
+                # The private worker log keeps which check refused; the job keeps the code.
+                print(
+                    "assistance_delivery_invalid: "
+                    + json.dumps(
+                        {
+                            "check": str(error),
+                            "bytes": len(json.dumps(delivery, ensure_ascii=False, default=str)),
+                            "fields": len((context.get("data") or {}).get("fields", [])),
+                            "remaining": len(remaining),
+                            "completed": len(completed),
+                            "pending": len(pending),
+                            "facts": len((delivery.get("answers") or {}).get("facts", [])),
+                        }
+                    ),
+                    flush=True,
+                )
                 raise PortalDataError(
                     "assistance_delivery_invalid", "当前岗位的 JSON 交接记录不能核验。", 409
                 ) from error
