@@ -13,8 +13,8 @@ import urllib.request
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from .application_automation import recommendation_key
 from .application_job_source import fetch_job_source
-from .application_recommendations import recommendation_key
 from .cua_driver import load_login_state
 
 LOGIN_ROOT: Path | None = None

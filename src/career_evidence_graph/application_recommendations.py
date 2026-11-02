@@ -9,11 +9,10 @@ from datetime import UTC, datetime
 from html import unescape
 from html.parser import HTMLParser
 from pathlib import Path
-from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
 from ._vendor import job_apply_store as helper
-from .application_automation import application_key, record_label
+from .application_automation import application_key, recommendation_key, record_label
 from .application_storage import private_root
 from .career_portal_data import PortalDataError
 from .validation.hashing import record_digest as digest
@@ -103,27 +102,6 @@ def normalize_message(raw: dict) -> dict:
         "body_scope": "job_description" if scope == "job_description" else "message",
         "links": [link for link in links if application_key(link) is not None],
     }
-
-
-def recommendation_key(url: object) -> tuple[str, str] | None:
-    """Use explicit provider job IDs; tracking tokens never identify a posting."""
-    key = application_key(url)
-    if key is None:
-        return None
-    parsed = urlsplit(str(url))
-    host = parsed.hostname or ""
-    if host == "linkedin.com" or host.endswith(".linkedin.com"):
-        match = re.fullmatch(r"/(?:comm/|email/)?jobs/view/([0-9]+)/?", parsed.path)
-        return ("linkedin", match[1]) if match else None
-    if host == "indeed.com" or host.endswith(".indeed.com"):
-        query = parse_qs(parsed.query)
-        values = set(query.get("jk", []) + query.get("vjk", []))
-        if len(values) == 1:
-            identifier = next(iter(values))
-            if re.fullmatch(r"[a-fA-F0-9]{16}", identifier):
-                return "indeed", identifier.casefold()
-        return None
-    return key
 
 
 def _same_full_text(body: str, description: str) -> bool:

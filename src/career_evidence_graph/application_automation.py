@@ -6,7 +6,7 @@ import json
 import re
 import unicodedata
 from datetime import date, datetime
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import parse_qs, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
 from .career_portal_data import ApplicationStore, PortalDataError
@@ -93,6 +93,27 @@ def application_key(value: object) -> tuple[str, str] | None:
     ):
         return "ashby", parsed.path.rstrip("/").removesuffix("/application")
     return platform, url
+
+
+def recommendation_key(url: object) -> tuple[str, str] | None:
+    """Use explicit provider job IDs; tracking tokens never identify a posting."""
+    key = application_key(url)
+    if key is None:
+        return None
+    parsed = urlsplit(str(url))
+    host = parsed.hostname or ""
+    if host == "linkedin.com" or host.endswith(".linkedin.com"):
+        match = re.fullmatch(r"/(?:comm/|email/)?jobs/view/([0-9]+)/?", parsed.path)
+        return ("linkedin", match[1]) if match else None
+    if host == "indeed.com" or host.endswith(".indeed.com"):
+        query = parse_qs(parsed.query)
+        values = set(query.get("jk", []) + query.get("vjk", []))
+        if len(values) == 1:
+            identifier = next(iter(values))
+            if re.fullmatch(r"[a-fA-F0-9]{16}", identifier):
+                return "indeed", identifier.casefold()
+        return None
+    return key
 
 
 def duplicate_applications(application: dict, records: list[dict]) -> list[dict]:

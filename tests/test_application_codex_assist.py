@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from career_evidence_graph.application_codex_assist import CodexAdapter, CodexAssistConfig
+from career_evidence_graph.application_takeover_budget import TakeoverBudget
 
 
 def server(tmp_path, scenario="normal"):
@@ -261,8 +262,12 @@ def test_unverified_policy_refuses_metadata_thread_before_any_server_can_start(t
     value = config(tmp_path, executable).to_dict()
     value.update(request_timeout=1.0, stop_timeout=0.1)
     adapter = CodexAdapter(CodexAssistConfig.from_dict(value))
+    # The policy read is a startup request: its bound is the budget's startup deadline,
+    # not request_timeout. A short budget makes the unanswered read fail closed quickly
+    # instead of racing the peer's 30 s delay against the default 30 s startup bound.
+    budget = TakeoverBudget(request=1.0, stop=0.1, startup=1.0, thread_start=1.5)
     try:
-        run = adapter.start({"assistance_id": "assist-1"}, request_id="start-1")
+        run = adapter.start({"assistance_id": "assist-1"}, request_id="start-1", budget=budget)
         assert run.status == "failed"
         assert run.error_code == "tool_policy_unverified"
     finally:

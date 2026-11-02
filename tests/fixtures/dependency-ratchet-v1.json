@@ -76,7 +76,6 @@
     "career_evidence_graph.application_retrieval imports career_evidence_graph.application_match._known_failed_model_result",
     "career_evidence_graph.application_runtime imports career_evidence_graph.application_pdf_reuse._acceptance",
     "career_evidence_graph.application_single_binding imports career_evidence_graph.application_automation._job_identity",
-    "career_evidence_graph.application_single_binding imports career_evidence_graph.application_experience_latex._fixed_inputs_revision",
     "career_evidence_graph.application_source_reuse imports career_evidence_graph.application_full_latex._body",
     "career_evidence_graph.application_source_reuse imports career_evidence_graph.application_full_latex._education_lines",
     "career_evidence_graph.application_source_reuse imports career_evidence_graph.application_prism_review._read",
@@ -108,7 +107,9 @@
     "MC-19 (2026-10-28) removed: application_existing_materials imports application_experience_latex._load (read_completed and its lineage check moved to their owner application_experience_latex).",
     "MC-19 (2026-10-28) added private_attribute_uses: per-file counts, across src and tests/, of receiver._name attribute uses for flow, self.flow, pipeline, store, ApplicationFlowService and ApplicationResumeStore. Increases fail; decreases must be recorded here. Split-out Flow/Resume files (existing_materials, existing_handoff, match_refresh, match_recheck, material_batch; group_review, experience_latex, experience_content, writing, full_latex) are Module-internal per the 2026-10-28 MC-19 decision; flow._save replays and pipeline._tick remain deferred.",
     "MC-19 review P2-2 (2026-10-28) decreased private_attribute_uses: tests/test_flow_match_execution_admission.py 12 -> 0 (entry removed) and tests/test_p06_flow_edit.py 18 -> 14; read-only assertion and baseline reads now use flow.witness, task_snapshot and snapshot()[\"tasks\"]. Worker-interface and installed-readiness reads used receivers the count does not track, so their counts are unchanged.",
-    "Batch 1-A (2026-11-02) removed: application_flow <-> application_resume, application_flow <-> application_explanations, application_flow <-> application_match_refresh and application_flow <-> application_match_recheck mutual pairs. job_input_revision, analysis_input_binding, retained_configuration_inputs and latest_preparation_task moved to application_input_binding (imports only validation.hashing); qualification_status and task_eligibility moved to application_eligibility. application_flow keeps re-exports for existing callers."
+    "Batch 1-A (2026-11-02) removed: application_flow <-> application_resume, application_flow <-> application_explanations, application_flow <-> application_match_refresh and application_flow <-> application_match_recheck mutual pairs. job_input_revision, analysis_input_binding, retained_configuration_inputs and latest_preparation_task moved to application_input_binding (imports only validation.hashing); qualification_status and task_eligibility moved to application_eligibility. application_flow keeps re-exports for existing callers.",
+    "2026-11-02 flow-closure batch 1/2 merge: removed private import application_single_binding -> application_experience_latex._fixed_inputs_revision (input binding Module owns the revision rule); tests/test_worker_operation_scope.py private uses 3 -> 0 (takeover record Module); tests/test_pipeline_queue_assertions.py recorded at 8 (batch 1-D read-only assertions live inside Pipeline._stop/_save and have no public entry until C4 lands); tests/test_automatic_material_reuse_edit.py 6 -> 10 recorded as pre-existing drift from b5da8b57 (2026-11-01), which changed the test without updating this baseline.",
+    "2026-11-02 flow-closure merge: removed the application_recommendations <-> job_listing_links mutual import introduced by a900d2aa (2026-10-31) without a baseline update; recommendation_key moved to application_automation beside application_key and is re-exported by application_recommendations."
   ],
   "private_attribute_uses": {
     "src/career_evidence_graph/application_bound_materials.py": 2,
@@ -142,7 +143,7 @@
     "tests/test_application_store_read_efficiency.py": 2,
     "tests/test_automatic_complete_materials.py": 5,
     "tests/test_automatic_material_editor_browser.py": 1,
-    "tests/test_automatic_material_reuse_edit.py": 6,
+    "tests/test_automatic_material_reuse_edit.py": 10,
     "tests/test_bound_candidate_dispatch.py": 1,
     "tests/test_bound_material_commit_recovery.py": 10,
     "tests/test_bound_material_update.py": 8,
@@ -187,6 +188,7 @@
     "tests/test_pipeline_matching_routes.py": 3,
     "tests/test_pipeline_polling_performance.py": 3,
     "tests/test_pipeline_preparation_gate.py": 1,
+    "tests/test_pipeline_queue_assertions.py": 8,
     "tests/test_pipeline_recommendation_queue.py": 9,
     "tests/test_pipeline_source_retry.py": 8,
     "tests/test_pipeline_tex_conflict_recovery.py": 1,
@@ -205,7 +207,6 @@
     "tests/test_synthetic_browser_mode.py": 3,
     "tests/test_synthetic_flow_fixture.py": 3,
     "tests/test_synthetic_full_latex_fixture.py": 1,
-    "tests/test_worker_backend_recovery.py": 22,
-    "tests/test_worker_operation_scope.py": 3
+    "tests/test_worker_backend_recovery.py": 22
   }
 }

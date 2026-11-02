@@ -324,13 +324,18 @@ class CodexAdapter:
         readonly_handler=None,
         pump=None,
         context_handler=None,
+        budget: TakeoverBudget | None = None,
     ) -> AssistRunProgress:
+        """A metadata run; ``budget`` replaces the configured deadlines (tests, direct callers)."""
+        if budget is not None and not isinstance(budget, TakeoverBudget):
+            raise ValueError("Codex assistance budget is invalid")
         return self._start(
             assistance_ref,
             request_id=request_id,
             readonly_handler=readonly_handler,
             pump=pump,
             context_handler=context_handler,
+            budget=budget,
         )
 
     def start_takeover(
@@ -466,6 +471,7 @@ class CodexAdapter:
         pump=None,
         context_handler=None,
         native=None,
+        budget=None,
     ) -> AssistRunProgress:
         self._request_id(request_id)
         if any(
@@ -533,7 +539,11 @@ class CodexAdapter:
             context_handler,
         )
         run.native = native
-        run.budget = native["budget"] if native is not None else self._configured_budget
+        run.budget = (
+            native["budget"]
+            if native is not None
+            else (self._configured_budget if budget is None else budget)
+        )
         self._runs[run_id] = run
         self._requests[request_id] = binding, run_id
         self._bindings[binding] = run_id

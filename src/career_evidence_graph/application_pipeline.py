@@ -3140,10 +3140,14 @@ class ApplicationPipeline:
             key = {k: v for k, v in blocker.items() if k != "observed_at"}
             # One request per blocker, explicit Continue and takeover slot; a repeat
             # is idempotent, while a slot after a released checkpoint gets a new id.
+            # The takeover record trims settled history (2026-11-02), so its length
+            # alone no longer separates slots; the record's generation counter does.
+            generation = job.get("assistance_generation", 0)
             key.update(
                 resume_serial=current.get("resume_serial", 0),
                 previous=assistance.get("id"),
                 history=len(job.get("assistance_history", [])),
+                **({"generation": generation} if generation else {}),
             )
             request_id = "takeover-" + digest(key)[:32]
             state["takeover_request"] = {
