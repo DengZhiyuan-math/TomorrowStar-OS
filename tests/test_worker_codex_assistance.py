@@ -1090,3 +1090,21 @@ def test_cua_capability_failure_without_a_current_no_route_decision_is_not_dispa
         decision["dispatch"] = "sent"
     native.store.save(state)
     assert native.takeover_candidate(identifier, **expected(native)) is None
+
+
+def test_takeover_slot_outlasts_32_records_but_keeps_its_bound_and_failed_blockers():
+    from career_evidence_graph.application_worker import ASSISTANCE_HISTORY_LIMIT, _takeover_slot
+
+    blocker = {
+        "code": "unsupported_structure",
+        "field_id": None,
+        "page_id": "page",
+        "run_id": "run",
+        "observed_at": 1.0,
+    }
+    stopped = {"status": "stopped", "dispatch": {"blocker": dict(blocker, page_id="old")}}
+    assert _takeover_slot({}, {"assistance_history": [stopped] * 32}, blocker)
+    full = {"assistance_history": [stopped] * ASSISTANCE_HISTORY_LIMIT}
+    assert not _takeover_slot({}, full, blocker)
+    failed = {"status": "stopped", "dispatch": {"blocker": blocker, "failed_code": "x"}}
+    assert not _takeover_slot({}, {"assistance_history": [failed]}, blocker)

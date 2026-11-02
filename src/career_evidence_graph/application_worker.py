@@ -964,8 +964,10 @@ TAKEOVER_REASONS = TAKEOVER_UNKNOWN_REASONS | {
 # current not-sent route decision dispatches. A Cua/driver failure itself never does.
 TAKEOVER_ROUTE_REASONS = frozenset({"cua_unavailable"})
 TAKEOVER_CODES = TAKEOVER_REASONS | TAKEOVER_ROUTE_REASONS
-# Each takeover still needs the user's Continue; 8 filled up on one real job.
-ASSISTANCE_HISTORY_LIMIT = 32
+# Each takeover still needs the user's Continue; 8 filled up on one real job, and
+# repeated real-run repairs used all 32 on another (2026-11-02). Rows are never
+# retired: generations, request ids and failed blockers are read from them.
+ASSISTANCE_HISTORY_LIMIT = 64
 
 
 def _valid_takeover_blocker(blocker, binding):
