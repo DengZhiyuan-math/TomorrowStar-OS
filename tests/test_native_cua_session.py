@@ -2,6 +2,7 @@
 
 import json
 import os
+import socket
 import socketserver
 import tempfile
 import threading
@@ -677,6 +678,25 @@ def test_control_pump_can_revoke_once_without_recursive_status_queries(tmp_path,
             assert ticks == [1] and not client.control_inflight
             assert sum(r["method"] == "trusted_session_handoff_revoke" for r in requests) == 1
         finally:
+            client.close()
+
+
+def test_ready_native_reply_is_read_before_another_owner_pump(tmp_path):
+    # The owner pump took 1.3-3.1 s per call while the driver answered at once.
+    with native_service(tmp_path) as (path, options, process, _, _):
+        client = NativeCuaSessionClient(path, process, options, driver_sha256="1" * 64, timeout=1)
+        ours, driver = socket.socketpair()
+        try:
+            ours.setblocking(False)
+            driver.sendall(b'{"ok": true, "result": {"status": "ok"}}\n')
+            pumps = []
+            assert client._exchange(
+                ours, {"method": "trusted_session_handoff_status"}, pump=lambda: pumps.append(1)
+            ) == {"status": "ok"}
+            assert pumps == [1]  # only the check before any request bytes
+        finally:
+            ours.close()
+            driver.close()
             client.close()
 
 

@@ -738,10 +738,13 @@ class NativeCuaSessionClient:
                     continue
             selector.modify(stream, selectors.EVENT_READ)
             while time.monotonic() < deadline:
-                if pump is not None and pump() is False:
-                    raise PortalDataError("cua_stopped", "原生调用已停止。", 409)
-                if not selector.select(min(0.025, max(0, deadline - time.monotonic()))):
-                    continue
+                # The owner pump fills only idle waits: it took 1.3-3.1 s per call
+                # while the driver answered within its own 0.25 s idle wait (2026-11-02).
+                if not selector.select(min(0.25, max(0, deadline - time.monotonic()))):
+                    if pump is not None and pump() is False:
+                        raise PortalDataError("cua_stopped", "原生调用已停止。", 409)
+                    if not selector.select(min(0.025, max(0, deadline - time.monotonic()))):
+                        continue
                 if time.monotonic() >= deadline:
                     raise TimeoutError("native service response deadline")
                 try:
