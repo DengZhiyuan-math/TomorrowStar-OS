@@ -1087,3 +1087,66 @@ def test_codex_event_pump_does_not_idle_while_a_write_waits(native_page, monkeyp
     assert waits and set(waits) == {5}
     runner.pump()
     assert waits[-1] == 250
+
+
+def test_native_start_delivers_a_context_captured_before_a_slow_scope_read(
+    native_page, monkeypatch
+):
+    """The status read behind the scope attestation (P95 5.9 s) and the pump before
+    delivery (tick P95 1.2 s) outlast the 6 s window the captured context carries.
+    The pump renewed the page observation, so the context follows it (real run
+    2026-11-02: assistance_delivery_invalid, "Original-page JSON context expired")."""
+    service, runner, _, ref, _, scope = native_page
+    real_time, skew = time.time, [0.0]
+    monkeypatch.setattr(time, "time", lambda: real_time() + skew[0])
+
+    def discover(original, *, pump):
+        skew[0] += 5.5  # the driver status read inside the attestation
+        return deepcopy(scope["native_scope"])
+
+    real_observe, real_pump, captured, renewed = (
+        runner.observe_assistance_context,
+        runner.pump_codex_events,
+        [],
+        [],
+    )
+
+    def observe(reference, **kwargs):
+        context = real_observe(reference, **kwargs)
+        captured.append(context["at"])
+        return context
+
+    def pump(reference, **kwargs):
+        permitted = real_pump(reference, **kwargs)
+        renewed.append(service.store.load()["jobs"][0]["page_observation"]["at"])
+        skew[0] += 1.0  # the control tick and store read before the delivery check
+        return permitted
+
+    runner.cua.native_page_scope = discover
+    monkeypatch.setattr(runner, "observe_assistance_context", observe)
+    monkeypatch.setattr(runner, "pump_codex_events", pump)
+    delivered = []
+
+    class Adapter:
+        def start_takeover(self, original, **kwargs):
+            delivered.append(kwargs["delivery"])
+            kwargs["before_yield"](
+                {
+                    "application_ref_digest": digest(ref),
+                    "scope": kwargs["native_scope"],
+                    "request_id": kwargs["request_id"],
+                }
+            )
+            kwargs["after_yield"](
+                {"handoff_id": "native-run", "generation": 1, "local_tools_drained": True}
+            )
+            return SimpleNamespace(run_id="adapter-native-run")
+
+        def progress(self, run_id):
+            return SimpleNamespace(status="ready", tools_revoked=False)
+
+    runner.codex_assist = Adapter()
+    runner.start_native_assistance(ref, request_id="slow-scope-read")
+    context = delivered[0]["page_context"]
+    assert context["at"] == context["observed_at"] == renewed[0]
+    assert renewed[0] - captured[0] == pytest.approx(5.5, abs=0.5)

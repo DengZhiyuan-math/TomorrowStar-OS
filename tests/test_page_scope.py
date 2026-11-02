@@ -69,3 +69,41 @@ def test_refresh_is_due_only_after_a_second():
     state, job = observed(100.0)
     assert not PAGE_SCOPE.refresh_due(state, job, 100.5)
     assert PAGE_SCOPE.refresh_due(state, job, 101.5)
+
+
+def captured(at, *, page="page"):
+    return {"status": "captured", "at": at, "observed_at": at, "binding": {"page_id": page}}
+
+
+def test_a_delivery_snapshot_follows_the_observation_its_pump_renewed():
+    # Batch-0 baseline: the driver status read behind the native scope attestation
+    # (P95 5.88 s) and the event pump's tick (P95 1.2 s) run between a capture and
+    # its delivery check (real run 2026-11-02: "Original-page JSON context expired").
+    state, job = observed(100.0)
+    snapshot = captured(100.0)
+    now = 100.0 + 5.9
+    PAGE_SCOPE.refresh(state, job, now, run_id="run-1")  # the pump before delivery
+    assert PAGE_SCOPE.renew_snapshot(snapshot, state, job, run_id="run-1")
+    assert snapshot["at"] == snapshot["observed_at"] == job["page_observation"]["at"] == now
+    assert not PAGE_SCOPE.renew_snapshot(snapshot, state, job, run_id="run-1")
+
+
+@pytest.mark.parametrize(
+    "change",
+    ["another_run", "another_page", "not_captured", "older_observation", "no_observation"],
+)
+def test_a_snapshot_is_renewed_only_from_its_own_pages_later_observation(change):
+    state, job = observed(105.0)
+    snapshot = captured(100.0)
+    if change == "another_run":
+        job["page_observation"]["run_id"] = "older-run"
+    elif change == "another_page":
+        snapshot["binding"]["page_id"] = "other-page"
+    elif change == "not_captured":
+        snapshot["status"] = "unavailable"
+    elif change == "older_observation":
+        job["page_observation"]["at"] = 99.0
+    elif change == "no_observation":
+        job = {}
+    assert not PAGE_SCOPE.renew_snapshot(snapshot, state, job, run_id="run-1")
+    assert snapshot["at"] == snapshot["observed_at"] == 100.0

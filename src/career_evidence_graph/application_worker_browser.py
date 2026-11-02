@@ -2545,6 +2545,13 @@ class ApplicationRunner:
         check()
         return captured
 
+    def _renew_assistance_context(self, assistance_ref, context) -> bool:
+        """Let a captured context follow the page observation the last check renewed."""
+        identifier = assistance_ref["binding"]["application_id"]
+        state = self.store.load()
+        job = next((row for row in state["jobs"] if row["application_id"] == identifier), None)
+        return PAGE_SCOPE.renew_snapshot(context, state, job, run_id=self.run_id)
+
     def observe_assistance_context(self, assistance_ref, *, after_stop=False):
         """Read JSON locator context from the original Page without taking a screenshot."""
         page, check = self._assistance_page_checker(assistance_ref, after_stop=after_stop)
@@ -3051,6 +3058,10 @@ class ApplicationRunner:
             raise PortalDataError(
                 "assistance_binding_changed", "原页文档已改变，保留当前现场。", 409
             )
+        # That pump re-read the original frame against the captured document and
+        # renewed the page observation; the context follows it, since the status
+        # read behind the attestation outlasts the window (seen 2026-11-02).
+        self._renew_assistance_context(reference, context)
         delivery = self.store.assistance_delivery(reference, page_context=context)
         document = deepcopy(context["document"])
         journal_scope = {"native_scope": deepcopy(native_scope), "document": document}

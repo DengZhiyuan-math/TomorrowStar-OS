@@ -4,7 +4,9 @@ A takeover may read or act on the original page only while the Worker's own
 observation of it is recent: the run's ``runtime.observed_at`` and the job's
 ``page_observation.at``. Every check reads them through `PageScope.current`, and
 every write goes through `PageScope.refresh`, which the page thread calls before and
-after each read that may take more than a second.
+after each read that may take more than a second. A captured snapshot of the page
+carries its own capture time; `PageScope.renew_snapshot` lets it follow the
+observation a later check renewed, so the snapshot has no second freshness clock.
 """
 
 from __future__ import annotations
@@ -28,8 +30,12 @@ class ScopeCheck:
     page_age: float | None
 
 
+def _finite(value):
+    return type(value) in (int, float) and math.isfinite(value)
+
+
 def _age(now, at):
-    if type(at) not in (int, float) or not math.isfinite(at):
+    if not _finite(at):
         return None
     return now - at
 
@@ -84,6 +90,37 @@ class PageScope:
             page["at"] = now
             changed = True
         return changed
+
+    @staticmethod
+    def renew_snapshot(snapshot, state, job, *, run_id) -> bool:
+        """Carry the page observation a check just renewed into a captured snapshot.
+
+        A snapshot's ``at``/``observed_at`` are its capture time, but the driver
+        status read and the event pump between a capture and its delivery outlast
+        the window (status poll P95 5.9 s, tick P95 1.2 s; real run 2026-11-02). The
+        page thread calls this right after a pump that re-read the original frame
+        against the snapshot's document, so the snapshot follows that observation:
+        never an older one, another run's, or another page's.
+        """
+        runtime = state.get("runtime") or {}
+        page = (job or {}).get("page_observation") or {}
+        at = page.get("at")
+        if (
+            not isinstance(snapshot, dict)
+            or snapshot.get("status") != "captured"
+            or run_id is None
+            or runtime.get("id") != run_id
+            or page.get("run_id") != run_id
+            or page.get("page_id") != (snapshot.get("binding") or {}).get("page_id")
+            or not _finite(at)
+            or not _finite(snapshot.get("at"))
+            or at < snapshot["at"]
+        ):
+            return False
+        if snapshot["at"] == at and snapshot.get("observed_at") == at:
+            return False
+        snapshot["at"] = snapshot["observed_at"] = at
+        return True
 
     @staticmethod
     def refresh_due(state, job, now=None):
