@@ -1464,7 +1464,7 @@ def test_the_model_pattern_excludes_common_unprintable_page_text():
     # Copied labels carry these; the Adapter drops them, so generation must not emit them.
     import re
 
-    from career_evidence_graph.application_codex_assist import _LINE
+    from career_evidence_graph.application_takeover_record import _LINE
 
     for character in "\x85\xa0\xad\u1680\u2000\u200b\u2028\u2029\u202f\u2060\u3000\ufeff":
         assert not character.isprintable()

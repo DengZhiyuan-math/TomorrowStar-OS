@@ -12,7 +12,6 @@ import json
 import math
 import os
 import queue
-import re
 import selectors
 import signal
 import stat
@@ -25,6 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ._vendor.job_apply_store import StoreError
+from .application_takeover_record import MAX_REPORT_CHARS, REPORT_SCHEMA, report_matches
 from .codex_cli import CodexCLIError, validate_codex_executable, validate_codex_home
 from .cua_driver import (
     NATIVE_HANDOFF_PROTOCOL,
@@ -52,84 +52,13 @@ _DISABLED_FEATURES = (
     "memories",
 )
 _MAX_FRAME_BYTES = 1_048_576
-_MAX_REPORT_CHARS = 65_536
+_MAX_REPORT_CHARS = MAX_REPORT_CHARS
 # Actual 0.165 thread/start took 4.8-5.1 s; other requests keep the short default.
 # Above the takeover tool server's own 30 s startup, so its failure is reported.
 _THREAD_START_TIMEOUT = 45.0
-# Report text limits live in the schema itself. Strict outputs enforce `pattern`
-# while generating; they reject `maxLength`, so the model reads each bound from its
-# `description` and `_matches` enforces it, no looser than the Worker's adoption check.
-# Excludes controls and the invisible separators copied page text carries; `isprintable`
-# below remains the final check for any rarer unprintable character.
-# Non-ASCII members are literal characters (JSON escapes them), not regex `\\u` escapes,
-# which some regex dialects lack.
-_LINE = (
-    "^[^\\x00-\\x1f\x7f-\xa0\xad\u1680\u180e\u2000-\u200f\u2028-\u202f\u205f-\u206f\u3000\ufeff]+$"
-)
-
-
-def _text(limit):
-    return {
-        "type": "string",
-        "maxLength": limit,
-        "pattern": _LINE,
-        "description": f"Non-empty single-line printable text, at most {limit} characters.",
-    }
-
-
-_ID = _text(128)
-_REPORT_SCHEMA = {
-    "type": "object",
-    "additionalProperties": False,
-    "properties": {
-        "status": {
-            "type": "string",
-            "enum": [
-                "blocked_segment_resolved",
-                "ready_for_review",
-                "needs_input",
-                "needs_recheck",
-            ],
-        },
-        "summary": {
-            "type": "string",
-            "maxLength": 2000,
-            "description": "At most 2000 characters.",
-        },
-        "unresolved_action_ids": {"type": "array", "items": _ID, "maxItems": 1000},
-        "fields": {
-            "type": "array",
-            "maxItems": 1000,
-            "items": {
-                "type": "object",
-                "additionalProperties": False,
-                "properties": {"field_id": _ID, "state": _text(64)},
-                "required": ["field_id", "state"],
-            },
-        },
-        "next_step": {
-            "anyOf": [
-                {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "properties": {
-                        "kind": _text(64),
-                        "field_id": dict(
-                            _ID,
-                            type=["string", "null"],
-                            description="Null when no next field is named; otherwise "
-                            "non-empty single-line printable text, at most 128 characters.",
-                        ),
-                    },
-                    "required": ["kind", "field_id"],
-                },
-                {"type": "null"},
-            ]
-        },
-    },
-    # Strict structured outputs require every property; optional ones are nullable.
-    "required": ["status", "summary", "unresolved_action_ids", "fields", "next_step"],
-}
+# The report schema is the takeover record's one rule; the Worker adopts what it keeps.
+_REPORT_SCHEMA = REPORT_SCHEMA
+_matches = report_matches
 
 
 def _without_length_bounds(schema):
@@ -142,41 +71,6 @@ def _without_length_bounds(schema):
 
 
 _OUTPUT_SCHEMA = _without_length_bounds(_REPORT_SCHEMA)
-
-
-def _matches(value, schema):
-    """Check the small JSON Schema subset used by `_REPORT_SCHEMA`."""
-    if "anyOf" in schema:
-        return any(_matches(value, option) for option in schema["anyOf"])
-    if schema["type"] == "null":
-        return value is None
-    if isinstance(schema["type"], list):
-        # Only nullable scalars use a type list.
-        (kind,) = set(schema["type"]) - {"null"}
-        return value is None or _matches(value, dict(schema, type=kind))
-    if schema["type"] == "string":
-        return (
-            isinstance(value, str)
-            and value in schema.get("enum", (value,))
-            and len(value) <= schema.get("maxLength", len(value))
-            and (
-                "pattern" not in schema
-                or bool(re.fullmatch(schema["pattern"], value))
-                and value.isprintable()
-            )
-        )
-    if schema["type"] == "array":
-        return (
-            isinstance(value, list)
-            and len(value) <= schema["maxItems"]
-            and all(_matches(item, schema["items"]) for item in value)
-        )
-    properties = schema["properties"]
-    return (
-        isinstance(value, dict)
-        and set(schema["required"]) <= set(value) <= set(properties)
-        and all(_matches(item, properties[key]) for key, item in value.items())
-    )
 
 
 @dataclass(frozen=True)
