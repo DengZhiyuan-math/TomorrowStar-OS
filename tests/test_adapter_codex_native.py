@@ -399,9 +399,9 @@ def test_lazy_native_recipient_is_granted_during_catalog_before_the_model_turn(
 
 
 def test_slow_thread_start_within_its_own_bound_still_reaches_the_model_turn(tmp_path, monkeypatch):
-    # Actual 0.165 thread/start took 4.8-5.1 s against the 2 s request default.
+    # Actual 0.165 thread/start took 4.8-5.1 s against the then 2 s request default.
     config, ref, scope, packet, driver, native, events = native_case(tmp_path, monkeypatch)
-    assert config.request_timeout == 2.0
+    config = CodexAssistConfig.from_dict(config.to_dict() | {"request_timeout": 2.0})
     config.executable.with_suffix(".settings").write_text(
         json.dumps({"lazy_catalog": True, "thread_start_delay": 2.5})
     )
@@ -841,8 +841,14 @@ def test_repeated_native_metadata_poll_does_not_repeat_journal_writes(tmp_path, 
         adapter.close()
 
 
-def test_routine_native_status_poll_has_the_driver_action_bound(tmp_path, monkeypatch):
-    """A slow status answer while a write awaits admission is not a lost scope."""
+def test_routine_native_status_poll_has_the_budget_status_deadline(tmp_path, monkeypatch):
+    """A slow status answer while a write awaits admission is not a lost scope.
+
+    The poll has its own budget deadline, inside the driver's action bound, so one
+    poll and its admission still fit the driver's admission time.
+    """
+    from career_evidence_graph.application_takeover_budget import DEFAULT_BUDGET
+
     config, ref, scope, packet, driver, native, events = native_case(tmp_path, monkeypatch)
     native.timeout = 15
     status, timeouts = native.handoff_status, []
@@ -855,7 +861,7 @@ def test_routine_native_status_poll_has_the_driver_action_bound(tmp_path, monkey
     adapter, run = start_case(config, ref, scope, packet, driver, native)
     try:
         adapter.progress(run.run_id)
-        assert timeouts and set(timeouts) == {15}
+        assert timeouts and set(timeouts) == {DEFAULT_BUDGET.status_poll}
     finally:
         adapter.close()
 
@@ -1832,5 +1838,47 @@ def test_current_generation_row_with_another_scope_is_still_refused(tmp_path, mo
     adapter, run = start_case(config, ref, scope, packet, driver, native)
     try:
         assert run.status == "unknown" and run.error_code == "native_handoff_status_unknown"
+    finally:
+        adapter.close()
+
+
+def test_dispatched_budget_sets_each_native_deadline_and_must_fit_the_driver(tmp_path, monkeypatch):
+    """The Worker's budget, not the client's own bound, sets every native deadline."""
+    from dataclasses import replace
+
+    from career_evidence_graph.application_takeover_budget import DEFAULT_BUDGET
+
+    config, ref, scope, packet, driver, native, events = native_case(tmp_path, monkeypatch)
+    adapter = CodexAdapter(config)
+    arguments = dict(
+        request_id="native-start",
+        delivery=packet,
+        native_client=NativeHandoffPort(native),
+        native_scope=scope,
+        driver_executable=driver,
+        before_yield=lambda intent: None,
+        after_yield=lambda receipt: None,
+        pump=lambda: True,
+        before_native_call=lambda call: True,
+    )
+    try:
+        native.timeout = 10  # below the budget's 12 s status poll
+        with pytest.raises(ValueError):
+            adapter.start_takeover(ref, budget=DEFAULT_BUDGET, **arguments)
+        assert not native.granted and events == []
+        native.timeout = 15
+        budget = replace(DEFAULT_BUDGET, status_poll=7.0, stop=4.0)
+        statuses, revokes = [], []
+        status, revoke = native.handoff_status, native.revoke_handoff
+        native.handoff_status = lambda **kw: statuses.append(kw["timeout"]) or status(**kw)
+        native.revoke_handoff = lambda **kw: revokes.append(kw["timeout"]) or revoke(**kw)
+        run = adapter.start_takeover(ref, budget=budget, **arguments)
+        assert run.status == "ready"
+        adapter.progress(run.run_id)
+        adapter.stop(run.run_id, request_id="stop-budget")
+        assert set(statuses) == {7.0} and set(revokes) == {4.0}
+        start = next(m for m in recorded(config) if m.get("method") == "thread/start")
+        server = start["params"]["config"]["mcp_servers"]["cua_takeover"]
+        assert (server["startup_timeout_sec"], server["tool_timeout_sec"]) == (30, 60)
     finally:
         adapter.close()

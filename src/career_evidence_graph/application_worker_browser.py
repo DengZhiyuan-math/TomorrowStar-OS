@@ -29,9 +29,11 @@ from .application_automation import _job_identity, validate_application_target
 from .application_codex_assist import CodexAdapter, CodexAssistConfig
 from .application_execution import automated_owner, release_execution, require_execution
 from .application_information import fact_for
+from .application_takeover_budget import DEFAULT_BUDGET, TakeoverBudget
 from .application_worker import (
     CONTROLLER_HANDOFF_INSPECTION,
     OWNED_PAGE_OBSERVATION,
+    SCOPE_WINDOW,
     WorkerStore,
     adopt_assistance_outcome,
     adopt_assistance_report,
@@ -2406,8 +2408,8 @@ class ApplicationRunner:
                     or runtime.get("id") != self.run_id
                     or (runtime.get("source") or {}).get("sha256") != self._page_source
                     or not self._page_source
-                    or not 0 <= now - runtime.get("observed_at", 0) < 6
-                    or not 0 <= now - observed.get("at", 0) < 6
+                    or not 0 <= now - runtime.get("observed_at", 0) < SCOPE_WINDOW
+                    or not 0 <= now - observed.get("at", 0) < SCOPE_WINDOW
                     or state.get("worker_error")
                 ):
                     # The private log keeps which part of the page scope changed.
@@ -3158,6 +3160,9 @@ class ApplicationRunner:
             if row["application_id"] == reference["binding"]["application_id"]
         )
         pending_intent = held["intent"] if takeover_pending_intent(held) else None
+        # The budget the Worker fixed at dispatch; an older dispatch has the default.
+        saved_budget = ((held.get("assistance") or {}).get("dispatch") or {}).get("budget")
+        budget = TakeoverBudget.from_dict(saved_budget) if saved_budget else DEFAULT_BUDGET
         try:
             result = self.codex_assist.start_takeover(
                 reference,
@@ -3166,6 +3171,7 @@ class ApplicationRunner:
                 pending_action_id=pending_intent
                 and (pending_intent.get("attempt_id") or digest(pending_intent)),
                 native_client=port,
+                budget=budget,
                 native_scope=call_scope,
                 driver_executable=executable,
                 before_yield=before_yield,

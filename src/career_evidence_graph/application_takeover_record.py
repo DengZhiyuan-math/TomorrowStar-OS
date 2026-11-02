@@ -15,6 +15,7 @@ import time
 from copy import deepcopy
 from uuid import uuid4
 
+from .application_takeover_budget import valid_budget_record
 from .career_portal_data import PortalDataError
 
 ASSISTANCE_REPORT = "assistance-report/v1"
@@ -231,7 +232,8 @@ def valid_takeover_dispatch(dispatch, assistance):
     keys = {"request_id", "blocker", "requested_at", "continue_serial"}
     return bool(
         isinstance(dispatch, dict)
-        and keys <= set(dispatch) <= keys | {"failed_code", "pending_intent_ref"}
+        and keys <= set(dispatch) <= keys | {"failed_code", "pending_intent_ref", "budget"}
+        and ("budget" not in dispatch or valid_budget_record(dispatch["budget"]))
         and isinstance(assistance.get("binding"), dict)
         and dispatch["request_id"] == assistance["claim_request_id"]
         and valid_takeover_blocker(dispatch["blocker"], assistance["binding"])

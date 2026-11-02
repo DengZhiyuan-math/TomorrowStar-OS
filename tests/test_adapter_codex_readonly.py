@@ -308,6 +308,7 @@ def test_output_backpressure_keeps_pumping_before_the_bounded_failure(tmp_path):
     )
     value = config(tmp_path, executable).to_dict()
     value["stop_timeout"] = 0.1
+    value["request_timeout"] = 2.0
     from career_evidence_graph.application_codex_assist import CodexAssistConfig
 
     adapter = CodexAdapter(CodexAssistConfig.from_dict(value))

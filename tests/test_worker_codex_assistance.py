@@ -8,6 +8,7 @@ from test_single_application_worker import single_worker as single_worker
 from test_worker_current_job import prepare
 
 from career_evidence_graph._vendor import job_apply_store as helper
+from career_evidence_graph.application_takeover_budget import DEFAULT_BUDGET
 from career_evidence_graph.application_worker import start_run
 from career_evidence_graph.application_worker_browser import ApplicationRunner
 from career_evidence_graph.career_portal_data import PortalDataError
@@ -585,7 +586,9 @@ def test_request_takeover_claims_once_without_user_claim(retained_assistance_pag
         "blocker",
         "requested_at",
         "continue_serial",
+        "budget",
     }
+    assert assistance["dispatch"]["budget"] == DEFAULT_BUDGET.to_dict()
     assert assistance["dispatch"]["request_id"] == "takeover-one"
     assert assistance["dispatch"]["blocker"] == blocker
     assert assistance["dispatch"]["continue_serial"] == serial

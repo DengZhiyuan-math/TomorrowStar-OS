@@ -21,10 +21,11 @@ import tempfile
 import threading
 import time
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from ._vendor.job_apply_store import StoreError
+from .application_takeover_budget import DEFAULT_BUDGET, TakeoverBudget
 from .application_takeover_record import MAX_REPORT_CHARS, REPORT_SCHEMA, report_matches
 from .codex_cli import CodexCLIError, validate_codex_executable, validate_codex_home
 from .cua_driver import (
@@ -80,9 +81,6 @@ _DISABLED_FEATURES = (
 )
 _MAX_FRAME_BYTES = 1_048_576
 _MAX_REPORT_CHARS = MAX_REPORT_CHARS
-# Actual 0.165 thread/start took 4.8-5.1 s; other requests keep the short default.
-# Above the takeover tool server's own 30 s startup, so its failure is reported.
-_THREAD_START_TIMEOUT = 45.0
 # The report schema is the takeover record's one rule; the Worker adopts what it keeps.
 _REPORT_SCHEMA = REPORT_SCHEMA
 _matches = report_matches
@@ -106,7 +104,7 @@ class CodexAssistConfig:
     runtime: Path
     home: Path
     expected_version: str = PROTOCOL_VERSION
-    request_timeout: float = 2.0
+    request_timeout: float = 10.0
     stop_timeout: float = 1.0
     native_assistance_policy: dict | None = None
 
@@ -217,11 +215,11 @@ class _Run:
         self.native_turn_status = "idle"
         self.stopping_io = False
         self.native = None
+        # Every deadline of this run; a takeover carries the Worker's dispatched budget.
+        self.budget = DEFAULT_BUDGET
         self.report = None
 
 
-STARTUP_REQUEST_TIMEOUT = 30.0
-NATIVE_STATUS_TIMEOUT = 5.0
 STARTUP_METHODS = frozenset({"initialize", "config/read", "thread/start", "mcpServerStatus/list"})
 
 
@@ -245,6 +243,13 @@ class CodexAdapter:
         self._requests: dict[str, tuple[str, str]] = {}
         self._bindings: dict[str, str] = {}
         self._observed_version: str | None = None
+        # A run without a dispatched budget keeps the configured request and stop deadlines.
+        self._configured_budget = replace(
+            DEFAULT_BUDGET,
+            request=config.request_timeout,
+            stop=config.stop_timeout,
+            driver_timeout=max(DEFAULT_BUDGET.driver_timeout, config.stop_timeout),
+        )
 
     def _environment(self):
         return {
@@ -337,6 +342,7 @@ class CodexAdapter:
         pump,
         before_native_call,
         pending_action_id: str | None = None,
+        budget: TakeoverBudget | None = None,
     ) -> AssistRunProgress:
         """Start a native MCP turn only after original-host, same-Page handover.
 
@@ -344,6 +350,9 @@ class CodexAdapter:
         carries (its ``pending_intent_ref``); only that unknown action may be pending.
         """
         policy = validate_native_assistance_policy(self.config.native_assistance_policy)
+        # The Worker passes the budget it fixed at dispatch; a direct caller keeps the
+        # configured request and stop deadlines.
+        budget = self._configured_budget if budget is None else budget
         if (
             policy is None
             or not isinstance(assistance_ref, dict)
@@ -356,6 +365,9 @@ class CodexAdapter:
                 for callback in (before_yield, after_yield, pump, before_native_call)
             )
             or not isinstance(native_client, NativeHandoffPort)
+            or not isinstance(budget, TakeoverBudget)
+            # The budget's control deadlines must fit the session's real action bound.
+            or not budget.fits_driver(native_client.action_timeout)
             or native_client.driver_sha256 != policy["driver_sha256"]
             or not isinstance(native_client.socket_path, str)
             or not Path(native_client.socket_path).is_absolute()
@@ -407,6 +419,7 @@ class CodexAdapter:
             "published": None,
             "persistence_failed": False,
             "failed_receipt": None,
+            "budget": budget,
         }
         return self._start(assistance_ref, request_id=request_id, pump=pump, native=native)
 
@@ -515,6 +528,7 @@ class CodexAdapter:
             context_handler,
         )
         run.native = native
+        run.budget = native["budget"] if native is not None else self._configured_budget
         self._runs[run_id] = run
         self._requests[request_id] = binding, run_id
         self._bindings[binding] = run_id
@@ -639,7 +653,7 @@ class CodexAdapter:
                         else {}
                     ),
                 },
-                timeout=max(self.config.request_timeout, _THREAD_START_TIMEOUT),
+                timeout=run.budget.thread_start,
             )
             thread = result.get("thread")
             thread_id = thread.get("id") if isinstance(thread, dict) else None
@@ -740,10 +754,10 @@ class CodexAdapter:
             ],
             "enabled": True,
             "required": True,
-            "startup_timeout_sec": 30,
+            "startup_timeout_sec": math.ceil(run.budget.startup),
             # A write waits in this call for the Worker's admission, which took
             # 11-14 s per write (2026-11-02); at 15 s Codex cancelled one in flight.
-            "tool_timeout_sec": 60,
+            "tool_timeout_sec": math.ceil(run.budget.tool_call),
             "enabled_tools": list(NATIVE_HANDOFF_TOOLS),
             # approvalPolicy "never" otherwise refuses every non-read-only tool call.
             "tools": {name: {"approval_mode": "approve"} for name in NATIVE_HANDOFF_TOOLS},
@@ -996,7 +1010,7 @@ class CodexAdapter:
                 call["arguments_digest"],
                 "allow" if allow else "deny",
                 pump=None,
-                timeout=self.config.stop_timeout,
+                timeout=run.budget.admit,
                 **({"material_resolution": resolution} if allow and is_material else {}),
             )
             acknowledged = self._native_status(run, result)
@@ -1024,7 +1038,7 @@ class CodexAdapter:
                 # A routine poll while Codex holds control has the driver's own action
                 # bound: it took over 1 s while Codex connected (2026-10-31) and over
                 # 5 s with a write awaiting admission (2026-11-01). Stops keep their own.
-                timeout=native["client"].action_timeout if timeout is None else timeout,
+                timeout=run.budget.status_poll if timeout is None else timeout,
             )
             if native["revoke_requested"] and not revoked:
                 # This poll's own owner pump stopped the run and journaled the later,
@@ -1065,7 +1079,7 @@ class CodexAdapter:
         native["revoking"] = True
         try:
             if not native["revoke_requested"]:
-                value = native["client"].revoke_handoff(pump=None, timeout=self.config.stop_timeout)
+                value = native["client"].revoke_handoff(pump=None, timeout=run.budget.stop)
                 native["revoke_requested"] = True
                 self._native_status(run, value)
             else:
@@ -1119,9 +1133,9 @@ class CodexAdapter:
         try:
             descriptor = run.process.stdin.fileno()
             selector.register(descriptor, selectors.EVENT_WRITE)
-            timeout = self.config.request_timeout if timeout is None else timeout
+            timeout = run.budget.request if timeout is None else timeout
             if run.tools_revoked:
-                timeout = min(timeout, self.config.stop_timeout)
+                timeout = min(timeout, run.budget.stop)
             deadline, sent = time.monotonic() + timeout, 0
             while sent < len(data):
                 if tool_result:
@@ -1190,12 +1204,8 @@ class CodexAdapter:
     def _request(self, run, method, params, *, timeout=None):
         if timeout is None:
             # Starting a thread launches the required takeover tool server (its own
-            # startup allows 30 s); 2 s let real runs time out (2026-10-31).
-            timeout = (
-                max(self.config.request_timeout, STARTUP_REQUEST_TIMEOUT)
-                if method in STARTUP_METHODS
-                else self.config.request_timeout
-            )
+            # startup bound); 2 s let real runs time out (2026-10-31).
+            timeout = run.budget.startup if method in STARTUP_METHODS else run.budget.request
         deadline = time.monotonic() + timeout
         run.next_request += 1
         identifier = run.next_request
@@ -1633,13 +1643,13 @@ class CodexAdapter:
                     with suppress(OSError):
                         os.killpg(process.pid, sig)
                 try:
-                    process.wait(timeout=self.config.stop_timeout)
+                    process.wait(timeout=run.budget.stop)
                     break
                 except subprocess.TimeoutExpired:
                     continue
             run.stop_reader.set()
             if run.reader:
-                run.reader.join(timeout=self.config.stop_timeout)
+                run.reader.join(timeout=run.budget.stop)
             process.stdout.close()
 
     def stop(self, run_id: str, *, request_id: str) -> AssistRunProgress:
@@ -1662,7 +1672,7 @@ class CodexAdapter:
             return
         run.stopping_io = True
         try:
-            deadline = time.monotonic() + self.config.stop_timeout
+            deadline = time.monotonic() + run.budget.stop
             try:
                 if not run.reader_error:
                     for _ in range(64):

@@ -34,6 +34,7 @@ from .application_execution import (
 )
 from .application_information import COUNTRIES, fact_for, scope_matches
 from .application_storage import private_root
+from .application_takeover_budget import DEFAULT_BUDGET
 from .application_takeover_record import (  # noqa: F401 - the record's names stay importable here
     ASSISTANCE_CONTROL_REASONS,
     ASSISTANCE_HISTORY_LIMIT,
@@ -62,6 +63,8 @@ from .worker_measurement import MeasurementLog
 from .worker_process_identity import process_identity, valid_process_identity
 
 PUBLIC_ROOT = Path(__file__).resolve().parents[2]
+# How old an original-page observation may be when a takeover read is checked.
+SCOPE_WINDOW = DEFAULT_BUDGET.scope_window
 HELPER_SHA256 = "aeff412145497a87929c04b712a2f87bf4521256c67c98f6b4bc0271c5655d03"
 STATUSES = {"queued", "filling", "needs_input", "needs_recheck", "ready_for_review", "cancelled"}
 OWNED_PAGE_OBSERVATION = "owned-page-observation/v1"
@@ -304,7 +307,11 @@ def _validate_assistance_page_context(value, expected_ref):
             raise ValueError("Invalid original-page validation error details")
     for key in ("at", "observed_at"):
         at = value.get(key)
-        if type(at) not in (int, float) or not math.isfinite(at) or not 0 <= time.time() - at < 6:
+        if (
+            type(at) not in (int, float)
+            or not math.isfinite(at)
+            or not 0 <= time.time() - at < SCOPE_WINDOW
+        ):
             raise ValueError("Original-page JSON context expired")
     if any(
         row.get("type") == "password" and row.get("value") not in (None, "")
@@ -2463,8 +2470,8 @@ class WorkerStore:
                     )
                     for event in job["observations"]
                 )
-                and 0 <= now - runtime.get("observed_at", 0) < 6
-                and 0 <= now - page.get("at", 0) < 6
+                and 0 <= now - runtime.get("observed_at", 0) < SCOPE_WINDOW
+                and 0 <= now - page.get("at", 0) < SCOPE_WINDOW
             )
             if phase == "prepared":
                 from .cua_driver import reviewed_native_assistance_policy
@@ -2904,8 +2911,8 @@ class WorkerStore:
                 or material_edit_pending(job)
                 or state.get("worker_error")
                 or self.stop_reason()
-                or not 0 <= now - runtime.get("observed_at", 0) < 6
-                or not 0 <= now - page.get("at", 0) < 6
+                or not 0 <= now - runtime.get("observed_at", 0) < SCOPE_WINDOW
+                or not 0 <= now - page.get("at", 0) < SCOPE_WINDOW
             ):
                 raise PortalDataError(
                     "assistance_binding_changed",
@@ -3885,6 +3892,7 @@ class WorkerService:
         native_assistance_policy: dict | None = None,
     ):
         self.native_assistance_policy = validate_native_assistance_policy(native_assistance_policy)
+        self.takeover_budget = DEFAULT_BUDGET
         if self.native_assistance_policy is not None and (
             not live or not cua or synthetic_browser_root is not None
         ):
@@ -3988,7 +3996,7 @@ class WorkerService:
         return bool(
             not exited
             and job.get("reason") not in {"page_lost", "page_closed", "page_crashed"}
-            and 0 <= now - runtime["observed_at"] < 6
+            and 0 <= now - runtime["observed_at"] < SCOPE_WINDOW
             and page.get("run_id") == runtime["id"]
             and page.get("event") == "observed"
             and isinstance(page.get("page_id"), str)
@@ -4029,7 +4037,7 @@ class WorkerService:
             or OWNED_PAGE_OBSERVATION not in runtime.get("capabilities", [])
             or not self._page_current(state, job)
             or state.get("worker_error", "") not in {"", "control_connection_lost"}
-            or not 0 <= time.time() - job["page_observation"].get("at", 0) < 6
+            or not 0 <= time.time() - job["page_observation"].get("at", 0) < SCOPE_WINDOW
         ):
             return None
         return {
@@ -4138,7 +4146,7 @@ class WorkerService:
                 "exited"
                 if managed and exit_code is not None
                 else "current"
-                if runtime and 0 <= age < 6
+                if runtime and 0 <= age < SCOPE_WINDOW
                 else "stale"
                 if runtime
                 else "historical"
@@ -5062,6 +5070,8 @@ class WorkerService:
                     "blocker": current,
                     "requested_at": time.time(),
                     "continue_serial": binding["resume_serial"],
+                    # Every layer's deadline for this takeover, fixed when it is sent.
+                    "budget": self.takeover_budget.to_dict(),
                 },
             )
             if current["code"] in TAKEOVER_UNKNOWN_REASONS and job.get("intent"):

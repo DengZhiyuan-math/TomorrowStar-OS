@@ -25,6 +25,7 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 from ._vendor import job_apply_store as helper
+from .application_takeover_budget import DEFAULT_BUDGET
 from .career_portal_data import PortalDataError
 from .owned_browser_cdp import OwnedCDP
 from .worker_measurement import current_measurements
@@ -1235,7 +1236,7 @@ class NativeCuaSessionClient:
             return
         try:
             if self._yield_attempt is not None:
-                self.revoke_handoff(timeout=min(1, self.timeout))
+                self.revoke_handoff(timeout=min(DEFAULT_BUDGET.stop, self.timeout))
             elif not self.failed:
                 result = self._request({"method": "trusted_session_end"})
                 if not isinstance(result, dict) or result.get("closed") is not True:
