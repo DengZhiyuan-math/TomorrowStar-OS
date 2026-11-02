@@ -22,7 +22,7 @@ COUNTRIES = {"CHE", "USA", "GBR", "DEU", "FRA", "CAN", "OTHER"}
 MAX_DOCUMENT_BYTES = 2 * 1024 * 1024
 CONTACT_FACTS = ("name", "first_name", "last_name", "email", "phone", "github_url", "linkedin_url")
 # Contact and identity answers never bear on a JD requirement.
-MATCH_EXCLUDED_FACTS = (*CONTACT_FACTS, "pronouns")
+MATCH_EXCLUDED_FACTS = (*CONTACT_FACTS, "pronouns", "data_processing_consent")
 # Bookkeeping that identifies a saved answer but says nothing about the applicant.
 _RECORD_BOOKKEEPING = {"key", "revision", "confirmedAt", "updatedAt", "state", "fact"}
 ADDITIONAL_LANGUAGE_FACTS = (
@@ -175,9 +175,27 @@ def _information_fact(question):
     return canonical_question_fact(question) or fact_for(question)
 
 
+# The user's standing agreement covers data-protection consent: sharing within a
+# group, storage periods and privacy processing (2026-11-02). Checks, marketing
+# and other agreements keep their own question identity.
+_DATA_CONSENT = re.compile(r"\b(?:consent\w*|agree\w*|einverstanden|einwillig\w*|zustimm\w*)\b")
+_DATA_CONSENT_TOPIC = re.compile(
+    r"\b(?:data|daten|privacy|datenschutz\w*|stored|storage|retention|processing|talent pool)\b"
+)
+_NOT_DATA_CONSENT = re.compile(
+    r"\b(?:background|criminal|credit|drug|reference check\w*|marketing|newsletter\w*)\b"
+)
+
+
 def canonical_question_fact(question: str) -> str | None:
     """Extra saved aliases shared with filling, without invoking its fallback."""
     normalized = helper.normalize_question(question).strip(" *:")
+    if (
+        _DATA_CONSENT.search(normalized)
+        and _DATA_CONSENT_TOPIC.search(normalized)
+        and not _NOT_DATA_CONSENT.search(normalized)
+    ):
+        return "data_processing_consent"
     return _SAVED_QUALIFICATION_QUESTIONS.get(normalized)
 
 

@@ -546,3 +546,22 @@ def test_form_labels_for_contact_and_address_map_to_saved_facts():
         "Salutation": "salutation",
     }
     assert {label: information_fact(label) for label in expected} == expected
+
+
+def test_data_protection_consent_maps_to_one_standing_fact_and_other_agreements_do_not():
+    from career_evidence_graph.application_information import information_fact
+
+    consent = [
+        "I consent to my data being passed on to other companies of the Group insofar as",
+        "I hereby agree that my data will, as of this moment be stored, up to and including",
+        "I have read the privacy policy and agree",
+        "Ich bin mit der Speicherung meiner Daten einverstanden",
+    ]
+    other = [
+        "I consent to a background check",
+        "I agree to receive marketing emails about our data products",
+        "I agree to the terms of use",
+        "Do you consent to relocate?",
+    ]
+    assert {information_fact(label) for label in consent} == {"data_processing_consent"}
+    assert all(information_fact(label).startswith("question:") for label in other)

@@ -139,6 +139,21 @@ def test_actual_scope_is_checked_even_if_helper_key_is_misleading(service) -> No
     assert service.store.resolve(question, current)[0] == "No"
 
 
+def test_standing_data_consent_ticks_a_lone_box_or_the_affirmative_choice(service) -> None:
+    service.request("prepare", {"jobs": [job(service)]})
+    current = service.store.load()["jobs"][0]
+    service.store.answers.put_answer(
+        {"question": "Data processing consent", "value": "Yes", "state": "confirmed"}
+    )
+    label = "I hereby agree that my data will be stored for future vacancies"
+    box = {"question": label, "type": "checkbox", "options": [label]}
+    choice = {"question": label, "type": "radio", "options": ["Nein", "Ja"]}
+    assert service.store.resolve(box, current)[0] == label
+    assert service.store.resolve(choice, current)[0] == "Ja"
+    check = {"question": "I consent to a background check", "type": "checkbox", "options": ["x"]}
+    assert service.store.resolve(check, current) is None
+
+
 def test_fact_aliases_keep_time_and_authorization_distinct() -> None:
     assert fact_for("Will you now or in the future require visa sponsorship?") == fact_for(
         "Do you require visa sponsorship now or in the future?"

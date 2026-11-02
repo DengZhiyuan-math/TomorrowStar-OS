@@ -4273,6 +4273,16 @@ class WorkerStore:
         if not isinstance(value, str) or not value.strip():
             return None
         options = question.get("options", [])
+        if fact == "data_processing_consent" and value == "Yes" and value not in options:
+            # Standing agreement: a lone consent box is ticked by its own label,
+            # and a localized Yes/No choice takes its one affirmative option.
+            agree = (
+                options
+                if question.get("type") == "checkbox" and len(options) == 1
+                else [o for o in options if o.strip().casefold() in {"yes", "ja", "oui", "sì"}]
+            )
+            if len(agree) == 1:
+                value = agree[0]
         if options and value not in options:
             return None
         return value, {"key": record["key"], "revision": digest(record), "fact": fact}
