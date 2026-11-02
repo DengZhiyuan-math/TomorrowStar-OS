@@ -14,6 +14,7 @@ import signal
 import subprocess
 import threading
 import time
+import traceback
 from contextlib import ExitStack, contextmanager, suppress
 from copy import deepcopy
 from dataclasses import asdict
@@ -3649,6 +3650,13 @@ class ApplicationRunner:
                 causes.append(str(cause)[:200])
                 cause = cause.__cause__
             claim = claimed if isinstance(claimed, dict) else {}
+            # A bare read timeout names no check; the last application frames do
+            # (2026-11-02: owned_browser_read_timeout somewhere after the stop).
+            where = [
+                f"{Path(frame.filename).stem}:{frame.name}:{frame.lineno}"
+                for frame in traceback.extract_tb(error.__traceback__)
+                if "career_evidence_graph" in frame.filename
+            ][-4:]
             print(
                 f"{wait}: "
                 + json.dumps(
@@ -3656,6 +3664,7 @@ class ApplicationRunner:
                         "check": getattr(error, "code", type(error).__name__),
                         "message": str(error)[:200],
                         "reason": causes,
+                        "where": where,
                         "claimed_status": claim.get("status"),
                         "next_step": claim.get("next_step"),
                         "field_states": sorted(

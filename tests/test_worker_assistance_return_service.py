@@ -1014,3 +1014,8 @@ def test_refused_return_names_its_check_in_the_private_log(returning, capsys, re
     assert record["reason"] == [reason]
     assert record["claimed_status"] == report["claimed"]["status"]
     assert record["field_states"] == [["filled", 1]]
+    assert record["where"][-1].startswith("application_worker_browser:refused:")
+    assert any(
+        frame.startswith("application_worker_browser:_assistance_outcome:")
+        for frame in record["where"]
+    )
