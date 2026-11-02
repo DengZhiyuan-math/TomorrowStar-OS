@@ -340,11 +340,8 @@ def verify_material_lineage(
     information_library_root=None,
 ) -> dict:
     """Read saved analysis and adopted material bytes; never write or run a provider."""
-    from .application_flow import (
-        analysis_input_binding,
-        job_input_revision,
-        local_materials,
-    )
+    from .application_flow import local_materials
+    from .application_input_binding import analysis_input_binding, job_input_revision
     from .application_match import POLICY_VERSION
     from .validation.hashing import record_digest as digest
 
@@ -579,8 +576,8 @@ def verify_material_lineage(
 
 def check_single_qualification(task, application, information_root, country):
     """Validate qualification and report whether an adopted fixed delivery owns it."""
+    from .application_eligibility import task_eligibility
     from .application_explanations import adopted_analysis, qualification_for
-    from .application_flow import task_eligibility
     from .application_information import (
         information_context,
         read_information_library,
@@ -650,7 +647,8 @@ def check_single_binding(
     # Lazy imports preserve the existing flow -> worker -> resume dependency order.
     from .application_automation import _job_identity
     from .application_execution import automated_owner
-    from .application_flow import job_input_revision, local_materials
+    from .application_flow import local_materials
+    from .application_input_binding import job_input_revision
     from .validation.hashing import record_digest as digest
 
     try:
@@ -809,7 +807,7 @@ def read_delivered_material_inputs(applications, flow_root, job, *, delivery_rea
     The live composition can also resolve its existing writing handoff. A separately
     launched worker uses the same checksummed task, analysis and source archives.
     """
-    from .application_flow import analysis_input_binding
+    from .application_input_binding import analysis_input_binding
     from .application_job_brief import validate_job_brief
     from .validation.hashing import record_digest as digest
 

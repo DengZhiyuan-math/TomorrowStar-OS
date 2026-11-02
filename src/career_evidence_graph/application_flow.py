@@ -16,7 +16,16 @@ from pathlib import Path
 from uuid import uuid4
 
 from ._vendor import job_apply_store as helper
+from .application_eligibility import qualification_status as qualification_status
+from .application_eligibility import task_eligibility as task_eligibility
 from .application_information import COUNTRIES
+from .application_input_binding import LIBRARY_INPUT_KEYS as LIBRARY_INPUT_KEYS
+from .application_input_binding import analysis_input_binding as analysis_input_binding
+from .application_input_binding import job_input_revision as job_input_revision
+from .application_input_binding import latest_preparation_task as latest_preparation_task
+from .application_input_binding import (
+    retained_configuration_inputs as retained_configuration_inputs,
+)
 from .application_storage import private_root
 from .career_portal_data import ApplicationStore, PortalDataError
 from .validation.hashing import record_digest as digest
@@ -358,224 +367,6 @@ def _preparation_progress(task, analysis):
     }
 
 
-def job_input_revision(application: dict) -> str:
-    """Bind the complete JD and job fields without unrelated application notes."""
-    return digest(
-        {
-            key: application.get(key, "")
-            for key in ("company", "role_title", "location", "job_description")
-        }
-    )
-
-
-def analysis_input_binding(inputs):
-    """Keep documentary analysis independent of contact and material-only inputs."""
-    material_keys = {
-        "resume_configuration_revision",
-        "qualification_information_revision",
-        "presentation_feedback_revision",
-    }
-    if "information_library_root" in inputs:
-        # Canonical bindings identify the contact projection and its source root.
-        # Legacy unscoped library revisions may include qualification facts.
-        material_keys |= {"information_library_revision", "information_library_root"}
-    return {key: value for key, value in inputs.items() if key not in material_keys}
-
-
-LIBRARY_INPUT_KEYS = ("sources_revision", "information_library_revision")
-
-
-def retained_configuration_inputs(task, inputs, *, completed_stages=None, adopt_libraries=False):
-    """Keep completed results bound to the configuration that produced them.
-
-    ``adopt_libraries`` is the user's explicit sync, which takes current library
-    revisions; every other caller keeps those of the completed analysis.
-    """
-    resolved = deepcopy(inputs)
-    from .application_existing_materials import retained_presentation_input
-
-    retained_presentation_input(task, resolved)
-    if "qualification_information_revision" in task["inputs"]:
-        # Preserve the historical receipt bytes from the former over-broad binding.
-        # Current qualification facts are checked live, not as PDF/analysis inputs.
-        resolved["qualification_information_revision"] = task["inputs"][
-            "qualification_information_revision"
-        ]
-    if completed_stages is None:
-        completed_stages = {
-            key
-            for key, value in task.get("stages", {}).items()
-            if value.get("status") == "complete"
-        }
-    if "analysis" in completed_stages and not adopt_libraries:
-        # Library revisions are provenance once the analysis completed (APP-04,
-        # 2026-11-01): revising either library never invalidates a job; re-matching
-        # or regenerating is explicit. An analysis still to run reads current data.
-        for key in LIBRARY_INPUT_KEYS:
-            if key in task["inputs"]:
-                resolved[key] = task["inputs"][key]
-    if (
-        "resume" in completed_stages
-        and "information_library_revision" not in task["inputs"]
-        and isinstance(task.get("resume_id"), str)
-        and bool(task["resume_id"])
-        and isinstance(task.get("resume_sha256"), str)
-        and re.fullmatch(r"[a-f0-9]{64}", task["resume_sha256"]) is not None
-        and not task.get("export_recoveries")
-        and task.get("group_read", {}).get("status") not in {"running", "needs_recheck"}
-        and not any(
-            stage.get("status") in {"queued", "running", "needs_recheck"}
-            for stage in task.get("stages", {}).values()
-        )
-    ):
-        # Only known completed PDF bytes can predate this binding. Imported drafts
-        # and unknown exports must still compare every newly observed fact input.
-        resolved.pop("information_library_revision", None)
-        resolved.pop("information_library_root", None)
-    configuration_keys = {
-        "account_context_revision",
-        "analysis_configuration_revision",
-        "resume_configuration_revision",
-        "historical_benchmark_revision",
-    }
-    unchanged = {k: v for k, v in resolved.items() if k not in configuration_keys} == {
-        k: v for k, v in task["inputs"].items() if k not in configuration_keys
-    }
-    analysis_unchanged = {
-        k: v for k, v in analysis_input_binding(resolved).items() if k not in configuration_keys
-    } == {
-        k: v
-        for k, v in analysis_input_binding(task["inputs"]).items()
-        if k not in configuration_keys
-    }
-    for stage in ("analysis", "resume"):
-        if stage in completed_stages and (unchanged or stage == "analysis" and analysis_unchanged):
-            keys = (f"{stage}_configuration_revision",)
-            if stage == "analysis":
-                # Local credential refreshes are operational changes, not changes
-                # to the JD, applicant facts or already generated content.
-                keys += ("historical_benchmark_revision", "account_context_revision")
-            for key in keys:
-                if key in task["inputs"]:
-                    resolved[key] = task["inputs"][key]
-                else:
-                    resolved.pop(key, None)
-    return resolved
-
-
-def qualification_status(requirements, conditions):
-    """Aggregate effective child facts using the retained original group relation."""
-    if any("scoring_framework" in row for row in requirements):
-        from .application_match_scoring import calculate_match_score
-
-        effective = deepcopy(requirements)
-        for condition in conditions:
-            effective[condition["requirement_index"]]["judgment"] = {
-                "supported": "supported",
-                "conflict": "gap",
-                "needs_input": "unknown",
-            }[condition["status"]]
-        return calculate_match_score(effective)["eligibility"]
-    statuses = {row["status"] for row in conditions}
-    return (
-        "conflict"
-        if "conflict" in statuses
-        else "needs_input"
-        if "needs_input" in statuses
-        else "supported"
-        if conditions
-        else "not_specified"
-    )
-
-
-def task_eligibility(task: dict, *, bind_inputs=False) -> dict:
-    """Keep applicant clarifications separate from the documentary match score."""
-    analysis = next(
-        (
-            row["result"]
-            for row in reversed(task.get("artifacts", []))
-            if row.get("stage") == "analysis"
-            and row.get("adopted")
-            and row.get("result", {}).get("id") == task.get("analysis_id")
-        ),
-        None,
-    )
-    if analysis is None:
-        return {"status": "analysis_required", "conditions": []}
-    conditions = []
-    analysis_revisions = set()
-    if bind_inputs:
-        projection = analysis_input_binding(task["inputs"])
-        analysis_revisions.add(digest(projection))
-        if "qualification_information_revision" in task["inputs"]:
-            analysis_revisions.add(
-                digest(
-                    projection
-                    | {
-                        "qualification_information_revision": task["inputs"][
-                            "qualification_information_revision"
-                        ]
-                    }
-                )
-            )
-    for index, requirement in enumerate(analysis.get("requirements", [])):
-        if not requirement.get("hard_condition"):
-            continue
-        resolution = next(
-            (
-                row
-                for row in reversed(task.get("hard_condition_resolutions", []))
-                if row.get("analysis_id") == task["analysis_id"]
-                and type(row.get("requirement_index")) is int
-                and row["requirement_index"] == index
-                and row.get("confirmed") is True
-                and row.get("verified_by") == "user"
-                and type(row.get("eligible")) is bool
-                and isinstance(row.get("source"), str)
-                and bool(row["source"].strip())
-                and (
-                    not bind_inputs
-                    or (
-                        row["analysis_input_revision"] in analysis_revisions
-                        if "analysis_input_revision" in row
-                        else row.get("input_revision")
-                        == digest(
-                            {
-                                k: v
-                                for k, v in task["inputs"].items()
-                                if k != "resume_configuration_revision"
-                            }
-                        )
-                    )
-                )
-            ),
-            None,
-        )
-        judgment = requirement.get("judgment")
-        status = (
-            "conflict"
-            if judgment == "gap"
-            else ("supported" if resolution["eligible"] else "conflict")
-            if resolution
-            else "supported"
-            if judgment == "supported"
-            else "needs_input"
-        )
-        conditions.append(
-            {
-                "requirement_index": index,
-                "text": requirement["text"],
-                "judgment": judgment,
-                "status": status,
-                "resolution": deepcopy(resolution),
-            }
-        )
-    return {
-        "status": qualification_status(analysis.get("requirements", []), conditions),
-        "conditions": conditions,
-    }
-
-
 def local_materials(task):
     """Compatibility entry for the Resume-owned material contract projection."""
     from .application_resume import local_materials as material_contract
@@ -625,33 +416,6 @@ def stat_tokens(paths):
         except FileNotFoundError:
             tokens.append((str(path), None))
     return tokens
-
-
-def latest_preparation_task(tasks, application_id=None):
-    """Keep settled cancellations in history without superseding current work."""
-    return next(
-        (
-            row
-            for row in reversed(tasks)
-            if (application_id is None or row["application_id"] == application_id)
-            and (
-                row["status"] != "cancelled"
-                or row.get("worker_ref")
-                or row.get("codex_handoff_ref")
-                or row.get("codex_handoff_attempt")
-                or row.get("material_binding_error")
-                or row.get("material_update", {}).get("status") not in {None, "complete"}
-                or row.get("export_recoveries")
-                or row.get("group_read", {}).get("status") in {"running", "needs_recheck"}
-                or row.get("worker_preparation", {}).get("status") == "pending"
-                or any(
-                    item["status"] in {"queued", "running", "needs_recheck"}
-                    for item in row["stages"].values()
-                )
-            )
-        ),
-        None,
-    )
 
 
 def material_task_view(task):

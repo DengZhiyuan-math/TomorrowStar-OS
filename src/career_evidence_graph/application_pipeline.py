@@ -13,15 +13,13 @@ from pathlib import Path
 from uuid import uuid4
 
 from ._vendor import job_apply_store as helper
+from .application_eligibility import task_eligibility
 from .application_explanations import adopted_analysis
-from .application_flow import (
-    job_input_revision,
-    pipeline_http_entry,
-    task_eligibility,
-)
 from .application_flow import (
     legacy_analysis_failure as _known_analysis_failure,
 )
+from .application_flow import pipeline_http_entry
+from .application_input_binding import job_input_revision
 from .application_match_refresh import match_refresh_running, require_no_other_match_refresh
 from .application_match_scoring import calculate_match_score, combined_score, score_tier
 from .career_portal_data import PortalDataError

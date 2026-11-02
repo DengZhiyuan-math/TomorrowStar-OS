@@ -15,7 +15,7 @@ from .validation.hashing import record_digest as digest
 
 def attach_match_recheck(flow, task_id, task_revision, analysis_id, library_revision):
     from .application_explanations import adopted_analysis
-    from .application_flow import job_input_revision
+    from .application_input_binding import job_input_revision
 
     def require(value, message):
         if not value:

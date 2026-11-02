@@ -4,11 +4,7 @@
     "career_evidence_graph.application_cover_letter <-> career_evidence_graph.application_materials",
     "career_evidence_graph.application_existing_handoff <-> career_evidence_graph.application_flow",
     "career_evidence_graph.application_experience_content <-> career_evidence_graph.application_experience_latex",
-    "career_evidence_graph.application_explanations <-> career_evidence_graph.application_flow",
     "career_evidence_graph.application_explanations <-> career_evidence_graph.application_match_recheck",
-    "career_evidence_graph.application_flow <-> career_evidence_graph.application_match_recheck",
-    "career_evidence_graph.application_flow <-> career_evidence_graph.application_match_refresh",
-    "career_evidence_graph.application_flow <-> career_evidence_graph.application_resume",
     "career_evidence_graph.application_full_latex <-> career_evidence_graph.application_group_review",
     "career_evidence_graph.application_full_latex <-> career_evidence_graph.application_source_reuse",
     "career_evidence_graph.application_full_latex <-> career_evidence_graph.application_writing",
@@ -111,7 +107,8 @@
     "MC-19 (2026-10-28) removed: application_bound_materials <-> application_flow mutual pair (the unused stage/editable/prepare compatibility wrappers were deleted; bound_materials no longer imports Flow).",
     "MC-19 (2026-10-28) removed: application_existing_materials imports application_experience_latex._load (read_completed and its lineage check moved to their owner application_experience_latex).",
     "MC-19 (2026-10-28) added private_attribute_uses: per-file counts, across src and tests/, of receiver._name attribute uses for flow, self.flow, pipeline, store, ApplicationFlowService and ApplicationResumeStore. Increases fail; decreases must be recorded here. Split-out Flow/Resume files (existing_materials, existing_handoff, match_refresh, match_recheck, material_batch; group_review, experience_latex, experience_content, writing, full_latex) are Module-internal per the 2026-10-28 MC-19 decision; flow._save replays and pipeline._tick remain deferred.",
-    "MC-19 review P2-2 (2026-10-28) decreased private_attribute_uses: tests/test_flow_match_execution_admission.py 12 -> 0 (entry removed) and tests/test_p06_flow_edit.py 18 -> 14; read-only assertion and baseline reads now use flow.witness, task_snapshot and snapshot()[\"tasks\"]. Worker-interface and installed-readiness reads used receivers the count does not track, so their counts are unchanged."
+    "MC-19 review P2-2 (2026-10-28) decreased private_attribute_uses: tests/test_flow_match_execution_admission.py 12 -> 0 (entry removed) and tests/test_p06_flow_edit.py 18 -> 14; read-only assertion and baseline reads now use flow.witness, task_snapshot and snapshot()[\"tasks\"]. Worker-interface and installed-readiness reads used receivers the count does not track, so their counts are unchanged.",
+    "Batch 1-A (2026-11-02) removed: application_flow <-> application_resume, application_flow <-> application_explanations, application_flow <-> application_match_refresh and application_flow <-> application_match_recheck mutual pairs. job_input_revision, analysis_input_binding, retained_configuration_inputs and latest_preparation_task moved to application_input_binding (imports only validation.hashing); qualification_status and task_eligibility moved to application_eligibility. application_flow keeps re-exports for existing callers."
   ],
   "private_attribute_uses": {
     "src/career_evidence_graph/application_bound_materials.py": 2,

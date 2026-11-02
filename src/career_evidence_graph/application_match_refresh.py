@@ -275,7 +275,7 @@ def _requirements(report):
 
 
 def _guard(flow, task):
-    from .application_flow import latest_preparation_task
+    from .application_input_binding import latest_preparation_task
 
     if flow.preparation_only:
         latest = latest_preparation_task(flow._load()["tasks"], task["application_id"])
@@ -318,7 +318,7 @@ def _guard_pending(parent, task):
 
 def _binding(flow, task, application):
     from .application_explanations import adopted_analysis
-    from .application_flow import job_input_revision
+    from .application_input_binding import job_input_revision
 
     original = adopted_analysis(task)
     _require(original is not None, "须保留原岗位分析。")

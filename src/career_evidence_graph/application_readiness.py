@@ -8,8 +8,8 @@ from copy import deepcopy
 from pathlib import Path
 
 from .application_automation import validate_application_target
+from .application_eligibility import task_eligibility
 from .application_execution import write_admission_reason as write_admission_reason
-from .application_flow import task_eligibility
 from .application_worker import OWNED_PAGE_OBSERVATION
 from .career_portal_data import PortalDataError
 from .validation.hashing import record_digest as digest
@@ -631,11 +631,11 @@ class ReadinessProbe:
         return digest((saved, task, application, state))
 
     def __call__(self, task_id=None, *, _with_witness=False, _write_stage=None, _country=None):
-        from .application_flow import (
+        from .application_flow import stat_tokens
+        from .application_input_binding import (
             job_input_revision,
             latest_preparation_task,
             retained_configuration_inputs,
-            stat_tokens,
         )
 
         applications, evidence, flow = self.applications, self.evidence, self.flow

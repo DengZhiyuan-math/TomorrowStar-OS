@@ -78,7 +78,7 @@ def _validated_information(requirement, application, library):
 
 
 def qualification_for(task, application, library=None, *, analysis=None, fixed_delivery=False):
-    from .application_flow import qualification_status, task_eligibility
+    from .application_eligibility import qualification_status, task_eligibility
 
     analysis = analysis if analysis is not None else adopted_analysis(task)
     if fixed_delivery:
@@ -368,7 +368,7 @@ def job_explanation(
     fixed_delivery=False,
     resume_sources=None,
 ):
-    from .application_flow import (
+    from .application_input_binding import (
         analysis_input_binding,
         job_input_revision,
         retained_configuration_inputs,

@@ -21,10 +21,10 @@ from uuid import uuid4
 
 from ._vendor import job_apply_store as helper
 from .application_draft import ENGINE_SHA256 as _DRAFT_ENGINE_SHA256
-from .application_flow import job_input_revision
 from .application_full_latex import ENGINE_SHA256 as _FULL_LATEX_ENGINE_SHA256
 from .application_full_latex import MAX_PROMPT_BYTES
 from .application_group_review import ENGINE_SHA256 as _GROUP_REVIEW_ENGINE_SHA256
+from .application_input_binding import job_input_revision
 from .application_match import POLICY_VERSION, match_configuration, match_configuration_revision
 from .application_storage import private_root
 from .career_portal_data import ApplicationStore, CareerCatalog, PortalDataError, _identifier

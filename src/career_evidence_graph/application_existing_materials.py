@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import time
 from copy import deepcopy
 
@@ -17,21 +16,6 @@ def _invalid():
         "已有终稿与原岗位或人工底稿不符，请保留记录并核验。",
         409,
     )
-
-
-def retained_presentation_input(task, inputs):
-    """Only a completed attachment receipt can retain its material-only input."""
-    value = task["inputs"].get(FEEDBACK_KEY)
-    if not isinstance(value, str) or re.fullmatch(r"[a-f0-9]{64}", value) is None:
-        return
-    if any(
-        row.get("input_revision") == digest(task["inputs"])
-        and row.get(FEEDBACK_KEY) == value
-        and row.get("generation_id")
-        and row.get("export_id") == task.get("resume_id")
-        for row in task.get("material_reconnections", [])
-    ):
-        inputs[FEEDBACK_KEY] = value
 
 
 def attach(flow, task_id, task_revision, generation_id, export_id):
