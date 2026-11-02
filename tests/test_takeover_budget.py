@@ -8,6 +8,7 @@ import pytest
 
 from career_evidence_graph.application_takeover_budget import (
     CURRENT_DRIVER_ADMISSION_TTL,
+    CURRENT_DRIVER_GRANT_WAIT,
     DEFAULT_BUDGET,
     MEASURED,
     PLANNED,
@@ -35,12 +36,14 @@ def test_default_budget_is_twice_the_measured_p95_and_planned_elsewhere():
 
 
 def test_default_budget_fits_the_installed_driver_admission_time():
-    """Until the driver reads its admission time, one poll plus admit fits its 15 s."""
-    assert DEFAULT_BUDGET.driver_admission_ttl == CURRENT_DRIVER_ADMISSION_TTL == 15
-    assert DEFAULT_BUDGET.status_poll + DEFAULT_BUDGET.admit <= 15
-    # The old status poll (the client's whole 15 s) left no time to admit at all.
+    """The rebuilt driver admits for 23 s (2026-11-02); one poll plus admit fits it."""
+    assert DEFAULT_BUDGET.driver_admission_ttl == CURRENT_DRIVER_ADMISSION_TTL == 23
+    assert DEFAULT_BUDGET.status_poll + DEFAULT_BUDGET.admit <= 23
+    # The old 15 s driver left no time to admit after a whole-timeout status poll;
+    # the rebuilt driver does, and still refuses a chain longer than its 23 s.
+    assert replace(DEFAULT_BUDGET, status_poll=15.0).driver_admission_ttl == 23
     with pytest.raises(ValueError, match="admission"):
-        replace(DEFAULT_BUDGET, status_poll=15.0)
+        replace(DEFAULT_BUDGET, status_poll=15.0, admit=9.0)
 
 
 @pytest.mark.parametrize(
@@ -54,12 +57,20 @@ def test_default_budget_fits_the_installed_driver_admission_time():
         ({"request": 31.0}, "outlasts the startup bound"),
         ({"driver_timeout": 121.0, "tool_call": 200.0}, "client's limit"),
         ({"scope_window": 0}, "finite and positive"),
+        ({"grant_wait": 10.0}, "receiver stops waiting"),
         ({"admit": float("nan")}, "finite and positive"),
     ],
 )
 def test_inconsistent_budget_is_refused_at_construction(change, message):
     with pytest.raises(ValueError, match=message):
         replace(DEFAULT_BUDGET, **change)
+
+
+def test_the_receiver_outwaits_one_yield_call_and_its_page_check():
+    """The driver's 10 s grant wait was shorter than the host's ready-to-yield chain
+    (2026-11-02); the rebuilt receiver waits its 30 s pending TTL."""
+    assert DEFAULT_BUDGET.grant_wait == CURRENT_DRIVER_GRANT_WAIT == 30
+    assert DEFAULT_BUDGET.grant_wait > DEFAULT_BUDGET.driver_timeout + DEFAULT_BUDGET.scope_window
 
 
 def test_a_rebuilt_driver_admission_time_lets_a_longer_status_read_fit():

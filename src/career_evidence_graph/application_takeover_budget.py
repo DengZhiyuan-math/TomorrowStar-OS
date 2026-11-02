@@ -21,7 +21,8 @@ MEASURED = frozenset({"admission", "status_poll", "scope_window"})
 PLANNED = frozenset({"stop", "thread_start", "startup"})
 # The current signed driver holds a write for host admission for a fixed 15 s
 # (HOST_ADMISSION_TTL in trusted_handoff.rs); a rebuilt driver reads `admission`.
-CURRENT_DRIVER_ADMISSION_TTL = 15.0
+CURRENT_DRIVER_ADMISSION_TTL = 23.0
+CURRENT_DRIVER_GRANT_WAIT = 30.0
 MAX_DRIVER_TIMEOUT = 120.0
 
 
@@ -51,6 +52,10 @@ class TakeoverBudget:
     driver_admission_ttl: float = CURRENT_DRIVER_ADMISSION_TTL
     # How old the original-page observation may be when a takeover read is checked.
     scope_window: float = 6.0
+    # How long the driver's embedded receiver waits for the host's grant after it
+    # publishes the rendezvous (its pending TTL); the host's ready-to-yield chain
+    # measured over the earlier 10 s wait (2026-11-02).
+    grant_wait: float = CURRENT_DRIVER_GRANT_WAIT
 
     def __post_init__(self):
         self.validate()
@@ -76,6 +81,10 @@ class TakeoverBudget:
                 (
                     self.status_poll + self.admit > min(self.admission, self.driver_admission_ttl),
                     "one status read and its admission do not fit the driver's admission time",
+                ),
+                (
+                    self.grant_wait <= self.driver_timeout + self.scope_window,
+                    "the receiver stops waiting before one yield call and its page check finish",
                 ),
                 (
                     self.tool_call < self.admission + self.driver_timeout,

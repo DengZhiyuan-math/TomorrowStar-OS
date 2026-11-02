@@ -37,7 +37,7 @@ from .worker_process_identity import (
 
 # Reviewed release build of the restricted-metadata native successor, signed with the
 # pinned private identity. A version string alone cannot admit it.
-_NATIVE_HANDOFF_DRIVER_SHA256 = "ba1541e7862df48c8eff5101276223e543093a66bc17b6c1033dce3a1d9f3256"
+_NATIVE_HANDOFF_DRIVER_SHA256 = "c1ad41a61c5aa5cd9948cf2549413c57e3d7f215223d2a3310bf2306239122df"
 # The App bundles one cua-driver, so the script route admits the same reviewed bytes.
 _OWNED_DRIVER_SHA256 = _NATIVE_HANDOFF_DRIVER_SHA256
 NATIVE_HANDOFF_PROTOCOL = "cua-trusted-handoff/v1"
@@ -927,6 +927,17 @@ class NativeCuaSessionClient:
             raise PortalDataError("cua_request_in_flight", "原生调用尚未结束。", 409)
         try:
             return self._exchange(self._socket, message, pump=pump)
+        except PortalDataError as error:
+            if error.code == "cua_refused":
+                # A complete, typed refusal is the driver's answer: the session is
+                # intact, so the owner connection stays (2026-11-02: one refused
+                # yield used to end the owner and loop on stop_unknown).
+                raise
+            self.failed = True
+            self._close_socket()
+            raise PortalDataError(
+                "cua_result_unknown", "Cua 结果未知；不会重复操作。", 409
+            ) from error
         except (Exception, KeyboardInterrupt) as error:
             self.failed = True
             self._close_socket()

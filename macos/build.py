@@ -67,14 +67,15 @@ def copy_cua_driver(resources: Path, driver: Path) -> dict:
         "license": "MIT",
         "local_divergence": (
             "windowless ownership, scope retention, snapshot and exit repairs; trusted native "
-            "handoff and bound material delivery; restricted handoff metadata"
+            "handoff and bound material delivery; restricted handoff metadata; receiver grant "
+            "wait and host admission time from the takeover budget"
         ),
         # MC-10 successor source tree and its divergence from the sealed MC-06 source.
         "source_manifest_sha256": (
-            "20292ad5cbe07219957881b90ece74534e6b798dfbdccc4b14e35e87812bf559"
+            "9c73ac58fa1b056e61fb054ccb8d1904c149a4a659c7f798ccbb4189b21ca45f"
         ),
         "source_divergence_patch_sha256": (
-            "8447c47fb294ac58711a48e3946ccb0f5a61785615a6603bac370fca4fbd0c6b"
+            "234fccdf5994ef654b4b8857d18d7b942258a904657a5ae17ada7bef8a07d49a"
         ),
         "build_profile": "release, signed with the pinned private identity",
         "additional_local_divergence": (

@@ -839,6 +839,13 @@ class CodexAdapter:
             native["before_yield"](json.loads(json.dumps(intent)))
             self._native_owner_pump(run)
             native["yield_started"] = True
+            # The receiver waits budget.grant_wait from its ready write; the private
+            # log keeps how much of that the host's own chain used.
+            print(
+                "native_handoff_yield: "
+                + json.dumps({"ready_age": round(time.time() - info.st_mtime, 2)}),
+                flush=True,
+            )
             receipt = native["client"].yield_to(
                 ready,
                 request_id=native["request_id"],

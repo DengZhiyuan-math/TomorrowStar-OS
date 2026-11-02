@@ -831,3 +831,26 @@ def test_native_refusal_keeps_the_driver_code_as_its_private_cause(tmp_path):
             ours.close()
             driver.close()
             client.close()
+
+
+def test_native_refusal_leaves_the_owner_connection_intact(tmp_path):
+    """A typed refusal is the driver's answer, not a lost session (2026-11-02: one
+    refused yield ended the owner connection and the Worker looped on stop_unknown)."""
+    with native_service(tmp_path) as (path, options, process, _, _):
+        client = NativeCuaSessionClient(path, process, options, driver_sha256="1" * 64, timeout=1)
+        ours, driver = socket.socketpair()
+        try:
+            ours.setblocking(False)
+            client._socket = ours
+            driver.sendall(b'{"ok": false, "error": "handoff_receiver_unavailable"}\n')
+            with pytest.raises(PortalDataError) as refused:
+                client._request({"method": "trusted_session_yield"})
+            assert refused.value.code == "cua_refused"
+            assert not client.failed and client._socket is ours
+            driver.close()  # a closed connection is still a lost session
+            with pytest.raises(PortalDataError) as lost:
+                client._request({"method": "trusted_session_yield"})
+            assert lost.value.code == "cua_result_unknown" and client.failed
+        finally:
+            ours.close()
+            client.close()
