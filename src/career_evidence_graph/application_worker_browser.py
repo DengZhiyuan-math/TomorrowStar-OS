@@ -2554,6 +2554,30 @@ class ApplicationRunner:
         job = next((row for row in state["jobs"] if row["application_id"] == identifier), None)
         return PAGE_SCOPE.renew_snapshot(context, state, job, run_id=self.run_id)
 
+    def _observe_settling_context(self, reference, *, after_stop=False):
+        """Read the JSON context of a page that may still be settling or answer slowly.
+
+        A hidden page answers slowly as a takeover starts (2026-11-01) and after it
+        stops (2026-11-02: the return's one read timed out and the whole return was
+        refused); this read-only observation is repeated before it fails.
+        """
+        for attempt in range(3):
+            try:
+                return self.observe_assistance_context(reference, after_stop=after_stop)
+            except (PortalDataError, Error) as error:
+                if attempt == 2 or (
+                    getattr(error, "code", None) != "page_observation_changed"
+                    and getattr(error, "message", None) != "owned_browser_read_timeout"
+                ):
+                    raise
+                # A slow read can outlast the observation window; the check after it
+                # refreshes the window first (seen 2026-11-02: 7.4 s).
+                if not self.pump_codex_events(reference):
+                    raise PortalDataError(
+                        "assistance_binding_changed", "原页、材料或接管范围已改变。", 409
+                    ) from error
+        raise AssertionError("unreachable")
+
     def observe_assistance_context(self, assistance_ref, *, after_stop=False):
         """Read JSON locator context from the original Page without taking a screenshot."""
         page, check = self._assistance_page_checker(assistance_ref, after_stop=after_stop)
@@ -3032,24 +3056,7 @@ class ApplicationRunner:
             raise PortalDataError("native_assistance_unavailable", "原生驱动身份已改变。", 409)
         page, check = self._assistance_page_checker(reference)
         check()
-        # A hidden page can still be settling, or answer slowly, as the takeover
-        # starts (2026-11-01); this read-only observation is repeated before it fails.
-        for attempt in range(3):
-            try:
-                context = self.observe_assistance_context(reference)
-                break
-            except (PortalDataError, Error) as error:
-                if attempt == 2 or (
-                    getattr(error, "code", None) != "page_observation_changed"
-                    and getattr(error, "message", None) != "owned_browser_read_timeout"
-                ):
-                    raise
-                # A slow read can outlast the observation window; the check after it
-                # refreshes the window first (seen 2026-11-02: 7.4 s).
-                if not self.pump_codex_events(reference):
-                    raise PortalDataError(
-                        "assistance_binding_changed", "原页、材料或接管范围已改变。", 409
-                    ) from error
+        context = self._observe_settling_context(reference)
         native_scope = self.cua.native_page_scope(page, pump=self.pump)
         native_scope["application_ref_digest"] = digest(reference)
         validate_native_assistance_scope(native_scope, reference)
@@ -3600,7 +3607,7 @@ class ApplicationRunner:
                 if takeover_pending_intent(job):
                     raise PortalDataError(wait, "接管携带的未知结果仍不能核验。", 409)
                 wait = unverified
-            context = self.observe_assistance_context(reference, after_stop=True)
+            context = self._observe_settling_context(reference, after_stop=True)
             job = next(
                 row for row in self.store.load()["jobs"] if row["application_id"] == identifier
             )
