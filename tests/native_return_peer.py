@@ -22,6 +22,11 @@ import traceback
 from pathlib import Path
 
 THREAD = "controlled-native-thread"
+# Real-chain latencies (batch-0 baseline, 2026-11-02): a takeover tool call came
+# about every 2.5 s (loop tick P95 2.48 s) and 0.165 thread/start took 4.8-5.1 s.
+# Stop confirmation had no sample. A test may override any of them, in seconds, with
+# ``peer-settings.json`` key ``latency``.
+LATENCY = {"thread_start": 5.1, "tool_gap": 2.48, "stop": 0.0}
 TURN = "controlled-native-turn"
 REPORT_ITEM = "controlled-native-final-message"
 
@@ -33,6 +38,7 @@ def main():
     root = Path.cwd()
     settings = json.loads((root / "peer-settings.json").read_text())
     effect = settings["effect"]
+    latency = LATENCY | settings.get("latency", {})
     lock = threading.Lock()
     proxy = operation = None
     sequence = 0
@@ -133,6 +139,7 @@ def main():
         return read_response(message)
 
     def tool(name, arguments):
+        time.sleep(latency["tool_gap"])  # the model's own pace between tool calls
         result = rpc("tools/call", {"name": name, "arguments": arguments})
         data = result.get("structuredContent")
         if (
@@ -346,6 +353,7 @@ def main():
             elif method == "config/read":
                 result = {"config": config, "origins": {}}
             elif method == "thread/start":
+                time.sleep(latency["thread_start"])
                 native = message["params"]["config"]["mcp_servers"]["cua_takeover"]
                 result = {"thread": {"id": THREAD}}
             elif method == "mcpServerStatus/list":
@@ -420,6 +428,7 @@ def main():
                 operation.start()
                 continue
             elif method == "turn/interrupt":
+                time.sleep(latency["stop"])
                 send({"id": message["id"], "result": {}})
                 record({"kind": "interrupt_received"})
                 complete("interrupted")
