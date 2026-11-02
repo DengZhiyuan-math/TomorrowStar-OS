@@ -29,12 +29,12 @@ from .application_automation import _job_identity, validate_application_target
 from .application_codex_assist import CodexAdapter, CodexAssistConfig
 from .application_execution import automated_owner, release_execution, require_execution
 from .application_information import fact_for
+from .application_page_scope import PAGE_SCOPE
 from .application_takeover_budget import DEFAULT_BUDGET, TakeoverBudget
 from .application_takeover_record import settle_unstarted_stop, stop_evidence_proven
 from .application_worker import (
     CONTROLLER_HANDOFF_INSPECTION,
     OWNED_PAGE_OBSERVATION,
-    SCOPE_WINDOW,
     WorkerStore,
     adopt_assistance_outcome,
     adopt_assistance_report,
@@ -2383,8 +2383,21 @@ class ApplicationRunner:
                 )
                 assistance = (job or {}).get("assistance")
                 runtime = state.get("runtime") or {}
-                observed = (job or {}).get("page_observation") or {}
                 now = time.time()
+                if (
+                    job
+                    and page is not None
+                    and not page.is_closed()
+                    and PAGE_SCOPE.refresh_due(state, job, now)
+                    and PAGE_SCOPE.current(state, job, now).valid
+                    and PAGE_SCOPE.refresh(state, job, now, run_id=self.run_id)
+                ):
+                    # This page thread holds the original handle: each check before and
+                    # after a read renews a still-current observation, so a slow read
+                    # (page age P95 7.2 s, 2026-11-02) is not mistaken for a lost scope.
+                    # An observation that already expired is never renewed here.
+                    self.persist(state)
+                scope = PAGE_SCOPE.current(state, job, now)
                 if (
                     not job
                     or not assistance
@@ -2413,8 +2426,7 @@ class ApplicationRunner:
                     or runtime.get("id") != self.run_id
                     or (runtime.get("source") or {}).get("sha256") != self._page_source
                     or not self._page_source
-                    or not 0 <= now - runtime.get("observed_at", 0) < SCOPE_WINDOW
-                    or not 0 <= now - observed.get("at", 0) < SCOPE_WINDOW
+                    or not scope.valid
                     or state.get("worker_error")
                 ):
                     # The private log keeps which part of the page scope changed.
@@ -2438,8 +2450,9 @@ class ApplicationRunner:
                                 "run": runtime.get("id") == self.run_id,
                                 "source": (runtime.get("source") or {}).get("sha256")
                                 == self._page_source,
-                                "runtime_age": round(now - runtime.get("observed_at", 0), 1),
-                                "page_age": round(now - observed.get("at", 0), 1),
+                                "scope_changed": scope.changed,
+                                "runtime_age": scope.runtime_age and round(scope.runtime_age, 1),
+                                "page_age": scope.page_age and round(scope.page_age, 1),
                                 "worker_error": state.get("worker_error"),
                             }
                         ),
@@ -3936,8 +3949,7 @@ class ApplicationRunner:
             now = time.time()
             state["worker_heartbeat"] = now
             state["worker_pid"] = os.getpid()
-            if state.get("runtime"):
-                state["runtime"]["observed_at"] = now
+            PAGE_SCOPE.refresh(state, now=now)
             for job in state["jobs"]:
                 page = self.pages.get(job["application_id"])
                 if page in self.blocked_pages and job["status"] not in {

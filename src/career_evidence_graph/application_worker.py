@@ -33,6 +33,7 @@ from .application_execution import (
     reserve_execution,
 )
 from .application_information import COUNTRIES, fact_for, scope_matches
+from .application_page_scope import PAGE_SCOPE
 from .application_storage import private_root
 from .application_takeover_budget import DEFAULT_BUDGET
 from .application_takeover_record import (  # noqa: F401 - the record's names stay importable here
@@ -63,8 +64,6 @@ from .worker_measurement import MeasurementLog
 from .worker_process_identity import process_identity, valid_process_identity
 
 PUBLIC_ROOT = Path(__file__).resolve().parents[2]
-# How old an original-page observation may be when a takeover read is checked.
-SCOPE_WINDOW = DEFAULT_BUDGET.scope_window
 HELPER_SHA256 = "aeff412145497a87929c04b712a2f87bf4521256c67c98f6b4bc0271c5655d03"
 STATUSES = {"queued", "filling", "needs_input", "needs_recheck", "ready_for_review", "cancelled"}
 OWNED_PAGE_OBSERVATION = "owned-page-observation/v1"
@@ -310,7 +309,7 @@ def _validate_assistance_page_context(value, expected_ref):
         if (
             type(at) not in (int, float)
             or not math.isfinite(at)
-            or not 0 <= time.time() - at < SCOPE_WINDOW
+            or not 0 <= time.time() - at < PAGE_SCOPE.window
         ):
             raise ValueError("Original-page JSON context expired")
     if any(
@@ -2431,7 +2430,6 @@ class WorkerStore:
                 raise PortalDataError("native_handoff_conflict", "原交接标识不能更换范围。", 409)
             assistance = job.get("assistance") or {}
             runtime = state.get("runtime") or {}
-            page = job.get("page_observation") or {}
             now = time.time()
             retained_material = (
                 self.native_material_intent(state, job, expected_ref, request_id=request_id)
@@ -2466,8 +2464,7 @@ class WorkerStore:
                     )
                     for event in job["observations"]
                 )
-                and 0 <= now - runtime.get("observed_at", 0) < SCOPE_WINDOW
-                and 0 <= now - page.get("at", 0) < SCOPE_WINDOW
+                and PAGE_SCOPE.current(state, job, now).valid
             )
             if phase == "prepared":
                 from .cua_driver import reviewed_native_assistance_policy
@@ -2891,7 +2888,6 @@ class WorkerStore:
             )
             assistance = (job or {}).get("assistance")
             runtime = state.get("runtime") or {}
-            page = (job or {}).get("page_observation") or {}
             now = time.time()
             if (
                 not assistance
@@ -2907,8 +2903,7 @@ class WorkerStore:
                 or material_edit_pending(job)
                 or state.get("worker_error")
                 or self.stop_reason()
-                or not 0 <= now - runtime.get("observed_at", 0) < SCOPE_WINDOW
-                or not 0 <= now - page.get("at", 0) < SCOPE_WINDOW
+                or not PAGE_SCOPE.current(state, job, now).valid
             ):
                 raise PortalDataError(
                     "assistance_binding_changed",
@@ -3992,7 +3987,7 @@ class WorkerService:
         return bool(
             not exited
             and job.get("reason") not in {"page_lost", "page_closed", "page_crashed"}
-            and 0 <= now - runtime["observed_at"] < SCOPE_WINDOW
+            and PAGE_SCOPE.runtime_current(state, now)
             and page.get("run_id") == runtime["id"]
             and page.get("event") == "observed"
             and isinstance(page.get("page_id"), str)
@@ -4033,7 +4028,7 @@ class WorkerService:
             or OWNED_PAGE_OBSERVATION not in runtime.get("capabilities", [])
             or not self._page_current(state, job)
             or state.get("worker_error", "") not in {"", "control_connection_lost"}
-            or not 0 <= time.time() - job["page_observation"].get("at", 0) < SCOPE_WINDOW
+            or not PAGE_SCOPE.page_current(job)
         ):
             return None
         return {
@@ -4142,7 +4137,7 @@ class WorkerService:
                 "exited"
                 if managed and exit_code is not None
                 else "current"
-                if runtime and 0 <= age < SCOPE_WINDOW
+                if runtime and 0 <= age < PAGE_SCOPE.window
                 else "stale"
                 if runtime
                 else "historical"
