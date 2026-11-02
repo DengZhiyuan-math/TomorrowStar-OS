@@ -121,10 +121,13 @@ class TakeoverBudget:
         if (
             not isinstance(value, dict)
             or value.get("protocol") != TAKEOVER_BUDGET
-            or set(value) != names | {"protocol"}
+            or not set(value) - {"protocol"} <= names
         ):
             raise ValueError("Invalid takeover budget")
-        return cls(**{name: value[name] for name in names})
+        # A dispatch saved before a deadline was declared keeps that deadline's
+        # default; refusing it would refuse the whole in-flight job on an update
+        # (2026-11-02: grant_wait).
+        return cls(**{name: value[name] for name in names if name in value})
 
     @classmethod
     def from_baseline(cls, latency, **overrides):

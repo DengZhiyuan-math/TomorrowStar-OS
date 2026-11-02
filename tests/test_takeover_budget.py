@@ -13,6 +13,7 @@ from career_evidence_graph.application_takeover_budget import (
     MEASURED,
     PLANNED,
     TakeoverBudget,
+    valid_budget_record,
 )
 
 # The batch-0 baseline table (worker.log P95, 2026-11-02); stop, thread/start and
@@ -97,3 +98,11 @@ def test_budget_checks_the_real_driver_action_bound():
 def test_saved_budget_record_must_be_one_consistent_budget(record):
     with pytest.raises((TypeError, ValueError)):
         TakeoverBudget.from_dict(record)
+
+
+def test_a_dispatch_saved_before_a_deadline_was_declared_keeps_its_default():
+    # The 2026-11-02 in-flight dispatch predates grant_wait; the job must still load.
+    record = DEFAULT_BUDGET.to_dict()
+    del record["grant_wait"]
+    assert TakeoverBudget.from_dict(record) == DEFAULT_BUDGET
+    assert valid_budget_record(record)
