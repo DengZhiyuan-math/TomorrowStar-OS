@@ -1486,3 +1486,119 @@ def test_blocked_segment_on_zero_question_page_waits_naming_remaining_controls(r
     assert "Engineering" not in message and "+41" not in message
     assert "继续" in message
     assert job.get("assistance_return_count", 0) == 0
+
+
+LETTER_SHA = "c" * 64
+
+
+def native_letter_delivery(ctx, monkeypatch, *, requirement="optional"):
+    """A ready cover letter delivered natively beside the CV on the same document.
+
+    The fixture's takeover binding predates the letter row; the binding digest is
+    not under test here, so it is read without that row.
+    """
+    from career_evidence_graph import application_worker as worker
+
+    original = worker.assistance_binding
+
+    def binding(state, job):
+        rows = [row for row in job.get("materials", []) if row.get("id") != "letter-1"]
+        return original(state, {**job, "materials": rows})
+
+    monkeypatch.setattr(worker, "assistance_binding", binding)
+    monkeypatch.setattr(browser, "assistance_binding", binding)
+    native_cv_delivery(ctx, proof="filename_shown")
+    state = ctx.service.store.load()
+    job = state["jobs"][0]
+    calls = job["native_handoff_runs"][-1]["events"][-1]["receipt"]["calls"]
+    letter = deepcopy(calls[-1])
+    letter.update(call_id="native-letter", sequence=10, native_ref="native-ref-letter")
+    letter["field_hint"] = {"role": "button", "name": "Cover Letter"}
+    letter["target_descriptor"].update(id="letter", name="letter", label="Cover Letter")
+    for key in ("material_resolution", "material_readback"):
+        letter[key].update(sha256=LETTER_SHA, filename="cover-letter.pdf")
+    calls.append(letter)
+    job.setdefault("materials", []).append(
+        {
+            "id": "letter-1",
+            "kind": "cover_letter",
+            "status": "ready",
+            "file_path": "/letters/letter.pdf",
+            "filename": "cover-letter.pdf",
+            "sha256": LETTER_SHA,
+        }
+    )
+    job["cover_letter_delivery"] = {
+        "status": "ready",
+        "requirement": requirement,
+        "selected_fields": [],
+    }
+    job["observations"].append(
+        {
+            "kind": "native_material_upload",
+            "stage": "response",
+            "http_status": 200,
+            "application_id": job["application_id"],
+            "sha256": LETTER_SHA,
+        }
+    )
+    ctx.service.store.save(state)
+
+
+@pytest.mark.parametrize(
+    ("letter_error", "requirement"),
+    [(False, "optional"), (True, "optional"), (True, "required")],
+)
+def test_native_cover_letter_is_checked_on_the_page_like_the_resume(
+    returning, monkeypatch, capsys, letter_error, requirement
+):
+    # 2026-11-04: both files were uploaded, but verified.materials named only the resume.
+    ctx = returning
+    native_only_turn(ctx, make_report("ready_for_review"), effect=fill_native_unmounted_cv)
+    native_letter_delivery(ctx, monkeypatch, requirement=requirement)
+    reads = []
+
+    def filename_shown(page, filename, *, document, target=None):
+        reads.append((filename, target["id"]))
+        error = letter_error and filename == "cover-letter.pdf"
+        return {"shown": True, "scope": "form", "error": error}
+
+    monkeypatch.setattr(ctx.runner, "_native_filename_shown", filename_shown)
+    capsys.readouterr()
+    ctx.runner._service_assistance_return()
+    job = current(ctx)
+    assert ("cover-letter.pdf", "letter") in reads
+    if requirement == "required":
+        assert_waiting(ctx, "assistance_completion_unverified")
+        line = next(
+            row
+            for row in capsys.readouterr().out.splitlines()
+            if row.startswith("assistance_completion_unverified: ")
+        )
+        record = json.loads(line.removeprefix("assistance_completion_unverified: "))
+        assert record["reason"] == ["cover_letter_upload_unverified"]
+        return
+    verified = job["assistance"]["outcome"]["verified"]
+    assert job["status"] == "ready_for_review"
+    assert verified["materials"][0]["kind"] == "resume"
+    letters = [row for row in verified["materials"] if row["kind"] == "cover_letter"]
+    if letter_error:
+        assert letters == []
+        assert verified["optional_failures"] == [
+            {
+                "material": "cover_letter",
+                "status": "unverified",
+                "reason": "cover_letter_upload_unverified",
+            }
+        ]
+        return
+    assert letters == [
+        {
+            "kind": "cover_letter",
+            "material_id": "letter-1",
+            "filename": "cover-letter.pdf",
+            "sha256": LETTER_SHA,
+            "upload_response": 200,
+        }
+    ]
+    assert verified["optional_failures"] == []

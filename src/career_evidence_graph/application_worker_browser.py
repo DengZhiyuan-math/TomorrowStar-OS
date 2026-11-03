@@ -203,12 +203,19 @@ def native_cover_letter_controls(page_context):
 
 
 def native_resume_deliveries(job, document):
-    """Native resume deliveries the ledger observed on this document, by bytes and name.
+    """Native resume deliveries the ledger observed on this document, by bytes and name."""
+    return native_material_deliveries(job, document, job.get("file_sha256"), job.get("filename"))
+
+
+def native_material_deliveries(job, document, sha256, filename):
+    """Native file deliveries of these bytes and name the ledger observed on this document.
 
     r11: an upload widget may clear its input after change (2026-11-03, onlyfy); the
     driver then proves the delivered name shown beside it (``filename_shown``), with
     no FileList entry left to count.
     """
+    if not sha256:
+        return []
     return [
         call
         for run in job.get("native_handoff_runs", [])
@@ -218,9 +225,9 @@ def native_resume_deliveries(job, document):
         if call.get("tool") == "browser_deliver_material"
         and call.get("status") == "observed"
         and (call.get("material_resolution") or {}).get("kind") == "file"
-        and call["material_resolution"].get("sha256") == job.get("file_sha256")
-        and (call.get("material_readback") or {}).get("sha256") == job.get("file_sha256")
-        and call["material_readback"].get("filename") == job.get("filename")
+        and call["material_resolution"].get("sha256") == sha256
+        and (call.get("material_readback") or {}).get("sha256") == sha256
+        and call["material_readback"].get("filename") == filename
         and (
             call["material_readback"].get("file_count") == 1
             or call["material_readback"].get("proof") == "filename_shown"
@@ -5467,12 +5474,27 @@ class ApplicationRunner:
             refused("required_empty_or_invalid")
         verified = self.verified_intents(job)
         materials = outcome["verified"]["materials"]
+        visible = {file.get("name") for row in fields for file in row.get("files") or []} | {
+            item.get("name") for item in context["data"].get("attachments", [])
+        }
+
+        def upload_response(sha256):
+            # The native upload's own 2xx response is second evidence; its absence
+            # refuses nothing (the page's error state decides).
+            statuses = [
+                row["http_status"]
+                for row in [*job["observations"], *self.transports]
+                if row.get("kind") == "native_material_upload"
+                and row.get("stage") == "response"
+                and row.get("sha256") == sha256
+                and type(row.get("http_status")) is int
+                and 200 <= row["http_status"] < 300
+            ]
+            return {"upload_response": statuses[-1]} if statuses else {}
+
         # The job's resume is always checked: a re-rendered upload widget may unmount
         # its file input, which must not skip the check (2026-11-03).
         if job.get("file_sha256"):
-            visible = {file.get("name") for row in fields for file in row.get("files") or []} | {
-                item.get("name") for item in context["data"].get("attachments", [])
-            }
             deliveries = native_resume_deliveries(job, context["document"])
             # A native delivery's own form item is read even when a field lists the
             # name: the widget may show the file beside an upload error (2026-11-03).
@@ -5500,21 +5522,14 @@ class ApplicationRunner:
                 )
             ):
                 refused("resume_upload_unverified")
-            resume = {"kind": "resume", "filename": job["filename"], "sha256": job["file_sha256"]}
-            # The native upload's own 2xx response is second evidence; its absence
-            # refuses nothing (the page's error state decides).
-            statuses = [
-                row["http_status"]
-                for row in [*job["observations"], *self.transports]
-                if row.get("kind") == "native_material_upload"
-                and row.get("stage") == "response"
-                and row.get("sha256") == job["file_sha256"]
-                and type(row.get("http_status")) is int
-                and 200 <= row["http_status"] < 300
-            ]
-            if statuses:
-                resume["upload_response"] = statuses[-1]
-            materials.append(resume)
+            materials.append(
+                {
+                    "kind": "resume",
+                    "filename": job["filename"],
+                    "sha256": job["file_sha256"],
+                    **upload_response(job["file_sha256"]),
+                }
+            )
         materials.extend(
             {
                 "kind": "material",
@@ -5536,6 +5551,50 @@ class ApplicationRunner:
                     "material": "cover_letter",
                     "status": "failed",
                     "reason": delivery.get("reason", ""),
+                }
+            )
+        # A natively delivered cover letter gets the resume's page check: its name is
+        # shown and its scope shows no upload error (2026-11-04: the letter's input was
+        # unmounted after upload, so no verified row named it). An optional letter that
+        # fails the check is reported, not blocking; a required one refuses.
+        checked = set()
+        for letter in job.get("materials", []):
+            if (
+                letter.get("kind") != "cover_letter"
+                or letter.get("status") != "ready"
+                or letter.get("sha256") in checked
+            ):
+                continue
+            deliveries = native_material_deliveries(
+                job, context["document"], letter.get("sha256"), letter.get("filename")
+            )
+            if not deliveries:
+                continue
+            checked.add(letter["sha256"])
+            page_state = self._native_filename_shown(
+                self.pages.get(job["application_id"]),
+                letter["filename"],
+                document=context["document"],
+                target=deliveries[-1]["target_descriptor"],
+            )
+            if letter["filename"] not in visible and not page_state["shown"] or page_state["error"]:
+                if delivery.get("requirement") == "required":
+                    refused("cover_letter_upload_unverified")
+                outcome["verified"]["optional_failures"].append(
+                    {
+                        "material": "cover_letter",
+                        "status": "unverified",
+                        "reason": "cover_letter_upload_unverified",
+                    }
+                )
+                continue
+            materials.append(
+                {
+                    "kind": "cover_letter",
+                    "material_id": letter.get("id", ""),
+                    "filename": letter["filename"],
+                    "sha256": letter["sha256"],
+                    **upload_response(letter["sha256"]),
                 }
             )
         return outcome, writes
