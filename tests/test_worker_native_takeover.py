@@ -14,7 +14,7 @@ from test_worker_native_assistance import journal_scope, native_service
 from test_worker_native_material_journal import material_call as _material_journal
 
 from career_evidence_graph import cua_driver
-from career_evidence_graph.application_worker import digest
+from career_evidence_graph.application_worker import compact_native_runs, digest
 from career_evidence_graph.career_portal_data import PortalDataError
 
 material_journal = _material_journal
@@ -1333,7 +1333,8 @@ def test_reopen_retires_a_stopped_native_takeover_that_carried_calls(native_page
     job = service.store.load()["jobs"][0]
     assert job["status"] == "queued" and job["native_handoff_runs"] == []
     assert "assistance" not in job and job["assistance_history"][-1]["status"] == "stopped"
-    assert job["observations"][-1]["retired_native_handoff_runs"] == runs
+    # Each distinct native call is stored once; every receipt is rebuilt from it.
+    assert job["observations"][-1]["retired_native_handoff_runs"] == compact_native_runs(runs)
 
 
 def test_unconfirmed_stop_is_only_reread_at_a_fixed_interval(native_page, monkeypatch):

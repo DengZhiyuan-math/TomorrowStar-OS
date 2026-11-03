@@ -37,6 +37,7 @@ from .application_takeover_record import settle_unstarted_stop, stop_evidence_pr
 from .application_worker import (
     CONTROLLER_HANDOFF_INSPECTION,
     OWNED_PAGE_OBSERVATION,
+    ROUTINE_REQUEST_STAGES,
     WorkerStore,
     adopt_assistance_outcome,
     adopt_assistance_report,
@@ -538,6 +539,35 @@ def _request_diagnostic_facts(request, page, job):
     return facts
 
 
+class _SameOriginReadRedirect(ValueError):
+    """A bodiless subresource read answered by a same-origin redirect."""
+
+
+def _same_origin_read_redirect(request, target) -> bool:
+    """A redirect answer to a page's own read is a read result, not an unknown send.
+
+    A Next.js page prefetches its own route and receives a locale redirect (onlyfy,
+    2026-11-03). The hop is still not followed; only a GET/HEAD subresource without a
+    body, whose target keeps the request's and the page's origin, qualifies.
+    """
+    try:
+        if (
+            not target
+            or request.method not in {"GET", "HEAD"}
+            or request.post_data_buffer is not None
+            or request.is_navigation_request() is not False
+            or request.resource_type == "document"
+        ):
+            return False
+        origins = {
+            (part.scheme, part.hostname, part.port)
+            for part in map(urlsplit, (target, request.url, request.frame.page.url))
+        }
+        return len(origins) == 1 and next(iter(origins))[0] in {"http", "https"}
+    except Exception:
+        return False
+
+
 @contextmanager
 def _fetch_without_redirects(route, facts=None):
     """Browser redirect hops may bypass routing; never forward an unchecked hop."""
@@ -547,18 +577,21 @@ def _fetch_without_redirects(route, facts=None):
         if facts is not None:
             facts["http_status"] = status if type(status) is int else None
         if 300 <= status < 400:
+            target = None
+            try:
+                location = response.headers.get("location")
+                if location:
+                    base = getattr(response, "url", None) or route.request.url
+                    target = urljoin(base, location)
+            except Exception:
+                # A missing response header cannot alter redirect refusal.
+                pass
             if facts is not None:
                 facts["redirect_followed"] = False
-                try:
-                    location = response.headers.get("location")
-                    if location:
-                        base = getattr(response, "url", None) or route.request.url
-                        facts["response_redirect_location"] = _diagnostic_location(
-                            urljoin(base, location)
-                        )
-                except Exception:
-                    # A missing response header cannot alter redirect refusal.
-                    pass
+                if target:
+                    facts["response_redirect_location"] = _diagnostic_location(target)
+            if _same_origin_read_redirect(route.request, target):
+                raise _SameOriginReadRedirect("redirect_not_followed")
             raise ValueError("redirect_result_unverified")
         yield response
     finally:
@@ -736,7 +769,7 @@ class ApplicationRunner:
             **(facts or {}),
             "at": time.time(),
         }
-        if not caused_stop and stage in {"request_blocked", "request_permitted"}:
+        if not caused_stop and stage in ROUTINE_REQUEST_STAGES:
             # A job board repeats the same polling and tracking requests: 8,626
             # rows, 1,577 distinct, rewritten on every checkpoint save (2026-11-02).
             # A routine repeat adds no fact; stops and rejected responses all stay.
@@ -1491,6 +1524,9 @@ class ApplicationRunner:
                         raise ValueError("public read response is not successful")
                     route.fulfill(response=response)
                 stage, reason = "request_permitted", "request_allowed"
+            except _SameOriginReadRedirect:
+                _abort(route)
+                stage, reason = "request_redirect_not_followed", "same_origin_redirect_read"
             except (Error, ValueError, TypeError, KeyError, OSError):
                 self.blocked_pages.setdefault(page, "public_read_result_unknown")
                 _abort(route)
@@ -1510,6 +1546,20 @@ class ApplicationRunner:
             try:
                 with _fetch_without_redirects(route, facts) as response:
                     route.fulfill(response=response)
+            except _SameOriginReadRedirect:
+                # The hop is not followed; the page's own read fails without a stop.
+                _abort(route)
+                self.request_diagnostic(
+                    request,
+                    page,
+                    owned_job,
+                    state,
+                    "request_redirect_not_followed",
+                    "same_origin_redirect_read",
+                    sequence=sequence,
+                    facts=facts,
+                )
+                return
             except (Error, ValueError, TypeError, KeyError, OSError):
                 reason = (
                     "public_read_result_unknown"
@@ -2632,7 +2682,10 @@ class ApplicationRunner:
                     # after a read renews a still-current observation, so a slow read
                     # (page age P95 7.2 s, 2026-11-02) is not mistaken for a lost scope.
                     # An observation that already expired is never renewed here.
-                    self.persist(state)
+                    # The local checkpoint write is not browser time: SIGALRM fired
+                    # inside json.dump of this save (2026-11-03).
+                    with pause_browser_deadline():
+                        self.persist(state)
                 scope = PAGE_SCOPE.current(state, job, now)
                 if (
                     not job
@@ -2704,28 +2757,48 @@ class ApplicationRunner:
                     "automated",
                 )
             client = getattr(self.cua, "client", None)
-            if (
-                self.store.stop_reason()
-                or self.shared_fault
-                or self.storage_stopped
-                or page is None
-                or page.is_closed()
-                or self.pages.get(identifier) is not page
-                or page.context is not self.context
-                or self.context is None
-                or not self.context.browser
-                or not self.context.browser.is_connected()
-                or self.page_ids.get(page) != assistance_ref["binding"].get("page_id")
-                or page.url != assistance_ref["binding"].get("step")
-                or page in self.page_faults
-                or page in self.blocked_pages
-                or page in self.handed_off_pages
-                or getattr(client, "failed", False)
-                or client is not None
-                and client.process.poll() is not None
-                or after_stop
-                and getattr(client, "handoff_active", False)
-            ):
+            binding = assistance_ref["binding"]
+            # Ordered as before: a later condition may assume an earlier one held.
+            conditions = (
+                ("store_stopped", lambda: self.store.stop_reason()),
+                ("shared_fault", lambda: self.shared_fault),
+                ("storage_stopped", lambda: self.storage_stopped),
+                ("page_missing", lambda: page is None or page.is_closed()),
+                ("page_replaced", lambda: self.pages.get(identifier) is not page),
+                ("context_changed", lambda: page.context is not self.context),
+                (
+                    "browser_disconnected",
+                    lambda: (
+                        self.context is None
+                        or not self.context.browser
+                        or not self.context.browser.is_connected()
+                    ),
+                ),
+                ("page_id_changed", lambda: self.page_ids.get(page) != binding.get("page_id")),
+                ("page_url_changed", lambda: page.url != binding.get("step")),
+                ("page_fault", lambda: page in self.page_faults),
+                ("page_blocked", lambda: page in self.blocked_pages),
+                ("page_handed_off", lambda: page in self.handed_off_pages),
+                (
+                    "driver_failed",
+                    lambda: (
+                        getattr(client, "failed", False)
+                        or client is not None
+                        and client.process.poll() is not None
+                    ),
+                ),
+                (
+                    "native_handoff_active",
+                    lambda: after_stop and getattr(client, "handoff_active", False),
+                ),
+            )
+            lost = next((name for name, failed in conditions if failed()), None)
+            if lost:
+                # The private log names the condition only, never page content.
+                detail = {"condition": lost}
+                if lost == "page_blocked":
+                    detail["reason"] = self.blocked_pages.get(page)
+                print("page_observation_owner_lost: " + json.dumps(detail), flush=True)
                 raise PortalDataError(
                     "page_observation_owner_lost", "所属原页或控制连接已失效。", 409
                 )
@@ -4452,7 +4525,9 @@ class ApplicationRunner:
                         "event": "observed",
                         "at": now,
                     }
-            self.persist(state)
+            if self.transports or not self.store.liveness_only(state):
+                # An idle tick that moved only the heartbeat skips the full rewrite.
+                self.persist(state)
             if control_only or not self.permitted(state):
                 return
             jobs = [

@@ -418,6 +418,51 @@ def test_rejected_public_redirect_retains_unknown_dispatch_and_exact_readback_st
     assert ApplicationRunner.verified_intents(service.store.load()["jobs"][0]) == []
 
 
+@pytest.mark.parametrize(
+    "location,stops",
+    [("/en/api/v1/jobs/SYNTHETIC1/form", False), ("https://synthetic.example/form", True)],
+)
+def test_same_origin_redirect_of_a_page_read_is_a_read_result_not_a_stop(
+    bootstrap, location, stops
+):
+    # A Next.js page prefetched its own route and got a same-origin 307 (2026-11-03).
+    service, runner, page = bootstrap
+    request = SimpleNamespace(
+        method="GET",
+        url=FORM,
+        resource_type="fetch",
+        frame=page.main_frame,
+        headers={"accept": "*/*"},
+        post_data_buffer=None,
+        redirected_from=None,
+        is_navigation_request=lambda: False,
+    )
+    calls = []
+    runner._live_guard(
+        SimpleNamespace(
+            request=request,
+            fetch=lambda **_: SimpleNamespace(
+                status=307, url=FORM, headers={"location": location}, dispose=lambda: None
+            ),
+            fulfill=lambda **_: pytest.fail("A redirect hop must not reach the Page"),
+            abort=lambda reason: calls.append(reason),
+        )
+    )
+    runner.persist(service.store.load())
+    diagnostic = [
+        row
+        for row in service.store.load()["jobs"][0]["observations"]
+        if row.get("action") == "request_diagnostic"
+    ][-1]
+    assert calls == ["blockedbyclient"]
+    assert diagnostic["redirect_followed"] is False and diagnostic["http_status"] == 307
+    assert (page in runner.blocked_pages) is stops
+    assert diagnostic["caused_stop"] is stops
+    assert diagnostic["stage"] == (
+        "public_read_response_rejected" if stops else "request_redirect_not_followed"
+    )
+
+
 @pytest.mark.worker_browser
 @pytest.mark.parametrize(
     "resource,status",

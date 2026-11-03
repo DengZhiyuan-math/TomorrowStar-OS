@@ -1769,6 +1769,136 @@ def _input_items(state: dict) -> list[dict]:
     return list(grouped.values())
 
 
+# Per-request guard rows a job board repeats. A row that stopped the job, a rejected
+# response, or one another row names is never routine.
+ROUTINE_REQUEST_STAGES = frozenset(
+    {"request_blocked", "request_permitted", "request_redirect_not_followed"}
+)
+# The job record keeps this many recent routine rows and counts every one it drops
+# (9,374 routine rows were 13 MB of one 19 MB checkpoint, 2026-11-03).
+ROUTINE_OBSERVATION_WINDOW = 200
+# An idle Worker tick that moves only liveness timestamps forward writes at most
+# this often; readers' scope window is 6 s, and page reads always write.
+LIVENESS_SAVE_INTERVAL = 2.0
+
+
+def compact_native_runs(runs):
+    """Store each distinct native call once; event receipts repeat earlier calls.
+
+    Lossless: ``receipt["calls"] == [run["calls"][i] for i in receipt["call_refs"]]``.
+    """
+    compacted = []
+    for run in runs:
+        if not isinstance(run, dict) or "calls" in run or not isinstance(run.get("events"), list):
+            compacted.append(run)
+            continue
+        calls, index, events = [], {}, []
+        for event in run["events"]:
+            receipt = event.get("receipt") if isinstance(event, dict) else None
+            if isinstance(receipt, dict) and isinstance(receipt.get("calls"), list):
+                refs = []
+                for call in receipt["calls"]:
+                    key = json.dumps(call, sort_keys=True, default=str)
+                    if key not in index:
+                        index[key] = len(calls)
+                        calls.append(call)
+                    refs.append(index[key])
+                receipt = {
+                    **{k: v for k, v in receipt.items() if k != "calls"},
+                    "call_refs": refs,
+                }
+                event = {**event, "receipt": receipt}
+            events.append(event)
+        compacted.append({**run, "events": events, "calls": calls})
+    return compacted
+
+
+def compact_observations(job: dict) -> None:
+    """Bound routine request rows; keep stops, referenced rows and per-kind drop counts."""
+    rows = job.get("observations")
+    if not isinstance(rows, list):
+        return
+    for row in rows:
+        if (
+            isinstance(row, dict)
+            and row.get("action") == "page_reopen_requested"
+            and isinstance(row.get("retired_native_handoff_runs"), list)
+        ):
+            row["retired_native_handoff_runs"] = compact_native_runs(
+                row["retired_native_handoff_runs"]
+            )
+
+    def routine(row):
+        return (
+            isinstance(row, dict)
+            and row.get("action") == "request_diagnostic"
+            and row.get("stage") in ROUTINE_REQUEST_STAGES
+            and row.get("caused_stop") is not True
+        )
+
+    routine_rows = [row for row in rows if routine(row)]
+    excess = len(routine_rows) - ROUTINE_OBSERVATION_WINDOW
+    if excess <= 0:
+        return
+    referenced = {
+        row.get("request_id") for row in rows if isinstance(row, dict) and not routine(row)
+    }
+    dropped = set()
+    for row in routine_rows:
+        if len(dropped) == excess:
+            break
+        if row.get("request_id") not in referenced:
+            dropped.add(id(row))
+    counts = job.setdefault("observation_counts", {})
+    kept = []
+    for row in rows:
+        if id(row) in dropped:
+            kind = "/".join(str(row.get(key)) for key in ("action", "stage", "reason"))
+            counts[kind] = counts.get(kind, 0) + 1
+        else:
+            kept.append(row)
+    rows[:] = kept
+
+
+def _liveness_values(state: dict) -> list:
+    runtime = state.get("runtime")
+    values = [
+        state.get("worker_heartbeat"),
+        state.get("heartbeat_at"),
+        runtime.get("observed_at") if isinstance(runtime, dict) else None,
+    ]
+    values += [
+        job["page_observation"].get("at")
+        for job in state.get("jobs", [])
+        if isinstance(job, dict) and isinstance(job.get("page_observation"), dict)
+    ]
+    if any(value is not None and type(value) not in {int, float} for value in values):
+        raise TypeError("liveness timestamp is not a number")
+    return values
+
+
+def _liveness_free(state: dict) -> str:
+    """The checkpoint content without the timestamps that only prove liveness."""
+    runtime = state.get("runtime")
+    jobs = [
+        {**job, "page_observation": {**job["page_observation"], "at": None}}
+        if isinstance(job, dict) and isinstance(job.get("page_observation"), dict)
+        else job
+        for job in state.get("jobs", [])
+    ]
+    return json.dumps(
+        {
+            **state,
+            "jobs": jobs,
+            "worker_heartbeat": None,
+            "heartbeat_at": None,
+            "runtime": {**runtime, "observed_at": None} if isinstance(runtime, dict) else runtime,
+        },
+        sort_keys=True,
+        default=str,
+    )
+
+
 def failed_write(event: dict) -> bool:
     # Chromium can emit ERR_ABORTED after a fulfilled, bodyless Ashby upload ACK.
     # Its required 204 is conclusive for this transport; file linking is verified separately.
@@ -2076,11 +2206,23 @@ class WorkerStore:
 
     def save(self, state: dict) -> None:
         self.check_applications_root(state)
+        for job in state.get("jobs", []):
+            compact_observations(job)
         try:
             helper.atomic_write_json(self.path, state)
         except (OSError, ValueError, TypeError):
+            self._last_write = None
             self.block_storage()
             raise
+        self._last_write = None
+        with suppress(OSError, TypeError, ValueError):
+            info = self.path.stat()
+            self._last_write = (
+                _liveness_free(state),
+                _liveness_values(state),
+                (info.st_mtime_ns, info.st_size),
+                time.monotonic(),
+            )
         try:
             self.measurements.track(state)
             waiting = {
@@ -2097,6 +2239,42 @@ class WorkerStore:
                         )
         except Exception:
             logging.getLogger(__name__).warning("worker_measurement_unavailable: checkpoint saved")
+
+    def liveness_only(self, state: dict) -> bool:
+        """Whether only forward liveness timestamps changed since this store's recent write.
+
+        An idle Worker tick rewrote the whole checkpoint every tick for a new
+        heartbeat (2026-11-03); the tick then skips such a save for a short while.
+        """
+        written = getattr(self, "_last_write", None)
+        if not written or not 0 <= time.monotonic() - written[3] < LIVENESS_SAVE_INTERVAL:
+            return False
+        try:
+            info = self.path.stat()
+            values = _liveness_values(state)
+            now = time.time()
+            return (
+                written[2] == (info.st_mtime_ns, info.st_size)
+                # The saved Worker timestamps are themselves recent: a skip never
+                # leaves an older observation on disk (the backend's lease is index 1).
+                and all(
+                    old is None or 0 <= now - old < LIVENESS_SAVE_INTERVAL
+                    for index, old in enumerate(written[1])
+                    if index != 1
+                )
+                and len(values) == len(written[1])
+                and all(
+                    old is None
+                    and new is None
+                    or old is not None
+                    and new is not None
+                    and new >= old
+                    for old, new in zip(written[1], values, strict=True)
+                )
+                and written[0] == _liveness_free(state)
+            )
+        except (OSError, TypeError, ValueError):
+            return False
 
     def block_storage(self) -> None:
         self.storage_error = "checkpoint_unavailable"
@@ -6189,7 +6367,7 @@ class WorkerService:
                         "previous_page": deepcopy(job.get("page_observation")),
                         "previous_open_intent": deepcopy(job.get("intent")),
                         "retired_takeover_stop": retired_stop,
-                        "retired_native_handoff_runs": deepcopy(native_runs),
+                        "retired_native_handoff_runs": compact_native_runs(deepcopy(native_runs)),
                         "reason": job.get("reason"),
                         "at": time.time(),
                     }
