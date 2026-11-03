@@ -31,6 +31,8 @@ from .validation.hashing import record_digest as digest
 PROTOCOL = "application-pipeline/v1"
 POLICY = "email-to-manual-submit/v1"
 QUEUE_ASSERTION_LOG = "queue-state-assertions.jsonl"
+# Seconds a current result read may stay pending before it is asked again.
+RESULT_READ_WAIT = 30
 
 
 def queue_state(state):
@@ -2989,7 +2991,7 @@ class ApplicationPipeline:
             state["status"] not in {"ready_for_review", "observing_result"}
             or not job.get("handed_off")
             or (job.get("handoff") or {}).get("status") != "complete"
-            or observed.get("status") == "pending"
+            or self._result_read_awaited(current, job, observed)
             or time.time() < state.get("result_poll_at", 0)
         ):
             return
@@ -3001,6 +3003,25 @@ class ApplicationPipeline:
             )
         except PortalDataError as error:
             self._stop(state, "needs_recheck", str(error))
+
+    @staticmethod
+    def _result_read_awaited(current, job, observed):
+        """Wait only for this run's and page's own recent result read.
+
+        A pending read from an earlier run or page, or one left unserved, is never
+        settled; waiting on it stopped every later result poll, so the user's Submit
+        went unrecorded (2026-11-03: a 19:01 read held until 22:52 and after). The
+        Worker moves the replaced read to its history.
+        """
+        if observed.get("status") != "pending":
+            return False
+        at = observed.get("at")
+        return bool(
+            observed.get("run_id") == (current.get("runtime") or {}).get("id")
+            and observed.get("page_id") == (job.get("page_observation") or {}).get("page_id")
+            and type(at) in {int, float}
+            and 0 <= time.time() - at < RESULT_READ_WAIT
+        )
 
     def _observe_worker(self, state):
         if state.get("material_update_id"):

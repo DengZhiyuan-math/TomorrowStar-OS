@@ -176,9 +176,8 @@ def test_only_confirmed_success_advances_queue_without_cancelling_old_page(
         )
 
 
-def test_ready_automatically_hands_original_page_to_user_and_observes_their_submit(
-    current_pipeline, monkeypatch
-):
+def handed_over(current_pipeline, monkeypatch):
+    """A ready job whose original page the runner handed to the user."""
     import time
     from types import SimpleNamespace
 
@@ -285,6 +284,25 @@ def test_ready_automatically_hands_original_page_to_user_and_observes_their_subm
     assert page in runner.handed_off_pages
     assert observed_pages == [page]
     assert worker.store.load()["jobs"][0]["form_state"]["binding"] == binding
+    return SimpleNamespace(
+        pipeline=pipeline,
+        worker=worker,
+        runner=runner,
+        page=page,
+        current=current,
+        first=first,
+        observed=observed,
+    )
+
+
+def test_ready_automatically_hands_original_page_to_user_and_observes_their_submit(
+    current_pipeline, monkeypatch
+):
+    from types import SimpleNamespace
+
+    ready = handed_over(current_pipeline, monkeypatch)
+    pipeline, worker, runner, page = ready.pipeline, ready.worker, ready.runner, ready.page
+    current, first = ready.current, ready.first
 
     # Only the user causes the final request. The runner just observes and permits it.
     class Request:
@@ -318,6 +336,60 @@ def test_ready_automatically_hands_original_page_to_user_and_observes_their_subm
     assert second["active_task_id"] != first["active_task_id"]
     assert (
         worker.store.load()["jobs"][0]["manual_submission"]["source"] == "read_only_browser_result"
+    )
+
+
+@pytest.mark.parametrize("stale", ["old_run", "old_page", "expired"])
+def test_a_stale_pending_result_read_does_not_stop_observing_the_users_submit(
+    current_pipeline, monkeypatch, stale
+):
+    """2026-11-03: a 19:01 pending read from an earlier run was never settled; every
+    later ready job skipped its result polls, so the user's 22:52 Submit was not seen.
+    """
+    import time
+
+    ready = handed_over(current_pipeline, monkeypatch)
+    pipeline, worker = ready.pipeline, ready.worker
+    state = worker.store.load()
+    job = state["jobs"][0]
+    old = {
+        "request_id": "stale-request",
+        "status": "pending",
+        "at": time.time() - (3600 if stale == "expired" else 1),
+        "run_id": "earlier-run" if stale == "old_run" else state["runtime"]["id"],
+        "page_id": "earlier-page" if stale == "old_page" else job["page_observation"]["page_id"],
+    }
+    job["submission_observation"] = dict(old)
+    worker.store.save(state)
+    drive(pipeline, "ready_for_review")
+    job = worker.store.load()["jobs"][0]
+    assert job["submission_observation"]["request_id"] != "stale-request"
+    assert job["submission_observation"]["status"] == "pending"
+    assert old in job["submission_observation_history"]
+    commands = worker.store.load()["commands"]
+    assert [c["request_id"] for c in commands if c["action"] == "observe-result"] == [
+        job["submission_observation"]["request_id"]
+    ]
+
+
+def test_a_current_pending_result_read_is_awaited(current_pipeline, monkeypatch):
+    import time
+
+    ready = handed_over(current_pipeline, monkeypatch)
+    pipeline, worker = ready.pipeline, ready.worker
+    state = worker.store.load()
+    job = state["jobs"][0]
+    job["submission_observation"] = {
+        "request_id": "current-request",
+        "status": "pending",
+        "at": time.time(),
+        "run_id": state["runtime"]["id"],
+        "page_id": job["page_observation"]["page_id"],
+    }
+    worker.store.save(state)
+    drive(pipeline, "ready_for_review")
+    assert worker.store.load()["jobs"][0]["submission_observation"]["request_id"] == (
+        "current-request"
     )
 
 
