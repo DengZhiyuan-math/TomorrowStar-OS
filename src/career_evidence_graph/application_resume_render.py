@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from typing import Any
@@ -59,7 +60,7 @@ _ESCAPES = {
 # Templates use 8-bit fonts; these characters have no glyph there and vanish. Renders
 # that write one carry SYMBOLS_SUFFIX, so earlier saved renders still verify.
 SYMBOLS_SUFFIX = "+symbols/v1"
-_SYMBOLS = {
+SYMBOLS = {
     "\u2014": "---",
     "\u2013": "--",
     "\u2018": "`",
@@ -98,6 +99,17 @@ _SYMBOLS = {
 _symbols = ContextVar("resume_symbols", default=None)
 
 
+@contextmanager
+def symbol_escapes(enabled: bool = True):
+    """Within this block, text escapes also map SYMBOLS; yields the characters mapped."""
+    used: list[str] = []
+    token = _symbols.set(used if enabled else None)
+    try:
+        yield used
+    finally:
+        _symbols.reset(token)
+
+
 def symbols_for(renderer_revision: str | None) -> bool:
     """Whether a saved render used the symbol escapes."""
     return bool(renderer_revision and renderer_revision.endswith(SYMBOLS_SUFFIX))
@@ -110,9 +122,9 @@ def _text(value: str) -> str:
     used = _symbols.get()
     pieces = []
     for char in value.replace("\r\n", "\n").replace("\r", "\n"):
-        if used is not None and char in _SYMBOLS:
+        if used is not None and char in SYMBOLS:
             used.append(char)
-            pieces.append(_SYMBOLS[char])
+            pieces.append(SYMBOLS[char])
         else:
             pieces.append(_ESCAPES.get(char, char))
     return "".join(pieces)
@@ -278,12 +290,8 @@ def render_resume(
     symbols: bool = True,
 ) -> RenderedResume:
     """Render one complete document; ranges use Python character offsets."""
-    used = []
-    token = _symbols.set(used if symbols else None)
-    try:
+    with symbol_escapes(symbols) as used:
         rendered = _render(content, template_revision, template)
-    finally:
-        _symbols.reset(token)
     if not used:
         return rendered
     return replace(rendered, renderer_revision=rendered.renderer_revision + SYMBOLS_SUFFIX)

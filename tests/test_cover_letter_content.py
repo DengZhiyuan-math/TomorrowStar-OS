@@ -722,3 +722,27 @@ def test_pure_result_reader_reconciles_complete_raw_evidence_after_publication_l
     before = {file.name: file.read_bytes() for file in (tmp_path / "author").iterdir()}
     assert read_cover_letter_result(tmp_path / "author", app, fixed, sources=sources) == material
     assert before == {file.name: file.read_bytes() for file in (tmp_path / "author").iterdir()}
+
+
+def test_body_symbols_use_the_resume_tex_mapping_and_keep_other_characters(tmp_path):
+    """2026-11-03: a body with π₀ and ₅ failed tectonic's missing-glyph guard."""
+    content = ready(tmp_path)["content"]
+    content = edit_cover_letter(
+        content,
+        "Trained π₀ policies, cut CO₂ by x² — 50% → 10% for 中.",
+        expected_revision=content["revision"],
+    )
+    rendered = render_cover_letter(content, TEMPLATE)
+    body = rendered["tex"].split(BEGIN_BODY + "\n")[1]
+    assert rendered["renderer_revision"] == "cover-letter-renderer/v4"
+    assert "\\ensuremath{\\pi}\\textsubscript{0}" in body
+    assert "CO\\textsubscript{2}" in body and "x\\textsuperscript{2}" in body
+    assert " --- 50\\% \\ensuremath{\\rightarrow} 10\\%" in body
+    assert not set("π₀₂²—→") & set(rendered["tex"])
+    assert "中" in body
+    assert "π₀ policies" in rendered["text"] and "—" in rendered["text"]
+    recovered = reconcile_letter_tex(content, TEMPLATE, rendered["tex"])
+    assert recovered["status"] == "ready" and recovered["content"] == content
+    legacy = render_cover_letter(content, TEMPLATE, renderer="cover-letter-renderer/v3")
+    assert "π₀" in legacy["tex"] and legacy["renderer_revision"] == "cover-letter-renderer/v3"
+    assert reconcile_letter_tex(content, TEMPLATE, legacy["tex"])["content"] == content

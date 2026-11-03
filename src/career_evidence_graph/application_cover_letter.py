@@ -20,7 +20,7 @@ from pydantic import Field
 
 from ._vendor import job_apply_store as helper
 from .application_resume_content import Contract, Text
-from .application_resume_render import _ESCAPES, _text
+from .application_resume_render import _ESCAPES, _text, symbol_escapes
 from .career_portal_data import PortalDataError
 from .validation.hashing import record_digest as digest
 from .validation.models import CodexCLIConfig
@@ -30,7 +30,14 @@ END_BODY = "% END LETTER BODY"
 BEGIN_OPENING = "% BEGIN LETTER OPENING"
 END_OPENING = "% END LETTER OPENING"
 ROLE_TITLE_SLOT = r"\LetterRoleTitle{}"
-RENDERER_REVISION = "cover-letter-renderer/v3"
+# v4 maps body symbols (π, ₀, —, …) to TeX like the résumé renderer. Earlier
+# renderers wrote them literally; their saved sources are re-rendered unchanged.
+RENDERER_REVISION = "cover-letter-renderer/v4"
+LEGACY_RENDERER_REVISIONS = (
+    "cover-letter-renderer/v1",
+    "cover-letter-renderer/v2",
+    "cover-letter-renderer/v3",
+)
 WRITER_INSTRUCTIONS = (
     "Write only the variable cover-letter BODY: job-specific motivation and experience-based "
     "argument. The fixed template supplies the self-introduction, application announcement, "
@@ -276,8 +283,10 @@ def _fixed_text(prefix, suffix):
     return opening, closing
 
 
-def render_cover_letter(content, template, *, application=None):
+def render_cover_letter(content, template, *, application=None, renderer=RENDERER_REVISION):
     """Fill only the body span and derive plain text from the same fixed template."""
+    if renderer not in {RENDERER_REVISION, *LEGACY_RENDERER_REVISIONS}:
+        raise ValueError("unrecognized letter renderer")
     content = validate_letter(content, application=application)
     template = bind_letter_template(template, application)
     prefix, existing_body, suffix = _template_parts(template)
@@ -288,7 +297,8 @@ def render_cover_letter(content, template, *, application=None):
     for row in content["paragraphs"]:
         pieces.append("% LETTER PARAGRAPH " + row["id"] + " BEGIN\n")
         first = sum(map(len, pieces))
-        pieces.append(_text(row["text"]))
+        with symbol_escapes(renderer == RENDERER_REVISION):
+            pieces.append(_text(row["text"]))
         ranges[row["id"]] = [first, sum(map(len, pieces))]
         pieces.append("\n% LETTER PARAGRAPH " + row["id"] + " END\n\n")
     pieces.append(suffix)
@@ -300,7 +310,7 @@ def render_cover_letter(content, template, *, application=None):
         "text_suffix": "\n\n" + closing,
         "content_revision": content["revision"],
         "template_revision": digest(template),
-        "renderer_revision": RENDERER_REVISION,
+        "renderer_revision": renderer,
         "ranges": ranges,
     }
 
@@ -397,7 +407,8 @@ def edit_delivered_letter(parent, text, template, *, request_id):
 def reconcile_letter_tex(content, template, edited):
     """Accept uniquely mapped literal body edits; retain unsupported source and diff."""
     base = validate_letter(content)
-    original = render_cover_letter(base, template)["tex"]
+    accepted = render_cover_letter(base, template)
+    original = accepted["tex"]
     retained = {
         "tex": edited,
         "diff": "".join(
@@ -423,7 +434,12 @@ def reconcile_letter_tex(content, template, edited):
                 raise ValueError("paragraph mapping is not unique")
             first = cursor + len(start)
             last = body.index(end, first)
-            prose = _plain_literal(body[first:last])
+            segment = body[first:last]
+            # Symbol escapes are one-way; an untouched rendered paragraph keeps its text.
+            if segment == original[slice(*accepted["ranges"][row["id"]])]:
+                cursor = last + len(end)
+                continue
+            prose = _plain_literal(segment)
             if prose != row["text"]:
                 row.update(text=prose, origin="human", protected=True)
             cursor = last + len(end)
@@ -1097,7 +1113,7 @@ def _pdf_delivery_result(directory, rendered, binding, raw, *, max_bytes, pdf_in
     }
 
 
-def _pdf_intent(directory, rendered):
+def _pdf_intent(directory, content, template):
     from .application_prism import source_snapshot
 
     if directory.is_symlink() or (directory / "project").is_symlink():
@@ -1105,17 +1121,12 @@ def _pdf_intent(directory, rendered):
     intent = _read_letter_file(directory, "export-intent.json")
     if not isinstance(intent, dict):
         raise ValueError("letter build intent must be an object")
-    renderer = intent.get("renderer_revision")
-    if renderer not in {
-        "cover-letter-renderer/v1",
-        "cover-letter-renderer/v2",
-        RENDERER_REVISION,
-    }:
-        raise ValueError("unrecognized letter renderer")
+    # The exact original source stays authoritative across renderer upgrades: re-render
+    # with the recorded producer, keeping its identity in the recovered receipt.
+    rendered = render_cover_letter(content, template, renderer=intent.get("renderer_revision"))
     expected = {
         key: rendered[key] for key in ("content_revision", "template_revision", "renderer_revision")
     }
-    expected["renderer_revision"] = renderer
     binding = source_snapshot(
         directory / "project", "main.tex", source_policy="generated-latex-project/v1"
     )
@@ -1124,18 +1135,14 @@ def _pdf_intent(directory, rendered):
         or (directory / "project" / "main.tex").read_bytes() != rendered["tex"].encode()
     ):
         raise ValueError("letter build intent differs from source or content")
-    # The exact original source is still authoritative across renderer upgrades.
-    # Keep its producer identity in the recovered receipt, rather than relabel it.
-    rendered["renderer_revision"] = renderer
-    return binding
+    return rendered, binding
 
 
 def read_cover_letter_pdf(directory, content, template, *, max_bytes=700000, pdf_inspector=None):
     """Reconstruct an exact completed local export without writes, builds or network."""
     directory = Path(directory)
     try:
-        rendered = render_cover_letter(content, template)
-        binding = _pdf_intent(directory, rendered)
+        rendered, binding = _pdf_intent(directory, content, template)
         path = directory / "letter.pdf"
         if path.is_symlink() or path.stat().st_size > 700_000:
             raise ValueError("unsafe letter PDF")
@@ -1183,8 +1190,7 @@ def reconcile_cover_letter_pdf(
             outputs = [directory / name for name in ("letter.pdf", "build.json", "export.json")]
             if any(path.is_symlink() for path in (directory, *directory.parents, *outputs)):
                 raise ValueError("redirected letter output")
-            rendered = render_cover_letter(content, template)
-            binding = _pdf_intent(directory, rendered)
+            rendered, binding = _pdf_intent(directory, content, template)
             completed = (client or TectonicCompiler()).read_compiled(binding)
             actual = completed["binding"]
             build = completed["build"]

@@ -1,6 +1,7 @@
 """Automatic materials compile with tectonic directly, without a Prism page."""
 
 import hashlib
+import json
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,7 @@ from test_cover_letter_content import TEMPLATE, ready
 
 from career_evidence_graph import application_prism
 from career_evidence_graph.application_cover_letter import (
+    edit_cover_letter,
     export_cover_letter_pdf,
     read_cover_letter_pdf,
 )
@@ -80,5 +82,23 @@ def test_a_cover_letter_compiles_with_tectonic_by_default(tmp_path, monkeypatch)
     raw = Path(exported["file_path"]).read_bytes()
     assert raw.startswith(b"%PDF") and exported["sha256"] == hashlib.sha256(raw).hexdigest()
     assert read_cover_letter_pdf(directory, content, TEMPLATE, pdf_inspector=lambda _: 1) == (
+        exported
+    )
+
+
+def test_a_cover_letter_with_symbols_compiles_under_8bit_fonts(tmp_path):
+    content = ready(tmp_path)["content"]
+    content = edit_cover_letter(
+        content, "Trained π₀ models; CO₂ — x² → done.", expected_revision=content["revision"]
+    )
+    template = TEMPLATE.replace(
+        "\\begin{document}", "\\usepackage[T1]{fontenc}\n\\begin{document}", 1
+    )
+    directory = tmp_path / "pdf"
+    exported = export_cover_letter_pdf(directory, content, template, pdf_inspector=lambda _: 1)
+    assert Path(exported["file_path"]).read_bytes().startswith(b"%PDF")
+    build = json.loads((directory / "build.json").read_text())["build"]
+    assert not [row for row in build["diagnostics"] if "glyph" in row["message"]]
+    assert read_cover_letter_pdf(directory, content, template, pdf_inspector=lambda _: 1) == (
         exported
     )
