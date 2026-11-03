@@ -11,7 +11,12 @@ startup_sources = {
 }
 sys.path.insert(0, str(checkout / "src"))
 
-from career_evidence_graph.application_worker_browser import main  # noqa: E402
+from career_evidence_graph.application_worker_browser import (  # noqa: E402
+    main,
+    timestamp_log_lines,
+)
 
 if __name__ == "__main__":
+    # Each worker.log line starts with its ISO 8601 UTC time (milliseconds).
+    timestamp_log_lines()
     raise SystemExit(main(expected_sources=startup_sources))

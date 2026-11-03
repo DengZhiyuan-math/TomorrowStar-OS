@@ -7,6 +7,7 @@ import base64
 import collections
 import fcntl
 import hashlib
+import io
 import json
 import os
 import re
@@ -19,6 +20,7 @@ import traceback
 from contextlib import ExitStack, contextmanager, suppress
 from copy import deepcopy
 from dataclasses import asdict
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import parse_qsl, urljoin, urlsplit
 from uuid import uuid4
@@ -7635,5 +7637,52 @@ def main(argv: list[str] | None = None, *, expected_sources: dict | None = None)
         os.close(descriptor)
 
 
+class TimestampedLines(io.TextIOBase):
+    """Prefix each line this process writes to worker.log with its UTC time.
+
+    The private log had no time of its own (2026-11-04: a 6.2 s gap could only be
+    inferred from receipts); the message after the prefix is unchanged.
+    """
+
+    def __init__(self, stream):
+        self._stream = stream
+        self._line_start = True
+        self._lock = threading.Lock()
+
+    def write(self, text):
+        with self._lock:
+            parts = []
+            for piece in text.splitlines(keepends=True):
+                if self._line_start:
+                    stamp = datetime.now(UTC).isoformat(timespec="milliseconds")
+                    parts.append(stamp.replace("+00:00", "Z") + " ")
+                parts.append(piece)
+                self._line_start = piece.endswith(("\n", "\r"))
+            self._stream.write("".join(parts))
+        return len(text)
+
+    def flush(self):
+        self._stream.flush()
+
+    def writable(self):
+        return True
+
+    def fileno(self):
+        return self._stream.fileno()
+
+    @property
+    def encoding(self):
+        return self._stream.encoding
+
+
+def timestamp_log_lines():
+    """Install the line prefix on this Worker process's stdout and stderr."""
+    if not isinstance(sys.stdout, TimestampedLines):
+        sys.stdout = TimestampedLines(sys.stdout)
+    if not isinstance(sys.stderr, TimestampedLines):
+        sys.stderr = TimestampedLines(sys.stderr)
+
+
 if __name__ == "__main__":
+    timestamp_log_lines()
     raise SystemExit(main())
