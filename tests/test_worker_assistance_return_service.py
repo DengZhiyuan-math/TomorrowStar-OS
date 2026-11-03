@@ -1019,3 +1019,35 @@ def test_refused_return_names_its_check_in_the_private_log(returning, capsys, re
         frame.startswith("application_worker_browser:_assistance_outcome:")
         for frame in record["where"]
     )
+
+
+def test_return_rereads_a_slow_post_stop_page_without_owner_reads(returning, monkeypatch):
+    """A post-stop read that timed out is retried as a stopped scope; the check
+    between reads is not the live claim check (2026-11-03: every retry was refused
+    as assistance_binding_changed while the observation was current)."""
+    from playwright.sync_api import Error
+
+    ctx = returning
+    run_turn(ctx, report=make_report())
+    runner, real, attempts, owners = ctx.runner, ctx.runner.observe_assistance_context, [], []
+
+    def observe(reference, **kwargs):
+        attempts.append(kwargs.get("after_stop"))
+        if len(attempts) == 1:
+            raise Error("owned_browser_read_timeout")
+        return real(reference, **kwargs)
+
+    def observe_owner(*, pump):
+        owners.append(True)
+        return {"status": "accepted"}
+
+    monkeypatch.setattr(runner, "observe_assistance_context", observe)
+    monkeypatch.setattr(runner.cua, "observe_owner", observe_owner, raising=False)
+    runner._service_assistance_return()
+    assert attempts == [True, True]
+    # The reclaim re-bound the owner; the post-stop read spends no driver state read.
+    assert owners == []
+    job = current(ctx)
+    assert job["assistance"]["status"] == "released"
+    assert job["assistance"]["outcome"]["kind"] == "script_checkpoint"
+    assert job["status"] == "filling"

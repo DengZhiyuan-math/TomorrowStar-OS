@@ -2230,14 +2230,19 @@ class ApplicationRunner:
             worker_source=state["runtime"]["source"]["sha256"],
         )
 
-    def _capture_owned_page(self, page, check, *, expected_document=None, include_screenshot=True):
+    def _capture_owned_page(
+        self, page, check, *, expected_document=None, include_screenshot=True, owner=None
+    ):
         """Read one retained handle; callers keep state checks outside Page IO."""
         if threading.get_ident() != self._page_thread:
             raise PortalDataError(
                 "page_observation_thread_changed", "原页只能在所属执行线程读取。", 409
             )
         check()
-        if self.cua is None:
+        if owner is not None:
+            # The caller's check already bound the owner (a post-stop reclaim re-bound it).
+            pass
+        elif self.cua is None:
             owner = {"status": "not_used", "transport": "retained-playwright"}
         elif getattr(self.cua.client, "handoff_active", False):
             # The yielded session belongs to the peer; check() still binds its driver.
@@ -2515,10 +2520,10 @@ class ApplicationRunner:
         client.resume_after_handoff(pump=self.pump)
         return True
 
-    def assistance_read_permitted(self, assistance_ref, *, document=None):
+    def assistance_read_permitted(self, assistance_ref, *, document=None, after_stop=False):
         """Cheap current-scope check for the read-only protocol event pump."""
         try:
-            page, check = self._assistance_page_checker(assistance_ref)
+            page, check = self._assistance_page_checker(assistance_ref, after_stop=after_stop)
             check()
             if document is not None:
                 with browser_deadline(2):
@@ -2584,7 +2589,9 @@ class ApplicationRunner:
                     raise
                 # A slow read can outlast the observation window; the check after it
                 # refreshes the window first (seen 2026-11-02: 7.4 s).
-                if not self.pump_codex_events(reference):
+                # A post-stop scope is checked as stopped, never as a live claim
+                # (2026-11-03: every post-stop retry was refused as a changed binding).
+                if not self.pump_codex_events(reference, after_stop=after_stop):
                     raise PortalDataError(
                         "assistance_binding_changed", "原页、材料或接管范围已改变。", 409
                     ) from error
@@ -2599,6 +2606,11 @@ class ApplicationRunner:
                 check,
                 expected_document=assistance_ref["binding"].get("document_token"),
                 include_screenshot=False,
+                # The reclaim just re-bound the owner; two more driver state reads
+                # (seconds each, 2026-11-03) would spend this read's 5 s budget.
+                owner={"status": "reclaimed", "transport": "retained-playwright"}
+                if after_stop
+                else None,
             )
         fields = captured["data"]["fields"]
         for field in fields:
@@ -3562,14 +3574,16 @@ class ApplicationRunner:
             self.persist(state)
         self._service_assistance_stop()
 
-    def pump_codex_events(self, assistance_ref, *, document=None) -> bool:
+    def pump_codex_events(self, assistance_ref, *, document=None, after_stop=False) -> bool:
         """Keep control and browser events alive without executing queued page work."""
         self.tick(control_only=True)
         if self.context is not None:
             # Codex's own loop paces these calls; an idle wait here only delays a
             # write's admission, which the driver drops after 15 s (2026-11-02).
             self.pump(idle_ms=5)
-        return self.assistance_read_permitted(assistance_ref, document=document)
+        return self.assistance_read_permitted(
+            assistance_ref, document=document, after_stop=after_stop
+        )
 
     def _fill_route(self, page, question):
         return (
