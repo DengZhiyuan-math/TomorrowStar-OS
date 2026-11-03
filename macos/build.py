@@ -72,14 +72,15 @@ def copy_cua_driver(resources: Path, driver: Path) -> dict:
             "for date, select, checkbox and radio controls in native handoff; custom combobox "
             "option clicks with proven owner and read-back; hidden file inputs exposed for "
             "upload only; combobox expand clicks name the shown value, and refusals before "
-            "admission are ledger rows"
+            "admission are ledger rows; core refusals after admission name their reason, "
+            "and a popup-hidden combobox trigger reads back its DOM expanded state"
         ),
         # MC-10 successor source tree and its divergence from the sealed MC-06 source.
         "source_manifest_sha256": (
-            "7271e9ffea2484ce67faa8b26af0c22b1a4094f443ce805630150ec23bde77c4"
+            "2303d8e0fbbd5e550cae2970603fdf3ade1aa0cfe9d21143807a02fa788bdf14"
         ),
         "source_divergence_patch_sha256": (
-            "6a692b4b97edcad0eebd29ba157bc39796bdf08063e3dc00df9f79afe7f1589b"
+            "06c908a0b34ea776dd2adada1bee440284474762e764149495b3317812ccc016"
         ),
         "build_profile": "release, signed with the pinned private identity",
         "additional_local_divergence": (

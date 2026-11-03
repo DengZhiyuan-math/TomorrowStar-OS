@@ -175,6 +175,50 @@ def test_grant_and_status_are_the_two_receipt_forms():
         worker._native_handoff_receipt(dict(grant, yielded=True))
 
 
+def test_r8_admitted_rows_the_core_refused_keep_their_keys_and_name_why():
+    # r8: after host admission the core's not_sent or unknown reason uses the same key.
+    core_refused = dict(
+        EXPAND, call_id="core-1", sequence=7, status="not_sent", refusal="target_hit_mismatch"
+    )
+    unverified = dict(
+        SET_VALUE,
+        call_id="core-2",
+        sequence=8,
+        status="unknown",
+        refusal="handoff_native_effect_unverified",
+    )
+    host_denied = dict(
+        CLICK,
+        call_id="core-3",
+        sequence=9,
+        status="not_sent",
+        refusal="handoff_host_did_not_authorize",
+    )
+    upload_refused = dict(
+        HIDDEN_UPLOAD,
+        call_id="core-4",
+        sequence=10,
+        status="not_sent",
+        refusal="handoff_native_refused",
+    )
+    observed = dict(CLICK, call_id="seen-1", sequence=11, status="observed")
+    r8 = changed(
+        calls=[core_refused, unverified, host_denied, upload_refused, REFUSED_BARE, observed]
+    )
+    assert validate_handoff_receipt(r8) == r8
+    assert worker._native_handoff_receipt(r8) == r8
+    for drifted in (
+        dict(core_refused, status="observed"),
+        dict(core_refused, status="awaiting_host"),
+        dict(unverified, refusal="has space"),
+        dict(upload_refused, status="observed"),
+        dict(upload_refused, refusal=""),
+        dict(core_refused, result={"ok": True}),
+    ):
+        with pytest.raises(ValueError):
+            validate_handoff_receipt(changed(calls=[drifted]))
+
+
 class Client:
     native_session = True
     driver_sha256 = "d" * 64

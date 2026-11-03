@@ -37,7 +37,7 @@ from .worker_process_identity import (
 
 # Reviewed release build of the restricted-metadata native successor, signed with the
 # pinned private identity. A version string alone cannot admit it.
-_NATIVE_HANDOFF_DRIVER_SHA256 = "9bdc04200e9d0a1e16a7f7349c8e2e1296f1d002468ba5eb6a14ee9274b82cd2"
+_NATIVE_HANDOFF_DRIVER_SHA256 = "815aa556644d44b7c8d339b61da8053a3b1e54f4bffa3b5c9699cb0d5e1b4492"
 # The App bundles one cua-driver, so the script route admits the same reviewed bytes.
 _OWNED_DRIVER_SHA256 = _NATIVE_HANDOFF_DRIVER_SHA256
 NATIVE_HANDOFF_PROTOCOL = "cua-trusted-handoff/v1"
@@ -331,17 +331,25 @@ _REFUSAL_OPTIONAL = frozenset(
 )
 
 
-def _valid_refusal_call(row):
-    """r7: a pre-ledger refusal (arguments or mutation hint) the driver never sent.
+def _valid_refusal_code(row):
+    # r8: a not_sent or unknown row names why; observed and pending rows never do.
+    return (
+        row.get("status") in {"not_sent", "unknown"}
+        and isinstance(row.get("refusal"), str)
+        and _REFUSAL_CODE.fullmatch(row["refusal"]) is not None
+    )
 
-    It is not a mutation for any ledger rule; whatever target it named stays optional.
+
+def _valid_refusal_call(row):
+    """A refused row: r7 pre-ledger (never sent, no mutation) or r8 core refusal after
+    host admission (not_sent or unknown, with the admitted row's own keys).
+
+    Whatever target it named stays optional.
     """
     return bool(
         set(row) - _REFUSAL_OPTIONAL == _CALL_FIELDS | {"refusal"}
         and row["tool"] in NATIVE_HANDOFF_TOOLS
-        and row["status"] == "not_sent"
-        and isinstance(row["refusal"], str)
-        and _REFUSAL_CODE.fullmatch(row["refusal"])
+        and _valid_refusal_code(row)
         and _printable(row["call_id"], 128)
         and isinstance(row["arguments_digest"], str)
         and _HEX64.fullmatch(row["arguments_digest"])
@@ -437,9 +445,17 @@ def validate_handoff_receipt(value, *, grant=False):
             if (
                 isinstance(row, dict)
                 and row.get("tool") == "browser_deliver_material"
-                and "refusal" not in row
+                and ("refusal" not in row or row.get("mutation") is True)
             ):
-                calls.append(validate_native_material_metadata(row))
+                # r8: an admitted delivery the core refused keeps its material keys.
+                checked = validate_native_material_metadata(
+                    {key: item for key, item in row.items() if key != "refusal"}
+                )
+                if "refusal" in row:
+                    if not _valid_refusal_code(row):
+                        raise ValueError("Invalid native handoff call")
+                    checked["refusal"] = row["refusal"]
+                calls.append(checked)
             elif _valid_handoff_call(row):
                 calls.append(deepcopy(row))
             else:
