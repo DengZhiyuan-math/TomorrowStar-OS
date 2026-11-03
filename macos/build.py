@@ -76,14 +76,15 @@ def copy_cua_driver(resources: Path, driver: Path) -> dict:
             "and a popup-hidden combobox trigger reads back its DOM expanded state; "
             "core refusal reason codes survive the SDK projection; hit refusals carry a "
             "bounded diagnosis, trusted clicks center an off-band target first, and main-frame "
-            "hit tests use the input point"
+            "hit tests use the input point; a delivered file may be proven by its name shown "
+            "in the form item when the FileList is cleared, with a readback diagnosis otherwise"
         ),
         # MC-10 successor source tree and its divergence from the sealed MC-06 source.
         "source_manifest_sha256": (
-            "2048257ac3d9079bbefd59712683da3b7a59668bd99c2bdd2167606d89e61d30"
+            "fea3fadf0c0f2014f25cdf94ef4d856241719a0964430e7a967d81de7193204a"
         ),
         "source_divergence_patch_sha256": (
-            "37737e187dbd1c2cb8e42e0024b98d7c0d881e6bfd8923043afef9ab2e483235"
+            "dff97f11aa2d0910a2fa9f343b88e8e29baa81903780d236f8a6eb87d3f1ecb1"
         ),
         "build_profile": "release, signed with the pinned private identity",
         "additional_local_divergence": (
