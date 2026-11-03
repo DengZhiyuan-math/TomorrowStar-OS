@@ -1280,3 +1280,84 @@ def test_late_incomplete_stop_receipt_cannot_replace_the_final_native_stop_proof
         receipt=native_status(drained=False),
     )
     assert late == original and native.store.path.read_bytes() == before
+
+
+def test_a_long_takeovers_repeated_calls_do_not_fill_the_run_limit(
+    retained_assistance_page, monkeypatch
+):
+    """2026-11-03: 39 receipts of up to 35 calls reached 512 KB on the last option click;
+    the save was refused and the takeover ended as native_receipt_persistence_failed."""
+    import json
+
+    from career_evidence_graph.application_worker import compact_native_runs
+    from career_evidence_graph.career_portal_data import PortalDataError
+
+    service, identifier = retained_assistance_page
+    native, ref = claim_native(service, identifier, monkeypatch)
+    scope = prepare_journal(native, ref)
+    call_scope = {
+        "target_id": scope["native_scope"]["target_id"],
+        "tab_id": scope["native_scope"]["tab_id"],
+        "expected_document": scope["document"],
+    }
+    grant = {"handoff_id": "native-handoff", "generation": 1, "local_tools_drained": True}
+    native.store.record_native_handoff(
+        ref, request_id="journal-run", phase="granted", scope=scope, receipt=grant
+    )
+    calls = []
+    for sequence in range(1, 61):
+        calls.append(
+            {
+                "call_id": f"read-{sequence:03d}",
+                "tool": "get_browser_state",
+                "arguments_digest": f"{sequence:064x}",
+                "status": "observed",
+                "generation": 1,
+                "sequence": sequence,
+                "mutation": False,
+                "semantic_verified": False,
+                "scope": call_scope,
+            }
+        )
+        row = native.store.record_native_handoff(
+            ref,
+            request_id="journal-run",
+            phase="granted",
+            scope=scope,
+            receipt={
+                **grant,
+                "phase": "active",
+                "revoked": False,
+                "active_calls": 0,
+                "return_ready": False,
+                "calls": list(calls),
+            },
+        )
+    repeated = len(json.dumps(row).encode())
+    distinct = len(json.dumps(compact_native_runs([row])[0]).encode())
+    assert repeated > 512_000 > distinct
+    assert len(row["events"]) == 62
+
+    # The limit still bounds the run's distinct content.
+    from career_evidence_graph import application_worker
+
+    monkeypatch.setattr(application_worker, "NATIVE_RUN_DISTINCT_LIMIT", distinct)
+    calls.append(dict(calls[-1], call_id="read-061", sequence=61, arguments_digest="f" * 64))
+    before = native.store.path.read_bytes()
+    with pytest.raises(PortalDataError) as refused:
+        native.store.record_native_handoff(
+            ref,
+            request_id="journal-run",
+            phase="granted",
+            scope=scope,
+            receipt={
+                **grant,
+                "phase": "active",
+                "revoked": False,
+                "active_calls": 0,
+                "return_ready": False,
+                "calls": list(calls),
+            },
+        )
+    assert refused.value.code == "native_handoff_receipt_invalid"
+    assert native.store.path.read_bytes() == before

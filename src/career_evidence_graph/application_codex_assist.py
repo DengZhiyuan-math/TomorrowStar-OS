@@ -985,6 +985,20 @@ class CodexAdapter:
         if not native["persistence_failed"]:
             native["persistence_failed"] = True
             native["failed_receipt"] = json.loads(json.dumps(value))
+            # 2026-11-03: the run ended with only this code; name what refused the save.
+            print(
+                "native_receipt_persistence_failed: "
+                + json.dumps(
+                    {
+                        "code": getattr(error, "code", None),
+                        "error": type(error).__name__,
+                        "message": str(error)[:200],
+                        "where": admission_frames(error),
+                    },
+                    ensure_ascii=False,
+                ),
+                flush=True,
+            )
         run.status, run.error_code = "unknown", "native_receipt_persistence_failed"
         run.tools_revoked = True
         self._native_revoke(run)

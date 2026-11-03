@@ -1812,6 +1812,11 @@ ROUTINE_OBSERVATION_WINDOW = 200
 LIVENESS_SAVE_INTERVAL = 2.0
 
 
+# A native run's distinct calls and events, and its stored form with repeated calls.
+NATIVE_RUN_DISTINCT_LIMIT = 512_000
+NATIVE_RUN_STORED_LIMIT = 4_000_000
+
+
 def compact_native_runs(runs):
     """Store each distinct native call once; event receipts repeat earlier calls.
 
@@ -3022,7 +3027,16 @@ class WorkerStore:
                     }
                 )
             row["events"].append({**event, "at": now})
-            if len(json.dumps(row, allow_nan=False).encode()) > 512_000:
+            # Each event repeats every earlier call of its receipt, so the row grows
+            # with events x calls (2026-11-03: 39 events of up to 35 calls reached the
+            # 512 KB limit on the run's last option click and ended it). The limit
+            # bounds the row's distinct content, as compact_native_runs stores it; a
+            # wider bound still caps the repeated form.
+            if (
+                len(json.dumps(compact_native_runs([row])[0], allow_nan=False).encode())
+                > NATIVE_RUN_DISTINCT_LIMIT
+                or len(json.dumps(row, allow_nan=False).encode()) > NATIVE_RUN_STORED_LIMIT
+            ):
                 raise PortalDataError(
                     "native_handoff_receipt_invalid", "原生交接历史超过本次回执上限。", 409
                 )

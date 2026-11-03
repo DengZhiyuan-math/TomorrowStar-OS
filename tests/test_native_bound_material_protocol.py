@@ -566,14 +566,16 @@ def test_a_click_whose_admission_read_times_out_still_revokes_the_takeover(tmp_p
         adapter.close()
 
 
-def test_unpersisted_material_metadata_stops_before_resolver_and_admission(tmp_path, monkeypatch):
+def test_unpersisted_material_metadata_stops_before_resolver_and_admission(
+    tmp_path, monkeypatch, capsys
+):
     config, ref, scope, packet, driver, native, events = native_case(tmp_path, monkeypatch)
     native.calls = [material_call() | {"scope": scope}]
     resolved, admitted = [], []
 
     def persist(receipt):
         if receipt.get("calls"):
-            raise OSError("synthetic receipt save failure")
+            raise PortalDataError("native_handoff_receipt_invalid", "synthetic over limit", 409)
 
     native.admit_call = lambda *args, **kwargs: admitted.append(kwargs)
     adapter, run = start_case(
@@ -590,6 +592,17 @@ def test_unpersisted_material_metadata_stops_before_resolver_and_admission(tmp_p
         assert run.status == "unknown" and native.revoked
         assert resolved == admitted == []
         assert not any(row.get("method") == "turn/start" for row in recorded(config))
+        # 2026-11-03: the log now names what refused the save, not only the code.
+        line = next(
+            row
+            for row in capsys.readouterr().out.splitlines()
+            if row.startswith("native_receipt_persistence_failed: ")
+        )
+        record = json.loads(line.removeprefix("native_receipt_persistence_failed: "))
+        assert record["code"] == "native_handoff_receipt_invalid"
+        assert record["error"] == "PortalDataError"
+        assert record["message"] == "synthetic over limit"
+        assert record["where"]
     finally:
         adapter.close()
 
