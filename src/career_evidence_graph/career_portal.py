@@ -64,7 +64,13 @@ _PIPELINE_ROUTES = {
     "start": ("start", ({"request_id"},), _PIPELINE_START, 400),
     "capture": ("capture_mail", ({"request_id"},), _PIPELINE_START, 400),
     "pause": ("pause", (set(),), _PIPELINE_START, 400),
-    "continue": ("continue_current", ({"request_id"},), _PIPELINE_CURRENT, 409),
+    # Continue may carry the user's explicit reclaim of a page handed to them.
+    "continue": (
+        "continue_current",
+        ({"request_id"}, {"request_id", "reclaim", "handoff_source"}),
+        _PIPELINE_CURRENT,
+        409,
+    ),
     "skip": ("skip_current", ({"request_id"},), _PIPELINE_CURRENT, 409),
     "return": ("return_to", ({"request_id", "application_id"},), _PIPELINE_CURRENT, 409),
     "observe-result": ("observe_result", ({"request_id"},), _PIPELINE_CURRENT, 409),

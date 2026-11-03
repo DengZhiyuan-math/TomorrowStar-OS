@@ -506,9 +506,14 @@ class ApplicationPipeline:
             self._request_id(request_id)
             return self._capture_mail(state, request_id)
 
-    def continue_current(self, *, request_id):
-        """One Continue for the current job; unknown results still wait."""
-        return self._current("continue", {"request_id": request_id})
+    def continue_current(self, *, request_id, **reclaim):
+        """One Continue for the current job; unknown results still wait.
+
+        ``reclaim=True`` with ``handoff_source`` is the user's confirmation that a page
+        handed to them may return to the automatic layer; it runs the Worker's own
+        recheck before this Continue (queue mode had no other way back, 2026-11-03).
+        """
+        return self._current("continue", {"request_id": request_id, **reclaim})
 
     def skip_current(self, *, request_id):
         """Retain the current job and its page, then select the next one."""
@@ -1241,12 +1246,20 @@ class ApplicationPipeline:
 
     def _current_request(self, state, action, payload):
         expected = {"request_id", "application_id"} if action == "return" else {"request_id"}
+        if action == "continue" and isinstance(payload, dict) and "reclaim" in payload:
+            expected = {"request_id", "reclaim", "handoff_source"}
         if (
             not state.get("queue_mode")
             or not isinstance(payload, dict)
             or set(payload) != expected
             or not isinstance(payload.get("request_id"), str)
             or not 1 <= len(payload["request_id"]) <= 100
+            or "reclaim" in expected
+            and (
+                payload["reclaim"] is not True
+                or not isinstance(payload["handoff_source"], str)
+                or not 1 <= len(payload["handoff_source"].strip()) <= 1000
+            )
         ):
             raise PortalDataError("pipeline_request_invalid", "请使用当前岗位操作。", 409)
         if action == "continue" and any(
@@ -1554,6 +1567,33 @@ class ApplicationPipeline:
                 if material_edit_pending(current_job):
                     raise PortalDataError(
                         "material_edit_needs_recheck", "材料编辑尚未完成，请保留原稿核验。", 409
+                    )
+                if current_job.get("handed_off") and payload.get("reclaim") is True:
+                    from .application_worker import manual_submission_unresolved
+
+                    if manual_submission_unresolved(current_job):
+                        raise PortalDataError(
+                            "submission_result_unknown",
+                            "人工提交结果仍未知，请保留原页继续观察；不会收回或重填。",
+                            409,
+                        )
+                    # The Worker's own user-confirmed recheck: a confirmed submission,
+                    # an unresolved action or a missing source still refuses it.
+                    self.flow.worker_action(
+                        task["id"],
+                        task["revision"],
+                        "recheck",
+                        {
+                            "reclaim": True,
+                            "handoff_source": payload["handoff_source"],
+                            "acknowledge": True,
+                        },
+                    )
+                    task = self._task(state)
+                    current_job = next(
+                        row
+                        for row in self.worker.snapshot()["jobs"]
+                        if row["application_id"] == task["application_id"]
                     )
                 if state.get("wait_reason") == "precision_adjustment":
                     item = next(row for row in state["items"] if row.get("task_id") == task["id"])
