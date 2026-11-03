@@ -78,14 +78,15 @@ def copy_cua_driver(resources: Path, driver: Path) -> dict:
             "bounded diagnosis, trusted clicks center an off-band target first, and main-frame "
             "hit tests use the input point; a delivered file may be proven by its name shown "
             "in the form item when the FileList is cleared, with a readback diagnosis otherwise; "
-            "that name is found again by stable container or form when the input is unmounted"
+            "that name is found again by stable container or form when the input is unmounted; "
+            "an expanded combobox may be clicked again to collapse it"
         ),
         # MC-10 successor source tree and its divergence from the sealed MC-06 source.
         "source_manifest_sha256": (
-            "33c3090b69ed58aac9d3e6741855d79287aab19a89a71b885508e3c6f4614333"
+            "ab3776136073d8bd3904432894e03466159289192bc15e8aa41d81095d50514c"
         ),
         "source_divergence_patch_sha256": (
-            "006ef40ab30cce5150eeed5711be2d92e743a763fd6727bcd34cf3ba42692347"
+            "eec3e664054184e9c19abe8bde066abd7c3743a35ec937e299aae9fbe3d9bef5"
         ),
         "build_profile": "release, signed with the pinned private identity",
         "additional_local_divergence": (
