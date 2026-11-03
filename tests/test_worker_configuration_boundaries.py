@@ -11,7 +11,12 @@ from test_application_worker import service as _service
 from test_generic_worker import URL
 from test_hosted_ats import LEVER, PDF
 
-from career_evidence_graph.application_worker import WorkerService, WorkerStore, start_run
+from career_evidence_graph.application_worker import (
+    WorkerService,
+    WorkerStore,
+    diagnostic_url,
+    start_run,
+)
 from career_evidence_graph.application_worker_browser import ApplicationRunner
 from career_evidence_graph.career_portal_data import ApplicationStore, PortalDataError
 
@@ -322,7 +327,8 @@ def test_disabled_generic_blocks_automatic_reads_and_preserves_manual_page(
         diagnostic = diagnostics[0]
         assert diagnostic["stage"] == "request_blocked"
         assert diagnostic["reason"] == "generic_disabled"
-        assert diagnostic["method"] == "GET" and diagnostic["url"] == URL
+        assert diagnostic["method"] == "GET"
+        assert (diagnostic["url"], diagnostic["query_keys"]) == diagnostic_url(URL)
         assert diagnostic["resource_type"] == "document"
         assert diagnostic["dispatch"] == "not_sent" and diagnostic["caused_stop"] is True
         assert diagnostic["intent"] == before["jobs"][0]["intent"]

@@ -17,7 +17,7 @@ import time
 from contextlib import nullcontext, suppress
 from copy import deepcopy
 from pathlib import Path
-from urllib.parse import urldefrag
+from urllib.parse import parse_qsl, urldefrag, urlsplit, urlunsplit
 from uuid import uuid4
 
 from . import application_takeover_record as takeover_record
@@ -1875,12 +1875,92 @@ def compact_native_runs(runs):
     return compacted
 
 
+SOURCE_SET_ROWS = ("materials", "material_history")
+
+
+def pack_source_sets(state: dict) -> dict:
+    """The stored form: each job keeps one copy of each material source list.
+
+    Every cover-letter attempt kept the same 1.4 MB ``source_binding.sources``
+    (329 career sources), four copies in one job (2026-11-04). Lossless and
+    in-file: rows keep ``{"source_set": key}`` and ``job["source_sets"][key]`` the
+    list. The caller's state is not changed.
+    """
+    jobs = []
+    for job in state.get("jobs", []):
+        sets, packed = {}, {}
+        for name in SOURCE_SET_ROWS:
+            rows = job.get(name)
+            if not isinstance(rows, list):
+                continue
+            out = []
+            for row in rows:
+                binding = row.get("source_binding") if isinstance(row, dict) else None
+                sources = binding.get("sources") if isinstance(binding, dict) else None
+                if isinstance(sources, list) and sources:
+                    key = hashlib.sha256(
+                        json.dumps(sources, sort_keys=True, separators=(",", ":")).encode()
+                    ).hexdigest()
+                    sets.setdefault(key, sources)
+                    row = {**row, "source_binding": {**binding, "sources": {"source_set": key}}}
+                out.append(row)
+            packed[name] = out
+        jobs.append({**job, **packed, "source_sets": sets} if sets else job)
+    return {**state, "jobs": jobs}
+
+
+def unpack_source_sets(state: dict) -> dict:
+    """Restore the rows' source lists from their job's ``source_sets`` (in place)."""
+    for job in state.get("jobs", []) if isinstance(state.get("jobs"), list) else []:
+        if not isinstance(job, dict) or "source_sets" not in job:
+            continue
+        sets = job.pop("source_sets")
+        if not isinstance(sets, dict):
+            raise ValueError("Invalid worker source sets.")
+        for name in SOURCE_SET_ROWS:
+            for row in job.get(name) or []:
+                binding = row.get("source_binding") if isinstance(row, dict) else None
+                ref = binding.get("sources") if isinstance(binding, dict) else None
+                if isinstance(ref, dict):
+                    if set(ref) != {"source_set"} or not isinstance(
+                        sets.get(ref["source_set"]), list
+                    ):
+                        raise ValueError("Invalid worker source set reference.")
+                    binding["sources"] = deepcopy(sets[ref["source_set"]])
+    return state
+
+
+def diagnostic_url(url):
+    """A request URL without credentials, query values or fragment, plus its query keys.
+
+    A presigned upload URL carries its signature in the query (onlyfy's S3 PUT,
+    2026-11-03); the diagnostic keeps where the request went, not the credential.
+    """
+    try:
+        parts = urlsplit(url)
+        host = parts.hostname or ""
+        netloc = f"{host}:{parts.port}" if parts.port else host
+        keys = sorted({key for key, _ in parse_qsl(parts.query, keep_blank_values=True)})
+        return urlunsplit((parts.scheme, netloc, parts.path, "", "")), keys
+    except (TypeError, ValueError):
+        return "", []
+
+
 def compact_observations(job: dict) -> None:
     """Bound routine request rows; keep stops, referenced rows and per-kind drop counts."""
     rows = job.get("observations")
     if not isinstance(rows, list):
         return
     for row in rows:
+        if (
+            isinstance(row, dict)
+            and row.get("action") == "request_diagnostic"
+            and isinstance(row.get("url"), str)
+            and ("?" in row["url"] or "#" in row["url"] or "@" in row["url"])
+        ):
+            # Rows written before query values were dropped (2026-11-04).
+            row["url"], keys = diagnostic_url(row["url"])
+            row.setdefault("query_keys", keys)
         if (
             isinstance(row, dict)
             and row.get("action") == "page_reopen_requested"
@@ -1989,6 +2069,34 @@ def unresolved_write_failure(event: dict, job: dict, state: dict) -> bool:
     )
 
 
+# Lower-case: a runtime cache, not a constant of the loaded-code fingerprint.
+_source_sha256_cache: dict = {}
+
+
+def _file_key(path):
+    """A file's identity for reuse: device, inode, size and nanosecond mtime, or None."""
+    try:
+        info = os.lstat(path)
+    except OSError:
+        return None
+    return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)
+
+
+def _file_sha256(path):
+    """A regular file's sha256, reused while its identity is unchanged; None if absent."""
+    path = Path(path)
+    if not path.is_file():
+        return None
+    key = _file_key(path)
+    known = _source_sha256_cache.get(path)
+    if key is not None and known is not None and known[0] == key:
+        return known[1]
+    value = hashlib.sha256(path.read_bytes()).hexdigest()
+    if key is not None and _file_key(path) == key:
+        _source_sha256_cache[path] = (key, value)
+    return value
+
+
 class WorkerStore:
     """One state document, the upstream answer store, and the original note writer."""
 
@@ -2058,7 +2166,25 @@ class WorkerStore:
                 raise ValueError("Keep live and synthetic worker stores separate.")
 
     def load(self) -> dict:
-        state = helper.read_json_object(self.path, "worker state")
+        """Read the validated checkpoint; a caller always gets its own copy.
+
+        An unchanged file is not parsed and validated again: the backend's 1 s queue
+        tick and the paused Worker's tick each re-read a 13 MB checkpoint, costing
+        78% and 34% CPU while nothing changed (2026-11-04).
+        """
+        key = _file_key(self.path)
+        cached = getattr(self, "_loaded", None)
+        if key is not None and cached is not None and cached[0] == key:
+            state = deepcopy(cached[1])
+            self.check_applications_root(state)
+            return state
+        state = self._read_checked()
+        if key is not None and _file_key(self.path) == key:
+            self._loaded = (key, deepcopy(state))
+        return state
+
+    def _read_checked(self) -> dict:
+        state = unpack_source_sets(helper.read_json_object(self.path, "worker state"))
         self.check_applications_root(state)
         if state.get("schemaVersion") != 1 or state.get("control") not in {
             "paused",
@@ -2271,7 +2397,7 @@ class WorkerStore:
         for job in state.get("jobs", []):
             compact_observations(job)
         try:
-            helper.atomic_write_json(self.path, state)
+            helper.atomic_write_json(self.path, pack_source_sets(state))
         except (OSError, ValueError, TypeError):
             self._last_write = None
             self.block_storage()
@@ -4428,7 +4554,7 @@ class WorkerService:
 
     def snapshot(self) -> dict:
         with self.store.applications.write_lock():
-            state = deepcopy(self.store.load())
+            state = self.store.load()
             if self.store.stop_reason():
                 state.update(control="paused", worker_error=self.store.stop_reason())
             state["enabled"] = True
@@ -4479,9 +4605,7 @@ class WorkerService:
                 "source_matches_disk": bool(
                     runtime
                     and all(
-                        (PUBLIC_ROOT / path).is_file()
-                        and hashlib.sha256((PUBLIC_ROOT / path).read_bytes()).hexdigest()
-                        == expected
+                        _file_sha256(PUBLIC_ROOT / path) == expected
                         for path, expected in runtime["source"]["files"].items()
                     )
                 ),

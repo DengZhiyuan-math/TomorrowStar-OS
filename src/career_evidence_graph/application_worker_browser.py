@@ -53,6 +53,7 @@ from .application_worker import (
     assistance_stop_pending,
     backend_recovery_timely,
     default_scope,
+    diagnostic_url,
     effective_action_results,
     handoff_binding,
     latest_action_resolutions,
@@ -1043,7 +1044,7 @@ class ApplicationRunner:
             "sequence": sequence,
             "stage": stage,
             "method": request.method,
-            "url": request.url,
+            **dict(zip(("url", "query_keys"), diagnostic_url(request.url), strict=True)),
             "resource_type": request.resource_type,
             "purpose": (
                 "public_read"
@@ -1085,14 +1086,19 @@ class ApplicationRunner:
                 self._native_upload_answer(record, stage, status)
             if stage == "response":
                 record["http_status"] = status
-            self.transports.append(
-                {
-                    **record,
-                    "stage": stage,
-                    "at": time.time(),
-                    **({"http_status": status} if status is not None else {}),
-                }
-            )
+            row = {
+                **record,
+                "stage": stage,
+                "at": time.time(),
+                **({"http_status": status} if status is not None else {}),
+            }
+            if stage == "requestfailed":
+                # ``http_status`` stays the earlier response's (an Ashby 204 ACK then
+                # ERR_ABORTED is acknowledged); the browser's reason is kept beside it,
+                # which a 200 S3 PUT followed by requestfailed lacked (2026-11-03).
+                with suppress(Exception):
+                    row["failure"] = str(request.failure or "")[:200]
+            self.transports.append(row)
             if stage in {"requestfinished", "requestfailed"}:
                 self.requests.pop(request, None)
 

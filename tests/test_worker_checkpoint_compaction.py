@@ -4,11 +4,15 @@ import json
 
 from test_workable_uploads import setup_service
 
+from career_evidence_graph._vendor import job_apply_store as helper
 from career_evidence_graph.application_worker import (
     ROUTINE_OBSERVATION_WINDOW,
     compact_native_runs,
     compact_observations,
+    diagnostic_url,
+    pack_source_sets,
     start_run,
+    unpack_source_sets,
 )
 
 
@@ -97,3 +101,88 @@ def test_save_compacts_the_record_and_reports_a_liveness_only_change(tmp_path, m
     assert not service.store.liveness_only(saved)
     service.store.save(saved)
     assert service.store.load()["worker_error"] == "synthetic_change"
+
+
+SOURCES = [{"evidence_id": f"source-{i}", "text": "x" * 100} for i in range(20)]
+
+
+def letter(identifier, sources=SOURCES):
+    return {
+        "id": identifier,
+        "kind": "cover_letter",
+        "source_binding": {"application": {"id": "a"}, "sources": json.loads(json.dumps(sources))},
+    }
+
+
+def test_repeated_material_sources_are_stored_once_and_restored_exactly(tmp_path, monkeypatch):
+    # 2026-11-04: four letter attempts kept the same 1.4 MB source list.
+    service = setup_service(tmp_path, monkeypatch)
+    start_run(service.store)
+    state = service.store.load()
+    job = state["jobs"][0]
+    other = [{"evidence_id": "other"}]
+    job["materials"] = [letter("current")]
+    job["material_history"] = [letter("old-1"), letter("old-2"), letter("old-3", other)]
+    expected = json.loads(json.dumps(state))
+    service.store.save(state)
+    # The caller's state is unchanged by the stored form.
+    assert state == expected
+    stored = json.loads(service.store.path.read_text())["jobs"][0]
+    assert len(stored["source_sets"]) == 2
+    assert all(
+        set(row["source_binding"]["sources"]) == {"source_set"}
+        for row in stored["material_history"]
+    )
+    loaded = service.store.load()
+    assert loaded["jobs"][0]["materials"] == expected["jobs"][0]["materials"]
+    assert loaded["jobs"][0]["material_history"] == expected["jobs"][0]["material_history"]
+    assert "source_sets" not in loaded["jobs"][0]
+    # A record without source sets (older form) loads unchanged.
+    assert unpack_source_sets(json.loads(json.dumps(expected))) == expected
+    packed = pack_source_sets(expected)
+    packed["jobs"][0]["source_sets"] = {}
+    try:
+        unpack_source_sets(json.loads(json.dumps(packed)))
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("a dangling source-set reference must not load")
+
+
+def test_an_unchanged_checkpoint_is_not_parsed_again_and_each_load_is_a_copy(tmp_path, monkeypatch):
+    # 2026-11-04: a 1 s queue tick re-parsed a 13 MB checkpoint while paused (78% CPU).
+    service = setup_service(tmp_path, monkeypatch)
+    start_run(service.store)
+    reads = []
+    original = helper.read_json_object
+
+    def counted(path, label):
+        reads.append(label)
+        return original(path, label)
+
+    monkeypatch.setattr(helper, "read_json_object", counted)
+    first = service.store.load()
+    second = service.store.load()
+    assert reads.count("worker state") == 1
+    assert first == second and first is not second
+    first["jobs"][0]["status"] = "cancelled"
+    assert service.store.load()["jobs"][0]["status"] != "cancelled"
+    second["worker_error"] = "synthetic_change"
+    service.store.save(second)
+    assert service.store.load()["worker_error"] == "synthetic_change"
+    assert reads.count("worker state") == 2
+
+
+def test_diagnostic_rows_keep_no_query_values_or_credentials():
+    url = "https://user:secret@bucket.s3.example/uploads/a.pdf?X-Amz-Signature=abc&X-Amz-Expires=600#f"
+    assert diagnostic_url(url) == (
+        "https://bucket.s3.example/uploads/a.pdf",
+        ["X-Amz-Expires", "X-Amz-Signature"],
+    )
+    assert diagnostic_url("https://host:8443/p") == ("https://host:8443/p", [])
+    job = {"observations": [{**routine("old"), "url": url}]}
+    compact_observations(job)
+    row = job["observations"][0]
+    assert "secret" not in json.dumps(row) and "abc" not in json.dumps(row)
+    assert row["url"] == "https://bucket.s3.example/uploads/a.pdf"
+    assert row["query_keys"] == ["X-Amz-Expires", "X-Amz-Signature"]

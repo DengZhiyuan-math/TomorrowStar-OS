@@ -2490,7 +2490,15 @@ class CuaDriver:
                     if cause is not None:
                         self._lose_owner(cause)
                         return
-                    raise
+                    # Retried on the next tick. Raising here let the caller turn one
+                    # transient refusal into a shared fault that demoted a job waiting
+                    # for the user's Submit (2026-11-03, 22:56).
+                    print(
+                        f"cua_owner_retry: {error.code} {self._owner_failures}/"
+                        f"{OWNER_READ_RETRIES} {str(error)[:200]}",
+                        flush=True,
+                    )
+                    return
                 self._owner_failures = 0
         finally:
             self._maintaining = False

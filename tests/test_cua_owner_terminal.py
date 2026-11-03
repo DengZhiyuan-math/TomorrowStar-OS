@@ -57,6 +57,11 @@ def test_a_read_that_fails_the_client_is_terminal_at_once(capsys):
 
 
 def test_transient_owner_read_failures_retry_then_become_terminal(capsys):
+    """A transient failure returns and is retried on the next tick; it never raises.
+
+    2026-11-03: the raise let the tick turn one ``cua_refused`` into a shared fault
+    that demoted a job waiting for the user's Submit.
+    """
     client, outcomes = Client(), []
 
     def keep_owner(*, pump):
@@ -66,17 +71,15 @@ def test_transient_owner_read_failures_retry_then_become_terminal(capsys):
     cua = driver(client, keep_owner)
     # A recovered read resets the count.
     outcomes.extend([True, True, False])
-    for _ in range(2):
-        with pytest.raises(PortalDataError):
-            cua.maintain(pump=lambda: None)
-    cua.maintain(pump=lambda: None)
+    for _ in range(3):
+        cua.maintain(pump=lambda: None)
     assert cua.owner_lost is None
     outcomes.extend([True] * OWNER_READ_RETRIES)
-    for _ in range(OWNER_READ_RETRIES - 1):
-        with pytest.raises(PortalDataError):
-            cua.maintain(pump=lambda: None)
-    cua.maintain(pump=lambda: None)
+    for _ in range(OWNER_READ_RETRIES):
+        cua.maintain(pump=lambda: None)
     assert cua.owner_lost == "cua_refused"
     cua.maintain(pump=lambda: None)
     assert outcomes == []
-    assert capsys.readouterr().out.count("cua_owner_lost") == 1
+    out = capsys.readouterr().out
+    assert out.count("cua_owner_lost") == 1
+    assert out.count("cua_owner_retry: cua_refused") == 2 + OWNER_READ_RETRIES - 1

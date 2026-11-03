@@ -298,9 +298,9 @@ def test_runtime_history_freshness_and_managed_exit(service, monkeypatch):
 def test_startup_manifest_is_retained_when_disk_changes(service, monkeypatch):
     start_run(service.store)
     original = deepcopy(service.store.load()["runtime"]["source"])
+    # The disk read is reused while a file's stat is unchanged; a changed file reads anew.
     monkeypatch.setattr(
-        "career_evidence_graph.application_worker.hashlib.sha256",
-        lambda *args: SimpleNamespace(hexdigest=lambda: "changed"),
+        "career_evidence_graph.application_worker._file_sha256", lambda path: "changed"
     )
     state = service.snapshot()
     assert state["runtime"]["source"] == original

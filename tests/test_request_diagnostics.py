@@ -11,7 +11,7 @@ from test_workable_uploads import local_transport as local_transport
 from test_workable_uploads import setup_service
 from test_worker_stability import retained_live_page as retained_live_page
 
-from career_evidence_graph.application_worker import WorkerStore, start_run
+from career_evidence_graph.application_worker import WorkerStore, diagnostic_url, start_run
 from career_evidence_graph.application_worker_browser import ApplicationRunner
 from career_evidence_graph.career_portal_data import PortalDataError
 
@@ -53,7 +53,9 @@ def test_rejected_request_survives_reopen_with_original_field_attempt(tmp_path, 
     assert len(rows) == 1, "The denied request disappeared from the durable worker checkpoint"
     record = rows[0]
     assert record["stage"] == "request_blocked"
-    assert record["method"] == "POST" and record["url"] == request.url
+    # Query values (a presigned signature) are not kept; their keys are (2026-11-04).
+    assert record["method"] == "POST"
+    assert (record["url"], record["query_keys"]) == diagnostic_url(request.url)
     assert record["resource_type"] == "fetch"
     assert record["dispatch"] == "not_sent" and record["purpose"] == "unknown"
     assert record["reason"] == "unverified_send_path"
