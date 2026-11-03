@@ -229,6 +229,7 @@ def _validate_assistance_page_context(value, expected_ref):
             "files",
             "locator_hint",
             "material_target",
+            "question",
         }
         for row in data["fields"]
     ):
@@ -242,7 +243,7 @@ def _validate_assistance_page_context(value, expected_ref):
             validate_native_material_target(field["material_target"])
         if any(
             not isinstance(field[k], str) or len(field[k]) > 4000
-            for k in ("id", "name", "type", "role", "label", "value")
+            for k in ("id", "name", "type", "role", "label", "value", "question")
             if k in field
         ):
             raise ValueError("Invalid original-page field text")
@@ -318,6 +319,33 @@ def _validate_assistance_page_context(value, expected_ref):
         for row in data["fields"]
     ):
         raise ValueError("Password values cannot be delivered")
+
+
+# Section headings an ATS joins into a personal control's accessible label
+# ("Personal details Salutation", onlyfy 2026-11-03). Other sections, such as an
+# emergency or reference contact, keep their own question identity.
+_PERSONAL_SECTIONS = (
+    "personal details",
+    "personal information",
+    "personal data",
+    "contact details",
+    "contact information",
+    "persönliche angaben",
+    "persönliche daten",
+    "kontaktdaten",
+)
+
+
+def _native_label_fact(text, information_fact):
+    """Map one label; a known personal-section heading before it is not the question."""
+    fact = information_fact(text)
+    if fact.startswith("question:"):
+        normalized = helper.normalize_question(text)
+        for section in _PERSONAL_SECTIONS:
+            if normalized.startswith(section + " "):
+                stripped = information_fact(normalized[len(section) + 1 :])
+                return fact if stripped.startswith("question:") else stripped
+    return fact
 
 
 def _validate_native_answers(answers):
@@ -2826,10 +2854,16 @@ class WorkerStore:
                 continue
             label = field.get("label") or ""
             name = field.get("name") or field.get("id") or ""
-            candidate = label or name.replace("_", " ")
-            if not candidate.strip() or not helper.normalize_question(candidate):
+            # A choice's own text ("Yes") is an option; its group's question is the fact.
+            candidates = [
+                text
+                for text in (field.get("question") or "", label, name.replace("_", " "))
+                if text.strip() and helper.normalize_question(text)
+            ]
+            if not candidates:
                 continue
-            fact = information_fact(candidate)
+            facts = [_native_label_fact(text, information_fact) for text in candidates]
+            fact = next((f for f in facts if not f.startswith("question:")), facts[0])
             if not label and name in CONTACT_FACTS:
                 fact = name
             selected.setdefault(fact, []).append(field.get("id", ""))

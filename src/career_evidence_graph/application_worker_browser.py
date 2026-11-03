@@ -108,6 +108,16 @@ INSPECT_ASSISTANCE_CONTEXT = (
     data.fields.forEach((field,index)=> {
       const e=controls[index];
       field.role=(e.getAttribute('role')||'').slice(0,200);
+      if(['radio','checkbox'].includes(field.type)) {
+        // A choice's own label is its option ("Yes"); the group carries the question.
+        const group=e.closest('[role=radiogroup],[role=group],fieldset');
+        const text=e.getAttribute('description')||(group?.getAttribute('aria-labelledby')||'')
+          .split(/\s+/).filter(Boolean).map(id=>document.getElementById(id)?.textContent||'')
+          .join(' ')||group?.getAttribute('aria-label')||
+          group?.querySelector('legend')?.textContent||'';
+        const question=text.replace(/[✱*]/g,'').trim().replace(/\s+/g,' ').slice(0,4000);
+        if(question) field.question=question;
+      }
       const tag=e.tagName.toLowerCase(),type=tag==='textarea'?'textarea':String(e.type||'');
       if(tag==='textarea'||tag==='input'&&['text','file'].includes(type)) {
         try {

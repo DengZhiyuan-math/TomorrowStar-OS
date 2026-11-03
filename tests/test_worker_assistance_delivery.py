@@ -400,3 +400,64 @@ def test_same_document_completion_from_an_earlier_form_step_is_historical(claime
     assert completed["status"] == "historical_verified"
     assert completed["current_scope"] is False
     assert completed["scope"]["form_binding"]["step"] == "previous-form-step"
+
+
+def test_native_answers_map_section_prefixed_labels_and_choice_groups(
+    retained_assistance_page, monkeypatch
+):
+    """onlyfy joins the section heading into a control's label and a radio's label is
+    its option text (2026-11-03: saved salutation, country and consent were missing)."""
+    from test_application_information import answer
+    from test_worker_native_assistance import claim_native
+
+    from career_evidence_graph._vendor import job_apply_store as helper
+
+    service, identifier = retained_assistance_page
+    native, ref = claim_native(service, identifier, monkeypatch)
+    consent = "I consent to my data being passed on to other companies of the Group"
+    helper.atomic_write_json(
+        native.store.answers.root / "answers.json",
+        {
+            "schemaVersion": 1,
+            "answers": dict(
+                [
+                    answer("Salutation", "Ms"),
+                    answer("Country of residence", "Switzerland"),
+                    answer("Email", "saved@example.invalid"),
+                    answer(consent, "Yes"),
+                ]
+            ),
+            "metadata": {},
+        },
+    )
+
+    def control(identifier, label, kind="combobox", **extra):
+        return {"id": identifier, "type": kind, "label": label, "value": "", **extra}
+
+    context = page_context(native, ref)
+    context["data"]["fields"] = [
+        control("salutation", "Personal details Salutation"),
+        control("country", "Personal details Country of residence"),
+        # Only a known personal heading is dropped; another contact keeps its identity.
+        control("emergency", "Emergency contact Email", "email"),
+        control("consent-yes", "Yes", "radio", name="questions[cf_1]", question=consent),
+        control("consent-no", "No", "radio", name="questions[cf_1]", question=consent),
+        # A choice without its group question stays an unknown question.
+        control("lone", "Yes", "radio", name="questions[cf_2]"),
+    ]
+    facts = {
+        row["fact"]: row
+        for row in native.assistance_delivery(identifier, ref, page_context=context)["answers"][
+            "facts"
+        ]
+    }
+    assert facts["salutation"]["field_ids"] == ["salutation"]
+    assert facts["salutation"]["status"] == "confirmed"
+    assert facts["country_of_residence"]["field_ids"] == ["country"]
+    assert facts["country_of_residence"]["status"] == "confirmed"
+    assert facts["data_processing_consent"]["field_ids"] == ["consent-yes", "consent-no"]
+    assert facts["data_processing_consent"]["status"] == "confirmed"
+    assert facts["question:emergency contact email"]["status"] == "missing"
+    assert facts["question:yes"]["field_ids"] == ["lone"]
+    assert facts["question:yes"]["status"] == "missing"
+    assert "email" not in facts
