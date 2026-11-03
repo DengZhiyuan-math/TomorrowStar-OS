@@ -73,14 +73,15 @@ def copy_cua_driver(resources: Path, driver: Path) -> dict:
             "option clicks with proven owner and read-back; hidden file inputs exposed for "
             "upload only; combobox expand clicks name the shown value, and refusals before "
             "admission are ledger rows; core refusals after admission name their reason, "
-            "and a popup-hidden combobox trigger reads back its DOM expanded state"
+            "and a popup-hidden combobox trigger reads back its DOM expanded state; "
+            "core refusal reason codes survive the SDK projection"
         ),
         # MC-10 successor source tree and its divergence from the sealed MC-06 source.
         "source_manifest_sha256": (
-            "2303d8e0fbbd5e550cae2970603fdf3ade1aa0cfe9d21143807a02fa788bdf14"
+            "3f3af85f313434b6d8249369683e631a889e0db86d2b6abe7a0ed3a615fb8945"
         ),
         "source_divergence_patch_sha256": (
-            "06c908a0b34ea776dd2adada1bee440284474762e764149495b3317812ccc016"
+            "0ec8fd0dd78d279d824b3e124eda8b74287f22ab373bcc0740105b6ded7489de"
         ),
         "build_profile": "release, signed with the pinned private identity",
         "additional_local_divergence": (
