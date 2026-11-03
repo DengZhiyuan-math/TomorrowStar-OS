@@ -753,6 +753,25 @@ class SupplementalMaterials:
             if (
                 found
                 and found.get("status") == "failed"
+                and found.get("error_code")
+                in {"letter_template_required", "letter_template_invalid"}
+            ):
+                # A missing or invalid template stopped this letter before any build.
+                # Once a template is readable the letter is prepared again and the
+                # failed attempt retires to history; until then it stays failed.
+                try:
+                    read_cover_letter_template(self.store, self._application(job))
+                except PortalDataError as error:
+                    if error.code not in {"letter_template_required", "letter_template_invalid"}:
+                        raise
+                    pending = pending or requirements["requirement"] == "required"
+                    reason = error.code
+                    continue
+                replacement = digest(found)
+                found = None
+            if (
+                found
+                and found.get("status") == "failed"
                 and found.get("error_code") in KNOWN_COVER_LETTER_PDF_FAILURES
             ):
                 pending = pending or requirements["requirement"] == "required"

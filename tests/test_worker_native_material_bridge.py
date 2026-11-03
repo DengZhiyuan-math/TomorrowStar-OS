@@ -874,3 +874,46 @@ def test_unparsed_cover_letter_destination_is_proven_or_refused(
     assert error.value.code == code
     assert error.value.condition == condition
     assert service.store.path.read_bytes() == before
+
+
+@pytest.mark.parametrize("template_now", [True, False])
+def test_a_letter_failed_for_its_template_is_prepared_again_once_one_is_readable(
+    bound_material_page, template_now
+):
+    """2026-11-03: the backend gained its template; the job kept letter_template_required."""
+    service, _, _ = bound_material_page
+    template = service.store.cover_letter_template
+    letter_exporter(service)
+    runner = ApplicationRunner(service.store, None)
+    state = service.store.load()
+    job = state["jobs"][0]
+    page = ContextPage(letter_fields(["Upload your CV", "Cover letter"]))
+    runner.pages[job["application_id"]] = page
+    runner.page_ids[page] = job["page_observation"]["page_id"]
+    state["jobs"][0]["form_state"]["snapshot"] = {"fields": []}
+    service.store.save(state)
+
+    service.store.cover_letter_template = None
+    runner._prepare_native_cover_letter(job, state["batch_id"], page)
+    failed = service.store.load()["jobs"][0]
+    assert failed["cover_letter_delivery"]["status"] == "failed"
+    assert failed["cover_letter_delivery"]["reason"] == "letter_template_required"
+    original = failed["materials"][0]
+    assert (original["status"], original["error_code"]) == ("failed", "letter_template_required")
+
+    if template_now:
+        service.store.cover_letter_template = template
+    runner._prepare_native_cover_letter(failed, state["batch_id"], page)
+    job = service.store.load()["jobs"][0]
+    if not template_now:
+        # Still no template: the failed attempt stays as it was.
+        assert job["materials"] == [original]
+        assert job["cover_letter_delivery"]["reason"] == "letter_template_required"
+        assert not job.get("material_history")
+        return
+    letter = job["materials"][0]
+    assert letter["status"] == "ready" and letter["id"] != original["id"]
+    assert letter["filename"] == "cover-letter.pdf"
+    # The failed attempt retires to history; it is not overwritten.
+    assert job["material_history"][-1] == original
+    assert job["cover_letter_delivery"]["status"] == "ready"

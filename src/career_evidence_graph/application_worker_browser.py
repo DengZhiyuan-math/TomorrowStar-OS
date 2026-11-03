@@ -5463,9 +5463,14 @@ class ApplicationRunner:
             ) as exc:
                 page = self.pages.get(job["application_id"])
                 code = getattr(exc, "code", None)
-                if code == "unsupported_structure" and page is not None and not page.is_closed():
+                if (
+                    code in {"unsupported_structure", "unsupported_attachments"}
+                    and page is not None
+                    and not page.is_closed()
+                ):
                     # The native takeover that follows needs the page's letter ready
-                    # before its reference binds the job's materials.
+                    # before its reference binds the job's materials. A page with more
+                    # file inputs than the script reads stops as unsupported_attachments.
                     self._prepare_native_cover_letter(job, batch_id, page)
                 self.update(
                     job,
