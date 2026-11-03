@@ -37,7 +37,7 @@ from .worker_process_identity import (
 
 # Reviewed release build of the restricted-metadata native successor, signed with the
 # pinned private identity. A version string alone cannot admit it.
-_NATIVE_HANDOFF_DRIVER_SHA256 = "2a5792ac7bb50c0da87d88824f6894f36f4f280a18ccbb1b063bd5d0c4811fa5"
+_NATIVE_HANDOFF_DRIVER_SHA256 = "93467193af9fb39c40cbe745cabe893ca5f404b56ccd94fa20a1b7027558b7b2"
 # The App bundles one cua-driver, so the script route admits the same reviewed bytes.
 _OWNED_DRIVER_SHA256 = _NATIVE_HANDOFF_DRIVER_SHA256
 NATIVE_HANDOFF_PROTOCOL = "cua-trusted-handoff/v1"

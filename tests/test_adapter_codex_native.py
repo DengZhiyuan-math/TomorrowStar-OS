@@ -1564,7 +1564,10 @@ def test_native_final_report_is_bound_to_the_active_turn(tmp_path, monkeypatch):
         # Non-text controls use the DOM set_value tool; only unsupported ones return.
         assert "with browser_set_value" in instructions
         assert "browser_deliver_material" in instructions
-        assert "none of these tools supports" in instructions
+        # r6: custom comboboxes by two clicks, the CV through its upload ref.
+        assert "option whose name equals the supplied confirmed answer" in instructions
+        assert "actions include upload" in instructions
+        assert "Claim ready_for_review only when" in instructions
         current = settle(adapter, run, config)
         assert current.native_turn_status == "completed"
         report = current.report

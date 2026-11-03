@@ -44,6 +44,36 @@ SET_VALUE = dict(
     field_hint={"role": "checkbox", "name": "I agree"},
     text_sha256="b" * 64,
 )
+# r6: an option click names only its option; the owning combobox is the previous row.
+OPTION = dict(CLICK, call_id="option-1", sequence=2, field_hint={"role": "option", "name": "Mr."})
+# r6: a hidden file input is listed as an upload-only ref (AX role button, css_hidden).
+HIDDEN_UPLOAD = dict(
+    {k: v for k, v in CLICK.items() if k != "field_hint"},
+    call_id="upload-1",
+    tool="browser_deliver_material",
+    sequence=3,
+    native_ref="ref-file",
+    field_hint={"role": "button", "name": "file"},
+    material_ref="c" * 64,
+    target_descriptor={
+        "tag": "input",
+        "type": "file",
+        "id": "",
+        "name": "",
+        "worker_field": "",
+        "label": "",
+        "accept": ".pdf",
+        "draft_path": "",
+        "required": False,
+        "disabled": False,
+        "readonly": False,
+        "value_empty": True,
+        "multiple": False,
+        "frame": "main",
+        "max_length": None,
+        "file_count": 0,
+    },
+)
 STATUS = {
     "handoff_id": "handoff",
     "generation": 1,
@@ -99,6 +129,9 @@ def test_grant_and_status_are_the_two_receipt_forms():
     assert validate_handoff_receipt(STATUS) == STATUS
     with_set_value = changed(calls=[CLICK, READ, SET_VALUE])
     assert validate_handoff_receipt(with_set_value) == with_set_value
+    r6 = changed(calls=[CLICK, OPTION, HIDDEN_UPLOAD])
+    assert validate_handoff_receipt(r6) == r6
+    assert worker._native_handoff_receipt(r6) == r6
     assert worker._native_handoff_receipt(grant) == grant
     with pytest.raises(PortalDataError):
         worker._native_handoff_receipt(dict(grant, yielded=True))

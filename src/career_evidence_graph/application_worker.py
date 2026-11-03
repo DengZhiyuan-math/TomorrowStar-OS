@@ -842,6 +842,21 @@ def valid_assistance(assistance, application_id):
     )
 
 
+def native_unparsed_resume_resolution(job, call):
+    """A sealed resume for a page the script parsed to zero questions (no field intent).
+
+    Such a page has no prepared question to carry a send intent, so the Worker admits
+    only the job's own bound resume bytes; the ledger row itself is the attempt record.
+    """
+    resolution = call.get("material_resolution") or {}
+    return bool(
+        not ((job.get("form_state") or {}).get("snapshot") or {}).get("fields")
+        and resolution.get("kind") == "file"
+        and resolution.get("sha256") == job.get("file_sha256")
+        and resolution.get("filename") == job.get("filename")
+    )
+
+
 def takeover_pending_intent(job):
     """The exact unknown intent a current takeover carries, or None; it is never cleared here."""
     ref = ((job.get("assistance") or {}).get("dispatch") or {}).get("pending_intent_ref")
@@ -2726,6 +2741,7 @@ class WorkerStore:
                         call["tool"] == "browser_deliver_material"
                         and "material_resolution" in call
                         and not protected_call
+                        and not native_unparsed_resume_resolution(job, call)
                         and (old_call or {}).get("material_resolution")
                         != call["material_resolution"]
                     ):

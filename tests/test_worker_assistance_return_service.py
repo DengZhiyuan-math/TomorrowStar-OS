@@ -165,8 +165,21 @@ def select_country(page):
 
 @pytest.fixture
 def returning(native_page, monkeypatch):
+    from test_application_information import answer
+
+    from career_evidence_graph._vendor import job_apply_store as helper
+
     service, runner, page, ref, calls, _ = native_page
     page.fields = baseline_fields()
+    # r6: a combobox click is admitted only for a delivered confirmed answer.
+    helper.atomic_write_json(
+        service.store.answers.root / "answers.json",
+        {
+            "schemaVersion": 1,
+            "answers": dict([answer("Country", "Switzerland"), answer("Team", "Engineering")]),
+            "metadata": {},
+        },
+    )
     original = page.context.new_cdp_session
 
     def session(target):

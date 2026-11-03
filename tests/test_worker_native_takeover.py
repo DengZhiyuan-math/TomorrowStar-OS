@@ -530,6 +530,102 @@ def test_native_set_value_admits_a_radio_option_through_its_delivered_control(
     assert admitted == [allowed]
 
 
+@pytest.mark.parametrize(
+    ("steps", "allowed"),
+    [
+        # r6: a combobox whose AX name maps to one delivered confirmed fact may open.
+        ([("combobox", "Salutation *")], [True]),
+        ([("combobox", "Favourite colour")], [False]),
+        # Its option is admitted only after that observed click, by the exact answer.
+        ([("combobox", "Salutation"), ("option", " mr. ")], [True, True]),
+        ([("combobox", "Salutation"), ("option", "Ms.")], [True, False]),
+        # No owning combobox click precedes the option.
+        ([("option", "Mr.")], [False]),
+    ],
+)
+def test_native_click_admits_a_delivered_combobox_and_its_confirmed_option(
+    native_page, monkeypatch, steps, allowed
+):
+    from test_application_information import answer
+
+    from career_evidence_graph._vendor import job_apply_store as helper
+
+    service, runner, page, ref, calls, _ = native_page
+    page.field_value = ""
+    helper.atomic_write_json(
+        service.store.answers.root / "answers.json",
+        {"schemaVersion": 1, "answers": dict([answer("Salutation", "Mr.")]), "metadata": {}},
+    )
+    delivery_for_page = service.store.assistance_delivery
+
+    def with_combobox(expected_ref, *, page_context=None):
+        page_context = deepcopy(page_context)
+        page_context["data"]["fields"].append(
+            {
+                "id": "salutation",
+                "label": "Salutation",
+                "type": "combobox",
+                "role": "combobox",
+                "value": "",
+            }
+        )
+        return delivery_for_page(expected_ref, page_context=page_context)
+
+    monkeypatch.setattr(service.store, "assistance_delivery", with_combobox)
+    admitted = []
+
+    class Adapter:
+        def start_takeover(self, original, **kwargs):
+            kwargs["before_yield"](
+                {
+                    "application_ref_digest": digest(ref),
+                    "scope": kwargs["native_scope"],
+                    "request_id": kwargs["request_id"],
+                }
+            )
+            kwargs["after_yield"](
+                {"handoff_id": "native-run", "generation": 1, "local_tools_drained": True}
+            )
+            ledger = []
+            for sequence, (role, name) in enumerate(steps, start=1):
+                call = {
+                    "call_id": f"native-click-{sequence}",
+                    "tool": "browser_click",
+                    "arguments_digest": "b" * 64,
+                    "status": "awaiting_host",
+                    "generation": 1,
+                    "sequence": sequence,
+                    "mutation": True,
+                    "semantic_verified": False,
+                    "scope": kwargs["native_scope"],
+                    "native_ref": f"ref-{sequence}",
+                    "field_hint": {"role": role, "name": name},
+                }
+                kwargs["after_yield"](
+                    {
+                        "handoff_id": "native-run",
+                        "generation": 1,
+                        "phase": "active",
+                        "revoked": False,
+                        "active_calls": 0,
+                        "local_tools_drained": True,
+                        "return_ready": False,
+                        "calls": [*ledger, call],
+                    }
+                )
+                admitted.append(kwargs["before_native_call"](deepcopy(call)))
+                ledger.append({**call, "status": "observed" if admitted[-1] else "not_sent"})
+            return SimpleNamespace(run_id="adapter-native-run")
+
+        def progress(self, run_id):
+            return SimpleNamespace(status="ready", tools_revoked=False)
+
+    runner.codex_assist = Adapter()
+    runner._service_assistance_stop = lambda: None
+    runner.start_native_assistance(ref, request_id="native-click")
+    assert admitted == allowed
+
+
 @pytest.mark.parametrize("change", ["unchanged", "pause", "page_replaced", "expired_owner"])
 def test_native_control_pump_keeps_progress_while_renderer_scope_read_is_busy(
     native_page, monkeypatch, change

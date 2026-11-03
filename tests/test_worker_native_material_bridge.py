@@ -435,3 +435,164 @@ def test_recorded_ordinary_material_completion_also_prevents_native_replay(mater
 
     assert failure.value.code == "recovered_result_not_visible"
     assert service.store.path.read_bytes() == before
+
+
+def unparsed_resume_call(service, reference, context, label):
+    """A page the script parsed to zero questions, with one hidden resume file input."""
+    target = {
+        "frame": "main",
+        "worker_field": "",
+        "draft_path": "",
+        "id": "",
+        "name": "",
+        "tag": "input",
+        "type": "file",
+        "label": label,
+        "required": False,
+        "disabled": False,
+        "readonly": False,
+        "accept": ".pdf,.doc,.docx",
+        "multiple": False,
+        "max_length": None,
+        "file_count": 0,
+        "value_empty": True,
+    }
+    context["data"]["fields"] = [
+        {"id": "", "type": "file", "label": label, "value": "", "material_target": target},
+        {"id": "first", "type": "text", "label": "First name", "value": ""},
+    ]
+    catalog = service.store.assistance_delivery(reference, page_context=context)["materials"]
+    call = material_call()
+    call.update(
+        material_ref=next(row for row in catalog if row["kind"] == "resume")["material_ref"],
+        target_descriptor=deepcopy(target),
+        field_hint={"role": "button", "name": label or "file"},
+    )
+    call["scope"]["expected_document"] = deepcopy(context["document"])
+    return call
+
+
+@pytest.mark.parametrize(
+    ("label", "accepted"),
+    [
+        ("Upload your CV", True),
+        ("Lebenslauf *", True),
+        # Preparation owns field meaning: no resume into a cover-letter or unnamed input.
+        ("Cover letter", False),
+        ("CV and cover letter", False),
+        ("Certificates", False),
+        ("", False),
+    ],
+)
+def test_runner_resolves_the_resume_on_a_page_without_script_questions(
+    bound_material_page, label, accepted
+):
+    service, _, issue = bound_material_page
+    reference, context = issue([], prepare=False)
+    call = unparsed_resume_call(service, reference, context, label)
+    runner = ApplicationRunner(service.store, None)
+    before = service.store.path.read_bytes()
+
+    if not accepted:
+        with pytest.raises(PortalDataError) as error:
+            runner._resolve_native_material_call(reference, call, context)
+        assert error.value.code in {"material_field_changed", "material_destination_unverified"}
+        assert service.store.path.read_bytes() == before
+        return
+    resolved = runner._resolve_native_material_call(reference, call, context)
+    job = service.store.load()["jobs"][0]
+    assert resolved["question"] is None
+    assert resolved["material_id"] == "resume"
+    assert resolved["sha256"] == job["file_sha256"]
+    assert service.store.path.read_bytes() == before
+
+
+@pytest.mark.parametrize("change", ["second_file", "attached", "document", "cover_letter_ref"])
+def test_runner_refuses_an_unproven_resume_destination_without_questions(
+    bound_material_page, change
+):
+    service, _, issue = bound_material_page
+    reference, context = issue([], prepare=False)
+    call = unparsed_resume_call(service, reference, context, "Upload your CV")
+    if change == "second_file":
+        context["data"]["fields"].append(
+            dict(deepcopy(context["data"]["fields"][0]), label="Other document")
+        )
+        context["data"]["fields"][-1]["material_target"]["label"] = "Other document"
+    elif change == "attached":
+        call["target_descriptor"].update(value_empty=False, file_count=1)
+        context["data"]["fields"][0]["material_target"].update(value_empty=False, file_count=1)
+    elif change == "document":
+        call["scope"]["expected_document"]["loader_id"] = "other-loader"
+    else:
+        catalog = service.store.assistance_delivery(reference, page_context=context)["materials"]
+        call["material_ref"] = next(
+            (row["material_ref"] for row in catalog if row["kind"] != "resume"), "d" * 64
+        )
+    with pytest.raises(PortalDataError):
+        ApplicationRunner(service.store, None)._resolve_native_material_call(
+            reference, call, context
+        )
+
+
+def test_unparsed_resume_delivery_journals_the_ledger_row_as_its_only_attempt(
+    bound_material_page,
+):
+    from test_worker_native_assistance import prepare_journal
+
+    from career_evidence_graph.application_worker_browser import native_resume_delivered
+
+    service, _, issue = bound_material_page
+    reference, context = issue([], prepare=False)
+    call = unparsed_resume_call(service, reference, context, "Upload your CV")
+    scope = prepare_journal(service, reference)
+    call["scope"] = {
+        "target_id": scope["native_scope"]["target_id"],
+        "tab_id": scope["native_scope"]["tab_id"],
+        "expected_document": scope["document"],
+    }
+    context["document"] = deepcopy(scope["document"])
+    grant = {"handoff_id": "material-handoff", "generation": 1, "local_tools_drained": True}
+    service.store.record_native_handoff(
+        reference, request_id="journal-run", phase="granted", scope=scope, receipt=grant
+    )
+    service.store.record_native_handoff(
+        reference,
+        request_id="journal-run",
+        phase="granted",
+        scope=scope,
+        receipt=dict(receipt(call), active_calls=0, local_tools_drained=True),
+    )
+    payload = ApplicationRunner(service.store, None)._prepare_native_material_call(
+        reference,
+        call,
+        context,
+        request_id="journal-run",
+        scope=scope,
+        receipt=receipt(call),
+    )
+    job = service.store.load()["jobs"][0]
+    assert job.get("intent") is None
+    assert payload["sha256"] == job["file_sha256"]
+    manifest = {k: v for k, v in payload.items() if k != "bytes_base64"}
+    observed = dict(
+        call,
+        status="observed",
+        material_resolution=manifest,
+        material_readback={
+            "kind": "file_list",
+            "sha256": manifest["sha256"],
+            "size_bytes": manifest["size_bytes"],
+            "filename": manifest["filename"],
+            "file_count": 1,
+        },
+    )
+    service.store.record_native_handoff(
+        reference,
+        request_id="journal-run",
+        phase="granted",
+        scope=scope,
+        receipt=dict(receipt(observed), active_calls=0, local_tools_drained=True),
+    )
+    job = service.store.load()["jobs"][0]
+    assert native_resume_delivered(job, scope["document"])

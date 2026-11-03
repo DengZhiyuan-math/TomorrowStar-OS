@@ -124,6 +124,9 @@ def _native_polarity(text):
     return None
 
 
+# A resume file input's own name, on a page whose script found no questions.
+NATIVE_RESUME_LABEL = re.compile(r"\b(?:cv|resume|résumé|curriculum vitae|lebenslauf)\b")
+
 NATIVE_DONE_STATES = frozenset(
     {
         "filled",
@@ -181,7 +184,12 @@ def native_remaining_message(claimed, fields, verification):
 
 def native_control_fact_values(delivery, field_hint):
     """Return the one confirmed fact value bound to the AX-named control, else []."""
-    name = str(field_hint.get("name") or "").strip().casefold()
+
+    # A required marker or line break in the AX name or label does not change the field.
+    def label(text):
+        return " ".join(re.sub(r"[✱*]", " ", str(text or "")).split()).casefold()
+
+    name = label(field_hint.get("name"))
     role = str(field_hint.get("role") or "").strip().casefold()
     if not name or role not in {"radio", "checkbox", "combobox", "date", "textbox"}:
         return []
@@ -189,8 +197,7 @@ def native_control_fact_values(delivery, field_hint):
     ids = [
         field.get("id")
         for field in fields
-        if str(field.get("label") or "").strip().casefold() == name
-        and _native_control_kind(field) == role
+        if label(field.get("label")) == name and _native_control_kind(field) == role
     ]
     facts = (delivery.get("answers") or {}).get("facts", [])
     bound = []
@@ -214,6 +221,60 @@ def native_control_fact_values(delivery, field_hint):
         if option and answer and option != answer:
             return []
     return [value]
+
+
+def _native_words(text):
+    return " ".join(str(text or "").split()).casefold()
+
+
+def native_choice_fact_value(delivery, field_hint):
+    """The one confirmed delivered answer a custom combobox's AX name maps to, else None."""
+    name = str(field_hint.get("name") or "")
+    if not name.strip():
+        return None
+    expected = fact_for(name)
+    values = {
+        fact["value"]
+        for fact in (delivery.get("answers") or {}).get("facts", [])
+        if fact.get("fact") == expected
+        and fact.get("status") == "confirmed"
+        and isinstance(fact.get("value"), str)
+    } or set(native_control_fact_values(delivery, {"role": "combobox", "name": name}))
+    return values.pop() if len(values) == 1 else None
+
+
+def native_click_admitted(delivery, calls, call):
+    """Admit a click on a delivered-fact combobox, or on its option equal to that fact.
+
+    An option row names only the option; its field is the combobox whose observed
+    click immediately precedes it in this handoff's ledger (the driver's owner rule).
+    """
+    hint = call.get("field_hint") or {}
+    role = str(hint.get("role") or "").strip().casefold()
+    if role == "combobox":
+        return native_choice_fact_value(delivery, hint) is not None
+    if role != "option":
+        return True
+    previous = sorted(
+        (
+            row
+            for row in calls
+            if row.get("mutation") is True
+            and row.get("call_id") != call.get("call_id")
+            and row.get("sequence", 0) < call.get("sequence", 0)
+        ),
+        key=lambda row: row["sequence"],
+    )
+    owner = previous[-1] if previous else {}
+    owner_hint = owner.get("field_hint") or {}
+    if (
+        owner.get("tool") != "browser_click"
+        or owner.get("status") != "observed"
+        or str(owner_hint.get("role") or "").strip().casefold() != "combobox"
+    ):
+        return False
+    value = native_choice_fact_value(delivery, owner_hint)
+    return value is not None and _native_words(value) == _native_words(hint.get("name"))
 
 
 # Fixed DOM reads. Page text and model output never become executable code.
@@ -257,6 +318,15 @@ INSPECT_ASSISTANCE_CONTEXT = (
           group?.querySelector('legend')?.textContent||'';
         const question=text.replace(/[✱*]/g,'').trim().replace(/\s+/g,' ').slice(0,4000);
         if(question) field.question=question;
+      }
+      if(field.type==='file'&&!field.label.trim()) {
+        // An unlabelled (often hidden) file input: its nearest short container text
+        // names it ("Upload your CV"); a long one is a whole section and names nothing.
+        let node=e.parentElement;
+        for(let depth=0;node&&depth<4;depth++,node=node.parentElement) {
+          const text=String(node.textContent||'').replace(/[✱*]/g,'').replace(/\s+/g,' ').trim();
+          if(text) { if(text.length<=300) field.question=text; break; }
+        }
       }
       const tag=e.tagName.toLowerCase(),type=tag==='textarea'?'textarea':String(e.type||'');
       if(tag==='textarea'||tag==='input'&&['text','file'].includes(type)) {
@@ -2888,6 +2958,16 @@ class ApplicationRunner:
                 "material_destination_unverified", "原生材料控件不能核验。", 409
             ) from error
         target = call["target_descriptor"]
+        snapshot = next(
+            (
+                (row.get("form_state") or {}).get("snapshot") or {}
+                for row in self.store.load()["jobs"]
+                if row["application_id"] == reference["binding"]["application_id"]
+            ),
+            None,
+        )
+        if snapshot is not None and not snapshot.get("fields"):
+            return self._resolve_unparsed_resume_call(reference, call, context)
         fields = [
             field
             for field in context.get("data", {}).get("fields", [])
@@ -2943,6 +3023,81 @@ class ApplicationRunner:
                 reference, call["material_ref"], question=question, page_context=context
             )
 
+    def _resolve_unparsed_resume_call(self, reference, call, context):
+        """The job's resume into the one resume file input of a page with no script questions.
+
+        Preparation owns field meaning; here no prepared question exists, so the
+        Worker itself proves the destination: the exact current document, one empty
+        single-file input matching the descriptor, labelled as a CV/resume and not as a
+        cover letter or other document. Any other field is refused.
+        """
+        from .application_materials import material_kind
+
+        target = call["target_descriptor"]
+        fields = [
+            field
+            for field in context.get("data", {}).get("fields", [])
+            if field.get("material_target") == target
+        ]
+        files = [
+            field
+            for field in context.get("data", {}).get("fields", [])
+            if (field.get("material_target") or {}).get("type") == "file"
+        ]
+        texts = [target["label"], target["name"], target["id"], call["field_hint"]["name"]]
+        if len(fields) == 1:
+            texts += [str(fields[0].get(key) or "") for key in ("label", "question")]
+        texts = [" ".join(re.sub(r"[✱*_\-\[\]]", " ", text).split()).casefold() for text in texts]
+        if (
+            call["scope"]["expected_document"] != context.get("document")
+            or len(fields) != 1
+            or len(files) != 1
+            or target["type"] != "file"
+            or target["tag"] != "input"
+            or not target["value_empty"]
+            or target["file_count"] != 0
+            or any(target[key] for key in ("disabled", "readonly", "multiple"))
+        ):
+            raise PortalDataError(
+                "material_destination_unverified", "当前原页没有唯一的空简历附件字段。", 409
+            )
+        if not any(NATIVE_RESUME_LABEL.search(text) for text in texts) or any(
+            material_kind({"type": "file", "question": text}) != "unknown" for text in texts
+        ):
+            raise PortalDataError("material_field_changed", "此字段不是简历附件入口。", 409)
+        delivery = self.store.assistance_delivery(reference, page_context=context)
+        entries = [
+            row for row in delivery["materials"] if row.get("material_ref") == call["material_ref"]
+        ]
+        if len(entries) != 1 or entries[0].get("kind") != "resume":
+            raise PortalDataError("material_reference_invalid", "固定材料引用不是本岗位简历。", 409)
+        with self.store.applications.write_lock():
+            state = self.store.load()
+            job = next(
+                row
+                for row in state["jobs"]
+                if row["application_id"] == reference["binding"]["application_id"]
+            )
+            self.store.check_single(job, state, material_required=True)
+            raw = self.store._read_bound_resume(job, state["batch_id"])
+        accept = {
+            value.strip().casefold() for value in target["accept"].split(",") if value.strip()
+        }
+        if accept and not accept & {".pdf", "application/pdf", "*", "*/*"}:
+            raise PortalDataError("material_format_unsupported", "当前字段不接受简历 PDF。", 409)
+        if hashlib.sha256(raw).hexdigest() != job["file_sha256"] or not 1 <= len(raw) <= 700000:
+            raise PortalDataError("material_changed", "简历文件不能核验。", 409)
+        return {
+            "kind": "file",
+            "bytes": raw,
+            "sha256": job["file_sha256"],
+            "filename": job["filename"],
+            "material_id": "resume",
+            "material_ref": call["material_ref"],
+            "question": None,
+            "material": deepcopy(entries[0]),
+        }
+
     def _prepare_native_material_call(
         self, reference, call, context, *, request_id, scope, receipt
     ):
@@ -2974,6 +3129,26 @@ class ApplicationRunner:
         manifest = {
             key: value for key, value in payload.items() if key not in {"text", "bytes_base64"}
         }
+        if question is None:
+            # No prepared question carries a field intent; the persisted ledger row is
+            # the attempt record and its observed FileList readback the result.
+            with self.store.applications.write_lock():
+                state = self.store.load()
+                job = next(
+                    row
+                    for row in state["jobs"]
+                    if row["application_id"] == reference["binding"]["application_id"]
+                )
+                if job.get("intent") is not None or native_resume_delivered(
+                    job, call["scope"]["expected_document"]
+                ):
+                    raise PortalDataError(
+                        "material_attempt_unresolved", "简历已发送或原尝试尚未核验。", 409
+                    )
+                self.store.record_native_handoff(
+                    reference, request_id=request_id, phase="granted", scope=scope, receipt=receipt
+                )
+            return payload
         with self.store.applications.write_lock():
             state = self.store.load()
             job = next(
@@ -3360,6 +3535,15 @@ class ApplicationRunner:
                             allowed.add(hashlib.sha256(state.encode()).hexdigest())
                 if call.get("text_sha256") not in allowed:
                     return False
+            if call.get("tool") == "browser_click" and not native_click_admitted(
+                delivery, latest.get("calls", []), call
+            ):
+                print(
+                    "native_click_admission_denied: "
+                    + json.dumps({"role": (call.get("field_hint") or {}).get("role")}),
+                    flush=True,
+                )
+                return False
             # Persist the exact native request metadata before the host admits it.
             records = {row["call_id"]: row for row in latest.get("calls", [])}
             records[call["call_id"]] = deepcopy(call)
