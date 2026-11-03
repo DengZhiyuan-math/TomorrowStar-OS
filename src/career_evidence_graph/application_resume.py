@@ -2113,7 +2113,7 @@ class ApplicationResumeStore:
             or not (
                 xref.startswith(b"xref")
                 or re.match(rb"\d+\s+\d+\s+obj\b", xref)
-                and b"/Type /XRef" in xref
+                and re.search(rb"/Type\s*/XRef\b", xref, re.IGNORECASE)
             )
             or not re.search(rb"/Type\s*/Catalog\b", raw)
             or not re.search(rb"/Type\s*/Page\b", raw)

@@ -615,6 +615,7 @@ class SupplementalMaterials:
         """Map one adopted application body to fresh page destinations, without writing."""
         from .application_cover_letter import (
             RENDERER_REVISION,
+            cover_letter_pdf_inspector,
             export_cover_letter_pdf,
             read_letter_material,
             render_cover_letter,
@@ -883,6 +884,7 @@ class SupplementalMaterials:
                             template,
                             client=getattr(self.store, "cover_letter_client", None),
                             max_bytes=material["max_bytes"],
+                            pdf_inspector=cover_letter_pdf_inspector(self.store),
                         )
                     material.update(built)
                     check_cover_letter_file(question, material=material)

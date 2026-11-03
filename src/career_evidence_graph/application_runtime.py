@@ -413,6 +413,9 @@ def _assemble(
     letter_template = cover_letter_template or os.environ.get("TOMORROWSTAR_COVER_LETTER_TEMPLATE")
     if worker is not None and letter_template:
         worker.store.cover_letter_template = Path(letter_template).expanduser().absolute()
+    if worker is not None and resume_review_pdf_inspector is not None:
+        # Cover letters use the same native PDF inspector as resumes.
+        worker.store.pdf_inspector = resume_review_pdf_inspector
 
     def flow_sources():
         # Reuse one observation only during a read-only status projection.

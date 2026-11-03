@@ -1071,6 +1071,13 @@ def generate_cover_letter(
         ) from error
 
 
+def cover_letter_pdf_inspector(store):
+    """Return the injected letter inspector, else the resume PDF inspector."""
+    return getattr(store, "cover_letter_pdf_inspector", None) or getattr(
+        store, "pdf_inspector", None
+    )
+
+
 def _pdf_delivery_result(directory, rendered, binding, raw, *, max_bytes, pdf_inspector):
     from .application_prism import refresh_source_snapshot
     from .application_resume import ApplicationResumeStore

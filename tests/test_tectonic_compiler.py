@@ -2,17 +2,23 @@
 
 import hashlib
 import json
+import shutil
+import subprocess
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from test_cover_letter_content import TEMPLATE, ready
 
 from career_evidence_graph import application_prism
 from career_evidence_graph.application_cover_letter import (
+    cover_letter_pdf_inspector,
     edit_cover_letter,
     export_cover_letter_pdf,
     read_cover_letter_pdf,
 )
+from career_evidence_graph.application_pdf import NativePDFInspector
 from career_evidence_graph.application_prism import source_snapshot
 from career_evidence_graph.application_resume_versions import (
     TectonicCompiler,
@@ -102,3 +108,29 @@ def test_a_cover_letter_with_symbols_compiles_under_8bit_fonts(tmp_path):
     assert read_cover_letter_pdf(directory, content, template, pdf_inspector=lambda _: 1) == (
         exported
     )
+
+
+@pytest.fixture(scope="module")
+def native_pdf_inspector(tmp_path_factory):
+    compiler = shutil.which("swiftc")
+    if sys.platform != "darwin" or not compiler:
+        pytest.skip("requires macOS Swift")
+    binary = tmp_path_factory.mktemp("pdf-inspect") / "pdf-inspect"
+    source = Path(__file__).parents[1] / "macos/pdf_inspect.swift"
+    subprocess.run([compiler, "-O", str(source), "-o", str(binary)], check=True)
+    return NativePDFInspector(binary)
+
+
+def test_a_tectonic_pdf_1_5_letter_reads_back_with_the_resume_inspector(
+    tmp_path, native_pdf_inspector
+):
+    """2026-11-03: a compressed-xref PDF 1.5 letter failed the regex as resume_pdf_invalid."""
+    content = ready(tmp_path)["content"]
+    directory = tmp_path / "pdf"
+    store = SimpleNamespace(pdf_inspector=native_pdf_inspector)
+    inspector = cover_letter_pdf_inspector(store)
+    exported = export_cover_letter_pdf(directory, content, TEMPLATE, pdf_inspector=inspector)
+    raw = Path(exported["file_path"]).read_bytes()
+    assert raw.startswith(b"%PDF-1.5") and b"/Type/XRef" in raw
+    assert native_pdf_inspector(raw) == 1
+    assert read_cover_letter_pdf(directory, content, TEMPLATE, pdf_inspector=inspector) == exported

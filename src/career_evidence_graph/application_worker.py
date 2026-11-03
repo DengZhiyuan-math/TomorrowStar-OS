@@ -7594,7 +7594,10 @@ class WorkerService:
 
     def _recheck_cover_letter_file(self, state, payload):
         """Adopt an exact completed file receipt without another build."""
-        from .application_cover_letter import reconcile_cover_letter_pdf
+        from .application_cover_letter import (
+            cover_letter_pdf_inspector,
+            reconcile_cover_letter_pdf,
+        )
         from .application_materials import check_cover_letter_file, read_cover_letter_template
 
         if (
@@ -7653,7 +7656,7 @@ class WorkerService:
             raise PortalDataError("material_recheck_changed", "原构建正文不再是本岗采用版本。", 409)
         directory = self.store.root / "materials" / original["id"]
         template = read_cover_letter_template(self.store, fixed["application"])
-        inspector = getattr(self.store, "cover_letter_pdf_inspector", None)
+        inspector = cover_letter_pdf_inspector(self.store)
         maximum = check_cover_letter_file(original)
         for field in (job.get("form_state") or {}).get("snapshot", {}).get("fields", []):
             if (

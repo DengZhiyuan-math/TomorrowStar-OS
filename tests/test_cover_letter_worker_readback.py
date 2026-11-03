@@ -486,3 +486,15 @@ def test_recheck_does_not_guess_a_malformed_original_limit(lost_build):
     assert rejected.value.code == "cover_letter_file_limit_invalid"
     assert worker.store.path.read_bytes() == before
     assert client.compiles == 1 and client.reads == 0
+
+
+def test_worker_readback_falls_back_to_the_resume_pdf_inspector(lost_build):
+    """2026-11-03: no letter inspector was injected, so a valid PDF 1.5 hit the regex."""
+    worker, _fixed, _client, original, payload = lost_build
+    del worker.store.cover_letter_pdf_inspector
+    pages = []
+    worker.store.pdf_inspector = lambda raw: pages.append(raw) or 1
+    worker.request("recheck-cover-letter-file", payload)
+    recovered = worker.store.load()["jobs"][0]["materials"][0]
+    assert recovered["id"] == original["id"] and recovered["status"] == "ready"
+    assert pages
