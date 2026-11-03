@@ -397,7 +397,15 @@ def test_material_callback_failure_denies_once_without_sending_any_body(
         adapter.close()
 
 
-@pytest.mark.parametrize("code", ["material_destination_unverified", "material_field_changed"])
+@pytest.mark.parametrize(
+    "code",
+    [
+        "material_destination_unverified",
+        "material_field_changed",
+        # The Worker's page read for this delivery still timed out after its retries.
+        "read_timeout",
+    ],
+)
 def test_unproven_material_destination_refuses_only_that_call_and_keeps_the_takeover(
     tmp_path, monkeypatch, capsys, code
 ):
@@ -515,6 +523,45 @@ def test_admission_refused_by_an_exception_logs_its_message_and_frames(
         # Application frames only (the Worker's own frames in a real run).
         assert record["where"][0].startswith("application_codex_assist:_native_admit:")
         assert native.revoked
+    finally:
+        adapter.close()
+
+
+def test_a_click_whose_admission_read_times_out_still_revokes_the_takeover(tmp_path, monkeypatch):
+    # Only a fixed-material delivery is refused alone; other tools keep the old rule.
+    from playwright.sync_api import Error
+
+    config, ref, scope, packet, driver, native, events = native_case(tmp_path, monkeypatch)
+    click = {
+        key: value
+        for key, value in material_call().items()
+        if key not in {"material_ref", "target_descriptor"}
+    } | {
+        "call_id": "native-click",
+        "tool": "browser_click",
+        "scope": scope,
+        "field_hint": {"role": "combobox", "name": "Country"},
+    }
+    native.calls = [click]
+    admissions = []
+    original_admit = native.admit_call
+
+    def admit(call_id, arguments_digest, verdict, **kwargs):
+        admissions.append(verdict)
+        return original_admit(call_id, arguments_digest, verdict, **kwargs)
+
+    native.admit_call = admit
+
+    def resolve(call):
+        raise Error("owned_browser_read_timeout")
+
+    adapter, run = start_case(
+        config, ref, scope, packet, driver, native, before_native_call=resolve
+    )
+    try:
+        for _ in range(2):
+            adapter.progress(run.run_id)
+        assert admissions == ["deny"] and native.revoked
     finally:
         adapter.close()
 

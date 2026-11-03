@@ -800,6 +800,13 @@ def _same_site(url, job_url) -> bool:
     return host == site or host.endswith("." + site)
 
 
+# A slow original-page read, repeated before it fails: a timed-out read's detach can
+# replace its timeout with the outer one, and the ordinary call deadline is another.
+SLOW_READS = frozenset(
+    {"owned_browser_read_timeout", "owned_browser_outer_timeout", "native_operation_timeout"}
+)
+
+
 # A native upload's first send may fail inside the widget, which retries: at most
 # this many sends per authorization, a new one only after the last failed or went
 # unanswered this long, and none after a 2xx answer.
@@ -3276,8 +3283,7 @@ class ApplicationRunner:
                 # timeout with the outer one (2026-11-03); both are the same slow read.
                 if attempt == 2 or (
                     getattr(error, "code", None) != "page_observation_changed"
-                    and getattr(error, "message", None)
-                    not in ("owned_browser_read_timeout", "owned_browser_outer_timeout")
+                    and getattr(error, "message", None) not in SLOW_READS
                 ):
                     raise
                 # A slow read can outlast the observation window; the check after it
@@ -4378,7 +4384,20 @@ class ApplicationRunner:
                 "return_ready": False,
             }
             if call.get("tool") == "browser_deliver_material":
-                context = self.observe_assistance_context(reference)
+                # The same settling read as start and return (2026-11-03: a CV's
+                # admission read timed out once and revoked the whole takeover).
+                # A read that still fails refuses only this delivery.
+                try:
+                    context = self._observe_settling_context(reference)
+                except (PortalDataError, Error) as error:
+                    code = getattr(error, "code", None)
+                    if code == "page_observation_changed" or (
+                        code is None and getattr(error, "message", None) in SLOW_READS
+                    ):
+                        raise _material_refusal(
+                            code or "read_timeout", "原页读取超时，本次材料未发送。", "page_read"
+                        ) from error
+                    raise
                 return self._prepare_native_material_call(
                     reference,
                     call,

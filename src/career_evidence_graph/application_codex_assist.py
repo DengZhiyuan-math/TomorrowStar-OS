@@ -255,6 +255,9 @@ MATERIAL_DESTINATION_REFUSALS = frozenset(
         "material_reference_invalid",
         "material_format_unsupported",
         "material_changed",
+        # The Worker's page read for this delivery still failed after its retries.
+        "read_timeout",
+        "page_observation_changed",
     }
 )
 

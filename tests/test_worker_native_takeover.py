@@ -1572,3 +1572,92 @@ def test_native_start_delivers_a_context_captured_before_a_slow_scope_read(
     context = delivered[0]["page_context"]
     assert context["at"] == context["observed_at"] == renewed[0]
     assert renewed[0] - captured[0] == pytest.approx(5.5, abs=0.5)
+
+
+@pytest.mark.parametrize(
+    ("failures", "outcome"),
+    [
+        (2, "admitted"),
+        (3, "read_timeout"),
+        ("changed", "page_observation_changed"),
+        ("closed", "fatal"),
+    ],
+)
+def test_material_admission_rereads_a_slow_page_and_refuses_only_that_delivery(
+    native_page, monkeypatch, failures, outcome
+):
+    """2026-11-03: the CV admission's one page read timed out and revoked the takeover."""
+    from playwright.sync_api import Error
+
+    service, runner, page, ref, calls, _ = native_page
+    reads, sealed, results = [], [], []
+    original = runner.observe_assistance_context
+
+    def observe(reference, *, after_stop=False):
+        if not sealed:
+            return original(reference, after_stop=after_stop)
+        reads.append(after_stop)
+        if failures == "changed":
+            raise PortalDataError("page_observation_changed", "synthetic", 409)
+        if failures == "closed":
+            raise Error("Target page, context or browser has been closed")
+        if len(reads) <= failures:
+            raise Error("owned_browser_read_timeout")
+        return {"document": "synthetic"}
+
+    monkeypatch.setattr(runner, "observe_assistance_context", observe)
+    monkeypatch.setattr(
+        runner,
+        "_prepare_native_material_call",
+        lambda reference, call, context, **kwargs: {"sealed": context},
+    )
+
+    class Adapter:
+        def start_takeover(self, original_ref, **kwargs):
+            kwargs["before_yield"](
+                {
+                    "application_ref_digest": digest(ref),
+                    "scope": kwargs["native_scope"],
+                    "request_id": kwargs["request_id"],
+                }
+            )
+            kwargs["after_yield"](
+                {"handoff_id": "native-run", "generation": 1, "local_tools_drained": True}
+            )
+            call = {
+                "call_id": "native-cv",
+                "tool": "browser_deliver_material",
+                "status": "awaiting_host",
+                "scope": kwargs["native_scope"],
+            }
+            sealed.append(True)
+            try:
+                results.append(kwargs["before_native_call"](call))
+            except PortalDataError as error:
+                results.append(error)
+            except Error as error:
+                results.append(error)
+            return SimpleNamespace(run_id="adapter-native-run")
+
+        def progress(self, run_id):
+            return SimpleNamespace(status="ready", tools_revoked=False)
+
+    runner.codex_assist = Adapter()
+    runner._service_assistance_stop = lambda: None
+    runner.start_native_assistance(ref, request_id="native-material-read")
+    result = results[0]
+    if outcome == "admitted":
+        assert result == {"sealed": {"document": "synthetic"}}
+        assert len(reads) == 3
+        return
+    if outcome == "fatal":
+        # Not a slow read: the admission fails as before and the takeover is revoked.
+        assert isinstance(result, Error) and len(reads) == 1
+        return
+    # Only this delivery is refused; the adapter treats the code as non-fatal.
+    from career_evidence_graph.application_codex_assist import MATERIAL_DESTINATION_REFUSALS
+
+    assert isinstance(result, PortalDataError)
+    assert (result.code, result.condition) == (outcome, "page_read")
+    assert result.code in MATERIAL_DESTINATION_REFUSALS
+    assert len(reads) == 3
