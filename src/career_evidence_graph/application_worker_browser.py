@@ -925,6 +925,8 @@ class ApplicationRunner:
         self.native_assistance_policy = validate_native_assistance_policy(native_assistance_policy)
         self.codex_assist = None
         self._assistance_run = None
+        # Native calls this page thread is admitting or recording right now.
+        self._native_work = 0
         self._assistance_baseline = None
         self._servicing_assistance_stop = False
         # (run_id, next attempt, delay): an unconfirmed stop is retried, not every tick.
@@ -3211,6 +3213,13 @@ class ApplicationRunner:
                 or not binding["document_token"]
             ):
                 return False
+            receipt = (runs[-1].get("events") or [{}])[-1].get("receipt") or {}
+            if self._native_work or receipt.get("active_calls", 0) >= 1:
+                # This Worker's own admitted native call on this page and document is
+                # in progress: its admission read verified the document, and a CDP
+                # re-read now would wait on the renderer the call holds (2026-11-04:
+                # a CV delivery with active_calls 1 was revoked at 6.2 s).
+                return True
             try:
                 with browser_deadline(2):
                     session = OwnedCDP(page).__enter__()
@@ -3220,8 +3229,16 @@ class ApplicationRunner:
                         with browser_deadline(1):
                             session.detach()
                 return True
-            except (Error, PortalDataError):
-                return False  # A busy, unreadable or changed document stays a lost scope.
+            except (Error, PortalDataError) as error:
+                # A busy, unreadable or changed document stays a lost scope.
+                print(
+                    "scope_renewal_unverified: "
+                    + json.dumps(
+                        {"error": type(error).__name__, "code": getattr(error, "code", None)}
+                    ),
+                    flush=True,
+                )
+                return False
 
         def check():
             # Only this page thread's own re-read of the same run, page and document
@@ -3427,6 +3444,23 @@ class ApplicationRunner:
         state = self.store.load()
         job = next((row for row in state["jobs"] if row["application_id"] == identifier), None)
         return PAGE_SCOPE.renew_snapshot(context, state, job, run_id=self.run_id)
+
+    def _renew_own_observation(self, reference):
+        """Advance the page observation after this thread's own verified native work."""
+        identifier = reference["binding"]["application_id"]
+        page = self.pages.get(identifier)
+        if page is None or page.is_closed():
+            return
+        with self.store.applications.write_lock():
+            state = self.store.load()
+            job = next((row for row in state["jobs"] if row["application_id"] == identifier), None)
+            if (
+                job
+                and (job.get("page_observation") or {}).get("page_id") == self.page_ids.get(page)
+                and PAGE_SCOPE.refresh(state, job, time.time(), run_id=self.run_id)
+            ):
+                with pause_browser_deadline():
+                    self.persist(state)
 
     def _observe_settling_context(self, reference, *, after_stop=False):
         """Read the JSON context of a page that may still be settling or answer slowly.
@@ -4435,6 +4469,13 @@ class ApplicationRunner:
         refusals_logged = set()
 
         def after_yield(receipt):
+            self._native_work += 1
+            try:
+                record_receipt(receipt)
+            finally:
+                self._native_work -= 1
+
+        def record_receipt(receipt):
             latest.update(deepcopy(receipt))
             calls = receipt.get("calls", [])
             # r7 writes pre-ledger refusals as not_sent rows; make each visible once.
@@ -4477,11 +4518,21 @@ class ApplicationRunner:
                 scope=journal_scope,
                 receipt=receipt,
             )
+            if phase == "granted":
+                # The receipt is this page's own call progress; the observation follows it.
+                self._renew_own_observation(reference)
             # A returned receipt is revoked too; reconciliation itself requires an
             # observed original call and exact readback, so stop cannot launder it.
             self._reconcile_native_material(reference, receipt, request_id=request_id)
 
         def before_native_call(call):
+            self._native_work += 1
+            try:
+                return admit_native_call(call)
+            finally:
+                self._native_work -= 1
+
+        def admit_native_call(call):
             if not permitted() or call.get("scope") != call_scope or not latest.get("handoff_id"):
                 return False
             current = next(
@@ -4558,6 +4609,8 @@ class ApplicationRunner:
                             code or "read_timeout", "原页读取超时，本次材料未发送。", "page_read"
                         ) from error
                     raise
+                # The admission read verified this page's document just now.
+                self._renew_own_observation(reference)
                 return self._prepare_native_material_call(
                     reference,
                     call,

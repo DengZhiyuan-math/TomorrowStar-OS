@@ -1716,3 +1716,56 @@ def test_granted_takeover_renews_an_observation_its_own_admission_let_expire(nat
         with pytest.raises(PortalDataError) as caught:
             check()
         assert caught.value.code == "assistance_binding_changed"
+
+
+@pytest.mark.parametrize("active_calls", [1, 0])
+def test_an_admitted_native_call_in_progress_renews_without_a_renderer_read(
+    native_page, active_calls
+):
+    """2026-11-04 (run 41): a CV delivery with active_calls 1 held the renderer; the 2 s
+    document re-read could not answer and the takeover was revoked at 6.2 s."""
+    from playwright.sync_api import Error
+
+    service, runner, page, ref, calls, _ = native_page
+
+    class Adapter:
+        def start_takeover(self, original, **kwargs):
+            kwargs["before_yield"](
+                {
+                    "application_ref_digest": digest(ref),
+                    "scope": kwargs["native_scope"],
+                    "request_id": kwargs["request_id"],
+                }
+            )
+            kwargs["after_yield"](
+                {"handoff_id": "native-run", "generation": 1, "local_tools_drained": True}
+            )
+            return SimpleNamespace(run_id="adapter-native-run")
+
+    runner.codex_assist = Adapter()
+    runner._service_assistance_stop = lambda: None
+    runner.start_native_assistance(ref, request_id="native-active-call")
+    stale = time.time() - 6.2
+    state = service.store.load()
+    state["jobs"][0]["native_handoff_runs"][-1]["events"][-1]["receipt"]["active_calls"] = (
+        active_calls
+    )
+    state["runtime"]["observed_at"] = stale
+    state["jobs"][0]["page_observation"]["at"] = stale
+    service.store.save(state)
+    calls.clear()
+
+    def busy_renderer(original):
+        calls.append(("busy_renderer_read", None))
+        raise Error("synthetic renderer is inside the native file delivery")
+
+    page.context.new_cdp_session = busy_renderer
+    assert runner.assistance_read_permitted(ref) is bool(active_calls)
+    saved = service.store.load()
+    if active_calls:
+        assert calls == []
+        assert saved["runtime"]["observed_at"] > stale
+        assert saved["jobs"][0]["page_observation"]["at"] > stale
+    else:
+        assert calls == [("busy_renderer_read", None)]
+        assert saved["runtime"]["observed_at"] == stale
