@@ -1051,3 +1051,154 @@ def test_return_rereads_a_slow_post_stop_page_without_owner_reads(returning, mon
     assert job["assistance"]["status"] == "released"
     assert job["assistance"]["outcome"]["kind"] == "script_checkpoint"
     assert job["status"] == "filling"
+
+
+def zero_question_page(ctx):
+    """An ATS page the script parser could not read: no script question exists."""
+    state = ctx.service.store.load()
+    state["jobs"][0]["form_state"]["snapshot"] = {"fields": []}
+    ctx.service.store.save(state)
+    ctx.page.fields.append(field("team", "Team", kind="combobox", required=True))
+
+
+def fill_native_only(page):
+    fill_everything(page)
+    # The page-context read reports a button combobox's shown choice as its value.
+    page.fields[3]["value"] = "Engineering"
+    page.fields.append(
+        field(
+            "cv",
+            "Lebenslauf",
+            kind="file",
+            required=True,
+            files=[{"name": page.resume_name, "size": 10, "type": "application/pdf"}],
+        )
+    )
+
+
+def native_cv_delivery(ctx, *, status="observed"):
+    """Append the ledger row of one native CV delivery to the stopped turn's receipt."""
+    state = ctx.service.store.load()
+    job = state["jobs"][0]
+    run = job["native_handoff_runs"][-1]
+    resolution = {
+        "protocol": "fixed-material/v1",
+        "resolution_id": "f" * 32,
+        "material_ref": "e" * 64,
+        "kind": "file",
+        "sha256": job["file_sha256"],
+        "size_bytes": 10,
+        "filename": job["filename"],
+        "mime_type": "application/pdf",
+    }
+    call = {
+        "call_id": "native-cv",
+        "tool": "browser_deliver_material",
+        "arguments_digest": "d" * 64,
+        "status": status,
+        "generation": 1,
+        "sequence": 9,
+        "mutation": True,
+        "semantic_verified": False,
+        "scope": deepcopy(run["events"][-1]["receipt"]["calls"][0]["scope"]),
+        "native_ref": "native-ref-cv",
+        "field_hint": {"role": "button", "name": "Lebenslauf"},
+        "material_ref": "e" * 64,
+        "target_descriptor": {
+            "tag": "input",
+            "type": "file",
+            "id": "cv",
+            "name": "cv",
+            "worker_field": "",
+            "label": "Lebenslauf",
+            "accept": ".pdf",
+            "draft_path": "",
+            "frame": "main",
+            "required": True,
+            "disabled": False,
+            "readonly": False,
+            "value_empty": True,
+            "multiple": False,
+            "max_length": None,
+            "file_count": 0,
+        },
+        "material_resolution": resolution,
+    }
+    if status == "observed":
+        call["material_readback"] = {
+            "kind": "file_list",
+            "sha256": job["file_sha256"],
+            "size_bytes": 10,
+            "filename": job["filename"],
+            "file_count": 1,
+        }
+    run["events"][-1]["receipt"]["calls"].append(call)
+    ctx.service.store.save(state)
+
+
+def native_only_turn(ctx, report, *, effect=fill_native_only):
+    zero_question_page(ctx)
+    ctx.page.resume_name = current(ctx)["filename"]
+    run_turn(
+        ctx,
+        report=report,
+        planned=(*BOTH_CALLS, click("native-team", "Team")),
+        effect=effect,
+    )
+
+
+def test_ready_for_review_on_zero_question_page_accepts_native_resume_delivery(returning):
+    ctx = returning
+    native_only_turn(ctx, make_report("ready_for_review"))
+    native_cv_delivery(ctx)
+    ctx.runner._service_assistance_return()
+    job = current(ctx)
+    outcome = job["assistance"]["outcome"]
+    assert job["status"] == "ready_for_review"
+    assert outcome["kind"] == "filling_complete"
+    rows = {row["id"]: row for row in outcome["page_verification"]["fields"]}
+    assert rows["team"]["value_empty"] is False
+    assert outcome["verified"]["materials"][0] == {
+        "kind": "resume",
+        "filename": job["filename"],
+        "sha256": job["file_sha256"],
+    }
+
+
+def test_unobserved_native_resume_delivery_stays_unverified(returning, capsys):
+    ctx = returning
+    native_only_turn(ctx, make_report("ready_for_review"))
+    native_cv_delivery(ctx, status="not_sent")
+    capsys.readouterr()
+    ctx.runner._service_assistance_return()
+    assert_waiting(ctx, "assistance_completion_unverified")
+    line = next(
+        row
+        for row in capsys.readouterr().out.splitlines()
+        if row.startswith("assistance_completion_unverified: ")
+    )
+    record = json.loads(line.removeprefix("assistance_completion_unverified: "))
+    assert record["reason"] == ["resume_upload_unverified"]
+
+
+def test_blocked_segment_on_zero_question_page_waits_naming_remaining_controls(returning, capsys):
+    ctx = returning
+    report = make_report(
+        fields=[
+            {"field_id": "country", "state": "filled"},
+            {"field_id": "team", "state": "unresolved"},
+        ]
+    )
+    report["claimed_sha256"] = sha(report["claimed"])
+    # Country and phone are set; the custom Team combobox and the CV stay open.
+    native_only_turn(ctx, report, effect=fill_everything)
+    capsys.readouterr()
+    ctx.runner._service_assistance_return()
+    job = assert_waiting(ctx, "native_controls_remaining")
+    assert "assistance_return_unverified" not in capsys.readouterr().out
+    message = ctx.service.store.applications.get_application(job["application_id"])["next_action"]
+    assert "Phone（phone）" in message and "Team（team）" in message
+    assert "Country" not in message
+    assert "Engineering" not in message and "+41" not in message
+    assert "继续" in message
+    assert job.get("assistance_return_count", 0) == 0

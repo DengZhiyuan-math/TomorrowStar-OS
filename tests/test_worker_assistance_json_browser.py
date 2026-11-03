@@ -22,6 +22,14 @@ HTML = b"""<!doctype html><title>JSON original page</title>
   value="Human choice" readonly aria-invalid="true">
 <button type="button" id="custom-country" name="custom-country" role="combobox"
   aria-label="Custom country" aria-valuetext="Saved custom choice">Choose country</button>
+<button type="button" id="picked-team" role="combobox" aria-label="Team">
+  <span>Engineering</span></button>
+<button type="button" id="open-team" role="combobox" aria-label="Open team"
+  aria-controls="team-list">Engineering</button>
+<ul id="team-list" role="listbox"><li role="option" aria-selected="false">Engineering</li></ul>
+<button type="button" id="unpicked-team" role="combobox" aria-label="Other team">
+  <span class="select__placeholder">Bitte ausw&auml;hlen</span></button>
+<div id="div-team" role="combobox" aria-label="Div team">Research</div>
 <label>Required <input id="required" name="required" required></label>
 <input id="password" type="password" value="synthetic-secret">
 <div class="file-upload__filename">synthetic-resume.pdf</div><button>Submit</button></form>
@@ -135,6 +143,12 @@ def test_json_context_reads_dom_roles_validation_and_human_values_without_image(
     assert fields["custom-country"]["locator_hint"]["role"] == "combobox"
     assert fields["custom-country"]["locator_hint"]["label"] == "Custom country"
     assert fields["custom-country"]["value"] == "Saved custom choice"
+    # A custom combobox's shown choice is its value; a placeholder or an
+    # unselected listbox is empty.
+    assert fields["picked-team"]["value"] == "Engineering"
+    assert fields["open-team"]["value"] == ""
+    assert fields["unpicked-team"]["value"] == ""
+    assert fields["div-team"]["value"] == "Research"
     assert fields["country"]["locator_hint"] == {
         "id": "country",
         "name": "country",

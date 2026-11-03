@@ -124,6 +124,61 @@ def _native_polarity(text):
     return None
 
 
+NATIVE_DONE_STATES = frozenset(
+    {
+        "filled",
+        "selected",
+        "uploaded",
+        "checked",
+        "set",
+        "resolved",
+        "done",
+        "completed",
+        "verified",
+    }
+)
+
+
+def native_resume_delivered(job, document):
+    """A native resume delivery the ledger observed on this document, by bytes and name."""
+    return any(
+        call.get("tool") == "browser_deliver_material"
+        and call.get("status") == "observed"
+        and (call.get("material_resolution") or {}).get("kind") == "file"
+        and call["material_resolution"].get("sha256") == job.get("file_sha256")
+        and (call.get("material_readback") or {}).get("sha256") == job.get("file_sha256")
+        and call["material_readback"].get("filename") == job.get("filename")
+        and call["material_readback"].get("file_count") == 1
+        for run in job.get("native_handoff_runs", [])
+        if (run.get("scope") or {}).get("document") == document
+        for event in run.get("events", [])
+        for call in (event.get("receipt") or {}).get("calls", [])
+    )
+
+
+def native_remaining_message(claimed, fields, verification):
+    """Name the controls the native turn left (labels/ids only), for the user's choice."""
+    named = [(claimed.get("next_step") or {}).get("field_id")] + [
+        row.get("field_id")
+        for row in claimed.get("fields", [])
+        if str(row.get("state", "")).strip().casefold() not in NATIVE_DONE_STATES
+    ]
+    if not any(named):
+        # Codex named nothing; the Worker's own read names the required empty ones.
+        named = [row["id"] for row in verification if row["required"] and row["value_empty"]]
+    names = []
+    for identifier in dict.fromkeys(name for name in named if name):
+        rows = [row for row in fields if identifier in {row.get("id"), row.get("name")}]
+        text = " ".join(str(rows[0].get("label") or "").split()) if len(rows) == 1 else ""
+        name = f"{text}（{identifier}）" if text and text != identifier else identifier
+        names.append(name[:80])
+    listed = "：" + "、".join(names[:10]) + ("等" if len(names) > 10 else "") if names else ""
+    return (
+        f"原生接管未能完成本页剩余控件{listed}。"
+        "请在专用浏览器手动完成后人工提交，或按“继续”重试原生接管。"
+    )
+
+
 def native_control_fact_values(delivery, field_hint):
     """Return the one confirmed fact value bound to the AX-named control, else []."""
     name = str(field_hint.get("name") or "").strip().casefold()
@@ -173,9 +228,26 @@ INSPECT_ASSISTANCE_CONTEXT = (
     const controls = [...document.querySelectorAll(
       'input,textarea,select,[role=combobox],[role=checkbox],[role=radio]')]
       .filter(e=>!['hidden','submit','button','reset'].includes(e.type));
+    // A custom combobox has no form value: its choice is aria-valuetext, the selected
+    // option of its one listbox, or its shown text unless that is a placeholder.
+    const shown=e=> {
+      const text=x=>String(x?.textContent??'').replace(/\s+/g,' ').trim();
+      if(e.hasAttribute('aria-valuetext')) return e.getAttribute('aria-valuetext');
+      const ids=(e.getAttribute('aria-controls')||'').split(/\s+/).filter(Boolean);
+      const box=ids.length===1?document.getElementById(ids[0]):null;
+      if(box?.querySelector('[role=option]')) {
+        return text(box.querySelector('[role=option][aria-selected=true]'));
+      }
+      if(e.querySelector('[data-placeholder],[class*=placeholder i]')) return '';
+      const value=text(e);
+      return value===(e.getAttribute('placeholder')||e.dataset.placeholder||'').trim()
+        ? '' : value;
+    };
     data.fields.forEach((field,index)=> {
       const e=controls[index];
       field.role=(e.getAttribute('role')||'').slice(0,200);
+      if(field.role==='combobox'&&!['INPUT','SELECT','TEXTAREA'].includes(e.tagName)&&
+         !field.value) field.value=String(shown(e)).slice(0,4000);
       if(['radio','checkbox'].includes(field.type)) {
         // A choice's own label is its option ("Yes"); the group carries the question.
         const group=e.closest('[role=radiogroup],[role=group],fieldset');
@@ -224,7 +296,7 @@ INSPECT_ASSISTANCE_CONTEXT = (
         role:'combobox',label:trim([...e.labels||[]].map(x=>x.textContent).join(' ')||
           e.getAttribute('aria-label')||(e.getAttribute('aria-labelledby')||'').split(/\s+/)
             .map(id=>document.getElementById(id)?.textContent||'').join(' '),1000),
-        value:trim(e.getAttribute('aria-valuetext')||''),redacted:false,
+        value:trim(shown(e)),redacted:false,
         required:e.getAttribute('aria-required')==='true',disabled:Boolean(e.disabled),
         readonly:false,valid:null,aria_invalid:e.getAttribute('aria-invalid'),
         visible:Boolean(e.getClientRects().length)&&getComputedStyle(e).visibility!=='hidden',
@@ -3791,6 +3863,10 @@ class ApplicationRunner:
         except (PortalDataError, Error) as error:
             # The job keeps only the wait reason; the private log names the check
             # (2026-11-02: a refused return left nothing to diagnose on disk).
+            notice = {}
+            if getattr(error, "code", None) == "native_controls_remaining":
+                # A checked stop, not a refusal: the user finishes or retries natively.
+                wait, notice = error.code, {"message": str(error)}
             causes, cause = [], error.__cause__
             while cause is not None and len(causes) < 3:
                 causes.append(str(cause)[:200])
@@ -3837,15 +3913,15 @@ class ApplicationRunner:
                     and current["status"] == "stopped"
                     and "superseded" not in current
                 ):
-                    self._assistance_wait(job, wait)
+                    self._assistance_wait(job, wait, **notice)
                     self.persist(state)
         self._assistance_run = None
         self._assistance_baseline = None
 
-    def _assistance_wait(self, job, reason):
+    def _assistance_wait(self, job, reason, message="自动填表暂停该岗位：请核验页面、笔记和简历。"):
         if job["status"] != "cancelled":
             job.update(status="needs_recheck", reason=reason)
-            self.store.sync(job, "自动填表暂停该岗位：请核验页面、笔记和简历。")
+            self.store.sync(job, message)
 
     def _assistance_outcome(self, job, run_id, run, context, reclaimed_at):
         """Derive the Worker's own conclusion from the stopped page; never from the claim."""
@@ -4022,6 +4098,14 @@ class ApplicationRunner:
             # One strict return per job; the next pending fields must be script-supported.
             if unattributed or job.get("assistance_return_count", 0) != 0:
                 refused("unattributed_change" if unattributed else "return_repeated")
+            if not snapshot:
+                # No script question exists on this page, so no checkpoint can resume
+                # the script; name what the native path left, never its values.
+                raise PortalDataError(
+                    "native_controls_remaining",
+                    native_remaining_message(claimed, fields, verification),
+                    409,
+                )
             done = {row["field_id"] for row in attributed}
             pending = []
             for index, row in enumerate(fields):
@@ -4070,6 +4154,7 @@ class ApplicationRunner:
                     intent.get("action") == "upload" and intent.get("material_id") == "resume"
                     for intent in verified
                 )
+                or native_resume_delivered(job, context["document"])
             ):
                 refused("resume_upload_unverified")
             materials.append(
