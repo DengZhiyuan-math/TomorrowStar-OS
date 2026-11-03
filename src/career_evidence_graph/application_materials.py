@@ -32,8 +32,13 @@ KNOWN_COVER_LETTER_PDF_FAILURES = frozenset(
         "prism_source_invalid",
         "prism_source_changed",
         "resume_compiler_unavailable",
+        "resume_pdf_invalid",
     }
 )
+
+# A retained build failed only its PDF validation; the current inspector may accept it.
+# Unverified pages stay an unknown result (needs_recheck) and are rechecked the same way.
+_LETTER_PDF_VALIDATION_FAILURES = frozenset({"resume_pdf_invalid"})
 
 # Environment failures the default compiler may have cleared since the attempt.
 _COMPILER_FAILURES = frozenset(
@@ -618,6 +623,7 @@ class SupplementalMaterials:
             cover_letter_pdf_inspector,
             export_cover_letter_pdf,
             read_letter_material,
+            reconcile_cover_letter_pdf,
             render_cover_letter,
         )
 
@@ -721,6 +727,62 @@ class SupplementalMaterials:
                 self.update(job, batch_id, manual_fields=manual)
                 job["manual_fields"] = manual
                 continue
+            if (
+                found
+                and question["type"] == "file"
+                and found.get("file_build_started") is True
+                and found.get("letter_content")
+                and found.get("content_revision") == content["revision"]
+                and (
+                    found.get("status") == "needs_recheck"
+                    or found.get("status") == "failed"
+                    and found.get("error_code") in _LETTER_PDF_VALIDATION_FAILURES
+                )
+                and all(
+                    (self.store.root / "materials" / found["id"] / name).is_file()
+                    for name in ("letter.pdf", "build.json")
+                )
+            ):
+                # The retained build is checked again with the current inspector,
+                # through the same readback the explicit recheck uses; never rebuilt.
+                directory = self.store.root / "materials" / found["id"]
+                try:
+                    built = reconcile_cover_letter_pdf(
+                        directory,
+                        found["letter_content"],
+                        read_cover_letter_template(self.store, self._application(job)),
+                        client=getattr(self.store, "cover_letter_client", None),
+                        max_bytes=check_cover_letter_file(found),
+                        pdf_inspector=cover_letter_pdf_inspector(self.store),
+                    )
+                    checked = deepcopy(found) | built | {"status": "ready"}
+                    checked.pop("error_code", None)
+                    if not (directory / "export.json").exists():
+                        helper.atomic_write_json(directory / "export.json", built)
+                except PortalDataError as failure:
+                    # The readback reports a validation failure under its own code.
+                    error = failure.__cause__
+                    if not isinstance(error, PortalDataError):
+                        error = failure
+                    if error.code not in KNOWN_COVER_LETTER_PDF_FAILURES:
+                        if found["status"] == "needs_recheck":
+                            self._letter_state(
+                                job,
+                                batch_id,
+                                requirements,
+                                status="needs_recheck",
+                                reason=found.get("error_code"),
+                            )
+                            raise PortalDataError(
+                                "cover_letter_needs_recheck", "求职信文件已有未决构建。", 409
+                            ) from error
+                        checked = found
+                    else:
+                        checked = deepcopy(found) | {"status": "failed", "error_code": error.code}
+                if checked != found:
+                    if not self._save(job, batch_id, checked):
+                        return False
+                    found = checked
             if found and found.get("status") == "ready":
                 if not found.get("letter_content") and len(selected) > 1:
                     raise PortalDataError(
@@ -747,6 +809,13 @@ class SupplementalMaterials:
                 if question["type"] != "file" or found.get("file_path"):
                     continue
             if found and found.get("status") in {"generating", "needs_recheck"}:
+                self._letter_state(
+                    job,
+                    batch_id,
+                    requirements,
+                    status="needs_recheck",
+                    reason=found.get("error_code") or "cover_letter_needs_recheck",
+                )
                 raise PortalDataError("cover_letter_needs_recheck", "求职信文件已有未决构建。", 409)
             if (
                 found
@@ -784,7 +853,8 @@ class SupplementalMaterials:
                     found.get("error_code") in _COMPILER_FAILURES
                     # The renderer that wrote the failed TeX has since changed
                     # (records without one predate it), so its output may now build.
-                    or found.get("error_code") == "resume_export_failed"
+                    or found.get("error_code")
+                    in {"resume_export_failed", *_LETTER_PDF_VALIDATION_FAILURES}
                     and found.get("renderer_revision") != RENDERER_REVISION
                 )
                 and self._compiler_available()

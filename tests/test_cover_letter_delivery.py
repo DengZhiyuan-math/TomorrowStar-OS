@@ -9,6 +9,7 @@ from test_application_worker import service as service
 from test_supplemental_material_module import materials
 from test_supplemental_material_module import prepared as prepared
 from test_supplemental_materials import source_data
+from test_tectonic_compiler import native_pdf_inspector as native_pdf_inspector
 
 from career_evidence_graph.application_materials import (
     application_binding,
@@ -1021,3 +1022,88 @@ def test_unverified_page_size_limits_do_not_become_optional_delivery_success(
     else:
         assert current["materials"][0]["status"] == "failed"
         assert current["materials"][0]["file_build_started"] is False
+
+
+def invalid_pdf(raw):
+    raise PortalDataError("resume_pdf_invalid", "Synthetic regex-only rejection", 409)
+
+
+def lost_build(directory, content, template):
+    raise TimeoutError("Synthetic lost build")
+
+
+@pytest.fixture
+def unchecked_letter_build(modern, request):
+    """2026-11-03: a built PDF 1.5 letter was left needs_recheck / resume_pdf_invalid."""
+    from career_evidence_graph.application_resume_versions import tectonic_executable
+
+    prepared, _ = modern
+    service, job, batch = prepared
+    native = None
+    if request.param == "tectonic":
+        if tectonic_executable() is None:
+            pytest.skip("tectonic not installed")
+        native = request.getfixturevalue("native_pdf_inspector")
+    else:
+        from test_cover_letter_content import Compiler
+
+        service.store.cover_letter_client = Compiler()
+    service.store.cover_letter_pdf_inspector = invalid_pdf
+    observed = {"fields": [field(kind="file", accept=".pdf")]}
+    assert materials(prepared).prepare(job, batch, observed)
+    state = service.store.load()
+    # The record as written before resume_pdf_invalid became a known failure.
+    state["jobs"][0]["materials"][0]["status"] = "needs_recheck"
+    state["jobs"][0]["cover_letter_delivery"]["reason"] = "resume_export_failed"
+    service.store.save(state)
+    job.update(deepcopy(state["jobs"][0]))
+    del service.store.cover_letter_pdf_inspector
+    service.store.cover_letter_exporter = lambda *a, **kw: pytest.fail("rebuilt letter")
+    directory = service.store.root / "materials" / state["jobs"][0]["materials"][0]["id"]
+    assert (directory / "letter.pdf").is_file() and not (directory / "export.json").exists()
+    return prepared, observed, directory, native or (lambda raw: 1)
+
+
+@pytest.mark.parametrize("unchecked_letter_build", ["tectonic", "fake"], indirect=True)
+def test_retained_letter_build_is_rechecked_with_the_current_inspector(unchecked_letter_build):
+    prepared, observed, directory, inspector = unchecked_letter_build
+    service, job, batch = prepared
+    service.store.pdf_inspector = inspector
+    assert materials(prepared).prepare(job, batch, observed)
+    saved = service.store.load()["jobs"][0]
+    material = saved["materials"][0]
+    assert material["status"] == "ready" and "error_code" not in material
+    assert material["page_count"] == 1
+    assert (directory / "export.json").is_file()
+    assert saved["cover_letter_delivery"]["status"] == "ready"
+    assert not saved["cover_letter_delivery"].get("reason")
+
+
+@pytest.mark.parametrize("unchecked_letter_build", ["fake"], indirect=True)
+def test_retained_letter_still_invalid_fails_with_its_current_reason(unchecked_letter_build):
+    prepared, observed, directory, _ = unchecked_letter_build
+    service, job, batch = prepared
+    service.store.pdf_inspector = invalid_pdf
+    assert materials(prepared).prepare(job, batch, observed)
+    saved = service.store.load()["jobs"][0]
+    material = saved["materials"][0]
+    assert (material["status"], material["error_code"]) == ("failed", "resume_pdf_invalid")
+    assert saved["cover_letter_delivery"]["status"] == "failed"
+    assert saved["cover_letter_delivery"]["reason"] == "resume_pdf_invalid"
+    assert not (directory / "export.json").exists()
+
+
+def test_unbuilt_unknown_letter_file_still_needs_recheck(modern):
+    prepared, _ = modern
+    service, job, batch = prepared
+    service.store.cover_letter_exporter = lost_build
+    observed = {"fields": [field(kind="file", accept=".pdf")]}
+    with pytest.raises(PortalDataError):
+        materials(prepared).prepare(job, batch, observed)
+    state = service.store.load()
+    assert state["jobs"][0]["materials"][0]["status"] == "needs_recheck"
+    job.update(deepcopy(state["jobs"][0]))
+    with pytest.raises(PortalDataError) as caught:
+        materials(prepared).prepare(job, batch, observed)
+    assert caught.value.code == "cover_letter_needs_recheck"
+    assert service.store.load()["jobs"][0]["materials"] == state["jobs"][0]["materials"]
