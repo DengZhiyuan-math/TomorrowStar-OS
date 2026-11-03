@@ -382,3 +382,38 @@ def test_upload_intent_journals_hash_and_manifest_without_private_bytes(material
         )
         == intent
     )
+
+
+@pytest.mark.parametrize("change", [None, "arguments_digest", "generation", "native_ref"])
+def test_in_flight_delivery_refused_by_the_driver_records_not_sent(material_call, change):
+    """2026-11-03: an in_flight CV delivery came back not_sent and stopped the takeover."""
+    service, ref, scope, _, _ = material_call
+    save_material(material_call)
+    service.store.record_native_handoff(
+        ref,
+        request_id="journal-run",
+        phase="granted",
+        scope=scope,
+        receipt=sealed_receipt(material_call),
+    )
+    refused = sealed_receipt(material_call, "not_sent")
+    call = refused["calls"][0]
+    del call["material_resolution"]
+    call.update(refusal="handoff_host_did_not_authorize", refusal_detail={})
+    if change == "arguments_digest":
+        call[change] = "e" * 64
+    elif change:
+        call[change] = call[change] + 1 if change == "generation" else "another-ref"
+    if change is None:
+        row = service.store.record_native_handoff(
+            ref, request_id="journal-run", phase="stopping", scope=scope, receipt=refused
+        )
+        assert row["events"][-1]["receipt"]["calls"][0]["status"] == "not_sent"
+        return
+    before = service.store.path.read_bytes()
+    with pytest.raises(PortalDataError) as caught:
+        service.store.record_native_handoff(
+            ref, request_id="journal-run", phase="stopping", scope=scope, receipt=refused
+        )
+    assert caught.value.code == "native_handoff_conflict"
+    assert service.store.path.read_bytes() == before

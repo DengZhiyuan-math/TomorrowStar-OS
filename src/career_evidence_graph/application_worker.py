@@ -71,6 +71,10 @@ OWNED_PAGE_OBSERVATION = "owned-page-observation/v1"
 CONTROLLER_HANDOFF_INSPECTION = "controller-handoff-inspection/v1"
 CODEX_ASSISTANCE = "codex-assistance/v1"
 CODEX_NATIVE_ASSISTANCE = "codex-assistance/native/v1"
+# Result-stage keys a native call may gain, change or drop; every other key is identity.
+NATIVE_CALL_OUTCOME_KEYS = frozenset(
+    {"status", "refusal", "refusal_detail", "material_resolution", "material_readback", "result"}
+)
 MATERIAL_COMMIT_FIELDS = (
     "single_binding",
     "file_path",
@@ -80,6 +84,13 @@ MATERIAL_COMMIT_FIELDS = (
 )
 CODEX_BACKEND_AUTHORITY = "codex-backend-authority/v1"
 ASSISTANCE_OUTCOME = "assistance-outcome/v1"
+
+
+def _native_call_identity_kept(previous, current):
+    """A later receipt row keeps every identity key; result-stage keys may change."""
+    return all(
+        previous[key] == current.get(key) for key in previous if key not in NATIVE_CALL_OUTCOME_KEYS
+    )
 
 
 def script_writes_allowed(state, application_id=None):
@@ -2566,11 +2577,12 @@ class WorkerStore:
     @staticmethod
     def _native_material_call_follows(previous, current):
         return bool(
-            all(previous[key] == current.get(key) for key in previous if key != "status")
+            _native_call_identity_kept(previous, current)
             and current.get("status")
             in {
                 "awaiting_host": {"awaiting_host", "in_flight", "observed", "not_sent", "unknown"},
-                "in_flight": {"in_flight", "observed", "unknown"},
+                # The driver may report a dispatched delivery as refused before sending.
+                "in_flight": {"in_flight", "observed", "not_sent", "unknown"},
                 "observed": {"observed"},
                 "not_sent": {"not_sent"},
                 "unknown": {"unknown"},
@@ -2926,9 +2938,7 @@ class WorkerStore:
                     if old_call and (
                         not self._native_material_call_follows(old_call, call)
                         if old_call["tool"] == "browser_deliver_material"
-                        else any(
-                            old_call[key] != call.get(key) for key in old_call if key != "status"
-                        )
+                        else not _native_call_identity_kept(old_call, call)
                     ):
                         raise PortalDataError(
                             "native_handoff_conflict", "原生调用标识不能更换参数或代次。", 409
