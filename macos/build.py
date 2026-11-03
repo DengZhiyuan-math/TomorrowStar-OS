@@ -77,14 +77,15 @@ def copy_cua_driver(resources: Path, driver: Path) -> dict:
             "core refusal reason codes survive the SDK projection; hit refusals carry a "
             "bounded diagnosis, trusted clicks center an off-band target first, and main-frame "
             "hit tests use the input point; a delivered file may be proven by its name shown "
-            "in the form item when the FileList is cleared, with a readback diagnosis otherwise"
+            "in the form item when the FileList is cleared, with a readback diagnosis otherwise; "
+            "that name is found again by stable container or form when the input is unmounted"
         ),
         # MC-10 successor source tree and its divergence from the sealed MC-06 source.
         "source_manifest_sha256": (
-            "fea3fadf0c0f2014f25cdf94ef4d856241719a0964430e7a967d81de7193204a"
+            "33c3090b69ed58aac9d3e6741855d79287aab19a89a71b885508e3c6f4614333"
         ),
         "source_divergence_patch_sha256": (
-            "dff97f11aa2d0910a2fa9f343b88e8e29baa81903780d236f8a6eb87d3f1ecb1"
+            "006ef40ab30cce5150eeed5711be2d92e743a763fd6727bcd34cf3ba42692347"
         ),
         "build_profile": "release, signed with the pinned private identity",
         "additional_local_divergence": (
