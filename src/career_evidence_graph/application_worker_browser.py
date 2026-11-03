@@ -93,6 +93,74 @@ NATIVE_NEGATIVE_FACT_VALUES = frozenset(
     {"no", "false", "n", "nein", "disagree", "decline", "不同意", "否"}
 )
 
+# 2026-11-03: Codex set a consent "Yes" radio by its AX name, which names the option,
+# not the question, so `fact_for("Yes")` found no fact and admission stopped the run.
+# Delivery already binds each fact to its DOM controls (`field_ids`); admission reuses
+# that binding: the delivered controls whose own label equals the AX name and whose
+# kind matches the AX role must all map to exactly one confirmed fact. A Yes/No option
+# must also agree with that fact's polarity. Anything else stays refused.
+NATIVE_TEXT_FIELD_TYPES = frozenset(
+    {"", "text", "email", "tel", "url", "number", "search", "textarea"}
+)
+
+
+def _native_control_kind(field):
+    role = str(field.get("role") or "").strip().casefold()
+    kind = str(field.get("type") or "").strip().casefold()
+    for value in (role, kind):
+        if value in {"radio", "checkbox", "date"}:
+            return value
+        if value in {"combobox", "select", "select-one", "select-multiple"}:
+            return "combobox"
+    return "textbox" if role in {"", "textbox"} and kind in NATIVE_TEXT_FIELD_TYPES else None
+
+
+def _native_polarity(text):
+    word = text.strip().casefold()
+    if word in NATIVE_AFFIRMATIVE_FACT_VALUES:
+        return "true"
+    if word in NATIVE_NEGATIVE_FACT_VALUES:
+        return "false"
+    return None
+
+
+def native_control_fact_values(delivery, field_hint):
+    """Return the one confirmed fact value bound to the AX-named control, else []."""
+    name = str(field_hint.get("name") or "").strip().casefold()
+    role = str(field_hint.get("role") or "").strip().casefold()
+    if not name or role not in {"radio", "checkbox", "combobox", "date", "textbox"}:
+        return []
+    fields = ((delivery.get("page_context") or {}).get("data") or {}).get("fields", [])
+    ids = [
+        field.get("id")
+        for field in fields
+        if str(field.get("label") or "").strip().casefold() == name
+        and _native_control_kind(field) == role
+    ]
+    facts = (delivery.get("answers") or {}).get("facts", [])
+    bound = []
+    for field_id in ids:
+        owners = [fact for fact in facts if field_id and field_id in (fact.get("field_ids") or [])]
+        if not owners:
+            return []
+        bound.extend(owner for owner in owners if owner not in bound)
+    if len(bound) != 1:
+        return []
+    fact = bound[0]
+    value = fact.get("value")
+    if fact.get("status") != "confirmed" or not isinstance(value, str):
+        return []
+    if role == "radio":
+        option, answer = _native_polarity(name), _native_polarity(value)
+        if (option or answer) and option != answer and name != value.strip().casefold():
+            return []
+    elif role == "checkbox":
+        option, answer = _native_polarity(name), _native_polarity(value)
+        if option and answer and option != answer:
+            return []
+    return [value]
+
+
 # Fixed DOM reads. Page text and model output never become executable code.
 INSPECT = FORMS["lever"].inspect_script()
 
@@ -3206,6 +3274,8 @@ class ApplicationRunner:
                     and fact.get("status") == "confirmed"
                     and isinstance(fact.get("value"), str)
                 ]
+                if not values:
+                    values = native_control_fact_values(delivery, call.get("field_hint") or {})
                 allowed = {hashlib.sha256(value.encode()).hexdigest() for value in values}
                 if call["tool"] == "browser_set_value":
                     # A checkbox or radio state follows the field's confirmed yes or no.

@@ -438,6 +438,98 @@ def test_native_set_value_admits_only_a_confirmed_fact_or_a_checked_state(
     assert admitted == [allowed]
 
 
+CONSENT = "I consent to the processing of my personal data"
+
+
+@pytest.mark.parametrize(
+    ("name", "relocation", "allowed"),
+    [
+        # 2026-11-03: the AX name of a radio is its option; the delivered control binds it.
+        ("Yes", False, True),
+        ("No", False, False),
+        # Two questions each offer a bound "Yes": the name does not identify one fact.
+        ("Yes", True, False),
+        ("Maybe", False, False),
+    ],
+)
+def test_native_set_value_admits_a_radio_option_through_its_delivered_control(
+    native_page, monkeypatch, name, relocation, allowed
+):
+    from test_application_information import answer
+
+    from career_evidence_graph._vendor import job_apply_store as helper
+
+    service, runner, page, ref, calls, _ = native_page
+    page.field_value = ""
+    saved = [answer(CONSENT, "Yes"), answer("Are you willing to relocate?", "Yes")]
+    helper.atomic_write_json(
+        service.store.answers.root / "answers.json",
+        {"schemaVersion": 1, "answers": dict(saved), "metadata": {}},
+    )
+    questions = [CONSENT] + (["Are you willing to relocate?"] if relocation else [])
+    delivery_for_page = service.store.assistance_delivery
+
+    def with_radios(expected_ref, *, page_context=None):
+        page_context = deepcopy(page_context)
+        page_context["data"]["fields"] += [
+            {
+                "id": f"q{index}-{option}",
+                "label": option,
+                "type": "radio",
+                "question": question,
+                "value": "false",
+            }
+            for index, question in enumerate(questions)
+            for option in ("Yes", "No")
+        ]
+        return delivery_for_page(expected_ref, page_context=page_context)
+
+    monkeypatch.setattr(service.store, "assistance_delivery", with_radios)
+    admitted = []
+
+    class Adapter:
+        def start_takeover(self, original, **kwargs):
+            kwargs["before_yield"](
+                {
+                    "application_ref_digest": digest(ref),
+                    "scope": kwargs["native_scope"],
+                    "request_id": kwargs["request_id"],
+                }
+            )
+            kwargs["after_yield"](
+                {"handoff_id": "native-run", "generation": 1, "local_tools_drained": True}
+            )
+            facts = {
+                fact["fact"]: fact.get("field_ids")
+                for fact in kwargs["delivery"]["answers"]["facts"]
+            }
+            assert facts["data_processing_consent"] == ["q0-Yes", "q0-No"]
+            call = {
+                "call_id": "native-set-radio",
+                "tool": "browser_set_value",
+                "arguments_digest": "b" * 64,
+                "status": "awaiting_host",
+                "generation": 1,
+                "sequence": 1,
+                "mutation": True,
+                "semantic_verified": False,
+                "scope": kwargs["native_scope"],
+                "native_ref": "fresh-native-ref",
+                "field_hint": {"role": "radio", "name": name},
+                "text_sha256": hashlib.sha256(b"true").hexdigest(),
+            }
+            admitted.append(kwargs["before_native_call"](call))
+            return SimpleNamespace(run_id="adapter-native-run")
+
+        def progress(self, run_id):
+            return SimpleNamespace(status="ready", tools_revoked=False)
+
+    runner.codex_assist = Adapter()
+    runner._service_assistance_stop = lambda: None
+    runner.start_native_assistance(ref, request_id="native-set-radio")
+    assert admitted == [allowed]
+
+
 @pytest.mark.parametrize("change", ["unchanged", "pause", "page_replaced", "expired_owner"])
 def test_native_control_pump_keeps_progress_while_renderer_scope_read_is_busy(
     native_page, monkeypatch, change
