@@ -111,7 +111,8 @@ def test_admitted_delivery_sends_its_upload_once_after_a_page_load_block(guarded
 
 
 @pytest.mark.parametrize(
-    "case", ["none", "expired", "no_file", "cross_site", "base64", "subdomain"]
+    "case",
+    ["none", "expired", "no_file", "cross_site", "cross_site_no_file", "base64", "subdomain"],
 )
 def test_only_a_valid_authorization_carrying_the_file_to_the_ats_site_is_sent(guarded, case):
     service, runner, page, job = guarded
@@ -122,14 +123,17 @@ def test_only_a_valid_authorization_carrying_the_file_to_the_ats_site_is_sent(gu
         runner.native_uploads[page]["expires_at"] = 0
     url = {
         "cross_site": "https://uploads.example.invalid/apply",
+        "cross_site_no_file": "https://uploads.example.invalid/apply",
         "subdomain": "https://files.workable.com/upload",
     }.get(case, URL)
     body = {
         "no_file": multipart(b"other bytes"),
+        "cross_site_no_file": multipart(b"other bytes"),
         "base64": b'{"file":"' + base64.b64encode(RAW) + b'"}',
     }.get(case, multipart())
     outcome = send(runner, page, url, body=body)
-    if case in {"base64", "subdomain"}:
+    if case in {"base64", "subdomain", "cross_site"}:
+        # Another host takes only the file's own bytes (once, with no named target).
         assert outcome == "continued"
         return
     assert outcome == "blockedbyclient"
@@ -240,3 +244,119 @@ def test_a_retry_follows_only_a_failed_or_unanswered_send_up_to_three(guarded, m
     # Three sends are the limit for one authorization.
     assert blob_send(runner, page)[0] == "blockedbyclient"
     assert [row["send"] for row in diagnostics(runner) if row.get("match")] == [1, 2, 3]
+
+
+HANDSHAKE = {"content-type": "text/plain;charset=UTF-8", "next-action": "7f00"}
+UPLOAD_HOST = "https://uploads.storage.invalid"
+
+
+class Answer:
+    """The fetched answer to a handshake: status, headers and a body naming a target."""
+
+    def __init__(self, status=200, text="", location=None):
+        self.status = status
+        self.headers = {"location": location} if location else {}
+        self._text = text
+        self.disposed = False
+
+    def text(self):
+        return self._text
+
+    def dispose(self):
+        self.disposed = True
+
+
+def handshake(runner, page, *, answer=None, body=b'[{"name":"resume.pdf"}]'):
+    request = Request(
+        method="POST",
+        url=URL,
+        resource_type="fetch",
+        headers=dict(HANDSHAKE),
+        post_data_buffer=body,
+        frame=page.main_frame,
+        redirected_from=None,
+        is_navigation_request=lambda: False,
+    )
+    route = SimpleNamespace(request=request, outcome="unset")
+    route.continue_ = lambda: pytest.fail("a handshake is fetched to read its answer")
+    route.fetch = lambda **_: answer or Answer()
+    route.fulfill = lambda response: setattr(route, "outcome", "fulfilled")
+    route.abort = lambda reason: setattr(route, "outcome", reason)
+    runner._live_guard(route)
+    return route.outcome
+
+
+def byte_send(runner, page, url, *, length=None, media="application/pdf", method="PUT"):
+    request = Request(
+        method=method,
+        url=url,
+        resource_type="fetch",
+        headers={
+            "content-type": media,
+            "content-length": str(len(RAW) if length is None else length),
+        },
+        post_data_buffer=None,
+        frame=page.main_frame,
+        redirected_from=None,
+        is_navigation_request=lambda: False,
+    )
+    route = SimpleNamespace(request=request, outcome="unset")
+    route.continue_ = lambda: setattr(route, "outcome", "continued")
+    route.abort = lambda reason: setattr(route, "outcome", reason)
+    runner._live_guard(route)
+    return route.outcome, request
+
+
+def test_two_step_upload_sends_its_handshake_then_the_bytes_to_the_named_target(guarded):
+    """2026-11-03: onlyfy first posts a 239-byte text/plain Next.js action."""
+    service, runner, page, job = guarded
+    authorize(runner, job)
+    answer = Answer(text='0:{"url":"' + UPLOAD_HOST + '/bucket/key?X-Amz-Signature=secret"}')
+    assert handshake(runner, page, answer=answer) == "fulfilled"
+    permitted = diagnostics(runner)[-1]
+    assert (permitted["match"], permitted["handshake"]) == ("handshake", 1)
+    assert permitted["targets"] == ["uploads.storage.invalid"]
+    upload = runner.native_uploads[page]
+    assert upload["targets"] == [{"host": "uploads.storage.invalid", "path": "/bucket/key"}]
+    assert "secret" not in str(upload["targets"]) and "secret" not in str(runner.transports)
+    assert upload["handshakes"][0]["status"] == 200 and answer.disposed
+
+    # Another host than the named target does not take the bytes.
+    assert byte_send(runner, page, "https://elsewhere.invalid/key")[0] == "blockedbyclient"
+    outcome, request = byte_send(runner, page, UPLOAD_HOST + "/bucket/key?X-Amz-Signature=s")
+    assert outcome == "continued"
+    sent = diagnostics(runner)[-1]
+    assert (sent["match"], sent["host"], sent["send"]) == ("bytes", "uploads.storage.invalid", 1)
+    runner.transport(request, "response", 200)
+    assert upload["used"] is True
+    assert byte_send(runner, page, UPLOAD_HOST + "/bucket/key")[0] == "blockedbyclient"
+
+
+@pytest.mark.parametrize(
+    ("length", "media", "outcome"),
+    [
+        (len(RAW), "application/pdf", "continued"),
+        (len(RAW), "application/octet-stream", "continued"),
+        (len(RAW) + 1, "application/pdf", "blockedbyclient"),
+        (len(RAW), "text/plain", "blockedbyclient"),
+    ],
+)
+def test_without_a_named_target_only_one_exact_byte_send_goes_elsewhere(
+    guarded, length, media, outcome
+):
+    service, runner, page, job = guarded
+    authorize(runner, job)
+    url = UPLOAD_HOST + "/direct"
+    assert byte_send(runner, page, url, length=length, media=media)[0] == outcome
+    if outcome == "continued":
+        # Once: a second unnamed cross-site send is not allowed.
+        runner.native_uploads[page]["sends"][-1]["status"] = 500
+        assert byte_send(runner, page, url)[0] == "blockedbyclient"
+
+
+def test_handshakes_stop_after_three(guarded):
+    service, runner, page, job = guarded
+    authorize(runner, job)
+    assert [handshake(runner, page) for _ in range(4)] == ["fulfilled"] * 3 + ["blockedbyclient"]
+    # A body above 4 KB is no handshake.
+    assert handshake(runner, page, body=b"x" * 5000) == "blockedbyclient"

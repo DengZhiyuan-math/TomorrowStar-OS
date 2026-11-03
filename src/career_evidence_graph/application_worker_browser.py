@@ -836,6 +836,30 @@ def _request_body_facts(request) -> dict:
     }
 
 
+NATIVE_UPLOAD_HANDSHAKES = 3
+NATIVE_UPLOAD_HANDSHAKE_BYTES = 4096
+NATIVE_UPLOAD_BYTE_TYPES = frozenset(
+    {"application/pdf", "application/octet-stream", "multipart/form-data"}
+)
+
+
+def _upload_targets(base_url, location, text):
+    """https hosts and paths an upload handshake's answer names; never query or token."""
+    found = []
+    candidates = [urljoin(base_url, location)] if location else []
+    candidates += re.findall(r"https://[^\s\"'<>\\]+", text or "")[:50]
+    for url in candidates:
+        try:
+            parts = urlsplit(url)
+        except ValueError:
+            continue
+        if parts.scheme == "https" and parts.hostname:
+            target = {"host": parts.hostname, "path": parts.path[:500]}
+            if target not in found:
+                found.append(target)
+    return found[:20]
+
+
 def _carries_material(body, raw: bytes, sha256: str) -> bool:
     """A request body holding the delivered file's bytes (raw or base64) or its hash."""
     if not isinstance(body, (bytes, bytearray)) or not raw:
@@ -1913,68 +1937,119 @@ class ApplicationRunner:
             "raw": base64.b64decode(payload["bytes_base64"]),
             "used": False,
             "sends": [],
+            # Two-step uploads: the page's own handshake, then the bytes to the target
+            # its answer names (hosts and paths only), or one exact send elsewhere.
+            "handshakes": [],
+            "targets": [],
+            "cross_site_sent": False,
         }
         self.transports.append(record)
+
+    def _native_upload_match(self, upload, request, body, shape):
+        """How a send carries the admitted file, or None.
+
+        On the job's site: the file in the body ("body"), an unreadable multipart body
+        at least the file's size ("shape"), an exact unreadable byte send ("bytes"),
+        or the widget's small handshake that announces the upload ("handshake";
+        2026-11-03: onlyfy first posts a 239-byte text/plain Next.js action). On
+        another https host only the bytes go: to a target a handshake's answer named,
+        or, with no such target, once and exactly.
+        """
+        carries = _carries_material(body, upload["raw"], upload["sha256"])
+        exact = (
+            body is None
+            and shape["content_length"] == upload["size_bytes"]
+            and shape["content_type"] in NATIVE_UPLOAD_BYTE_TYPES
+        )
+        if _same_site(request.url, upload["job_url"]):
+            if carries:
+                return "body"
+            if (
+                body is None
+                and shape["content_type"] == "multipart/form-data"
+                and (
+                    shape["content_length"] is None
+                    or shape["content_length"] >= upload["size_bytes"]
+                )
+            ):
+                return "shape"
+            if exact:
+                return "bytes"
+            if (
+                shape["content_type"] in {"text/plain", "application/json"}
+                and isinstance(body, (bytes, bytearray))
+                and len(body) <= NATIVE_UPLOAD_HANDSHAKE_BYTES
+                and (
+                    shape["next_action"]
+                    or upload["filename"].encode() in body
+                    or str(upload["size_bytes"]).encode() in body
+                )
+            ):
+                return "handshake"
+            return None
+        target = urlsplit(request.url)
+        if target.scheme != "https" or request.method not in {"PUT", "POST"}:
+            return None
+        hosts = {row["host"] for row in upload["targets"]}
+        if hosts:
+            return "bytes" if target.hostname in hosts and (carries or exact) else None
+        if upload["cross_site_sent"]:
+            return None
+        return "bytes" if carries or exact else None
 
     def _permit_native_upload(self, route, request, page) -> bool:
         """Send the admitted file's own upload, then retire the authorization.
 
-        A body that carries the file (bytes, base64 or hash) matches; a body CDP
-        does not expose (a FormData File is a Blob) matches by its shape: multipart,
-        at least the file's size when a length is declared. A widget's retry may
-        send again only after the last send failed or went unanswered, at most
-        NATIVE_UPLOAD_SENDS times; a 2xx answer uses the authorization up.
+        See _native_upload_match for what a send may be. A handshake may go up to
+        NATIVE_UPLOAD_HANDSHAKES times; it is fetched once so its answer can name the
+        upload target. A byte send may go again only after the last one failed or
+        went unanswered, at most NATIVE_UPLOAD_SENDS times; a 2xx answer to a byte
+        send uses the authorization up.
         """
         upload = self.native_uploads[page]
         now = time.time()
         if upload["used"] or now > upload["expires_at"]:
             upload["raw"] = b""
             return False
-        sends = upload["sends"]
-        if sends:
-            last = sends[-1]
-            settled = last.get("failed") or (
-                last.get("status") is not None and not 200 <= last["status"] < 300
-            )
-            if len(sends) >= NATIVE_UPLOAD_SENDS or not (
-                settled
-                or last.get("status") is None
-                and now - last["at"] > NATIVE_UPLOAD_ANSWER_WAIT
-            ):
-                return False
-        state = self.store.load()
-        job = next(
-            (row for row in state["jobs"] if row["application_id"] == upload["application_id"]),
-            None,
-        )
         try:
             body = request.post_data_buffer
         except Error:
             body = None
         shape = _request_body_facts(request)
-        if _carries_material(body, upload["raw"], upload["sha256"]):
-            match = "body"
-        elif (
-            body is None
-            and shape["content_type"] == "multipart/form-data"
-            and (shape["content_length"] is None or shape["content_length"] >= upload["size_bytes"])
-        ):
-            match = "shape"
+        match = self._native_upload_match(upload, request, body, shape)
+        if match is None:
+            return False
+        if match == "handshake":
+            if len(upload["handshakes"]) >= NATIVE_UPLOAD_HANDSHAKES:
+                return False
         else:
-            match = None
+            sends = upload["sends"]
+            if sends:
+                last = sends[-1]
+                settled = last.get("failed") or (
+                    last.get("status") is not None and not 200 <= last["status"] < 300
+                )
+                if len(sends) >= NATIVE_UPLOAD_SENDS or not (
+                    settled
+                    or last.get("status") is None
+                    and now - last["at"] > NATIVE_UPLOAD_ANSWER_WAIT
+                ):
+                    return False
+        state = self.store.load()
+        job = next(
+            (row for row in state["jobs"] if row["application_id"] == upload["application_id"]),
+            None,
+        )
         if (
-            match is None
-            or job is None
+            job is None
             or job["status"] == "cancelled"
             or job.get("handed_off")
             or self.pages.get(job["application_id"]) is not page
             or self.page_ids.get(page) != upload["page_id"]
             or (state.get("runtime") or {}).get("id") != upload["run_id"]
             or hosted_ats.is_final_submission(request, job)
-            or not _same_site(request.url, upload["job_url"])
         ):
             return False
-        sends.append({"at": now, "status": None, "failed": False})
         record = {
             key: upload[key]
             for key in (
@@ -1990,9 +2065,25 @@ class ApplicationRunner:
         } | {
             "action": "native_material_upload",
             "kind": "native_material_upload",
-            "send": len(sends),
             "match": match,
+            "host": urlsplit(request.url).hostname,
         }
+        facts = {
+            **_request_diagnostic_facts(request, page, job),
+            "native_takeover": True,
+            "body": shape,
+            "match": match,
+            "host": record["host"],
+        }
+        if match == "handshake":
+            upload["handshakes"].append({"at": now, "status": None})
+            record["handshake"] = facts["handshake"] = len(upload["handshakes"])
+            self._send_native_handshake(route, request, upload, facts)
+        else:
+            if not _same_site(request.url, upload["job_url"]) and not upload["targets"]:
+                upload["cross_site_sent"] = True
+            upload["sends"].append({"at": now, "status": None, "failed": False})
+            record["send"] = facts["send"] = len(upload["sends"])
         with suppress(TypeError):
             self.requests[request] = record
         self.request_sequence += 1
@@ -2004,16 +2095,43 @@ class ApplicationRunner:
             "request_permitted",
             "native_material_upload",
             sequence=self.request_sequence,
-            facts={
-                **_request_diagnostic_facts(request, page, job),
-                "native_takeover": True,
-                "body": shape,
-                "match": match,
-                "send": len(sends),
-            },
+            facts=facts,
         )
-        route.continue_()
+        if match != "handshake":
+            route.continue_()
         return True
+
+    def _send_native_handshake(self, route, request, upload, facts):
+        """Send the handshake once and keep where its answer says the bytes go.
+
+        The answer is passed to the page as received (a redirect is not followed
+        here; the page's own next request meets the guard again).
+        """
+        handshake = upload["handshakes"][-1]
+        try:
+            response = route.fetch(max_redirects=0, max_retries=0, timeout=10000)
+        except Error:
+            handshake["status"] = 0
+            _abort(route)
+            return
+        try:
+            handshake["status"] = response.status
+            try:
+                text = response.text()[:200_000]
+            except Exception:
+                text = ""
+            targets = _upload_targets(request.url, response.headers.get("location"), text)
+            for target in targets:
+                if target not in upload["targets"]:
+                    upload["targets"].append(target)
+            facts["http_status"] = response.status
+            facts["targets"] = sorted({row["host"] for row in targets})
+            route.fulfill(response=response)
+        except Error:
+            _abort(route)
+        finally:
+            with suppress(Error):
+                response.dispose()
 
     def _native_upload_answer(self, record, stage, status) -> None:
         """Keep a native upload send's answer with its authorization."""
