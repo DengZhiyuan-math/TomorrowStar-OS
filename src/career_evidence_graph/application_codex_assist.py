@@ -110,6 +110,17 @@ _NATIVE_OUTCOME_KEYS = frozenset({"status", "refusal", "refusal_detail"})
 _NATIVE_MATERIAL_OUTCOME_KEYS = _NATIVE_OUTCOME_KEYS | {"material_resolution", "material_readback"}
 
 
+def admission_frames(error):
+    """The last three application frames of a refused admission, without values."""
+    import traceback
+
+    return [
+        f"{Path(frame.filename).stem}:{frame.name}:{frame.lineno}"
+        for frame in traceback.extract_tb(error.__traceback__)
+        if "career_evidence_graph" in frame.filename
+    ][-3:]
+
+
 @dataclass(frozen=True)
 class CodexAssistConfig:
     executable: Path
@@ -1104,9 +1115,20 @@ class CodexAdapter:
                     )
                 else:
                     # The private log keeps why the Worker refused; no arguments or values.
+                    # A bare class name named nothing (2026-11-03: code "Error"), so the
+                    # message head and the last application frames are kept too.
                     print(
                         "native_call_admission_denied: "
-                        + json.dumps({"tool": call.get("tool"), "code": code}),
+                        + json.dumps(
+                            {
+                                "tool": call.get("tool"),
+                                "code": code,
+                                "error": type(error).__name__,
+                                "message": str(error)[:200],
+                                "where": admission_frames(error),
+                            },
+                            ensure_ascii=False,
+                        ),
                         flush=True,
                     )
             native["admissions"][call["call_id"]] = (

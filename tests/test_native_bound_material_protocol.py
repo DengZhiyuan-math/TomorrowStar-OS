@@ -485,6 +485,40 @@ def test_declined_material_row_with_driver_refusal_keeps_its_identity(tmp_path, 
         adapter.close()
 
 
+def test_admission_refused_by_an_exception_logs_its_message_and_frames(
+    tmp_path, monkeypatch, capsys
+):
+    # 2026-11-03: the log said only {"code": "Error"}.
+    from playwright.sync_api import Error
+
+    config, ref, scope, packet, driver, native, events = native_case(tmp_path, monkeypatch)
+    native.calls = [material_call() | {"scope": scope}]
+
+    def resolve(call):
+        raise Error("synthetic owned read timeout")
+
+    adapter, run = start_case(
+        config, ref, scope, packet, driver, native, before_native_call=resolve
+    )
+    try:
+        for _ in range(2):
+            adapter.progress(run.run_id)
+        line = next(
+            row
+            for row in capsys.readouterr().out.splitlines()
+            if row.startswith("native_call_admission_denied: ")
+        )
+        record = json.loads(line.removeprefix("native_call_admission_denied: "))
+        assert record["tool"] == "browser_deliver_material"
+        assert (record["code"], record["error"]) == ("Error", "Error")
+        assert record["message"] == "synthetic owned read timeout"
+        # Application frames only (the Worker's own frames in a real run).
+        assert record["where"][0].startswith("application_codex_assist:_native_admit:")
+        assert native.revoked
+    finally:
+        adapter.close()
+
+
 def test_unpersisted_material_metadata_stops_before_resolver_and_admission(tmp_path, monkeypatch):
     config, ref, scope, packet, driver, native, events = native_case(tmp_path, monkeypatch)
     native.calls = [material_call() | {"scope": scope}]

@@ -580,6 +580,63 @@ def test_runner_refuses_an_unproven_resume_destination_without_questions(
         )
 
 
+def test_material_admission_off_the_worker_thread_never_touches_the_page(bound_material_page):
+    """2026-11-03: an admission raised a bare Playwright ``Error``. Sealing and
+    authorizing the upload read only saved state: a page used from another thread
+    (or at all) here would raise."""
+    import threading
+
+    from playwright.sync_api import Error
+    from test_worker_native_assistance import prepare_journal
+
+    class OffThreadPage:
+        def __getattr__(self, name):
+            raise Error("page used during admission: " + name)
+
+    service, _, issue = bound_material_page
+    reference, context = issue([], prepare=False)
+    call = unparsed_resume_call(service, reference, context, "Upload your CV")
+    scope = prepare_journal(service, reference)
+    call["scope"] = {
+        "target_id": scope["native_scope"]["target_id"],
+        "tab_id": scope["native_scope"]["tab_id"],
+        "expected_document": scope["document"],
+    }
+    context["document"] = deepcopy(scope["document"])
+    service.store.record_native_handoff(
+        reference,
+        request_id="journal-run",
+        phase="granted",
+        scope=scope,
+        receipt={"handoff_id": "material-handoff", "generation": 1, "local_tools_drained": True},
+    )
+    runner = ApplicationRunner(service.store, None)
+    page = OffThreadPage()
+    runner.pages[reference["binding"]["application_id"]] = page
+    runner.page_ids[page] = reference["binding"]["page_id"]
+    outcome = {}
+
+    def admit():
+        try:
+            outcome["payload"] = runner._prepare_native_material_call(
+                reference,
+                call,
+                context,
+                request_id="journal-run",
+                scope=scope,
+                receipt=receipt(call),
+            )
+        except BaseException as error:  # noqa: BLE001 -- the assertion reports it
+            outcome["error"] = error
+
+    thread = threading.Thread(target=admit)
+    thread.start()
+    thread.join(30)
+    assert "error" not in outcome, repr(outcome.get("error"))
+    assert outcome["payload"]["kind"] == "file"
+    assert runner.native_uploads[page]["job_url"] == service.store.load()["jobs"][0]["job_url"]
+
+
 def test_unparsed_resume_delivery_journals_the_ledger_row_as_its_only_attempt(
     bound_material_page,
 ):
