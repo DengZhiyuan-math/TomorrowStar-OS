@@ -800,6 +800,35 @@ def _same_site(url, job_url) -> bool:
     return host == site or host.endswith("." + site)
 
 
+# A native upload's first send may fail inside the widget, which retries: at most
+# this many sends per authorization, a new one only after the last failed or went
+# unanswered this long, and none after a 2xx answer.
+NATIVE_UPLOAD_SENDS = 3
+NATIVE_UPLOAD_ANSWER_WAIT = 10.0
+
+
+def _request_body_facts(request) -> dict:
+    """A send's body shape, never its content (2026-11-03: a File in FormData is a
+    Blob that CDP does not expose, so a body match alone could not see the upload)."""
+    try:
+        body = request.post_data_buffer
+    except Exception:
+        body = None
+    try:
+        headers = {str(k).lower(): str(v) for k, v in (request.headers or {}).items()}
+    except Exception:
+        headers = {}
+    media = headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    length = headers.get("content-length", "").strip()
+    return {
+        "readable": isinstance(body, (bytes, bytearray)),
+        "length": len(body) if isinstance(body, (bytes, bytearray)) else None,
+        "content_type": media[:200] or None,
+        "content_length": int(length) if length.isdigit() else None,
+        "next_action": "next-action" in headers,
+    }
+
+
 def _carries_material(body, raw: bytes, sha256: str) -> bool:
     """A request body holding the delivered file's bytes (raw or base64) or its hash."""
     if not isinstance(body, (bytes, bytearray)) or not raw:
@@ -978,6 +1007,8 @@ class ApplicationRunner:
     def transport(self, request, stage: str, status=None) -> None:
         record = self.requests.get(request)
         if record:
+            if record.get("kind") == "native_material_upload":
+                self._native_upload_answer(record, stage, status)
             if stage == "response":
                 record["http_status"] = status
             self.transports.append(
@@ -1470,6 +1501,8 @@ class ApplicationRunner:
         facts = _request_diagnostic_facts(request, page, owned_job)
         if native_page:
             facts["native_takeover"] = True
+            if request.method != "GET":
+                facts["body"] = _request_body_facts(request)
         previous_stop = self.blocked_pages.get(page)
         self.request_sequence += 1
         sequence = self.request_sequence
@@ -1872,14 +1905,36 @@ class ApplicationRunner:
             "job_url": job["job_url"],
             "raw": base64.b64decode(payload["bytes_base64"]),
             "used": False,
+            "sends": [],
         }
         self.transports.append(record)
 
     def _permit_native_upload(self, route, request, page) -> bool:
-        """Send one same-site request that carries the admitted file, then retire it."""
+        """Send the admitted file's own upload, then retire the authorization.
+
+        A body that carries the file (bytes, base64 or hash) matches; a body CDP
+        does not expose (a FormData File is a Blob) matches by its shape: multipart,
+        at least the file's size when a length is declared. A widget's retry may
+        send again only after the last send failed or went unanswered, at most
+        NATIVE_UPLOAD_SENDS times; a 2xx answer uses the authorization up.
+        """
         upload = self.native_uploads[page]
-        if upload["used"] or time.time() > upload["expires_at"]:
+        now = time.time()
+        if upload["used"] or now > upload["expires_at"]:
+            upload["raw"] = b""
             return False
+        sends = upload["sends"]
+        if sends:
+            last = sends[-1]
+            settled = last.get("failed") or (
+                last.get("status") is not None and not 200 <= last["status"] < 300
+            )
+            if len(sends) >= NATIVE_UPLOAD_SENDS or not (
+                settled
+                or last.get("status") is None
+                and now - last["at"] > NATIVE_UPLOAD_ANSWER_WAIT
+            ):
+                return False
         state = self.store.load()
         job = next(
             (row for row in state["jobs"] if row["application_id"] == upload["application_id"]),
@@ -1889,8 +1944,20 @@ class ApplicationRunner:
             body = request.post_data_buffer
         except Error:
             body = None
+        shape = _request_body_facts(request)
+        if _carries_material(body, upload["raw"], upload["sha256"]):
+            match = "body"
+        elif (
+            body is None
+            and shape["content_type"] == "multipart/form-data"
+            and (shape["content_length"] is None or shape["content_length"] >= upload["size_bytes"])
+        ):
+            match = "shape"
+        else:
+            match = None
         if (
-            job is None
+            match is None
+            or job is None
             or job["status"] == "cancelled"
             or job.get("handed_off")
             or self.pages.get(job["application_id"]) is not page
@@ -1898,10 +1965,9 @@ class ApplicationRunner:
             or (state.get("runtime") or {}).get("id") != upload["run_id"]
             or hosted_ats.is_final_submission(request, job)
             or not _same_site(request.url, upload["job_url"])
-            or not _carries_material(body, upload["raw"], upload["sha256"])
         ):
             return False
-        upload.update(used=True, raw=b"")
+        sends.append({"at": now, "status": None, "failed": False})
         record = {
             key: upload[key]
             for key in (
@@ -1914,7 +1980,12 @@ class ApplicationRunner:
                 "sha256",
                 "filename",
             )
-        } | {"action": "native_material_upload", "kind": "native_material_upload"}
+        } | {
+            "action": "native_material_upload",
+            "kind": "native_material_upload",
+            "send": len(sends),
+            "match": match,
+        }
         with suppress(TypeError):
             self.requests[request] = record
         self.request_sequence += 1
@@ -1926,10 +1997,37 @@ class ApplicationRunner:
             "request_permitted",
             "native_material_upload",
             sequence=self.request_sequence,
-            facts={**_request_diagnostic_facts(request, page, job), "native_takeover": True},
+            facts={
+                **_request_diagnostic_facts(request, page, job),
+                "native_takeover": True,
+                "body": shape,
+                "match": match,
+                "send": len(sends),
+            },
         )
         route.continue_()
         return True
+
+    def _native_upload_answer(self, record, stage, status) -> None:
+        """Keep a native upload send's answer with its authorization."""
+        upload = next(
+            (
+                row
+                for row in self.native_uploads.values()
+                if row["call_id"] == record["call_id"]
+                and row["application_id"] == record["application_id"]
+            ),
+            None,
+        )
+        if upload is None or not 1 <= record.get("send", 0) <= len(upload["sends"]):
+            return
+        send = upload["sends"][record["send"] - 1]
+        if stage == "response" and type(status) is int:
+            send["status"] = status
+            if 200 <= status < 300:
+                upload.update(used=True, raw=b"")
+        elif stage == "requestfailed" and send["status"] is None:
+            send["failed"] = True
 
     def _websocket_guard(self, page, websocket) -> None:
         if getattr(self, "synthetic_browser", False):

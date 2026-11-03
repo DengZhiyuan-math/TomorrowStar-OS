@@ -149,3 +149,94 @@ def test_same_site_keeps_the_job_origin_and_its_registrable_site():
     assert not browser._same_site("https://example.co.uk/x", "https://jobs.acme.co.uk/1")
     assert browser._same_site("https://cdn.acme.co.uk/x", "https://jobs.acme.co.uk/1")
     assert not browser._same_site("http://127.0.0.2/x", "http://127.0.0.1/1")
+
+
+MULTIPART = {"content-type": "multipart/form-data; boundary=----x", "next-action": "abc"}
+
+
+def blob_send(runner, page, url=URL, *, headers=MULTIPART):
+    """A FormData File is a Blob: CDP gives Playwright no request body for it."""
+    request = Request(
+        method="POST",
+        url=url,
+        resource_type="fetch",
+        headers=dict(headers),
+        post_data_buffer=None,
+        frame=page.main_frame,
+        redirected_from=None,
+        is_navigation_request=lambda: False,
+    )
+    route = SimpleNamespace(request=request, outcome="unset")
+    route.continue_ = lambda: setattr(route, "outcome", "continued")
+    route.abort = lambda reason: setattr(route, "outcome", reason)
+    runner._live_guard(route)
+    return route.outcome, request
+
+
+def test_blob_upload_is_sent_by_its_shape_and_its_block_is_described(guarded):
+    service, runner, page, job = guarded
+    # Before the delivery the same send is blocked; its row names the body's shape.
+    assert blob_send(runner, page)[0] == "blockedbyclient"
+    blocked = diagnostics(runner)[-1]
+    assert blocked["native_takeover"] is True
+    assert blocked["body"] == {
+        "readable": False,
+        "length": None,
+        "content_type": "multipart/form-data",
+        "content_length": None,
+        "next_action": True,
+    }
+    authorize(runner, job)
+    outcome, request = blob_send(runner, page)
+    assert outcome == "continued"
+    permitted = diagnostics(runner)[-1]
+    assert (permitted["reason"], permitted["match"], permitted["send"]) == (
+        "native_material_upload",
+        "shape",
+        1,
+    )
+    # A 2xx answer uses the authorization up; the next send is blocked again.
+    runner.transport(request, "response", 200)
+    assert runner.native_uploads[page]["used"] is True
+    assert blob_send(runner, page)[0] == "blockedbyclient"
+
+
+@pytest.mark.parametrize(
+    ("case", "url", "headers"),
+    [
+        ("not_multipart", URL, {"content-type": "application/json"}),
+        ("cross_site", "https://uploads.example.invalid/apply", MULTIPART),
+        ("too_short", URL, {**MULTIPART, "content-length": str(len(RAW) - 1)}),
+        ("expired", URL, MULTIPART),
+    ],
+)
+def test_a_blob_send_of_another_shape_or_place_stays_blocked(guarded, case, url, headers):
+    service, runner, page, job = guarded
+    authorize(runner, job)
+    if case == "expired":
+        runner.native_uploads[page]["expires_at"] = 0
+    assert blob_send(runner, page, url, headers=headers)[0] == "blockedbyclient"
+    assert diagnostics(runner)[-1]["stage"] == "request_blocked"
+    assert runner.native_uploads[page]["sends"] == []
+
+
+def test_a_retry_follows_only_a_failed_or_unanswered_send_up_to_three(guarded, monkeypatch):
+    service, runner, page, job = guarded
+    authorize(runner, job)
+    outcome, first = blob_send(runner, page, headers={**MULTIPART, "content-length": "999"})
+    assert outcome == "continued"
+    # Still waiting for its answer: a second send is not a retry yet.
+    assert blob_send(runner, page)[0] == "blockedbyclient"
+    runner.transport(first, "response", 500)
+    outcome, second = blob_send(runner, page)
+    assert outcome == "continued"
+    # Unanswered for more than 10 s, it may be retried once more.
+    clock = browser.time.time() + 11
+    monkeypatch.setattr(browser.time, "time", lambda: clock)
+    runner.native_uploads[page]["expires_at"] = clock + 60
+    outcome, third = blob_send(runner, page)
+    assert outcome == "continued"
+    runner.transport(third, "requestfailed")
+    # Three sends are the limit for one authorization.
+    assert blob_send(runner, page)[0] == "blockedbyclient"
+    assert [row["send"] for row in diagnostics(runner) if row.get("match")] == [1, 2, 3]
