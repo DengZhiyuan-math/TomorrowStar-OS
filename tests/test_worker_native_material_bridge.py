@@ -5,6 +5,7 @@ from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
+from test_cover_letter_content import Compiler
 from test_native_bound_material_protocol import material_call, text_resolution
 from test_single_application_worker import single_worker as single_worker
 from test_worker_assistance_delivery import page_context
@@ -915,6 +916,59 @@ def test_a_letter_failed_for_its_template_is_prepared_again_once_one_is_readable
     assert letter["status"] == "ready" and letter["id"] != original["id"]
     assert letter["filename"] == "cover-letter.pdf"
     # The failed attempt retires to history; it is not overwritten.
+    assert job["material_history"][-1] == original
+    assert job["cover_letter_delivery"]["status"] == "ready"
+
+
+@pytest.mark.parametrize("compiler_now", [True, False])
+def test_a_letter_failed_for_its_compiler_is_prepared_again_once_one_is_available(
+    bound_material_page, monkeypatch, compiler_now
+):
+    """2026-11-03: the letter LaTeX rendered, but the build reached for Prism and
+    failed prism_unavailable; tectonic compiles it once it can be found."""
+    from career_evidence_graph import application_resume_versions
+
+    service, _, _ = bound_material_page
+
+    def unreachable(directory, content, template):
+        raise PortalDataError("prism_unavailable", "Prism 服务暂不能核验。", 503)
+
+    service.store.cover_letter_exporter = unreachable
+    runner = ApplicationRunner(service.store, None)
+    state = service.store.load()
+    job = state["jobs"][0]
+    page = ContextPage(letter_fields(["Upload your CV", "Cover letter"]))
+    runner.pages[job["application_id"]] = page
+    runner.page_ids[page] = job["page_observation"]["page_id"]
+    state["jobs"][0]["form_state"]["snapshot"] = {"fields": []}
+    service.store.save(state)
+
+    runner._prepare_native_cover_letter(job, state["batch_id"], page)
+    failed = service.store.load()["jobs"][0]
+    assert failed["cover_letter_delivery"]["reason"] == "prism_unavailable"
+    original = failed["materials"][0]
+    assert (original["status"], original["error_code"]) == ("failed", "prism_unavailable")
+
+    # The default compiler now builds the letter: tectonic, faked here.
+    service.store.cover_letter_exporter = None
+    compiler = Compiler()
+    monkeypatch.setattr(application_resume_versions, "TectonicCompiler", lambda: compiler)
+    monkeypatch.setattr(
+        application_resume_versions,
+        "tectonic_executable",
+        lambda: "/opt/homebrew/bin/tectonic" if compiler_now else None,
+    )
+    runner._prepare_native_cover_letter(failed, state["batch_id"], page)
+    job = service.store.load()["jobs"][0]
+    if not compiler_now:
+        assert job["materials"] == [original]
+        assert job["cover_letter_delivery"]["reason"] == "prism_unavailable"
+        assert not job.get("material_history")
+        assert compiler.calls == 0
+        return
+    assert compiler.calls == 1
+    letter = job["materials"][0]
+    assert letter["status"] == "ready" and letter["id"] != original["id"]
     assert job["material_history"][-1] == original
     assert job["cover_letter_delivery"]["status"] == "ready"
 

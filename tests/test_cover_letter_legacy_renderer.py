@@ -43,6 +43,10 @@ def no_real_compiler(monkeypatch):
         "PrismClient",
         lambda *a, **kw: pytest.fail("Legacy compatibility must use an explicit fake client"),
     )
+    monkeypatch.setattr(
+        "career_evidence_graph.application_resume_versions.TectonicCompiler",
+        lambda *a, **kw: pytest.fail("Legacy compatibility must use an explicit fake client"),
+    )
 
 
 def file_snapshot(directory):

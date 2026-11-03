@@ -870,6 +870,10 @@ def test_ready_pdf_reuse_obeys_current_stable_accept_without_losing_body(
     monkeypatch.setattr(
         application_prism, "PrismClient", lambda *a, **kw: pytest.fail("No real Prism")
     )
+    monkeypatch.setattr(
+        "career_evidence_graph.application_resume_versions.TectonicCompiler",
+        lambda *a, **kw: pytest.fail("No real Prism"),
+    )
     assert materials(ready).prepare(
         job, batch, {"fields": [field(kind="file", required=required, accept=".pdf")]}
     )

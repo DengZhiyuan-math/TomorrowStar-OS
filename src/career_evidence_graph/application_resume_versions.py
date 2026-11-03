@@ -47,11 +47,57 @@ def _client(store):
     return store.prism_client if store.prism_client is not None else PrismClient()
 
 
+def tectonic_executable():
+    """Locate tectonic; an App opened from Finder has only the system PATH."""
+    return shutil.which(
+        "tectonic",
+        path=os.pathsep.join(
+            [os.environ.get("PATH", os.defpath), "/opt/homebrew/bin", "/usr/local/bin"]
+        ),
+    )
+
+
 class TectonicCompiler:
     """Compile automatic materials directly (decided 2026-10-31); Prism stays the editor.
 
     The project is copied to a temporary directory, so compiling never writes into it.
     """
+
+    def compile(self, binding):
+        """Match ``PrismClient.compile`` for the cover letter export.
+
+        Returns ``pdf``, ``source_revision`` (the binding's), ``builder`` ("tectonic"),
+        ``pdf_sha256`` and ``build`` with Prism's keys ``main``, ``exit``, ``engine``
+        ("xetex", tectonic's engine), ``builder`` and ``pdf_updated``, plus
+        ``diagnostics``. Prism's ``busy``/``pdf_mtime`` have no counterpart and are
+        omitted. A glyph missing from the font fails the build instead of dropping text.
+        """
+        from .application_prism import refresh_source_snapshot
+
+        if refresh_source_snapshot(binding) != binding:
+            raise PortalDataError("prism_source_changed", "LaTeX 源已变化，请重新审阅。", 409)
+        completed = self.read_compiled(binding)
+        if refresh_source_snapshot(binding) != binding:
+            raise PortalDataError(
+                "resume_export_needs_recheck", "编译期间 LaTeX 源已变化，请保留结果并核验。", 409
+            )
+        result = completed["build"]
+        if any(row.get("severity") == "error" for row in result["diagnostics"]):
+            raise PortalDataError("resume_export_failed", "PDF 缺少字形，源与旧终稿保留。", 409)
+        return {
+            "pdf": completed["pdf"],
+            "source_revision": binding["source_revision"],
+            "builder": "tectonic",
+            "pdf_sha256": result["pdf_sha256"],
+            "build": {
+                "main": result["main"],
+                "exit": result["exit"],
+                "engine": "xetex",
+                "builder": "tectonic",
+                "pdf_updated": True,
+                "diagnostics": result["diagnostics"],
+            },
+        }
 
     def read_compiled(self, binding):
         from .application_prism import dependency_snapshot
@@ -59,13 +105,7 @@ class TectonicCompiler:
         actual = dependency_snapshot(
             Path(binding["project_root"]), binding["main"], [binding["main"]]
         )
-        # An App opened from Finder has only the system PATH; Homebrew installs elsewhere.
-        executable = shutil.which(
-            "tectonic",
-            path=os.pathsep.join(
-                [os.environ.get("PATH", os.defpath), "/opt/homebrew/bin", "/usr/local/bin"]
-            ),
-        )
+        executable = tectonic_executable()
         if executable is None:
             raise PortalDataError(
                 "resume_compiler_unavailable", "未找到 tectonic，暂不能编译 PDF。", 409

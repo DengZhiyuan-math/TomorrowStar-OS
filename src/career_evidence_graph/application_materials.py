@@ -31,7 +31,13 @@ KNOWN_COVER_LETTER_PDF_FAILURES = frozenset(
         "prism_sync_active",
         "prism_source_invalid",
         "prism_source_changed",
+        "resume_compiler_unavailable",
     }
+)
+
+# Environment failures the default compiler may have cleared since the attempt.
+_COMPILER_FAILURES = frozenset(
+    {"prism_unavailable", "prism_not_running", "resume_compiler_unavailable"}
 )
 
 
@@ -772,6 +778,15 @@ class SupplementalMaterials:
             if (
                 found
                 and found.get("status") == "failed"
+                and found.get("error_code") in _COMPILER_FAILURES
+                and self._compiler_available()
+            ):
+                # Prepared again as above once a compiler can build the letter.
+                replacement = digest(found)
+                found = None
+            if (
+                found
+                and found.get("status") == "failed"
                 and found.get("error_code") in KNOWN_COVER_LETTER_PDF_FAILURES
             ):
                 pending = pending or requirements["requirement"] == "required"
@@ -902,6 +917,19 @@ class SupplementalMaterials:
                 job, batch_id, status="needs_input", reason=reason or "cover_letter_required"
             )
         return not pending
+
+    def _compiler_available(self):
+        """Only the default tectonic compiler is known to be available again.
+
+        An explicitly configured compiler (a Prism client or exporter) keeps its
+        failure until the explicit file retry, so an unreachable one is not rebuilt.
+        """
+        from .application_resume_versions import tectonic_executable
+
+        return not (
+            getattr(self.store, "cover_letter_exporter", None)
+            or getattr(self.store, "cover_letter_client", None)
+        ) and bool(tectonic_executable())
 
     def _application(self, job):
         if job.get("workflow") != "single":

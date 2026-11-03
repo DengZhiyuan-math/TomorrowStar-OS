@@ -62,6 +62,10 @@ def lost_build(modern, monkeypatch):
         "PrismClient",
         lambda *a, **kw: pytest.fail("Offline Worker must use the explicit readback client"),
     )
+    monkeypatch.setattr(
+        "career_evidence_graph.application_resume_versions.TectonicCompiler",
+        lambda *a, **kw: pytest.fail("Offline Worker must use the explicit readback client"),
+    )
     worker.store.cover_letter_exporter = lambda directory, content, template: (
         letter.export_cover_letter_pdf(
             directory, content, template, client=client, pdf_inspector=lambda raw: 1
@@ -366,6 +370,10 @@ def test_original_page_size_limit_survives_local_and_remote_recheck(
     worker.store.cover_letter_client = client
     monkeypatch.setattr(
         application_prism, "PrismClient", lambda *a, **kw: pytest.fail("No real Prism")
+    )
+    monkeypatch.setattr(
+        "career_evidence_graph.application_resume_versions.TectonicCompiler",
+        lambda *a, **kw: pytest.fail("No real Prism"),
     )
     seen = []
     export = letter.export_cover_letter_pdf

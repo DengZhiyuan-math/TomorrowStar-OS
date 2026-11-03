@@ -69,6 +69,10 @@ def test_corrected_zero_dispatch_preflight_failure_is_recoverable(
     monkeypatch.setattr(
         application_prism, "PrismClient", lambda *a, **kw: pytest.fail("No real Prism")
     )
+    monkeypatch.setattr(
+        "career_evidence_graph.application_resume_versions.TectonicCompiler",
+        lambda *a, **kw: pytest.fail("No real Prism"),
+    )
     wrong = field(kind="file", required=required, accept=".pdf", max_bytes=True)
     with pytest.raises(PortalDataError) as caught:
         materials(ready).prepare(job, batch, {"fields": [wrong]})
@@ -154,6 +158,10 @@ def test_process_does_not_write_a_cached_letter_into_a_shorter_textarea(
     worker, job, batch = ready
     monkeypatch.setattr(
         application_prism, "PrismClient", lambda *a, **kw: pytest.fail("No real Prism")
+    )
+    monkeypatch.setattr(
+        "career_evidence_graph.application_resume_versions.TectonicCompiler",
+        lambda *a, **kw: pytest.fail("No real Prism"),
     )
     assert materials(ready).prepare(job, batch, {"fields": [field(required=True)]})
     original = deepcopy(job["materials"][0])
@@ -314,6 +322,10 @@ def test_one_public_continue_recovers_corrected_preflight_after_worker_tick(mode
     monkeypatch.setattr(
         application_prism, "PrismClient", lambda *a, **kw: pytest.fail("No real Prism")
     )
+    monkeypatch.setattr(
+        "career_evidence_graph.application_resume_versions.TectonicCompiler",
+        lambda *a, **kw: pytest.fail("No real Prism"),
+    )
     monkeypatch.setattr(browser_engine, "require_execution", lambda *a, **kw: None)
     state = worker.store.load()
     state["current_job_id"] = job["application_id"]
@@ -422,6 +434,10 @@ def test_production_observer_preserves_zero_text_cap_before_full_process(
     worker, job, batch = ready
     monkeypatch.setattr(
         application_prism, "PrismClient", lambda *a, **kw: pytest.fail("No real Prism")
+    )
+    monkeypatch.setattr(
+        "career_evidence_graph.application_resume_versions.TectonicCompiler",
+        lambda *a, **kw: pytest.fail("No real Prism"),
     )
     assert materials(ready).prepare(job, batch, {"fields": [field(required=True)]})
     original = deepcopy(job["materials"][0])

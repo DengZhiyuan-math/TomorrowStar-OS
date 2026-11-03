@@ -1165,7 +1165,7 @@ def reconcile_cover_letter_pdf(
     directory, content, template, *, client=None, max_bytes=700000, pdf_inspector=None
 ):
     """Recover only proven completed output; never request a compilation or model."""
-    from .application_prism import PrismClient
+    from .application_resume_versions import TectonicCompiler
 
     directory = Path(directory)
     try:
@@ -1185,7 +1185,7 @@ def reconcile_cover_letter_pdf(
                 raise ValueError("redirected letter output")
             rendered = render_cover_letter(content, template)
             binding = _pdf_intent(directory, rendered)
-            completed = (client or PrismClient()).read_compiled(binding)
+            completed = (client or TectonicCompiler()).read_compiled(binding)
             actual = completed["binding"]
             build = completed["build"]
             raw = completed["pdf"]
@@ -1251,7 +1251,8 @@ def export_cover_letter_pdf(
     directory, content, template, *, client=None, max_bytes=700000, pdf_inspector=None
 ):
     """Build only for a file destination, retaining separate source/build receipts."""
-    from .application_prism import PrismClient, refresh_source_snapshot, source_snapshot
+    from .application_prism import refresh_source_snapshot, source_snapshot
+    from .application_resume_versions import TectonicCompiler
 
     rendered = render_cover_letter(content, template)
     directory = Path(directory)
@@ -1274,7 +1275,7 @@ def export_cover_letter_pdf(
     helper.atomic_write_json(directory / "export-intent.json", expected | {"binding": binding})
     stage = "compile"
     try:
-        built = (client or PrismClient()).compile(binding)
+        built = (client or TectonicCompiler()).compile(binding)
         raw = built["pdf"]
         if (
             not isinstance(raw, bytes)
@@ -1310,6 +1311,7 @@ def export_cover_letter_pdf(
                 "prism_sync_active",
                 "prism_source_invalid",
                 "prism_source_changed",
+                "resume_compiler_unavailable",
             }
         )
         helper.atomic_write_json(

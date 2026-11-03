@@ -135,7 +135,7 @@ flowchart TD
 
 ## Prism-local、最终 PDF 与人工编辑
 
-Prism-local 负责编辑与预览。最终 PDF 由 App 在临时副本中用 tectonic（与 Prism 同一引擎）编译当前 TeX（2026-10-31 决定），自动流程不依赖 Prism 运行；不增加自动保存编译开关或重复 PDF 内容/排版审核。
+Prism-local 负责编辑与预览。最终 PDF 由 App 在临时副本中用 tectonic（与 Prism 同一引擎）编译当前 TeX（2026-10-31 决定），自动流程不依赖 Prism 运行；求职信 PDF 同样由 App 用 tectonic 编译，Prism 只在显式配置时使用；不增加自动保存编译开关或重复 PDF 内容/排版审核。
 
 最终 PDF 区并列提供“打开最终 PDF”和“在 Prism 中编辑”。进入编辑打开同一岗位当前 TeX，暂停系统修改；关闭窗口不被猜测为编辑完成。用户明确点击“完成编辑”后接续：
 
