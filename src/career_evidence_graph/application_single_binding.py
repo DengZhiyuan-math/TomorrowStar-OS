@@ -14,6 +14,13 @@ from .application_automation import validate_application_target
 from .application_input_binding import bound_revision, same_revision, task_configuration_current
 from .career_portal_data import CareerCatalog, PortalDataError
 
+# 2026-11-03: these result keys are projected when a saved export or draft is read,
+# not recorded facts. `used_source_ids` is computed from the draft items since
+# 07d8abdb (older adoptions recorded []), so lineage skips it; the draft and PDF
+# hashes still bind the items. A draft's `resume_configuration_revision` is
+# re-derived as `cfg2:` since 4f5ac854 and is compared with `same_revision`.
+READ_TIME_RESULT_KEYS = frozenset({"preview_url", "used_source_ids"})
+
 
 # flow.json holds one task's full prior copy during a material update; a real job
 # reached 37 MB (2026-10-31). The bound still refuses unbounded local records.
@@ -519,12 +526,14 @@ def verify_material_lineage(
                 or any(
                     export_artifact["result"].get(key) != value
                     for key, value in saved.items()
-                    if key != "preview_url"
+                    if key not in READ_TIME_RESULT_KEYS
                 )
                 or any(
-                    draft_artifact["result"].get(key) != value
+                    not same_revision(draft_artifact["result"].get(key), value)
+                    if key == "resume_configuration_revision"
+                    else draft_artifact["result"].get(key) != value
                     for key, value in saved_draft.items()
-                    if key != "preview_url"
+                    if key not in READ_TIME_RESULT_KEYS
                 )
                 or binding.get("actor") != "system"
                 or binding.get("human_reviewed") is not False

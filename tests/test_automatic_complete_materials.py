@@ -503,6 +503,8 @@ def test_pipeline_real_full_materials_reaches_fake_worker_manual_submit_boundary
         "draft-adoption",
         "unknown-export",
         "material-binding",
+        "legacy-adoption",
+        "legacy-adoption-pdf",
     ],
 )
 def test_full_automatic_materials_reach_real_worker_binding(
@@ -592,6 +594,28 @@ def test_full_automatic_materials_reach_real_worker_binding(
         assert prepared["status"] == "queued"
         current = worker.store.load()
         assert worker.process is None
+        if mutation is not None and mutation.startswith("legacy-adoption"):
+            # 2026-11-03: an older adoption recorded `used_source_ids` as [] and a
+            # pre-cfg2 draft configuration revision; both are re-derived on read.
+            saved_flow = json.loads(flow.path.read_text())
+            saved_task = saved_flow["tasks"][0]
+            for row in saved_task["artifacts"]:
+                if row["stage"] in {"resume", "export"} and row.get("adopted") is True:
+                    row["result"]["used_source_ids"] = []
+                    if row["stage"] == "resume":
+                        row["result"]["resume_configuration_revision"] = "b" * 64
+            from career_evidence_graph.application_worker import digest
+
+            saved_task["revision"] = digest(
+                {k: v for k, v in saved_task.items() if k != "revision"}
+            )
+            flow.path.write_text(json.dumps(saved_flow))
+            if mutation == "legacy-adoption":
+                mutation = None
+            else:
+                (root / "resumes" / task["resume_id"] / "resume.pdf").write_bytes(
+                    PDF_SAMPLE.read_bytes() + b"\n% changed"
+                )
         if mutation is not None:
             if mutation == "analysis-policy":
                 path = root / "analyses" / task["analysis_id"] / "analysis.json"
