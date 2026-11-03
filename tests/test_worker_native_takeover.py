@@ -1,6 +1,7 @@
 """Worker-to-native takeover uses JSON and lifecycle callbacks, never action wrappers."""
 
 import hashlib
+import json
 import time
 from copy import deepcopy
 from types import SimpleNamespace
@@ -674,6 +675,8 @@ def test_native_click_admits_a_delivered_combobox_and_its_confirmed_option(
                         mutation=False,
                         refusal="handoff_existing_content",
                         field_hint={"role": "combobox", "name": name},
+                        # r10: the core's hit-test diagnosis rides the refused row.
+                        refusal_detail={"in_viewport": False, "point": {"x": 1, "y": 2}},
                     )
                     ledger.append(call)
                     continue
@@ -709,6 +712,13 @@ def test_native_click_admits_a_delivered_combobox_and_its_confirmed_option(
     assert not any("Ms." in line or "Salutation" in line for line in denied)
     refused = [line for line in log.splitlines() if line.startswith("native_driver_refusal: ")]
     assert len(refused) == sum(step[0] == "refusal" for step in steps)
+    for line in refused:
+        assert json.loads(line.split(": ", 1)[1]) == {
+            "tool": "browser_click",
+            "role": "combobox",
+            "code": "handoff_existing_content",
+            "detail": {"in_viewport": False, "point": {"x": 1, "y": 2}},
+        }
 
 
 @pytest.mark.parametrize("change", ["unchanged", "pause", "page_replaced", "expired_owner"])

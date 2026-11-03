@@ -1575,6 +1575,11 @@ def test_native_final_report_is_bound_to_the_active_turn(tmp_path, monkeypatch):
         # A refused CV delivery is reported as remaining; the CV is attached last.
         assert "handoff_host_did_not_authorize" in instructions
         assert "attach the CV last" in instructions
+        # r10: a refused combobox click leaves that control and the turn goes on.
+        assert "expand click or its option click is refused" in instructions
+        assert "except handoff_fresh_native_ref_required" in " ".join(instructions.split())
+        assert "next_step naming the first refused one" in instructions
+        assert "refused CV deliveries and combobox clicks" in instructions
         current = settle(adapter, run, config)
         assert current.native_turn_status == "completed"
         report = current.report

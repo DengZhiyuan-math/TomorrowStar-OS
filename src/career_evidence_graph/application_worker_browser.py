@@ -3651,6 +3651,12 @@ class ApplicationRunner:
                                 "tool": row.get("tool"),
                                 "role": (row.get("field_hint") or {}).get("role"),
                                 "code": row["refusal"],
+                                # r10: the core's hit-test geometry, never a value.
+                                **(
+                                    {"detail": row["refusal_detail"]}
+                                    if "refusal_detail" in row
+                                    else {}
+                                ),
                             }
                         ),
                         flush=True,

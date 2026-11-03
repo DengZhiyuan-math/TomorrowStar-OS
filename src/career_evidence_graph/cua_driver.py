@@ -327,8 +327,64 @@ def _valid_expected_target(row):
 
 _REFUSAL_CODE = re.compile(r"[A-Za-z0-9_.:-]{1,200}")
 _REFUSAL_OPTIONAL = frozenset(
-    {"native_ref", "field_hint", "text_sha256", "expected_target", "material_ref"}
+    {"native_ref", "field_hint", "text_sha256", "expected_target", "material_ref", "refusal_detail"}
 )
+# r10: the core's hit-test diagnosis of a refused click. Geometry and the hit node's
+# identity only; every key is optional, any other key is refused.
+_DETAIL_NUMBERS = {
+    "point": {"x", "y"},
+    "target_rect": {"x", "y", "w", "h"},
+    "viewport": {"w", "h", "scroll_x", "scroll_y"},
+}
+
+
+def _detail_text(value):
+    return (
+        isinstance(value, str)
+        and len(value) <= 200
+        and not any(ord(char) < 32 or 0x7F <= ord(char) <= 0x9F for char in value)
+    )
+
+
+def _valid_refusal_detail(value):
+    if not isinstance(value, dict) or not set(value) <= {
+        "hit",
+        *_DETAIL_NUMBERS,
+        "in_viewport",
+        "scrolled",
+    }:
+        return False
+    hit = value.get("hit", {})
+    if not (
+        isinstance(hit, dict)
+        and set(hit) <= {"tag", "role", "id", "classes", "interactive_break"}
+        and all(_detail_text(hit[key]) for key in ("tag", "role", "id") if key in hit)
+        and (
+            "classes" not in hit
+            or isinstance(hit["classes"], list)
+            and len(hit["classes"]) <= 3
+            and all(_detail_text(item) for item in hit["classes"])
+        )
+        and ("interactive_break" not in hit or type(hit["interactive_break"]) is bool)
+    ):
+        return False
+    for key, names in _DETAIL_NUMBERS.items():
+        item = value.get(key, {})
+        if not (
+            isinstance(item, dict)
+            and set(item) <= names
+            and all(
+                type(number) in (int, float) and math.isfinite(number) for number in item.values()
+            )
+        ):
+            return False
+    if any(key in value and type(value[key]) is not bool for key in ("in_viewport", "scrolled")):
+        return False
+    try:
+        size = len(json.dumps(value, allow_nan=False, separators=(",", ":")).encode())
+    except ValueError:
+        return False
+    return size <= 1024
 
 
 def _valid_refusal_code(row):
@@ -365,6 +421,7 @@ def _valid_refusal_call(row):
             for key in ("text_sha256", "material_ref")
         )
         and ("expected_target" not in row or _valid_expected_target(row))
+        and ("refusal_detail" not in row or _valid_refusal_detail(row["refusal_detail"]))
     )
 
 
@@ -449,12 +506,20 @@ def validate_handoff_receipt(value, *, grant=False):
             ):
                 # r8: an admitted delivery the core refused keeps its material keys.
                 checked = validate_native_material_metadata(
-                    {key: item for key, item in row.items() if key != "refusal"}
+                    {
+                        key: item
+                        for key, item in row.items()
+                        if key not in {"refusal", "refusal_detail"}
+                    }
                 )
                 if "refusal" in row:
                     if not _valid_refusal_code(row):
                         raise ValueError("Invalid native handoff call")
                     checked["refusal"] = row["refusal"]
+                if "refusal_detail" in row:
+                    if "refusal" not in row or not _valid_refusal_detail(row["refusal_detail"]):
+                        raise ValueError("Invalid native handoff call")
+                    checked["refusal_detail"] = deepcopy(row["refusal_detail"])
                 calls.append(checked)
             elif _valid_handoff_call(row):
                 calls.append(deepcopy(row))

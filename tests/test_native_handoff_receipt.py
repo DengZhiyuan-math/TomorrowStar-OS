@@ -147,6 +147,66 @@ def test_one_rule_rejects_every_drifted_shape(receipt):
     assert error.value.code == "native_handoff_receipt_invalid"
 
 
+DETAIL = {
+    "hit": {
+        "tag": "div",
+        "role": "presentation",
+        "id": "overlay",
+        "classes": ["a", "b", "c"],
+        "interactive_break": True,
+    },
+    "point": {"x": 120.5, "y": 900},
+    "target_rect": {"x": 100, "y": 880, "w": 240, "h": 40},
+    "viewport": {"w": 1280, "h": 720, "scroll_x": 0, "scroll_y": 12.5},
+    "in_viewport": False,
+    "scrolled": True,
+}
+
+
+def test_r10_refusal_detail_rides_only_a_refused_row():
+    hit = dict(EXPAND, call_id="hit-1", status="not_sent", refusal="target_hit_mismatch")
+    valid = changed(
+        calls=[
+            dict(hit, refusal_detail=DETAIL),
+            dict(REFUSED, refusal_detail={"in_viewport": True}),
+            dict(
+                HIDDEN_UPLOAD,
+                status="not_sent",
+                refusal="target_hit_mismatch",
+                refusal_detail={"point": {"x": 1, "y": 2}},
+            ),
+        ]
+    )
+    assert validate_handoff_receipt(valid) == valid
+    assert worker._native_handoff_receipt(valid) == valid
+    for detail in (
+        # Every string within its limit, the whole diagnosis over 1 KB.
+        dict(
+            DETAIL,
+            hit=dict(DETAIL["hit"], tag="t" * 200, role="r" * 200, id="i" * 200)
+            | {"classes": ["c" * 200] * 3},
+        ),
+        dict(DETAIL, hit=dict(DETAIL["hit"], id="x" * 201)),
+        dict(DETAIL, unknown=True),
+        dict(DETAIL, hit=dict(DETAIL["hit"], unknown="x")),
+        dict(DETAIL, point={"x": "1", "y": 2}),
+        dict(DETAIL, point={"x": float("nan"), "y": 2}),
+        dict(DETAIL, in_viewport=1),
+        dict(DETAIL, hit=dict(DETAIL["hit"], classes=["a", "b", "c", "d"])),
+        dict(DETAIL, hit=dict(DETAIL["hit"], tag="a\nb")),
+        [],
+    ):
+        with pytest.raises(ValueError):
+            validate_handoff_receipt(changed(calls=[dict(hit, refusal_detail=detail)]))
+    # Only a refused row carries the diagnosis.
+    with pytest.raises(ValueError):
+        validate_handoff_receipt(changed(calls=[dict(CLICK, refusal_detail=DETAIL)]))
+    with pytest.raises(ValueError):
+        validate_handoff_receipt(
+            changed(calls=[dict(HIDDEN_UPLOAD, status="not_sent", refusal_detail=DETAIL)])
+        )
+
+
 def test_grant_and_status_are_the_two_receipt_forms():
     grant = {"handoff_id": "handoff", "generation": 1, "local_tools_drained": True}
     assert validate_handoff_receipt(grant, grant=True) == grant
