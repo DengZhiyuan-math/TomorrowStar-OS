@@ -397,6 +397,47 @@ def test_material_callback_failure_denies_once_without_sending_any_body(
         adapter.close()
 
 
+@pytest.mark.parametrize("code", ["material_destination_unverified", "material_field_changed"])
+def test_unproven_material_destination_refuses_only_that_call_and_keeps_the_takeover(
+    tmp_path, monkeypatch, capsys, code
+):
+    # A CV the Worker could not prove on an unparsed page stopped a whole takeover
+    # that had already filled nine controls (2026-11-03).
+    config, ref, scope, packet, driver, native, events = native_case(tmp_path, monkeypatch)
+    native.calls = [material_call() | {"scope": scope}]
+    admissions = []
+
+    def resolve(call):
+        error = PortalDataError(code, "synthetic destination", 409)
+        error.condition = "files!=1"
+        raise error
+
+    original_admit = native.admit_call
+
+    def admit(call_id, arguments_digest, verdict, **kwargs):
+        admissions.append((verdict, deepcopy(kwargs)))
+        return original_admit(call_id, arguments_digest, verdict, **kwargs)
+
+    native.admit_call = admit
+    adapter, run = start_case(
+        config, ref, scope, packet, driver, native, before_native_call=resolve
+    )
+    try:
+        for _ in range(2):
+            adapter.progress(run.run_id)
+        assert run.status != "unknown" and not native.revoked
+        assert len(admissions) == 1 and admissions[0][0] == "deny"
+        assert "material_resolution" not in admissions[0][1]
+        log = capsys.readouterr().out
+        assert (
+            "native_material_admission_denied: "
+            + json.dumps({"code": code, "condition": "files!=1"})
+        ) in log
+        assert "native_call_admission_denied" not in log
+    finally:
+        adapter.close()
+
+
 def test_unpersisted_material_metadata_stops_before_resolver_and_admission(tmp_path, monkeypatch):
     config, ref, scope, packet, driver, native, events = native_case(tmp_path, monkeypatch)
     native.calls = [material_call() | {"scope": scope}]

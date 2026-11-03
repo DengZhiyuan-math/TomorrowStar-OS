@@ -228,6 +228,19 @@ class _Run:
 STARTUP_METHODS = frozenset({"initialize", "config/read", "thread/start", "mcpServerStatus/list"})
 
 
+# A fixed-material destination the Worker cannot prove: the driver returns the call to
+# Codex as not sent and the takeover continues (2026-11-03, CV on an unparsed page).
+MATERIAL_DESTINATION_REFUSALS = frozenset(
+    {
+        "material_destination_unverified",
+        "material_field_changed",
+        "material_reference_invalid",
+        "material_format_unsupported",
+        "material_changed",
+    }
+)
+
+
 class _ProtocolFailure(Exception):
     def __init__(self, *args):
         super().__init__(*args)
@@ -678,14 +691,21 @@ class CodexAdapter:
                                 "that answer. Attach the CV only with browser_deliver_material "
                                 "on the snapshot ref whose actions include upload (it may be "
                                 "hidden), with the ready resume material_ref; never click or "
-                                "type into it. Claim ready_for_review only when every required "
+                                "type into it. Fill every other control, custom comboboxes "
+                                "included, before attaching the CV; attach the CV last. If "
+                                "browser_deliver_material returns handoff_host_did_not_authorize "
+                                "(not_sent), do not retry it and do not stop: finish the "
+                                "remaining controls, then report blocked_segment_resolved with "
+                                "the CV control's id in fields and next_step. "
+                                "Claim ready_for_review only when every required "
                                 "control is filled and the CV is attached; otherwise report "
                                 "blocked_segment_resolved naming each remaining control's id "
                                 "or label in next_step (kind return_to_script) and fields "
                                 "(state left_for_script). "
                                 "Never navigate. handoff_fresh_native_ref_required means the "
                                 "ref was stale: take a new snapshot and retry once with its "
-                                "ref. After an unknown result or any other refusal, such as "
+                                "ref. Except for that refused CV delivery, after an unknown "
+                                "result or any other refusal, such as "
                                 "handoff_existing_content or handoff_option_owner_unproven, "
                                 "do not retry: stop and report it."
                             )
@@ -1001,6 +1021,7 @@ class CodexAdapter:
                     raise _ProtocolFailure("native_call_identity_changed")
                 continue  # A lost acknowledgement must not replay an admission.
             allow = False
+            declined = None
             resolution, manifest = None, None
             try:
                 # A queued native terminal revokes admission before another dispatch.
@@ -1048,17 +1069,25 @@ class CodexAdapter:
                 if native["persistence_failed"]:
                     raise
                 allow = False
-                # The private log keeps why the Worker refused; no arguments or values.
-                print(
-                    "native_call_admission_denied: "
-                    + json.dumps(
-                        {
-                            "tool": call.get("tool"),
-                            "code": getattr(error, "code", None) or type(error).__name__,
-                        }
-                    ),
-                    flush=True,
-                )
+                code = getattr(error, "code", None) or type(error).__name__
+                if is_material and code in MATERIAL_DESTINATION_REFUSALS:
+                    # The Worker cannot prove this field; nothing was persisted or sent.
+                    # Only this call is refused and the takeover continues.
+                    declined = code
+                    print(
+                        "native_material_admission_denied: "
+                        + json.dumps(
+                            {"code": code, "condition": getattr(error, "condition", None)}
+                        ),
+                        flush=True,
+                    )
+                else:
+                    # The private log keeps why the Worker refused; no arguments or values.
+                    print(
+                        "native_call_admission_denied: "
+                        + json.dumps({"tool": call.get("tool"), "code": code}),
+                        flush=True,
+                    )
             native["admissions"][call["call_id"]] = (
                 {"identity": identity, "material_resolution": manifest if allow else None}
                 if is_material
@@ -1073,7 +1102,7 @@ class CodexAdapter:
                 **({"material_resolution": resolution} if allow and is_material else {}),
             )
             acknowledged = self._native_status(run, result)
-            if not allow:
+            if not allow and not declined:
                 run.tools_revoked = True
                 self._native_revoke(run)
                 raise _ProtocolFailure("native_call_admission_denied")

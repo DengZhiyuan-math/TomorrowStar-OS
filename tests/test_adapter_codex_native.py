@@ -1568,6 +1568,9 @@ def test_native_final_report_is_bound_to_the_active_turn(tmp_path, monkeypatch):
         assert "option whose name equals the supplied confirmed answer" in instructions
         assert "actions include upload" in instructions
         assert "Claim ready_for_review only when" in instructions
+        # A refused CV delivery is reported as remaining; the CV is attached last.
+        assert "handoff_host_did_not_authorize" in instructions
+        assert "attach the CV last" in instructions
         current = settle(adapter, run, config)
         assert current.native_turn_status == "completed"
         report = current.report

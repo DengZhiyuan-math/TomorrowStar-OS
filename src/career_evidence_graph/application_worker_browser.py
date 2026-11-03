@@ -539,6 +539,13 @@ def _request_diagnostic_facts(request, page, job):
     return facts
 
 
+def _material_refusal(code, message, condition):
+    """A material destination the Worker cannot prove, naming the unmet condition."""
+    error = PortalDataError(code, message, 409)
+    error.condition = condition
+    return error
+
+
 class _SameOriginReadRedirect(ValueError):
     """A bodiless subresource read answered by a same-origin redirect."""
 
@@ -3027,8 +3034,8 @@ class ApplicationRunner:
         try:
             validate_native_material_metadata(call)
         except ValueError as error:
-            raise PortalDataError(
-                "material_destination_unverified", "原生材料控件不能核验。", 409
+            raise _material_refusal(
+                "material_destination_unverified", "原生材料控件不能核验。", "metadata"
             ) from error
         target = call["target_descriptor"]
         snapshot = next(
@@ -3056,8 +3063,14 @@ class ApplicationRunner:
             or target["type"] != "file"
             and fields[0].get("value", "") != ""
         ):
-            raise PortalDataError(
-                "material_destination_unverified", "当前原页材料字段已变化或尚未准备。", 409
+            raise _material_refusal(
+                "material_destination_unverified",
+                "当前原页材料字段已变化或尚未准备。",
+                "document"
+                if call["scope"]["expected_document"] != context.get("document")
+                else "fields!=1"
+                if len(fields) != 1
+                else "target",
             )
         with self.store.applications.write_lock():
             state = self.store.load()
@@ -3078,8 +3091,8 @@ class ApplicationRunner:
                 and question.get("draft_path", "") == target["draft_path"]
             ]
             if len(questions) != 1:
-                raise PortalDataError(
-                    "material_destination_unverified", "固定材料没有唯一的当前字段。", 409
+                raise _material_refusal(
+                    "material_destination_unverified", "固定材料没有唯一的当前字段。", "question!=1"
                 )
             question = deepcopy(questions[0])
 
@@ -3089,8 +3102,8 @@ class ApplicationRunner:
                 return " ".join(re.sub(r"[✱*]", "", value).split()).casefold()
 
             if normalize(target["label"]) != normalize(question["question"]):
-                raise PortalDataError(
-                    "material_field_changed", "材料字段含义已改变，请保留当前原页。", 409
+                raise _material_refusal(
+                    "material_field_changed", "材料字段含义已改变，请保留当前原页。", "label"
                 )
             return self.store.resolve_bound_material(
                 reference, call["material_ref"], question=question, page_context=context
@@ -3121,29 +3134,42 @@ class ApplicationRunner:
         if len(fields) == 1:
             texts += [str(fields[0].get(key) or "") for key in ("label", "question")]
         texts = [" ".join(re.sub(r"[✱*_\-\[\]]", " ", text).split()).casefold() for text in texts]
-        if (
-            call["scope"]["expected_document"] != context.get("document")
-            or len(fields) != 1
-            or len(files) != 1
-            or target["type"] != "file"
-            or target["tag"] != "input"
-            or not target["value_empty"]
-            or target["file_count"] != 0
-            or any(target[key] for key in ("disabled", "readonly", "multiple"))
-        ):
-            raise PortalDataError(
-                "material_destination_unverified", "当前原页没有唯一的空简历附件字段。", 409
+        unproven = next(
+            (
+                name
+                for name, failed in (
+                    ("document", call["scope"]["expected_document"] != context.get("document")),
+                    ("fields!=1", len(fields) != 1),
+                    ("files!=1", len(files) != 1),
+                    (
+                        "target",
+                        target["type"] != "file"
+                        or target["tag"] != "input"
+                        or not target["value_empty"]
+                        or target["file_count"] != 0
+                        or any(target[key] for key in ("disabled", "readonly", "multiple")),
+                    ),
+                )
+                if failed
+            ),
+            None,
+        )
+        if unproven:
+            raise _material_refusal(
+                "material_destination_unverified", "当前原页没有唯一的空简历附件字段。", unproven
             )
         if not any(NATIVE_RESUME_LABEL.search(text) for text in texts) or any(
             material_kind({"type": "file", "question": text}) != "unknown" for text in texts
         ):
-            raise PortalDataError("material_field_changed", "此字段不是简历附件入口。", 409)
+            raise _material_refusal("material_field_changed", "此字段不是简历附件入口。", "label")
         delivery = self.store.assistance_delivery(reference, page_context=context)
         entries = [
             row for row in delivery["materials"] if row.get("material_ref") == call["material_ref"]
         ]
         if len(entries) != 1 or entries[0].get("kind") != "resume":
-            raise PortalDataError("material_reference_invalid", "固定材料引用不是本岗位简历。", 409)
+            raise _material_refusal(
+                "material_reference_invalid", "固定材料引用不是本岗位简历。", "delivery_entry"
+            )
         with self.store.applications.write_lock():
             state = self.store.load()
             job = next(
@@ -3157,9 +3183,11 @@ class ApplicationRunner:
             value.strip().casefold() for value in target["accept"].split(",") if value.strip()
         }
         if accept and not accept & {".pdf", "application/pdf", "*", "*/*"}:
-            raise PortalDataError("material_format_unsupported", "当前字段不接受简历 PDF。", 409)
+            raise _material_refusal(
+                "material_format_unsupported", "当前字段不接受简历 PDF。", "accept"
+            )
         if hashlib.sha256(raw).hexdigest() != job["file_sha256"] or not 1 <= len(raw) <= 700000:
-            raise PortalDataError("material_changed", "简历文件不能核验。", 409)
+            raise _material_refusal("material_changed", "简历文件不能核验。", "resume_file")
         return {
             "kind": "file",
             "bytes": raw,
