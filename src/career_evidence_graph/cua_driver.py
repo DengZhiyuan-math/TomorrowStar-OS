@@ -227,11 +227,17 @@ def validate_native_material_metadata(row):
             raise ValueError("Invalid native material metadata")
         if "material_readback" in row:
             readback = row["material_readback"]
+            # r11: a file's proof is its FileList, or (an upload widget that clears
+            # its input after change) the delivered name shown beside that input,
+            # bound to the delivered payload's own hash and size.
+            proof = readback.get("proof", "file_list") if isinstance(readback, dict) else None
             if (
                 not isinstance(readback, dict)
-                or set(readback)
+                or set(readback) - {"proof"}
                 != {"kind", "sha256", "size_bytes"}
                 | ({"filename", "file_count"} if kind == "file" else set())
+                or "proof" in readback
+                and (kind != "file" or proof not in ("file_list", "filename_shown"))
                 or readback["kind"] != ("file_list" if kind == "file" else "value")
                 or readback["sha256"] != value["sha256"]
                 or type(readback["size_bytes"]) is not int
@@ -240,7 +246,7 @@ def validate_native_material_metadata(row):
                 and (
                     readback["filename"] != value["filename"]
                     or type(readback["file_count"]) is not int
-                    or readback["file_count"] != 1
+                    or readback["file_count"] not in ({0, 1} if proof == "filename_shown" else {1})
                 )
             ):
                 raise ValueError("Invalid native material metadata")
@@ -338,6 +344,9 @@ _DETAIL_NUMBERS = {
 }
 
 
+_DETAIL_READBACK_FLAGS = ("input_connected", "input_replaced", "filename_shown", "value_cleared")
+
+
 def _detail_text(value):
     return (
         isinstance(value, str)
@@ -352,7 +361,18 @@ def _valid_refusal_detail(value):
         *_DETAIL_NUMBERS,
         "in_viewport",
         "scrolled",
+        "readback",
     }:
+        return False
+    # r11: why a delivered file's effect stayed unproven; counts and flags only.
+    readback = value.get("readback")
+    if "readback" in value and not (
+        isinstance(readback, dict)
+        and set(readback) == {"file_count", *_DETAIL_READBACK_FLAGS}
+        and type(readback["file_count"]) is int
+        and 0 <= readback["file_count"] < 2**31
+        and all(type(readback[key]) is bool for key in _DETAIL_READBACK_FLAGS)
+    ):
         return False
     # r10: hit is null when nothing was at the point (e.g. outside the viewport).
     hit = value.get("hit", {})

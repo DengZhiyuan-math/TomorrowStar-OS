@@ -144,7 +144,12 @@ NATIVE_DONE_STATES = frozenset(
 
 
 def native_resume_delivered(job, document):
-    """A native resume delivery the ledger observed on this document, by bytes and name."""
+    """A native resume delivery the ledger observed on this document, by bytes and name.
+
+    r11: an upload widget may clear its input after change (2026-11-03, onlyfy); the
+    driver then proves the delivered name shown beside it (``filename_shown``), with
+    no FileList entry left to count.
+    """
     return any(
         call.get("tool") == "browser_deliver_material"
         and call.get("status") == "observed"
@@ -152,7 +157,10 @@ def native_resume_delivered(job, document):
         and call["material_resolution"].get("sha256") == job.get("file_sha256")
         and (call.get("material_readback") or {}).get("sha256") == job.get("file_sha256")
         and call["material_readback"].get("filename") == job.get("filename")
-        and call["material_readback"].get("file_count") == 1
+        and (
+            call["material_readback"].get("file_count") == 1
+            or call["material_readback"].get("proof") == "filename_shown"
+        )
         for run in job.get("native_handoff_runs", [])
         if (run.get("scope") or {}).get("document") == document
         for event in run.get("events", [])
@@ -3096,6 +3104,79 @@ class ApplicationRunner:
                 result["sha256"] = hashlib.sha256(result["value"].encode()).hexdigest()
             return result
 
+    def _native_filename_shown(self, page, filename, *, document):
+        """Whether the resume's name is shown in some file input's own form item.
+
+        An upload widget may clear its input and show the name elsewhere (2026-11-03,
+        onlyfy). A fixed read of the exact document returns only a boolean and the
+        matching input's id: the item is the input's ``[data-field-path]`` group, its
+        wrapping label, or one of its four nearest ancestors below the form that hold
+        no other form control (a shallow page would otherwise reach the whole form).
+        Any failure is unshown.
+        """
+        if page is None or not isinstance(filename, str) or not filename.strip():
+            return False
+        expression = (
+            "(() => { const wanted="
+            + json.dumps(filename)
+            + ";"
+            + r"""
+            const norm=t=>String(t||'').replace(/\s+/g,' ').trim().toLowerCase();
+            const want=norm(wanted);
+            for(const input of document.querySelectorAll('input[type=file]')) {
+              const items=[input.closest('[data-field-path]'),input.closest('label')];
+              // An ancestor stops being this input's item once it reaches the form
+              // or holds another form control.
+              let e=input.parentElement;
+              for(let i=0;i<4&&e&&!e.matches('form,body,html')&&
+                  [...e.querySelectorAll('input,select,textarea')].every(c=>c===input);
+                  i++,e=e.parentElement) items.push(e);
+              if(want&&items.some(item=>item&&norm(item.textContent).includes(want)))
+                return {shown:true,input_id:String(input.id||input.name||'').slice(0,200)};
+            }
+            return {shown:false,input_id:''};
+            })()"""
+        )
+        try:
+            with browser_deadline(3), OwnedCDP(page) as session:
+                frame = session.send("Page.getFrameTree")["frameTree"]["frame"]
+                if document != {
+                    "frame_id": frame.get("id"),
+                    "loader_id": frame.get("loaderId"),
+                    "url": frame.get("url"),
+                }:
+                    return False
+                execution = session.send(
+                    "Page.createIsolatedWorld",
+                    {"frameId": frame["id"], "worldName": "tomorrowstar-filename-shown"},
+                )["executionContextId"]
+                raw = session.send(
+                    "Runtime.evaluate",
+                    {
+                        "expression": expression,
+                        "contextId": execution,
+                        "returnByValue": True,
+                        "silent": True,
+                    },
+                )
+        except (PortalDataError, Error, TimeoutError, OSError, KeyError, TypeError):
+            return False
+        result = raw.get("result", {}).get("value")
+        shown = (
+            not raw.get("exceptionDetails")
+            and isinstance(result, dict)
+            and set(result) == {"shown", "input_id"}
+            and result["shown"] is True
+            and isinstance(result["input_id"], str)
+            and len(result["input_id"]) <= 200
+        )
+        print(
+            "native_filename_shown: "
+            + json.dumps({"shown": shown, "input_id": result.get("input_id") if shown else ""}),
+            flush=True,
+        )
+        return shown
+
     def _resolve_native_material_call(self, reference, call, context):
         """Match the native control to one prepared field without altering the Page."""
         from .cua_driver import validate_native_material_metadata
@@ -4571,7 +4652,14 @@ class ApplicationRunner:
             visible = {file.get("name") for row in fields for file in row.get("files") or []} | {
                 item.get("name") for item in context["data"].get("attachments", [])
             }
-            if job.get("filename") not in visible or not (
+            if (
+                job.get("filename") not in visible
+                and not self._native_filename_shown(
+                    self.pages.get(job["application_id"]),
+                    job.get("filename"),
+                    document=context["document"],
+                )
+            ) or not (
                 self.recovered_upload(job)
                 or any(
                     intent.get("action") == "upload" and intent.get("material_id") == "resume"

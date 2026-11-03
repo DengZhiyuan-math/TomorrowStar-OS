@@ -211,6 +211,90 @@ def test_r10_refusal_detail_rides_only_a_refused_row():
         )
 
 
+RESOLUTION = {
+    "protocol": "fixed-material/v1",
+    "resolution_id": "f" * 32,
+    "material_ref": "c" * 64,
+    "kind": "file",
+    "sha256": "e" * 64,
+    "size_bytes": 10,
+    "filename": "cv.pdf",
+    "mime_type": "application/pdf",
+}
+FILE_LIST = {
+    "kind": "file_list",
+    "sha256": "e" * 64,
+    "size_bytes": 10,
+    "filename": "cv.pdf",
+    "file_count": 1,
+}
+DELIVERED = dict(
+    HIDDEN_UPLOAD,
+    call_id="upload-observed",
+    status="observed",
+    material_resolution=RESOLUTION,
+    material_readback=FILE_LIST,
+)
+READBACK = {
+    "file_count": 0,
+    "input_connected": True,
+    "input_replaced": False,
+    "filename_shown": False,
+    "value_cleared": True,
+}
+
+
+def test_r11_readback_proves_a_file_by_its_list_or_its_shown_name():
+    shown = dict(FILE_LIST, proof="filename_shown", file_count=0)
+    for readback in (
+        FILE_LIST,
+        dict(FILE_LIST, proof="file_list"),
+        shown,
+        dict(shown, file_count=1),
+    ):
+        valid = changed(calls=[dict(DELIVERED, material_readback=readback)])
+        assert validate_handoff_receipt(valid) == valid
+    for readback in (
+        # Without the shown-name proof a FileList must hold the one delivered file.
+        dict(FILE_LIST, file_count=0),
+        dict(FILE_LIST, proof="file_list", file_count=0),
+        dict(shown, proof="dom_text"),
+        dict(shown, file_count=2),
+        dict(shown, filename="other.pdf"),
+        dict(shown, sha256="0" * 64),
+        dict(shown, size_bytes=-1),
+        dict(shown, size_bytes="10"),
+        dict(shown, extra=True),
+    ):
+        with pytest.raises(ValueError):
+            validate_handoff_receipt(changed(calls=[dict(DELIVERED, material_readback=readback)]))
+
+
+def test_r11_refusal_detail_carries_the_unproven_readback():
+    unknown = dict(
+        {k: v for k, v in DELIVERED.items() if k != "material_readback"},
+        status="unknown",
+        refusal="handoff_native_effect_unverified",
+    )
+    for detail in ({"readback": READBACK}, dict(DETAIL, readback=dict(READBACK, file_count=3))):
+        valid = changed(calls=[dict(unknown, refusal_detail=detail)])
+        assert validate_handoff_receipt(valid) == valid
+        assert worker._native_handoff_receipt(valid) == valid
+    for readback in (
+        {k: v for k, v in READBACK.items() if k != "value_cleared"},
+        dict(READBACK, extra=True),
+        dict(READBACK, file_count=-1),
+        dict(READBACK, file_count=True),
+        dict(READBACK, file_count=1.0),
+        dict(READBACK, input_replaced=0),
+        None,
+    ):
+        with pytest.raises(ValueError):
+            validate_handoff_receipt(
+                changed(calls=[dict(unknown, refusal_detail={"readback": readback})])
+            )
+
+
 def test_grant_and_status_are_the_two_receipt_forms():
     grant = {"handoff_id": "handoff", "generation": 1, "local_tools_drained": True}
     assert validate_handoff_receipt(grant, grant=True) == grant

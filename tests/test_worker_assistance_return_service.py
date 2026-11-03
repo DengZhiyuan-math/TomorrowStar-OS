@@ -1089,7 +1089,13 @@ def fill_native_only(page):
     )
 
 
-def native_cv_delivery(ctx, *, status="observed"):
+def fill_native_cleared_cv(page):
+    """r11: the upload widget cleared its input after change and shows the name elsewhere."""
+    fill_native_only(page)
+    page.fields[-1].update(files=[], required=False)
+
+
+def native_cv_delivery(ctx, *, status="observed", proof=None):
     """Append the ledger row of one native CV delivery to the stopped turn's receipt."""
     state = ctx.service.store.load()
     job = state["jobs"][0]
@@ -1145,6 +1151,8 @@ def native_cv_delivery(ctx, *, status="observed"):
             "filename": job["filename"],
             "file_count": 1,
         }
+        if proof == "filename_shown":
+            call["material_readback"].update(proof=proof, file_count=0)
     run["events"][-1]["receipt"]["calls"].append(call)
     ctx.service.store.save(state)
 
@@ -1176,6 +1184,39 @@ def test_ready_for_review_on_zero_question_page_accepts_native_resume_delivery(r
         "filename": job["filename"],
         "sha256": job["file_sha256"],
     }
+
+
+@pytest.mark.parametrize("shown", [True, False])
+def test_filename_shown_readback_completes_only_when_the_page_shows_the_name(
+    returning, monkeypatch, capsys, shown
+):
+    ctx = returning
+    native_only_turn(ctx, make_report("ready_for_review"), effect=fill_native_cleared_cv)
+    native_cv_delivery(ctx, proof="filename_shown")
+    reads = []
+
+    def filename_shown(page, filename, *, document):
+        reads.append(filename)
+        return shown
+
+    monkeypatch.setattr(ctx.runner, "_native_filename_shown", filename_shown)
+    capsys.readouterr()
+    ctx.runner._service_assistance_return()
+    job = current(ctx)
+    # The cleared input lists no file, so the fixed page read decides visibility.
+    assert reads == [job["filename"]]
+    if shown:
+        assert job["status"] == "ready_for_review"
+        assert job["assistance"]["outcome"]["kind"] == "filling_complete"
+        return
+    assert_waiting(ctx, "assistance_completion_unverified")
+    line = next(
+        row
+        for row in capsys.readouterr().out.splitlines()
+        if row.startswith("assistance_completion_unverified: ")
+    )
+    record = json.loads(line.removeprefix("assistance_completion_unverified: "))
+    assert record["reason"] == ["resume_upload_unverified"]
 
 
 def test_unobserved_native_resume_delivery_stays_unverified(returning, capsys):

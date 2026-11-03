@@ -180,3 +180,50 @@ def test_yielded_native_session_is_not_used_for_host_material_context(json_page)
 
     assert context["owner"]["status"] == "yielded"
     assert any(row["id"] == "email" for row in context["data"]["fields"])
+
+
+def test_filename_shown_reads_only_a_file_inputs_own_form_item(json_page):
+    """r11: an upload widget that cleared its input shows the name in its own item."""
+    _, runner, page, reference, _ = json_page
+    page.evaluate(
+        """() => {
+          const group = document.createElement('div');
+          group.setAttribute('data-field-path', 'application.cv');
+          const input = document.createElement('input');
+          input.type = 'file';
+          input.id = 'cv-upload';
+          const shown = document.createElement('span');
+          shown.textContent = '  Jane_Doe   CV.PDF  ';
+          group.append(input, shown);
+          document.querySelector('form').append(group);
+          // A widget without a field path: the name sits two levels up.
+          const widget = document.createElement('div');
+          const zone = document.createElement('div');
+          const letter = document.createElement('input');
+          letter.type = 'file';
+          letter.id = 'letter-upload';
+          zone.append(letter);
+          const name = document.createElement('div');
+          name.textContent = 'letter.pdf';
+          widget.append(zone, name);
+          document.querySelector('form').append(widget);
+          const elsewhere = document.createElement('p');
+          elsewhere.textContent = 'other.pdf';
+          document.body.prepend(elsewhere);
+        }"""
+    )
+    document = runner.observe_assistance_context(reference)["document"]
+    before = page.content()
+
+    assert runner._native_filename_shown(page, "jane_doe cv.pdf", document=document) is True
+    assert runner._native_filename_shown(page, "missing.pdf", document=document) is False
+    assert runner._native_filename_shown(page, "Letter.pdf", document=document) is True
+    # A name shown outside any file input's own item is not the upload's.
+    assert runner._native_filename_shown(page, "other.pdf", document=document) is False
+    assert (
+        runner._native_filename_shown(
+            page, "jane_doe cv.pdf", document=dict(document, loader_id="other")
+        )
+        is False
+    )
+    assert page.content() == before
