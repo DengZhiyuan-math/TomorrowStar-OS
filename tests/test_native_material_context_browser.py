@@ -223,12 +223,12 @@ def test_filename_shown_finds_the_relocated_form_item_or_its_form(json_page, cap
     capsys.readouterr()
 
     def scope(filename, target):
-        shown = runner._native_filename_shown(page, filename, document=document, target=target)
+        result = runner._native_filename_shown(page, filename, document=document, target=target)
         line = capsys.readouterr().out.strip().splitlines()[-1]
         assert line.startswith("native_filename_shown: ")
-        recorded = json.loads(line.removeprefix("native_filename_shown: "))
-        assert set(recorded) == {"shown", "scope"} and recorded["shown"] is shown
-        return recorded["scope"] if shown else None
+        assert json.loads(line.removeprefix("native_filename_shown: ")) == result
+        assert set(result) == {"shown", "scope", "error"} and result["error"] is False
+        return result["scope"] if result["shown"] else None
 
     assert scope("jane_doe cv.pdf", item) == "container"
     assert scope("letter.pdf", {"id": "", "draft_path": "application.letter"}) == "container"
@@ -240,10 +240,55 @@ def test_filename_shown_finds_the_relocated_form_item_or_its_form(json_page, cap
     assert scope("outside.pdf", item) is None
     assert scope("missing.pdf", item) is None
     other = dict(document, loader_id="other")
-    assert (
-        runner._native_filename_shown(page, "jane_doe cv.pdf", document=other, target=item) is False
-    )
+    assert runner._native_filename_shown(page, "jane_doe cv.pdf", document=other, target=item) == {
+        "shown": False,
+        "scope": "",
+        "error": False,
+    }
     assert page.content() == before
+
+
+def test_filename_shown_reports_an_upload_error_in_its_scope(json_page):
+    """2026-11-03: the name stood above "That didn't work. Please try again."."""
+    _, runner, page, reference, _ = json_page
+    page.evaluate(
+        """() => {
+          const form = document.querySelector('form');
+          const item = document.createElement('div');
+          item.id = 'cv-form-item';
+          item.append('resume.pdf 27.25 KB');
+          const alert = document.createElement('p');
+          alert.setAttribute('role', 'alert');
+          alert.textContent = "That didn't work. Please try again.";
+          item.append(alert);
+          form.append(item);
+          const quiet = document.createElement('div');
+          quiet.id = 'letter-form-item';
+          quiet.append('letter.pdf');
+          const live = document.createElement('div');
+          live.setAttribute('aria-live', 'polite');
+          quiet.append(live);
+          form.append(quiet);
+        }"""
+    )
+    document = runner.observe_assistance_context(reference)["document"]
+
+    def read(filename, identifier):
+        return runner._native_filename_shown(
+            page, filename, document=document, target={"id": identifier, "draft_path": ""}
+        )
+
+    assert read("resume.pdf", "cv-form-item") == {
+        "shown": True,
+        "scope": "container",
+        "error": True,
+    }
+    # An empty live region is no error.
+    assert read("letter.pdf", "letter-form-item") == {
+        "shown": True,
+        "scope": "container",
+        "error": False,
+    }
 
 
 def test_context_names_each_controls_form_item_and_hidden_twin(json_page):

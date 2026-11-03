@@ -1337,7 +1337,7 @@ def test_filename_shown_readback_completes_only_when_the_page_shows_the_name(
     def filename_shown(page, filename, *, document, target=None):
         # r12: the read starts from the delivery row's stable identity in the ledger.
         reads.append((filename, target["id"], target["draft_path"]))
-        return shown
+        return {"shown": shown, "scope": "container" if shown else "", "error": False}
 
     monkeypatch.setattr(ctx.runner, "_native_filename_shown", filename_shown)
     capsys.readouterr()
@@ -1377,7 +1377,7 @@ def test_resume_is_checked_even_when_the_page_lists_no_file_input(
 
     def filename_shown(page, filename, *, document, target=None):
         reads.append((filename, (target or {}).get("id")))
-        return True
+        return {"shown": True, "scope": "form", "error": False}
 
     monkeypatch.setattr(ctx.runner, "_native_filename_shown", filename_shown)
     capsys.readouterr()
@@ -1395,6 +1395,50 @@ def test_resume_is_checked_even_when_the_page_lists_no_file_input(
         } in outcome["verified"]["materials"]
         return
     # A shown name without any delivery proof is not the job's upload.
+    assert_waiting(ctx, "assistance_completion_unverified")
+    line = next(
+        row
+        for row in capsys.readouterr().out.splitlines()
+        if row.startswith("assistance_completion_unverified: ")
+    )
+    record = json.loads(line.removeprefix("assistance_completion_unverified: "))
+    assert record["reason"] == ["resume_upload_unverified"]
+
+
+@pytest.mark.parametrize("error", [True, False])
+def test_shown_resume_beside_an_upload_error_is_unverified(returning, monkeypatch, capsys, error):
+    # 2026-11-03: "resume.pdf 27.25 KB" above "That didn't work. Please try again."
+    ctx = returning
+    native_only_turn(ctx, make_report("ready_for_review"), effect=fill_native_cleared_cv)
+    native_cv_delivery(ctx, proof="filename_shown")
+    job = current(ctx)
+    state = ctx.service.store.load()
+    # The native upload's own response, as the guard records it.
+    state["jobs"][0]["observations"].append(
+        {
+            "kind": "native_material_upload",
+            "stage": "response",
+            "http_status": 200,
+            "application_id": job["application_id"],
+            "sha256": job["file_sha256"],
+        }
+    )
+    ctx.service.store.save(state)
+    monkeypatch.setattr(
+        ctx.runner,
+        "_native_filename_shown",
+        lambda page, filename, *, document, target=None: {
+            "shown": True,
+            "scope": "container",
+            "error": error,
+        },
+    )
+    capsys.readouterr()
+    ctx.runner._service_assistance_return()
+    if not error:
+        resume = current(ctx)["assistance"]["outcome"]["verified"]["materials"][0]
+        assert resume["kind"] == "resume" and resume["upload_response"] == 200
+        return
     assert_waiting(ctx, "assistance_completion_unverified")
     line = next(
         row

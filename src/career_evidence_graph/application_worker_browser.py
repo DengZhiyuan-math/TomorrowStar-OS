@@ -3276,10 +3276,13 @@ class ApplicationRunner:
         descriptor's ``id`` (a ``...-form-item`` wrapper there) or its
         ``[data-field-path]`` group; then the form holding it, or with no such element
         the form holding a file input or combobox. It reads the exact document and
-        returns only whether the name is shown and at which scope. Failure is unshown.
+        returns only whether the name is shown, at which scope, and whether that scope
+        shows an error (2026-11-03: the name stood above "That didn't work. Please try
+        again."). Failure is unshown.
         """
+        unshown = {"shown": False, "scope": "", "error": False}
         if page is None or not isinstance(filename, str) or not filename.strip():
-            return False
+            return unshown
         target = target or {}
         wanted = {
             "filename": filename,
@@ -3293,15 +3296,21 @@ class ApplicationRunner:
             + r"""
             const norm=t=>String(t||'').replace(/\s+/g,' ').trim().toLowerCase();
             const want=norm(wanted.filename);
-            if(!want) return {shown:false,scope:''};
+            // An error message the widget shows in that scope; empty regions do not count.
+            const error=scope=>[...scope.querySelectorAll(
+              '[role=alert],[aria-invalid=true],[aria-errormessage],[aria-live]')]
+              .some(e=>norm(e.textContent));
+            if(!want) return {shown:false,scope:'',error:false};
             let item=wanted.id?document.getElementById(wanted.id):null;
             if(!item&&wanted.draft_path) item=[...document.querySelectorAll('[data-field-path]')]
               .find(e=>e.getAttribute('data-field-path')===wanted.draft_path)||null;
-            if(item&&norm(item.textContent).includes(want)) return {shown:true,scope:'container'};
+            if(item&&norm(item.textContent).includes(want))
+              return {shown:true,scope:'container',error:error(item)};
             const form=item?item.closest('form'):[...document.querySelectorAll('form')]
               .find(f=>f.querySelector('input[type=file],[role=combobox]'));
-            if(form&&norm(form.textContent).includes(want)) return {shown:true,scope:'form'};
-            return {shown:false,scope:''};
+            if(form&&norm(form.textContent).includes(want))
+              return {shown:true,scope:'form',error:error(form)};
+            return {shown:false,scope:'',error:Boolean(item&&error(item))};
             })()"""
         )
         try:
@@ -3312,7 +3321,7 @@ class ApplicationRunner:
                     "loader_id": frame.get("loaderId"),
                     "url": frame.get("url"),
                 }:
-                    return False
+                    return unshown
                 execution = session.send(
                     "Page.createIsolatedWorld",
                     {"frameId": frame["id"], "worldName": "tomorrowstar-filename-shown"},
@@ -3327,21 +3336,19 @@ class ApplicationRunner:
                     },
                 )
         except (PortalDataError, Error, TimeoutError, OSError, KeyError, TypeError):
-            return False
+            return unshown
         result = raw.get("result", {}).get("value")
-        shown = (
-            not raw.get("exceptionDetails")
-            and isinstance(result, dict)
-            and set(result) == {"shown", "scope"}
-            and result["shown"] is True
-            and result["scope"] in ("container", "form")
-        )
-        print(
-            "native_filename_shown: "
-            + json.dumps({"shown": shown, "scope": result["scope"] if shown else ""}),
-            flush=True,
-        )
-        return shown
+        if (
+            raw.get("exceptionDetails")
+            or not isinstance(result, dict)
+            or set(result) != {"shown", "scope", "error"}
+            or type(result["shown"]) is not bool
+            or type(result["error"]) is not bool
+            or result["scope"] not in (("container", "form") if result["shown"] else ("",))
+        ):
+            result = unshown
+        print("native_filename_shown: " + json.dumps(result), flush=True)
+        return result
 
     def _resolve_native_material_call(self, reference, call, context):
         """Match the native control to one prepared field without altering the Page."""
@@ -4906,32 +4913,48 @@ class ApplicationRunner:
             visible = {file.get("name") for row in fields for file in row.get("files") or []} | {
                 item.get("name") for item in context["data"].get("attachments", [])
             }
-            if (
-                job.get("filename") not in visible
-                and not self._native_filename_shown(
+            deliveries = native_resume_deliveries(job, context["document"])
+            # A native delivery's own form item is read even when a field lists the
+            # name: the widget may show the file beside an upload error (2026-11-03).
+            page_state = (
+                self._native_filename_shown(
                     self.pages.get(job["application_id"]),
                     job.get("filename"),
                     document=context["document"],
-                    target=next(
-                        (
-                            call["target_descriptor"]
-                            for call in native_resume_deliveries(job, context["document"])
-                        ),
-                        None,
-                    ),
+                    target=next((call["target_descriptor"] for call in deliveries), None),
                 )
-            ) or not (
-                self.recovered_upload(job)
-                or any(
-                    intent.get("action") == "upload" and intent.get("material_id") == "resume"
-                    for intent in verified
+                if deliveries or job.get("filename") not in visible
+                else {"shown": False, "scope": "", "error": False}
+            )
+            if (
+                job.get("filename") not in visible
+                and not page_state["shown"]
+                or page_state["error"]
+                or not (
+                    self.recovered_upload(job)
+                    or any(
+                        intent.get("action") == "upload" and intent.get("material_id") == "resume"
+                        for intent in verified
+                    )
+                    or deliveries
                 )
-                or native_resume_delivered(job, context["document"])
             ):
                 refused("resume_upload_unverified")
-            materials.append(
-                {"kind": "resume", "filename": job["filename"], "sha256": job["file_sha256"]}
-            )
+            resume = {"kind": "resume", "filename": job["filename"], "sha256": job["file_sha256"]}
+            # The native upload's own 2xx response is second evidence; its absence
+            # refuses nothing (the page's error state decides).
+            statuses = [
+                row["http_status"]
+                for row in [*job["observations"], *self.transports]
+                if row.get("kind") == "native_material_upload"
+                and row.get("stage") == "response"
+                and row.get("sha256") == job["file_sha256"]
+                and type(row.get("http_status")) is int
+                and 200 <= row["http_status"] < 300
+            ]
+            if statuses:
+                resume["upload_response"] = statuses[-1]
+            materials.append(resume)
         materials.extend(
             {
                 "kind": "material",
