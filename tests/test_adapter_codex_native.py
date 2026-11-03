@@ -1565,7 +1565,15 @@ def test_native_final_report_is_bound_to_the_active_turn(tmp_path, monkeypatch):
         assert "with browser_set_value" in instructions
         assert "browser_deliver_material" in instructions
         # r6: custom comboboxes by two clicks, the CV through its upload ref.
-        assert "option whose name equals the supplied confirmed answer" in instructions
+        # Options match the answer up to case, edge whitespace and edge punctuation;
+        # exactly one match is clicked, none or several leave the control remaining.
+        flat = " ".join(instructions.split())
+        assert (
+            "ignoring case, leading and trailing whitespace and leading and trailing punctuation"
+            in flat
+        )
+        assert "if none or several match, click none" in flat
+        assert "equals the supplied confirmed answer exactly as shown" not in flat
         # r7: the expand click names the shown value (placeholder included) exactly.
         assert "pass expected_value equal to that shown value exactly" in instructions
         assert "omit expected_value when it shows none" in instructions
@@ -1574,7 +1582,9 @@ def test_native_final_report_is_bound_to_the_active_turn(tmp_path, monkeypatch):
         assert "Claim ready_for_review only when" in instructions
         # A refused CV delivery is reported as remaining; the CV is attached last.
         assert "handoff_host_did_not_authorize" in instructions
-        assert "attach the CV last" in instructions
+        # The CV is delivered before custom comboboxes, which come last.
+        assert "then attach the CV; then custom comboboxes last" in flat
+        assert "attach the CV last" not in flat
         # r10: a refused combobox click leaves that control and the turn goes on.
         assert "expand click or its option click is refused" in instructions
         assert "except handoff_fresh_native_ref_required" in " ".join(instructions.split())

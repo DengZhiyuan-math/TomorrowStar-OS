@@ -532,6 +532,25 @@ def test_native_set_value_admits_a_radio_option_through_its_delivered_control(
 
 
 @pytest.mark.parametrize(
+    ("option", "answer", "same"),
+    [
+        ("Mr.", "Mr", True),
+        ("Switzerland ", "switzerland", True),
+        ("Yes!", "yes", True),
+        ("\u300c\u662f\u300d\u3002", "\u662f", True),
+        ("  New   York ", "new york", True),
+        ("Mrs", "Mr", False),
+        ("Ms.", "Mr.", False),
+        ("U.S.", "US", False),
+    ],
+)
+def test_native_choice_key_ignores_only_case_whitespace_and_edge_punctuation(option, answer, same):
+    from career_evidence_graph.application_worker_browser import _native_choice_key
+
+    assert (_native_choice_key(option) == _native_choice_key(answer)) is same
+
+
+@pytest.mark.parametrize(
     ("steps", "shown", "reopened", "allowed", "condition"),
     [
         # r6: a combobox whose AX name maps to one delivered confirmed fact may open.
@@ -541,6 +560,15 @@ def test_native_set_value_admits_a_radio_option_through_its_delivered_control(
         ([("combobox", "Salutation"), ("option", " mr. ")], "", False, [True, True], None),
         (
             [("combobox", "Salutation"), ("option", "Ms.")],
+            "",
+            False,
+            [True, False],
+            "option_not_fact",
+        ),
+        # 2026-11-03: an option differing only by edge punctuation is the answer.
+        ([("combobox", "Salutation"), ("option", "(Mr)")], "", False, [True, True], None),
+        (
+            [("combobox", "Salutation"), ("option", "Mrs")],
             "",
             False,
             [True, False],

@@ -217,7 +217,11 @@ def native_control_fact_values(delivery, field_hint):
         return []
     if role == "radio":
         option, answer = _native_polarity(name), _native_polarity(value)
-        if (option or answer) and option != answer and name != value.strip().casefold():
+        if (
+            (option or answer)
+            and option != answer
+            and _native_choice_key(name) != _native_choice_key(value)
+        ):
             return []
     elif role == "checkbox":
         option, answer = _native_polarity(name), _native_polarity(value)
@@ -228,6 +232,33 @@ def native_control_fact_values(delivery, field_hint):
 
 def _native_words(text):
     return " ".join(str(text or "").split()).casefold()
+
+
+# Edge punctuation an option label may add to or drop from its answer: ASCII, quotes,
+# brackets and full-width forms. Only the ends; nothing inside a label is ignored.
+_NATIVE_CHOICE_EDGE = (
+    ".,:;!?"
+    "\"'`\u2018\u2019\u201a\u201b\u201c\u201d\u201e\u201f\u00ab\u00bb\u2039\u203a"
+    "()[]{}<>"
+    "\u3002\uff0c\uff1a\uff1b\uff01\uff1f\u3001\uff0e"
+    "\uff08\uff09\uff3b\uff3d\uff5b\uff5d\u3010\u3011\u300c\u300d\u300e\u300f"
+    "\u300a\u300b\u3008\u3009\uff02\uff07"
+)
+
+
+def _native_choice_key(text):
+    """An option label compared with a confirmed answer (combobox and radio options).
+
+    2026-11-03: the listed option "Mr." and the confirmed "Mr" differed only by a
+    final period. Case, edge and inner whitespace, and edge punctuation are ignored;
+    nothing fuzzier. Text-input hashes never use this.
+    """
+    words = _native_words(text)
+    while True:
+        stripped = words.strip(_NATIVE_CHOICE_EDGE).strip()
+        if stripped == words:
+            return words
+        words = stripped
 
 
 def native_choice_fact_value(delivery, field_hint):
@@ -311,7 +342,7 @@ def native_click_denial(delivery, calls, call, *, page_reopened=False):
     ):
         return "option_owner_unproven"
     value = native_choice_fact_value(delivery, owner_hint)
-    if value is None or _native_words(value) != _native_words(hint.get("name")):
+    if value is None or _native_choice_key(value) != _native_choice_key(hint.get("name")):
         return "option_not_fact"
     return None
 
