@@ -2574,9 +2574,12 @@ class ApplicationRunner:
             try:
                 return self.observe_assistance_context(reference, after_stop=after_stop)
             except (PortalDataError, Error) as error:
+                # A timed-out read's detach can itself time out and replace the read
+                # timeout with the outer one (2026-11-03); both are the same slow read.
                 if attempt == 2 or (
                     getattr(error, "code", None) != "page_observation_changed"
-                    and getattr(error, "message", None) != "owned_browser_read_timeout"
+                    and getattr(error, "message", None)
+                    not in ("owned_browser_read_timeout", "owned_browser_outer_timeout")
                 ):
                     raise
                 # A slow read can outlast the observation window; the check after it

@@ -104,17 +104,23 @@ def test_native_start_delivers_json_and_persists_before_grant(native_page):
         (PortalDataError("page_observation_changed", "synthetic", 409), True),
         (None, True),
         (PortalDataError("page_observation_failed", "synthetic", 409), False),
+        ("owned_browser_outer_timeout", True),
+        ("owned_browser_outer_timeout", None),
     ],
 )
 def test_native_start_rereads_a_page_still_settling(native_page, monkeypatch, failure, starts):
     from playwright.sync_api import Error
 
     service, runner, page, ref, _, _ = native_page
-    failure = failure or Error("owned_browser_read_timeout")
+    if not isinstance(failure, PortalDataError):
+        failure = Error(failure or "owned_browser_read_timeout")
     real, attempts, started = runner.observe_assistance_context, [], []
 
     def observe(reference, **kwargs):
         attempts.append(1)
+        if starts is None:
+            # Still slow on the third read: the original error stops the start.
+            raise failure
         if len(attempts) == 1:
             # A slow first read outlasts the observation window (2026-11-02: 7.4 s).
             state = service.store.load()
@@ -135,7 +141,12 @@ def test_native_start_rereads_a_page_still_settling(native_page, monkeypatch, fa
 
     monkeypatch.setattr(runner, "observe_assistance_context", observe)
     runner.codex_assist = Adapter()
-    if starts:
+    if starts is None:
+        with pytest.raises(Error) as refused:
+            runner.start_native_assistance(ref, request_id="native-settling")
+        assert refused.value is failure
+        assert len(attempts) == 3 and started == []
+    elif starts:
         runner.start_native_assistance(ref, request_id="native-settling")
         assert len(attempts) == 2 and started == [ref]
     else:
