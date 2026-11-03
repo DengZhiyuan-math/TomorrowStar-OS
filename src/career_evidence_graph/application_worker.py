@@ -6350,8 +6350,8 @@ class WorkerService:
                 if (
                     state.get("current_job_id") != job["application_id"]
                     or job["status"] not in {"needs_recheck", "queued"}
-                    or job.get("page_open")
-                    and job["status"] == "queued"
+                    # Whether the page is still open is _page_current's (below) and the
+                    # live process's answer; a bare page_open flag can outlive its page.
                     or assistance
                     and assistance.get("active_writer") != "script"
                     and not retired
@@ -6904,6 +6904,12 @@ class WorkerService:
                                 "at": time.time(),
                             }
                         )
+                    # A page that is not the current run's live page is gone; its open
+                    # flag is stale (2026-11-03: a handed-off page closed with the App
+                    # kept page_open, so the reclaimed job's reopen answered page_lost).
+                    page_open_cleared = bool(job.get("page_open")) and not self._page_current(
+                        state, job
+                    )
                     job.setdefault("observations", []).append(
                         {
                             "action": "inputs_rechecked",
@@ -6913,6 +6919,7 @@ class WorkerService:
                             "file_sha256": job["file_sha256"],
                             "handoff_source": payload.get("handoff_source", ""),
                             "source": "user_confirmed_recheck",
+                            "page_open_cleared": page_open_cleared,
                         }
                     )
                     job.update(
@@ -6921,6 +6928,7 @@ class WorkerService:
                         reason="",
                         intent=None,
                         handed_off=False,
+                        **({"page_open": False} if page_open_cleared else {}),
                     )
                     state["commands"].append({"action": "recheck", "id": job["application_id"]})
             else:

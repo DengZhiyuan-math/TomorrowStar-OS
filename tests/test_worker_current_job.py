@@ -598,6 +598,34 @@ def test_continue_after_lost_page_reopens_the_job_on_a_new_run(single_worker):
     assert (after["page_reopen"]["status"], after["page_reopen"]["run_id"]) == ("started", run_id)
 
 
+@pytest.mark.parametrize("stale", [True, False])
+def test_reopen_reads_the_page_not_a_stale_page_open_flag(single_worker, stale):
+    """A queued job's page_open outliving its page does not block reopen (2026-11-03)."""
+    service, item, _checks, _launches = single_worker
+    retained_page(service, item)
+    state = service.store.load()
+    if stale:
+        state["runtime"]["observed_at"] -= 60
+    state["jobs"][0].update(status="queued", reason="", page_open=True)
+    service.store.save(state)
+    payload = {
+        "application_id": item["application_id"],
+        "controller": "synthetic-controller",
+        "request_id": "reopen-stale-flag",
+    }
+    if not stale:
+        # The run's page is still current: reopening it is refused.
+        with pytest.raises(PortalDataError) as refused:
+            service.request("reopen-current", payload)
+        assert refused.value.code == "page_lost"
+        assert service.store.load()["jobs"][0]["page_open"] is True
+        return
+    service.request("reopen-current", payload)
+    job = service.store.load()["jobs"][0]
+    assert (job["status"], job["page_open"]) == ("queued", False)
+    assert service.store.load()["page_reopen"]["status"] == "pending"
+
+
 def test_reopen_refuses_an_unknown_action(single_worker):
     service, item, _checks, _launches = single_worker
     intent = {"action": "upload", "attempt_id": "unknown-upload"}

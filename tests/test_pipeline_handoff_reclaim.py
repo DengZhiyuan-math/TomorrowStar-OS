@@ -165,3 +165,47 @@ def test_malformed_reclaim_has_no_effect(bound_pipeline, monkeypatch, payload):
     assert error.value.status == 409
     assert actions == []
     assert server.worker_service.store.path.read_bytes() == before
+
+
+@pytest.mark.parametrize("page_current", [False, True])
+def test_reclaim_clears_only_a_stale_page_open_flag(bound_pipeline, monkeypatch, page_current):
+    """2026-11-03: the handed-off page closed with the App but kept page_open."""
+    server, _, _ = bound_pipeline
+    from career_evidence_graph.application_worker import start_run
+
+    worker = server.worker_service
+    # The run that owned the handed-off page.
+    start_run(worker.store)
+    state = worker.store.load()
+    runtime = state["runtime"]
+    if not page_current:
+        # The App quit: the run's heartbeat is old, so its page is no longer current.
+        runtime["observed_at"] -= 60
+    state["jobs"][0]["page_observation"] = {
+        "run_id": runtime["id"],
+        "page_id": "handed-off-page",
+        "event": "observed",
+        "at": runtime["observed_at"],
+    }
+    worker.store.save(state)
+    handed_off(server, page_open=True)
+    assert worker._page_current(worker.store.load(), worker.store.load()["jobs"][0]) is (
+        page_current
+    )
+    actions = routed(server, monkeypatch)
+
+    server.application_pipeline_service.continue_current(
+        request_id="reclaim-stale-page", reclaim=True, handoff_source=SOURCE
+    )
+
+    job = worker.store.load()["jobs"][0]
+    recheck = [row for row in job["observations"] if row.get("action") == "inputs_rechecked"]
+    assert recheck[-1]["page_open_cleared"] is (not page_current)
+    assert job["page_open"] is page_current
+    assert job["handed_off"] is False and job["status"] == "queued"
+    # The same request goes on to Continue and, with the page lost, to reopen.
+    assert [operation for operation, _ in actions] == [
+        "recheck",
+        "continue-current",
+        "reopen-current",
+    ]
