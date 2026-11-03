@@ -244,3 +244,36 @@ def test_filename_shown_finds_the_relocated_form_item_or_its_form(json_page, cap
         runner._native_filename_shown(page, "jane_doe cv.pdf", document=other, target=item) is False
     )
     assert page.content() == before
+
+
+def test_context_names_each_controls_form_item_and_hidden_twin(json_page):
+    """A Radix combobox and its aria-hidden native select share one form item id."""
+    _, runner, page, reference, _ = json_page
+    page.evaluate(
+        """() => {
+          const item = document.createElement('div');
+          item.id = 'title-form-item';
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.id = 'title-trigger';
+          button.setAttribute('role', 'combobox');
+          button.setAttribute('aria-label', 'Salutation');
+          button.textContent = 'Select title...';
+          const twin = document.createElement('select');
+          twin.name = 'title';
+          twin.setAttribute('aria-hidden', 'true');
+          twin.append(new Option('Mr', 'mr'));
+          const wrap = document.createElement('span');
+          wrap.append(twin);
+          item.append(button, wrap);
+          document.querySelector('form').append(item);
+        }"""
+    )
+    fields = runner.observe_assistance_context(reference)["data"]["fields"]
+    combobox = next(row for row in fields if row["id"] == "title-trigger")
+    twin = next(row for row in fields if row["name"] == "title")
+    assert combobox["container_id"] == twin["container_id"] == "title-form-item"
+    assert combobox["hidden"] is False and twin["hidden"] is True
+    assert all(
+        isinstance(row["container_id"], str) and type(row["hidden"]) is bool for row in fields
+    )

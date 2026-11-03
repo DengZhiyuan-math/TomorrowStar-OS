@@ -388,8 +388,18 @@ INSPECT_ASSISTANCE_CONTEXT = (
       return value===(e.getAttribute('placeholder')||e.dataset.placeholder||'').trim()
         ? '' : value;
     };
+    // The nearest ancestor id names a control's form item; a hidden native select
+    // beside a custom combobox (Radix) changes with it. Identity only, never values.
+    const place=e=> {
+      let c=e.parentElement;
+      while(c&&!c.id) c=c.parentElement;
+      return {container_id:String(c?.id||'').slice(0,200),
+        hidden:Boolean(e.closest('[aria-hidden=true]'))||!e.getClientRects().length||
+          getComputedStyle(e).visibility==='hidden'};
+    };
     data.fields.forEach((field,index)=> {
       const e=controls[index];
+      Object.assign(field,place(e));
       field.role=(e.getAttribute('role')||'').slice(0,200);
       if(field.role==='combobox'&&!['INPUT','SELECT','TEXTAREA'].includes(e.tagName)&&
          !field.value) field.value=String(shown(e)).slice(0,4000);
@@ -454,7 +464,7 @@ INSPECT_ASSISTANCE_CONTEXT = (
         required:e.getAttribute('aria-required')==='true',disabled:Boolean(e.disabled),
         readonly:false,valid:null,aria_invalid:e.getAttribute('aria-invalid'),
         visible:Boolean(e.getClientRects().length)&&getComputedStyle(e).visibility!=='hidden',
-        files:[]});
+        files:[],...place(e)});
     }
     return data;
     }"""
@@ -4409,6 +4419,11 @@ class ApplicationRunner:
                                 if isinstance(row, dict)
                             ).items()
                         ),
+                        **(
+                            {"unattributed": error.unattributed}
+                            if hasattr(error, "unattributed")
+                            else {}
+                        ),
                     },
                     ensure_ascii=False,
                 ),
@@ -4452,11 +4467,14 @@ class ApplicationRunner:
             for call in (event["receipt"] or {}).get("calls", [])
         }
 
-        def refused(reason):
+        def refused(reason, *, unattributed=None):
             # The job keeps the code; the private log keeps which check refused.
-            raise PortalDataError(
+            error = PortalDataError(
                 "assistance_outcome_unverified", "接管结果不能核验，保留原页。", 409
-            ) from ValueError(reason)
+            )
+            if unattributed is not None:
+                error.unattributed = unattributed
+            raise error from ValueError(reason)
 
         blocked = next(
             (
@@ -4530,20 +4548,75 @@ class ApplicationRunner:
             key(index, row): row
             for index, row in enumerate(self._assistance_baseline[1]["data"]["fields"])
         }
-        observed = [
-            call for call in calls.values() if call["mutation"] and call["status"] == "observed"
-        ]
 
         def norm(value):
             return " ".join(str(value or "").split()).casefold()
 
-        def touches(call, row):
-            target = call.get("target_descriptor") or {}
-            return norm(call["field_hint"]["name"]) in (
-                {norm(row.get(name)) for name in ("label", "id", "name")} - {""}
-            ) or bool(keys(row) & ({target.get("worker_field", ""), target.get("id", "")} - {""}))
+        def role(call):
+            return norm((call.get("field_hint") or {}).get("role"))
 
-        attributed, writes, unattributed = [], [], False
+        # The ledger in order; a refusal row was never sent and is no mutation here,
+        # as in admission's option-owner rule.
+        ledger = sorted(
+            (
+                call
+                for call in calls.values()
+                if call["mutation"] and "refusal" not in call and "sequence" in call
+            ),
+            key=lambda call: call["sequence"],
+        )
+        owners, collapses, opened = {}, set(), None
+        for call in ledger:
+            observed_click = call["tool"] == "browser_click" and call["status"] == "observed"
+            name = norm((call.get("field_hint") or {}).get("name"))
+            if role(call) == "option" and opened is not None:
+                # An option belongs to the combobox whose observed click precedes it.
+                owners[call["call_id"]] = opened
+            if observed_click and role(call) == "combobox" and opened == name:
+                # r13: a second click right after the same combobox's expand collapses
+                # it; it changes no field value.
+                collapses.add(call["call_id"])
+                opened = None
+            elif observed_click and role(call) == "combobox":
+                opened = name
+            else:
+                opened = None
+        observed = [
+            call
+            for call in ledger
+            if call["status"] == "observed" and call["call_id"] not in collapses
+        ]
+
+        def named(row, name):
+            return name in ({norm(row.get(key)) for key in ("label", "id", "name")} - {""})
+
+        def owned(call):
+            """The combobox fields an option click set, with their hidden native twins."""
+            owner = owners.get(call["call_id"])
+            rows = [
+                row
+                for row in fields
+                if owner and _native_control_kind(row) == "combobox" and named(row, owner)
+            ]
+            containers = {row["container_id"] for row in rows if row.get("container_id")}
+            names = {row["name"] for row in rows if row.get("name")}
+            return rows + [
+                row
+                for row in fields
+                if row.get("hidden") is True
+                and (row.get("container_id") in containers or row.get("name") in names)
+                and all(row is not other for other in rows)
+            ]
+
+        def touches(call, row):
+            if role(call) == "option":
+                return any(row is other for other in owned(call))
+            target = call.get("target_descriptor") or {}
+            return named(row, norm(call["field_hint"]["name"])) or bool(
+                keys(row) & ({target.get("worker_field", ""), target.get("id", "")} - {""})
+            )
+
+        attributed, writes, unattributed = [], [], []
         snapshot = ((job.get("form_state") or {}).get("snapshot") or {}).get("fields", [])
 
         def label(value):
@@ -4575,8 +4648,13 @@ class ApplicationRunner:
             ):
                 continue
             matches = [call for call in observed if touches(call, row)]
+            options = [call for call in matches if role(call) == "option"]
+            if options:
+                # The chosen option set the value; its expand click only opened the list.
+                # A reopened combobox keeps its last choice.
+                matches = options[-1:]
             if len(matches) != 1:
-                unattributed = True
+                unattributed.append(key(index, row))
                 continue
             attributed.append({"field_id": key(index, row), "call_id": matches[0]["call_id"]})
             question = question_for(row)
@@ -4609,8 +4687,11 @@ class ApplicationRunner:
         }
         if kind == "script_checkpoint":
             # One strict return per job; the next pending fields must be script-supported.
-            if unattributed or job.get("assistance_return_count", 0) != 0:
-                refused("unattributed_change" if unattributed else "return_repeated")
+            if unattributed:
+                # Field ids/names only, never values, so the log names what changed.
+                refused("unattributed_change", unattributed=unattributed[:50])
+            if job.get("assistance_return_count", 0) != 0:
+                refused("return_repeated")
             if not snapshot:
                 # No script question exists on this page, so no checkpoint can resume
                 # the script; name what the native path left, never its values.

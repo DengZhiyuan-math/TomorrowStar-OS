@@ -79,7 +79,10 @@ def click(call_id, name, role="combobox"):
 
 
 class Adapter:
-    def __init__(self, page, client, *, planned, effect, report, final_status=None):
+    def __init__(self, page, client, *, planned, effect, report, final_status=None, stepwise=False):
+        # stepwise publishes the ledger before each call, as the driver does, so an
+        # option click's admission sees its observed combobox click.
+        self.stepwise = stepwise
         self.page, self.client = page, client
         self.planned, self.effect = planned, effect
         self.report = report
@@ -114,6 +117,19 @@ class Adapter:
                 "native_ref": "native-ref-" + call_id,
                 "field_hint": hint,
             }
+            if self.stepwise:
+                kwargs["after_yield"](
+                    {
+                        "handoff_id": "native-run",
+                        "generation": 1,
+                        "phase": "active",
+                        "revoked": False,
+                        "return_ready": False,
+                        "local_tools_drained": True,
+                        "active_calls": 0,
+                        "calls": [*records, call],
+                    }
+                )
             assert kwargs["before_native_call"](call)
             records.append({**call, "status": self.final_status.get(call_id, "observed")})
         self.effect(self.page)
@@ -267,6 +283,84 @@ def assert_waiting(ctx, reason):
     assert not script_writes_allowed(ctx.service.store.load())
     assert ctx.runner._assistance_run is None
     return job
+
+
+EXPAND = click("native-click", "Country")
+OPTION = click("native-option", "Switzerland", role="option")
+
+
+def with_hidden_select(ctx):
+    """Radix: an aria-hidden native select in the combobox's form item changes with it."""
+    ctx.page.fields[1]["container_id"] = "country-form-item"
+    ctx.page.fields.append(
+        field(
+            "country-native",
+            "",
+            kind="select-one",
+            container_id="country-form-item",
+            hidden=True,
+            visible=False,
+        )
+    )
+
+
+def select_country_and_twin(page):
+    select_country(page)
+    page.fields[-1]["value"] = "CH"
+
+
+@pytest.mark.parametrize(
+    ("planned", "hidden", "expected"),
+    [
+        # The option click set the value; its expand click only opened the list.
+        ((EXPAND, OPTION), False, {"country": "native-option"}),
+        # The hidden native select in the same form item follows the same option.
+        ((EXPAND, OPTION), True, {"country": "native-option", "country-native": "native-option"}),
+        # r13: a second click on the open combobox collapses it and touches nothing.
+        ((EXPAND, click("native-collapse", "Country")), False, {"country": "native-click"}),
+    ],
+)
+def test_option_clicks_attribute_to_their_combobox_and_its_hidden_twin(
+    returning, planned, hidden, expected
+):
+    ctx = returning
+    if hidden:
+        with_hidden_select(ctx)
+    run_turn(
+        ctx,
+        report=make_report(),
+        planned=planned,
+        effect=select_country_and_twin if hidden else select_country,
+        stepwise=True,
+    )
+    ctx.runner._service_assistance_return()
+    outcome = current(ctx)["assistance"]["outcome"]
+    assert {row["field_id"]: row["call_id"] for row in outcome["attributed_fields"]} == expected
+
+
+def test_unattributed_change_names_its_fields_without_values(returning, capsys):
+    ctx = returning
+
+    def change_email_too(page):
+        select_country(page)
+        page.fields[0]["value"] = "other@example.invalid"
+
+    run_turn(
+        ctx,
+        report=make_report(),
+        planned=(EXPAND, OPTION),
+        effect=change_email_too,
+        stepwise=True,
+    )
+    capsys.readouterr()
+    ctx.runner._service_assistance_return()
+    assert_waiting(ctx, "assistance_return_unverified")
+    out = capsys.readouterr().out
+    line = next(row for row in out.splitlines() if row.startswith("assistance_return_unverified: "))
+    record = json.loads(line.removeprefix("assistance_return_unverified: "))
+    assert record["reason"] == ["unattributed_change"]
+    assert record["unattributed"] == ["email"]
+    assert "other@example.invalid" not in out and "Switzerland" not in line
 
 
 def test_complex_control_returns_to_script_only_after_drain_reclaim_and_readback(

@@ -230,6 +230,8 @@ def _validate_assistance_page_context(value, expected_ref):
             "locator_hint",
             "material_target",
             "question",
+            "container_id",
+            "hidden",
         }
         for row in data["fields"]
     ):
@@ -249,12 +251,16 @@ def _validate_assistance_page_context(value, expected_ref):
             raise ValueError("Invalid original-page field text")
         if any(
             type(field[k]) is not bool
-            for k in ("redacted", "required", "disabled", "readonly", "visible")
+            for k in ("redacted", "required", "disabled", "readonly", "visible", "hidden")
             if k in field
         ):
             raise ValueError("Invalid original-page field flag")
         if "valid" in field and field["valid"] is not None and type(field["valid"]) is not bool:
             raise ValueError("Invalid original-page validity")
+        if "container_id" in field and (
+            not isinstance(field["container_id"], str) or len(field["container_id"]) > 200
+        ):
+            raise ValueError("Invalid original-page field container")
         hint = field.get("locator_hint")
         if hint is not None and (
             not isinstance(hint, dict)
