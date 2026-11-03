@@ -183,13 +183,15 @@ def native_remaining_message(claimed, fields, verification):
     )
 
 
+def _native_label(text):
+    # A required marker or line break in the AX name or label does not change the field.
+    return " ".join(re.sub(r"[✱*]", " ", str(text or "")).split()).casefold()
+
+
 def native_control_fact_values(delivery, field_hint):
     """Return the one confirmed fact value bound to the AX-named control, else []."""
 
-    # A required marker or line break in the AX name or label does not change the field.
-    def label(text):
-        return " ".join(re.sub(r"[✱*]", " ", str(text or "")).split()).casefold()
-
+    label = _native_label
     name = label(field_hint.get("name"))
     role = str(field_hint.get("role") or "").strip().casefold()
     if not name or role not in {"radio", "checkbox", "combobox", "date", "textbox"}:
@@ -244,23 +246,47 @@ def native_choice_fact_value(delivery, field_hint):
     return values.pop() if len(values) == 1 else None
 
 
-def native_click_admitted(delivery, calls, call):
-    """Admit a click on a delivered-fact combobox, or on its option equal to that fact.
+def native_combobox_choice_kept(delivery, call, value):
+    """r7: a combobox shown as a choice may be expanded only to keep or set that fact.
+
+    The driver names the shown value it was asked to expect. A delivered empty value
+    is a placeholder (INSPECT's ``shown()``); a shown value equal to the confirmed
+    fact needs no change of answer. Any other shown choice belongs to the user or page.
+    """
+    shown = (call.get("expected_target") or {}).get("value", "")
+    if not shown or _native_words(shown) == _native_words(value):
+        return True
+    name = _native_label((call.get("field_hint") or {}).get("name"))
+    fields = [
+        field
+        for field in ((delivery.get("page_context") or {}).get("data") or {}).get("fields", [])
+        if _native_label(field.get("label")) == name and _native_control_kind(field) == "combobox"
+    ]
+    return bool(fields) and all(field.get("value") == "" for field in fields)
+
+
+def native_click_denial(delivery, calls, call):
+    """Why a click is refused, or None: admit a delivered-fact combobox or its fact option.
 
     An option row names only the option; its field is the combobox whose observed
     click immediately precedes it in this handoff's ledger (the driver's owner rule).
+    A pre-ledger refusal row was never sent and is no mutation for that rule.
     """
     hint = call.get("field_hint") or {}
     role = str(hint.get("role") or "").strip().casefold()
     if role == "combobox":
-        return native_choice_fact_value(delivery, hint) is not None
+        value = native_choice_fact_value(delivery, hint)
+        if value is None:
+            return "unbound_fact"
+        return None if native_combobox_choice_kept(delivery, call, value) else "existing_choice"
     if role != "option":
-        return True
+        return None
     previous = sorted(
         (
             row
             for row in calls
             if row.get("mutation") is True
+            and "refusal" not in row
             and row.get("call_id") != call.get("call_id")
             and row.get("sequence", 0) < call.get("sequence", 0)
         ),
@@ -273,9 +299,11 @@ def native_click_admitted(delivery, calls, call):
         or owner.get("status") != "observed"
         or str(owner_hint.get("role") or "").strip().casefold() != "combobox"
     ):
-        return False
+        return "option_owner_unproven"
     value = native_choice_fact_value(delivery, owner_hint)
-    return value is not None and _native_words(value) == _native_words(hint.get("name"))
+    if value is None or _native_words(value) != _native_words(hint.get("name")):
+        return "option_not_fact"
+    return None
 
 
 # Fixed DOM reads. Page text and model output never become executable code.
@@ -3573,9 +3601,26 @@ class ApplicationRunner:
                 expected_worker_source=self._page_source,
             )
 
+        refusals_logged = set()
+
         def after_yield(receipt):
             latest.update(deepcopy(receipt))
             calls = receipt.get("calls", [])
+            # r7 writes pre-ledger refusals as not_sent rows; make each visible once.
+            for row in calls:
+                if "refusal" in row and row.get("call_id") not in refusals_logged:
+                    refusals_logged.add(row.get("call_id"))
+                    print(
+                        "native_driver_refusal: "
+                        + json.dumps(
+                            {
+                                "tool": row.get("tool"),
+                                "role": (row.get("field_hint") or {}).get("role"),
+                                "code": row["refusal"],
+                            }
+                        ),
+                        flush=True,
+                    )
             unknown = any(row.get("status") == "unknown" for row in calls)
             if unknown:
                 phase = "unknown"
@@ -3636,12 +3681,16 @@ class ApplicationRunner:
                             allowed.add(hashlib.sha256(state.encode()).hexdigest())
                 if call.get("text_sha256") not in allowed:
                     return False
-            if call.get("tool") == "browser_click" and not native_click_admitted(
+            denied = call.get("tool") == "browser_click" and native_click_denial(
                 delivery, latest.get("calls", []), call
-            ):
+            )
+            if denied:
+                # Role and condition only; never a name or value.
                 print(
                     "native_click_admission_denied: "
-                    + json.dumps({"role": (call.get("field_hint") or {}).get("role")}),
+                    + json.dumps(
+                        {"role": (call.get("field_hint") or {}).get("role"), "condition": denied}
+                    ),
                     flush=True,
                 )
                 return False

@@ -684,8 +684,11 @@ class CodexAdapter:
                                 '"true"/"false" for a checkbox or radio, YYYY-MM-DD for a '
                                 "date; pass expected_value only to name the value the latest "
                                 "snapshot shows. A custom combobox (role combobox with "
-                                "options): browser_click its ref while it is empty and "
-                                "collapsed, take a new snapshot, browser_click the option "
+                                "options): browser_click its ref while it is collapsed; when "
+                                "the snapshot shows it with a value (a placeholder or any "
+                                "other), pass expected_value equal to that shown value "
+                                "exactly, and omit expected_value when it shows none. Then "
+                                "take a new snapshot, browser_click the option "
                                 "whose name equals the supplied confirmed answer exactly as "
                                 "shown, then take a new snapshot and check the combobox shows "
                                 "that answer. Attach the CV only with browser_deliver_material "

@@ -531,20 +531,32 @@ def test_native_set_value_admits_a_radio_option_through_its_delivered_control(
 
 
 @pytest.mark.parametrize(
-    ("steps", "allowed"),
+    ("steps", "shown", "allowed"),
     [
         # r6: a combobox whose AX name maps to one delivered confirmed fact may open.
-        ([("combobox", "Salutation *")], [True]),
-        ([("combobox", "Favourite colour")], [False]),
+        ([("combobox", "Salutation *")], "", [True]),
+        ([("combobox", "Favourite colour")], "", [False]),
         # Its option is admitted only after that observed click, by the exact answer.
-        ([("combobox", "Salutation"), ("option", " mr. ")], [True, True]),
-        ([("combobox", "Salutation"), ("option", "Ms.")], [True, False]),
+        ([("combobox", "Salutation"), ("option", " mr. ")], "", [True, True]),
+        ([("combobox", "Salutation"), ("option", "Ms.")], "", [True, False]),
         # No owning combobox click precedes the option.
-        ([("option", "Mr.")], [False]),
+        ([("option", "Mr.")], "", [False]),
+        # r7: the driver shows a placeholder, which the delivered context reads as empty.
+        ([("combobox", "Salutation", "Please select"), ("option", "Mr.")], "", [True, True]),
+        # r7: a different existing choice belongs to the user or page.
+        ([("combobox", "Salutation", "Ms.")], "Ms.", [False]),
+        # r7: a shown choice equal to the confirmed fact may be reopened.
+        ([("combobox", "Salutation", " mr. ")], "Mr.", [True]),
+        # r7: a pre-ledger refusal row between the expand and the option is no mutation.
+        (
+            [("combobox", "Salutation"), ("refusal", "Salutation"), ("option", "Mr.")],
+            "",
+            [True, True],
+        ),
     ],
 )
 def test_native_click_admits_a_delivered_combobox_and_its_confirmed_option(
-    native_page, monkeypatch, steps, allowed
+    native_page, monkeypatch, capsys, steps, shown, allowed
 ):
     from test_application_information import answer
 
@@ -566,7 +578,7 @@ def test_native_click_admits_a_delivered_combobox_and_its_confirmed_option(
                 "label": "Salutation",
                 "type": "combobox",
                 "role": "combobox",
-                "value": "",
+                "value": shown,
             }
         )
         return delivery_for_page(expected_ref, page_context=page_context)
@@ -587,7 +599,7 @@ def test_native_click_admits_a_delivered_combobox_and_its_confirmed_option(
                 {"handoff_id": "native-run", "generation": 1, "local_tools_drained": True}
             )
             ledger = []
-            for sequence, (role, name) in enumerate(steps, start=1):
+            for sequence, (role, name, *expected) in enumerate(steps, start=1):
                 call = {
                     "call_id": f"native-click-{sequence}",
                     "tool": "browser_click",
@@ -601,6 +613,18 @@ def test_native_click_admits_a_delivered_combobox_and_its_confirmed_option(
                     "native_ref": f"ref-{sequence}",
                     "field_hint": {"role": role, "name": name},
                 }
+                if expected:
+                    call["expected_target"] = {"value": expected[0]}
+                if role == "refusal":
+                    # r7 ledgers the driver's own pre-ledger refusal; it was never sent.
+                    call.update(
+                        status="not_sent",
+                        mutation=False,
+                        refusal="handoff_existing_content",
+                        field_hint={"role": "combobox", "name": name},
+                    )
+                    ledger.append(call)
+                    continue
                 kwargs["after_yield"](
                     {
                         "handoff_id": "native-run",
@@ -624,6 +648,13 @@ def test_native_click_admits_a_delivered_combobox_and_its_confirmed_option(
     runner._service_assistance_stop = lambda: None
     runner.start_native_assistance(ref, request_id="native-click")
     assert admitted == allowed
+    log = capsys.readouterr().out
+    denied = [line for line in log.splitlines() if "native_click_admission_denied" in line]
+    assert any("existing_choice" in line for line in denied) is (shown == "Ms.")
+    # Role and condition only: never the field name or a value.
+    assert not any("Ms." in line or "Salutation" in line for line in denied)
+    refused = [line for line in log.splitlines() if line.startswith("native_driver_refusal: ")]
+    assert len(refused) == sum(step[0] == "refusal" for step in steps)
 
 
 @pytest.mark.parametrize("change", ["unchanged", "pause", "page_replaced", "expired_owner"])

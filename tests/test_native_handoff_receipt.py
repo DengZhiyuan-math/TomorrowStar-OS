@@ -74,6 +74,21 @@ HIDDEN_UPLOAD = dict(
         "file_count": 0,
     },
 )
+# r7: a combobox expand click names the value the driver showed (a placeholder here).
+EXPAND = dict(CLICK, call_id="expand-1", sequence=4, expected_target={"value": "Please select"})
+# r7: a pre-ledger refusal is a not_sent row with its code, never a mutation.
+REFUSED = {
+    key: value for key, value in CLICK.items() if key not in {"status", "mutation", "call_id"}
+} | {
+    "call_id": "refused-1",
+    "sequence": 5,
+    "status": "not_sent",
+    "mutation": False,
+    "refusal": "handoff_existing_content",
+}
+REFUSED_BARE = {
+    key: value for key, value in REFUSED.items() if key not in {"native_ref", "field_hint"}
+} | {"call_id": "refused-2", "sequence": 6, "refusal": "handoff_arguments_invalid"}
 STATUS = {
     "handoff_id": "handoff",
     "generation": 1,
@@ -112,6 +127,16 @@ def changed(**changes):
         changed(calls=[dict(SET_VALUE, text_sha256="B" * 64)]),
         changed(calls=[dict(SET_VALUE, material_ref="c" * 64)]),
         changed(phase="not an identifier"),
+        changed(calls=[dict(OPTION, expected_target={"value": "Mr."})]),
+        changed(calls=[dict(SET_VALUE, expected_target={"value": ""})]),
+        changed(calls=[dict(EXPAND, expected_target={"value": "a\nb"})]),
+        changed(calls=[dict(EXPAND, expected_target={"value": "x" * 20_001})]),
+        changed(calls=[dict(EXPAND, expected_target={"value": "x", "id": "y"})]),
+        changed(calls=[dict(REFUSED, status="observed")]),
+        changed(calls=[dict(REFUSED, refusal="")]),
+        changed(calls=[dict(REFUSED, refusal="has space")]),
+        changed(calls=[dict(REFUSED, result={"ok": True})]),
+        changed(calls=[dict(REFUSED, tool="browser_navigate")]),
     ],
 )
 def test_one_rule_rejects_every_drifted_shape(receipt):
@@ -133,6 +158,19 @@ def test_grant_and_status_are_the_two_receipt_forms():
     assert validate_handoff_receipt(r6) == r6
     assert worker._native_handoff_receipt(r6) == r6
     assert worker._native_handoff_receipt(grant) == grant
+    r7 = changed(
+        calls=[
+            CLICK,
+            EXPAND,
+            REFUSED,
+            REFUSED_BARE,
+            dict(
+                REFUSED_BARE, call_id="r3", tool="browser_deliver_material", material_ref="c" * 64
+            ),
+        ]
+    )
+    assert validate_handoff_receipt(r7) == r7
+    assert worker._native_handoff_receipt(r7) == r7
     with pytest.raises(PortalDataError):
         worker._native_handoff_receipt(dict(grant, yielded=True))
 

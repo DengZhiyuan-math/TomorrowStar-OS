@@ -1566,6 +1566,10 @@ def test_native_final_report_is_bound_to_the_active_turn(tmp_path, monkeypatch):
         assert "browser_deliver_material" in instructions
         # r6: custom comboboxes by two clicks, the CV through its upload ref.
         assert "option whose name equals the supplied confirmed answer" in instructions
+        # r7: the expand click names the shown value (placeholder included) exactly.
+        assert "pass expected_value equal to that shown value exactly" in instructions
+        assert "omit expected_value when it shows none" in instructions
+        assert "while it is empty and collapsed" not in instructions
         assert "actions include upload" in instructions
         assert "Claim ready_for_review only when" in instructions
         # A refused CV delivery is reported as remaining; the CV is attached last.

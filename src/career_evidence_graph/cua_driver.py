@@ -302,17 +302,78 @@ def _counter(value):
     return type(value) is int and 0 < value < 2**64
 
 
+def _valid_hint(value):
+    return (
+        isinstance(value, dict)
+        and set(value) == {"role", "name"}
+        and all(isinstance(v, str) and len(v) <= 1000 for v in value.values())
+    )
+
+
+def _valid_expected_target(row):
+    """r7: a combobox click may name the value the driver showed; nothing else may."""
+    target = row.get("expected_target")
+    return (
+        row.get("tool") == "browser_click"
+        and isinstance(row.get("field_hint"), dict)
+        and str(row["field_hint"].get("role", "")).strip().casefold() == "combobox"
+        and isinstance(target, dict)
+        and set(target) == {"value"}
+        and isinstance(target["value"], str)
+        and len(target["value"]) <= 20_000
+        and not any(ord(char) < 32 or 0x7F <= ord(char) <= 0x9F for char in target["value"])
+    )
+
+
+_REFUSAL_CODE = re.compile(r"[A-Za-z0-9_.:-]{1,200}")
+_REFUSAL_OPTIONAL = frozenset(
+    {"native_ref", "field_hint", "text_sha256", "expected_target", "material_ref"}
+)
+
+
+def _valid_refusal_call(row):
+    """r7: a pre-ledger refusal (arguments or mutation hint) the driver never sent.
+
+    It is not a mutation for any ledger rule; whatever target it named stays optional.
+    """
+    return bool(
+        set(row) - _REFUSAL_OPTIONAL == _CALL_FIELDS | {"refusal"}
+        and row["tool"] in NATIVE_HANDOFF_TOOLS
+        and row["status"] == "not_sent"
+        and isinstance(row["refusal"], str)
+        and _REFUSAL_CODE.fullmatch(row["refusal"])
+        and _printable(row["call_id"], 128)
+        and isinstance(row["arguments_digest"], str)
+        and _HEX64.fullmatch(row["arguments_digest"])
+        and _counter(row["generation"])
+        and _counter(row["sequence"])
+        and type(row["mutation"]) is bool
+        and row["semantic_verified"] is False
+        and valid_page_scope(row["scope"])
+        and ("native_ref" not in row or _printable(row["native_ref"], 256))
+        and ("field_hint" not in row or _valid_hint(row["field_hint"]))
+        and all(
+            key not in row or isinstance(row[key], str) and _HEX64.fullmatch(row[key])
+            for key in ("text_sha256", "material_ref")
+        )
+        and ("expected_target" not in row or _valid_expected_target(row))
+    )
+
+
 def _valid_handoff_call(row):
+    if isinstance(row, dict) and "refusal" in row:
+        return _valid_refusal_call(row)
     tool = row.get("tool") if isinstance(row, dict) else None
     # Every native tool except the read-only page state may change the page.
     mutation = tool != "get_browser_state"
     return bool(
         isinstance(row, dict)
         and tool in {"get_browser_state", "browser_click", *_HASHED_VALUE_TOOLS}
-        and set(row)
+        and set(row) - {"expected_target"}
         == _CALL_FIELDS
         | ({"text_sha256"} if tool in _HASHED_VALUE_TOOLS else set())
         | ({"native_ref", "field_hint"} if mutation else set())
+        and ("expected_target" not in row or _valid_expected_target(row))
         and _printable(row["call_id"], 128)
         and isinstance(row["arguments_digest"], str)
         and _HEX64.fullmatch(row["arguments_digest"])
@@ -322,13 +383,7 @@ def _valid_handoff_call(row):
         and row["mutation"] is mutation
         and row["semantic_verified"] is False
         and valid_page_scope(row["scope"])
-        and (
-            not mutation
-            or _printable(row["native_ref"], 256)
-            and isinstance(row["field_hint"], dict)
-            and set(row["field_hint"]) == {"role", "name"}
-            and all(isinstance(v, str) and len(v) <= 1000 for v in row["field_hint"].values())
-        )
+        and (not mutation or _printable(row["native_ref"], 256) and _valid_hint(row["field_hint"]))
         and (
             tool not in _HASHED_VALUE_TOOLS
             or isinstance(row["text_sha256"], str)
@@ -379,7 +434,11 @@ def validate_handoff_receipt(value, *, grant=False):
     if not grant:
         calls = []
         for row in value["calls"]:
-            if isinstance(row, dict) and row.get("tool") == "browser_deliver_material":
+            if (
+                isinstance(row, dict)
+                and row.get("tool") == "browser_deliver_material"
+                and "refusal" not in row
+            ):
                 calls.append(validate_native_material_metadata(row))
             elif _valid_handoff_call(row):
                 calls.append(deepcopy(row))
