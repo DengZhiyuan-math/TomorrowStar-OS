@@ -295,6 +295,48 @@ def test_r11_refusal_detail_carries_the_unproven_readback():
             )
 
 
+def test_r12_readback_scope_names_where_the_file_was_proven():
+    shown = dict(FILE_LIST, proof="filename_shown", file_count=0)
+    for readback in (
+        dict(FILE_LIST, proof="file_list", scope="input"),
+        dict(FILE_LIST, scope="input"),
+        dict(shown, scope="container"),
+        dict(shown, scope="form"),
+    ):
+        valid = changed(calls=[dict(DELIVERED, material_readback=readback)])
+        assert validate_handoff_receipt(valid) == valid
+    for readback in (
+        dict(FILE_LIST, scope="container"),
+        dict(FILE_LIST, proof="file_list", scope="form"),
+        dict(shown, scope="input"),
+        dict(shown, scope="page"),
+        dict(shown, scope=None),
+    ):
+        with pytest.raises(ValueError):
+            validate_handoff_receipt(changed(calls=[dict(DELIVERED, material_readback=readback)]))
+
+
+def test_r12_unproven_readback_names_the_relocated_container():
+    unknown = dict(
+        {k: v for k, v in DELIVERED.items() if k != "material_readback"},
+        status="unknown",
+        refusal="material_file_readback_unproven",
+    )
+    r12 = dict(READBACK, container_connected=False, container_relocated=True, form_shown=False)
+    for readback in (r12, dict(READBACK, form_shown=True)):
+        valid = changed(calls=[dict(unknown, refusal_detail={"readback": readback})])
+        assert validate_handoff_receipt(valid) == valid
+    for readback in (
+        dict(r12, container_relocated=1),
+        dict(r12, form_shown=None),
+        dict(r12, container_moved=True),
+    ):
+        with pytest.raises(ValueError):
+            validate_handoff_receipt(
+                changed(calls=[dict(unknown, refusal_detail={"readback": readback})])
+            )
+
+
 def test_grant_and_status_are_the_two_receipt_forms():
     grant = {"handoff_id": "handoff", "generation": 1, "local_tools_drained": True}
     assert validate_handoff_receipt(grant, grant=True) == grant

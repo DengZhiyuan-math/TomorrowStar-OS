@@ -1195,8 +1195,9 @@ def test_filename_shown_readback_completes_only_when_the_page_shows_the_name(
     native_cv_delivery(ctx, proof="filename_shown")
     reads = []
 
-    def filename_shown(page, filename, *, document):
-        reads.append(filename)
+    def filename_shown(page, filename, *, document, target=None):
+        # r12: the read starts from the delivery row's stable identity in the ledger.
+        reads.append((filename, target["id"], target["draft_path"]))
         return shown
 
     monkeypatch.setattr(ctx.runner, "_native_filename_shown", filename_shown)
@@ -1204,7 +1205,7 @@ def test_filename_shown_readback_completes_only_when_the_page_shows_the_name(
     ctx.runner._service_assistance_return()
     job = current(ctx)
     # The cleared input lists no file, so the fixed page read decides visibility.
-    assert reads == [job["filename"]]
+    assert reads == [(job["filename"], "cv", "")]
     if shown:
         assert job["status"] == "ready_for_review"
         assert job["assistance"]["outcome"]["kind"] == "filling_complete"

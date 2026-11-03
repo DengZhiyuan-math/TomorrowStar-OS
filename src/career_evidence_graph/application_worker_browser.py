@@ -143,15 +143,20 @@ NATIVE_DONE_STATES = frozenset(
 )
 
 
-def native_resume_delivered(job, document):
-    """A native resume delivery the ledger observed on this document, by bytes and name.
+def native_resume_deliveries(job, document):
+    """Native resume deliveries the ledger observed on this document, by bytes and name.
 
     r11: an upload widget may clear its input after change (2026-11-03, onlyfy); the
     driver then proves the delivered name shown beside it (``filename_shown``), with
     no FileList entry left to count.
     """
-    return any(
-        call.get("tool") == "browser_deliver_material"
+    return [
+        call
+        for run in job.get("native_handoff_runs", [])
+        if (run.get("scope") or {}).get("document") == document
+        for event in run.get("events", [])
+        for call in (event.get("receipt") or {}).get("calls", [])
+        if call.get("tool") == "browser_deliver_material"
         and call.get("status") == "observed"
         and (call.get("material_resolution") or {}).get("kind") == "file"
         and call["material_resolution"].get("sha256") == job.get("file_sha256")
@@ -161,11 +166,12 @@ def native_resume_delivered(job, document):
             call["material_readback"].get("file_count") == 1
             or call["material_readback"].get("proof") == "filename_shown"
         )
-        for run in job.get("native_handoff_runs", [])
-        if (run.get("scope") or {}).get("document") == document
-        for event in run.get("events", [])
-        for call in (event.get("receipt") or {}).get("calls", [])
-    )
+    ]
+
+
+def native_resume_delivered(job, document):
+    """A native resume delivery the ledger observed on this document."""
+    return bool(native_resume_deliveries(job, document))
 
 
 def native_remaining_message(claimed, fields, verification):
@@ -3104,37 +3110,41 @@ class ApplicationRunner:
                 result["sha256"] = hashlib.sha256(result["value"].encode()).hexdigest()
             return result
 
-    def _native_filename_shown(self, page, filename, *, document):
-        """Whether the resume's name is shown in some file input's own form item.
+    def _native_filename_shown(self, page, filename, *, document, target=None):
+        """Whether the resume's name is shown in its form item, or else in its form.
 
         An upload widget may clear its input and show the name elsewhere (2026-11-03,
-        onlyfy). A fixed read of the exact document returns only a boolean and the
-        matching input's id: the item is the input's ``[data-field-path]`` group, its
-        wrapping label, or one of its four nearest ancestors below the form that hold
-        no other form control (a shallow page would otherwise reach the whole form).
-        Any failure is unshown.
+        onlyfy), or re-render and unmount the input itself. So the fixed read starts
+        from the delivery's stable identity in the ledger: the element with the
+        descriptor's ``id`` (a ``...-form-item`` wrapper there) or its
+        ``[data-field-path]`` group; then the form holding it, or with no such element
+        the form holding a file input or combobox. It reads the exact document and
+        returns only whether the name is shown and at which scope. Failure is unshown.
         """
         if page is None or not isinstance(filename, str) or not filename.strip():
             return False
+        target = target or {}
+        wanted = {
+            "filename": filename,
+            "id": str(target.get("id") or "")[:200],
+            "draft_path": str(target.get("draft_path") or "")[:1000],
+        }
         expression = (
             "(() => { const wanted="
-            + json.dumps(filename)
+            + json.dumps(wanted)
             + ";"
             + r"""
             const norm=t=>String(t||'').replace(/\s+/g,' ').trim().toLowerCase();
-            const want=norm(wanted);
-            for(const input of document.querySelectorAll('input[type=file]')) {
-              const items=[input.closest('[data-field-path]'),input.closest('label')];
-              // An ancestor stops being this input's item once it reaches the form
-              // or holds another form control.
-              let e=input.parentElement;
-              for(let i=0;i<4&&e&&!e.matches('form,body,html')&&
-                  [...e.querySelectorAll('input,select,textarea')].every(c=>c===input);
-                  i++,e=e.parentElement) items.push(e);
-              if(want&&items.some(item=>item&&norm(item.textContent).includes(want)))
-                return {shown:true,input_id:String(input.id||input.name||'').slice(0,200)};
-            }
-            return {shown:false,input_id:''};
+            const want=norm(wanted.filename);
+            if(!want) return {shown:false,scope:''};
+            let item=wanted.id?document.getElementById(wanted.id):null;
+            if(!item&&wanted.draft_path) item=[...document.querySelectorAll('[data-field-path]')]
+              .find(e=>e.getAttribute('data-field-path')===wanted.draft_path)||null;
+            if(item&&norm(item.textContent).includes(want)) return {shown:true,scope:'container'};
+            const form=item?item.closest('form'):[...document.querySelectorAll('form')]
+              .find(f=>f.querySelector('input[type=file],[role=combobox]'));
+            if(form&&norm(form.textContent).includes(want)) return {shown:true,scope:'form'};
+            return {shown:false,scope:''};
             })()"""
         )
         try:
@@ -3165,14 +3175,13 @@ class ApplicationRunner:
         shown = (
             not raw.get("exceptionDetails")
             and isinstance(result, dict)
-            and set(result) == {"shown", "input_id"}
+            and set(result) == {"shown", "scope"}
             and result["shown"] is True
-            and isinstance(result["input_id"], str)
-            and len(result["input_id"]) <= 200
+            and result["scope"] in ("container", "form")
         )
         print(
             "native_filename_shown: "
-            + json.dumps({"shown": shown, "input_id": result.get("input_id") if shown else ""}),
+            + json.dumps({"shown": shown, "scope": result["scope"] if shown else ""}),
             flush=True,
         )
         return shown
@@ -4658,6 +4667,13 @@ class ApplicationRunner:
                     self.pages.get(job["application_id"]),
                     job.get("filename"),
                     document=context["document"],
+                    target=next(
+                        (
+                            call["target_descriptor"]
+                            for call in native_resume_deliveries(job, context["document"])
+                        ),
+                        None,
+                    ),
                 )
             ) or not (
                 self.recovered_upload(job)

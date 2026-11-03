@@ -1,6 +1,7 @@
 """Material targets retain the prepared control identity without page writes."""
 
 import hashlib
+import json
 
 import pytest
 from test_single_application_worker import single_worker as single_worker
@@ -182,48 +183,64 @@ def test_yielded_native_session_is_not_used_for_host_material_context(json_page)
     assert any(row["id"] == "email" for row in context["data"]["fields"])
 
 
-def test_filename_shown_reads_only_a_file_inputs_own_form_item(json_page):
-    """r11: an upload widget that cleared its input shows the name in its own item."""
+def test_filename_shown_finds_the_relocated_form_item_or_its_form(json_page, capsys):
+    """r12: a re-rendered upload widget unmounts its input; the ledger's stable
+    identity finds the new item, else the form shows the name."""
     _, runner, page, reference, _ = json_page
     page.evaluate(
         """() => {
-          const group = document.createElement('div');
-          group.setAttribute('data-field-path', 'application.cv');
+          const form = document.querySelector('form');
+          const old = document.createElement('div');
+          old.id = 'cv-form-item';
           const input = document.createElement('input');
           input.type = 'file';
-          input.id = 'cv-upload';
-          const shown = document.createElement('span');
-          shown.textContent = '  Jane_Doe   CV.PDF  ';
-          group.append(input, shown);
-          document.querySelector('form').append(group);
-          // A widget without a field path: the name sits two levels up.
-          const widget = document.createElement('div');
-          const zone = document.createElement('div');
-          const letter = document.createElement('input');
-          letter.type = 'file';
-          letter.id = 'letter-upload';
-          zone.append(letter);
-          const name = document.createElement('div');
-          name.textContent = 'letter.pdf';
-          widget.append(zone, name);
-          document.querySelector('form').append(widget);
+          old.append(input);
+          form.append(old);
+          // The widget re-renders: the same id, a new element, no file input.
+          old.remove();
+          const item = document.createElement('div');
+          item.id = 'cv-form-item';
+          item.textContent = '  Jane_Doe   CV.PDF  ';
+          form.append(item);
+          const group = document.createElement('div');
+          group.setAttribute('data-field-path', 'application.letter');
+          group.textContent = 'letter.pdf';
+          form.append(group);
+          const other = document.createElement('input');
+          other.type = 'file';
+          form.append(other);
+          const note = document.createElement('p');
+          note.textContent = 'shown-in-form.pdf';
+          form.append(note);
           const elsewhere = document.createElement('p');
-          elsewhere.textContent = 'other.pdf';
+          elsewhere.textContent = 'outside.pdf';
           document.body.prepend(elsewhere);
         }"""
     )
     document = runner.observe_assistance_context(reference)["document"]
     before = page.content()
+    item = {"id": "cv-form-item", "draft_path": ""}
+    capsys.readouterr()
 
-    assert runner._native_filename_shown(page, "jane_doe cv.pdf", document=document) is True
-    assert runner._native_filename_shown(page, "missing.pdf", document=document) is False
-    assert runner._native_filename_shown(page, "Letter.pdf", document=document) is True
-    # A name shown outside any file input's own item is not the upload's.
-    assert runner._native_filename_shown(page, "other.pdf", document=document) is False
+    def scope(filename, target):
+        shown = runner._native_filename_shown(page, filename, document=document, target=target)
+        line = capsys.readouterr().out.strip().splitlines()[-1]
+        assert line.startswith("native_filename_shown: ")
+        recorded = json.loads(line.removeprefix("native_filename_shown: "))
+        assert set(recorded) == {"shown", "scope"} and recorded["shown"] is shown
+        return recorded["scope"] if shown else None
+
+    assert scope("jane_doe cv.pdf", item) == "container"
+    assert scope("letter.pdf", {"id": "", "draft_path": "application.letter"}) == "container"
+    # Only the form shows it: through the found item, or with no item at all.
+    assert scope("shown-in-form.pdf", item) == "form"
+    assert scope("shown-in-form.pdf", {"id": "gone", "draft_path": ""}) == "form"
+    assert scope("shown-in-form.pdf", None) == "form"
+    # Outside the form, absent, or on another document: not shown.
+    assert scope("outside.pdf", item) is None
+    assert scope("missing.pdf", item) is None
+    other = dict(document, loader_id="other")
     assert (
-        runner._native_filename_shown(
-            page, "jane_doe cv.pdf", document=dict(document, loader_id="other")
-        )
-        is False
+        runner._native_filename_shown(page, "jane_doe cv.pdf", document=other, target=item) is False
     )
     assert page.content() == before
