@@ -3084,6 +3084,29 @@ class ApplicationRunner:
         # read behind the attestation outlasts the window (seen 2026-11-02).
         self._renew_assistance_context(reference, context)
         delivery = self.store.assistance_delivery(reference, page_context=context)
+        # 2026-11-03: a report claimed consent answers were missing and no ready
+        # material_ref was supplied, but the delivery could not be checked. Keys,
+        # statuses and counts only; never values or referenced content.
+        print(
+            "native_handoff_delivery: "
+            + json.dumps(
+                {
+                    "facts": [
+                        [fact.get("fact"), fact.get("status"), len(fact.get("field_ids") or [])]
+                        for fact in (delivery.get("answers") or {}).get("facts", [])
+                    ],
+                    "materials": [
+                        [item.get("kind"), item.get("material_id"), item.get("status")]
+                        for item in delivery["materials"]
+                    ],
+                    "remaining": len(delivery["progress"]["remaining"]),
+                    "completed": len(delivery["progress"]["completed"]),
+                    "pending": len(delivery["pending_actions"]),
+                },
+                ensure_ascii=False,
+            ),
+            flush=True,
+        )
         document = deepcopy(context["document"])
         journal_scope = {"native_scope": deepcopy(native_scope), "document": document}
         call_scope = {
