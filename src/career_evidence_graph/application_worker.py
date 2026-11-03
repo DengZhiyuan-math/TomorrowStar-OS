@@ -354,6 +354,30 @@ def _native_label_fact(text, information_fact):
     return fact
 
 
+def native_field_fact(field):
+    """The fact key a page field's question, label or name maps to, else None.
+
+    The one mapping native delivery selects facts by; return attribution reuses it.
+    """
+    from .application_information import CONTACT_FACTS, information_fact
+
+    label = field.get("label") or ""
+    name = field.get("name") or field.get("id") or ""
+    # A choice's own text ("Yes") is an option; its group's question is the fact.
+    candidates = [
+        text
+        for text in (field.get("question") or "", label, name.replace("_", " "))
+        if text.strip() and helper.normalize_question(text)
+    ]
+    if not candidates:
+        return None
+    facts = [_native_label_fact(text, information_fact) for text in candidates]
+    fact = next((f for f in facts if not f.startswith("question:")), facts[0])
+    if not label and name in CONTACT_FACTS:
+        fact = name
+    return fact
+
+
 def _validate_native_answers(answers):
     if (
         not isinstance(answers, dict)
@@ -3037,9 +3061,7 @@ class WorkerStore:
     def _native_assistance_answers(self, job, page_context):
         """Deliver only current DOM-relevant saved facts, with their original references."""
         from .application_information import (
-            CONTACT_FACTS,
             information_context,
-            information_fact,
             read_information_library,
             validate_information_references,
         )
@@ -3052,20 +3074,9 @@ class WorkerStore:
                 or field.get("disabled") is True
             ):
                 continue
-            label = field.get("label") or ""
-            name = field.get("name") or field.get("id") or ""
-            # A choice's own text ("Yes") is an option; its group's question is the fact.
-            candidates = [
-                text
-                for text in (field.get("question") or "", label, name.replace("_", " "))
-                if text.strip() and helper.normalize_question(text)
-            ]
-            if not candidates:
+            fact = native_field_fact(field)
+            if fact is None:
                 continue
-            facts = [_native_label_fact(text, information_fact) for text in candidates]
-            fact = next((f for f in facts if not f.startswith("question:")), facts[0])
-            if not label and name in CONTACT_FACTS:
-                fact = name
             selected.setdefault(fact, []).append(field.get("id", ""))
         if len(selected) > 64:
             raise PortalDataError("assistance_answer_limit", "当前页面事实范围超过交接上限。", 409)

@@ -56,6 +56,7 @@ from .application_worker import (
     manual_submission_unresolved,
     mark_assistance_backend_lost,
     material_edit_pending,
+    native_field_fact,
     precision_preparation_pending,
     record_takeover_failure,
     revoke_assistance,
@@ -4600,11 +4601,24 @@ class ApplicationRunner:
             ]
             containers = {row["container_id"] for row in rows if row.get("container_id")}
             names = {row["name"] for row in rows if row.get("name")}
+            # 2026-11-03: a hidden native select elsewhere on the page names the same
+            # fact ("personal_details[country_of_residence]" for "Country of
+            # residence"); delivery's own label mapping binds them. Visible controls never.
+            facts = {
+                fact
+                for fact in [native_field_fact({"label": owner})]
+                + [native_field_fact(row) for row in rows]
+                if fact and not fact.startswith("question:")
+            }
             return rows + [
                 row
                 for row in fields
                 if row.get("hidden") is True
-                and (row.get("container_id") in containers or row.get("name") in names)
+                and (
+                    row.get("container_id") in containers
+                    or row.get("name") in names
+                    or native_field_fact(row) in facts
+                )
                 and all(row is not other for other in rows)
             ]
 

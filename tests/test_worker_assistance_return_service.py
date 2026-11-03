@@ -338,6 +338,51 @@ def test_option_clicks_attribute_to_their_combobox_and_its_hidden_twin(
     assert {row["field_id"]: row["call_id"] for row in outcome["attributed_fields"]} == expected
 
 
+@pytest.mark.parametrize("hidden", [True, False])
+def test_option_click_attributes_a_hidden_control_naming_the_same_fact(returning, capsys, hidden):
+    # 2026-11-03: the hidden select sat in another container under its own name.
+    ctx = returning
+    ctx.page.fields[1].update(label="Country of residence", container_id="country-item")
+    ctx.page.fields.append(
+        field(
+            "personal_details[country_of_residence]",
+            "",
+            kind="select-one",
+            container_id="elsewhere",
+            hidden=hidden,
+            visible=not hidden,
+        )
+    )
+    run_turn(
+        ctx,
+        report=make_report(),
+        planned=(
+            click("native-click", "Country of residence"),
+            click("native-option", "Switzerland", role="option"),
+        ),
+        effect=select_country_and_twin,
+        stepwise=True,
+    )
+    capsys.readouterr()
+    ctx.runner._service_assistance_return()
+    if hidden:
+        outcome = current(ctx)["assistance"]["outcome"]
+        assert {row["field_id"]: row["call_id"] for row in outcome["attributed_fields"]} == {
+            "country": "native-option",
+            "personal_details[country_of_residence]": "native-option",
+        }
+        return
+    # A visible control is never bound by the fact mapping alone.
+    assert_waiting(ctx, "assistance_return_unverified")
+    line = next(
+        row
+        for row in capsys.readouterr().out.splitlines()
+        if row.startswith("assistance_return_unverified: ")
+    )
+    record = json.loads(line.removeprefix("assistance_return_unverified: "))
+    assert record["unattributed"] == ["personal_details[country_of_residence]"]
+
+
 def test_unattributed_change_names_its_fields_without_values(returning, capsys):
     ctx = returning
 
