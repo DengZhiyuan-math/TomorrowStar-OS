@@ -7258,6 +7258,7 @@ def main(argv: list[str] | None = None, *, expected_sources: dict | None = None)
     parser.add_argument("--applications", type=Path, required=True)
     parser.add_argument("--runtime", type=Path, required=True)
     parser.add_argument("--single-flow-root", type=Path)
+    parser.add_argument("--cover-letter-template", type=Path, help="Private letter template")
     parser.add_argument("--package-resources", type=Path)
     parser.add_argument("--expected-package-manifest")
     parser.add_argument("--expected-worker-revision")
@@ -7345,6 +7346,8 @@ def main(argv: list[str] | None = None, *, expected_sources: dict | None = None)
     )
 
     store = WorkerStore(ApplicationStore(args.applications), args.runtime, live=args.live)
+    if args.cover_letter_template is not None:
+        store.cover_letter_template = args.cover_letter_template.expanduser().absolute()
     if args.synthetic_browser is not None:
         from .application_worker_fixtures import browser_fixture_job_url
 

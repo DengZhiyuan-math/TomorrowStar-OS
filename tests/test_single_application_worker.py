@@ -93,6 +93,48 @@ def test_spawn_passes_the_persisted_single_flow_root_to_the_child(single_worker,
     assert len(calls) == 1
     argv = calls[0]
     assert argv[argv.index("--single-flow-root") + 1] == str(service.store.single_flow_root)
+    assert "--cover-letter-template" not in argv
+
+
+def test_spawn_passes_the_backends_cover_letter_template_to_the_child(
+    single_worker, monkeypatch, tmp_path
+):
+    """2026-11-03: the backend had its template, the child Worker none, so every letter
+    the child prepared failed as letter_template_required."""
+    from types import SimpleNamespace
+
+    from career_evidence_graph import application_worker
+
+    service, item, _, _ = single_worker
+    service.request("prepare", {"workflow": "single", "send_confirmed": True, "jobs": [item]})
+    service.store.cover_letter_template = tmp_path / "letter.tex"
+    calls = []
+    monkeypatch.setattr(
+        application_worker.subprocess,
+        "Popen",
+        lambda args, **kwargs: calls.append(args) or SimpleNamespace(pid=987654321, poll=None),
+    )
+    WorkerService.spawn(service)
+    argv = calls[0]
+    assert argv[argv.index("--cover-letter-template") + 1] == str(tmp_path / "letter.tex")
+
+    # The child's own store takes it before any browser starts.
+    from career_evidence_graph import application_worker_browser
+
+    stores = []
+
+    class Store(application_worker_browser.WorkerStore):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            stores.append(self)
+
+    def stop_before_browser():
+        raise OSError("Synthetic stop before browser startup")
+
+    monkeypatch.setattr(application_worker_browser, "WorkerStore", Store)
+    monkeypatch.setattr(application_worker_browser, "sync_playwright", stop_before_browser)
+    application_worker_browser.main(argv[argv.index("--applications") :])
+    assert stores[0].cover_letter_template == tmp_path / "letter.tex"
 
 
 def test_child_requires_explicit_matching_flow_root_and_restores_only_persisted_context(

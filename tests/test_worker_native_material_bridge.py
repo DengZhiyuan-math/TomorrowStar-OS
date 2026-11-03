@@ -917,3 +917,44 @@ def test_a_letter_failed_for_its_template_is_prepared_again_once_one_is_readable
     # The failed attempt retires to history; it is not overwritten.
     assert job["material_history"][-1] == original
     assert job["cover_letter_delivery"]["status"] == "ready"
+
+
+def test_a_failed_letter_is_ready_after_the_next_unparsed_step_with_a_template(
+    bound_material_page, monkeypatch
+):
+    """End to end in the Worker's own step: a letter failed without a template, the
+    template is now the child's too, and the page stops again as unsupported_structure."""
+    service, _, _ = bound_material_page
+    template = service.store.cover_letter_template
+    letter_exporter(service)
+
+    class Page(ContextPage):
+        def is_closed(self):
+            return False
+
+    runner = ApplicationRunner(service.store, None)
+    state = service.store.load()
+    job = state["jobs"][0]
+    page = Page(letter_fields(["Upload your CV", "Cover letter"]))
+    runner.pages[job["application_id"]] = page
+    runner.page_ids[page] = job["page_observation"]["page_id"]
+    state["jobs"][0]["form_state"]["snapshot"] = {"fields": []}
+    service.store.save(state)
+    service.store.cover_letter_template = None
+    runner._prepare_native_cover_letter(job, state["batch_id"], page)
+    assert service.store.load()["jobs"][0]["cover_letter_delivery"]["status"] == "failed"
+
+    service.store.cover_letter_template = template
+
+    def unparsed(job, batch_id):
+        raise PortalDataError("unsupported_structure", "表单结构需要人工核验。", 409)
+
+    monkeypatch.setattr(runner, "process", unparsed)
+    runner._tick()
+
+    job = service.store.load()["jobs"][0]
+    assert (job["status"], job["reason"]) == ("needs_recheck", "unsupported_structure")
+    assert job["cover_letter_delivery"]["status"] == "ready"
+    letter = job["materials"][0]
+    assert letter["status"] == "ready" and letter["kind"] == "cover_letter"
+    assert job["material_history"][-1]["error_code"] == "letter_template_required"

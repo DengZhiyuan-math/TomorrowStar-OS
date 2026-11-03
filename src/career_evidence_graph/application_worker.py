@@ -4554,6 +4554,11 @@ class WorkerService:
         if any(job.get("workflow") == "single" for job in self.store.load()["jobs"]):
             context = self.store.single_context()
             args.extend(["--single-flow-root", context["flow_root"]])
+        template = getattr(self.store, "cover_letter_template", None)
+        if template is not None:
+            # The child prepares letters too (a zero-question page's letter, 2026-11-03);
+            # without the backend's template every letter failed as template_required.
+            args.extend(["--cover-letter-template", str(template)])
         args.extend(["--live"] if self.live else ["--fixture-origin", self.fixture_origin])
         if self.headless:
             args.append("--headless")
