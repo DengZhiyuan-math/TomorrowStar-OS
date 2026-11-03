@@ -71,14 +71,15 @@ def copy_cua_driver(resources: Path, driver: Path) -> dict:
             "wait and host admission time from the takeover budget; DOM set_value with read-back "
             "for date, select, checkbox and radio controls in native handoff; custom combobox "
             "option clicks with proven owner and read-back; hidden file inputs exposed for "
-            "upload only"
+            "upload only; combobox expand clicks name the shown value, and refusals before "
+            "admission are ledger rows"
         ),
         # MC-10 successor source tree and its divergence from the sealed MC-06 source.
         "source_manifest_sha256": (
-            "ba62eda80ff99936c44c28c164c4486d55175319292bc4cea9244b56c76ad193"
+            "7271e9ffea2484ce67faa8b26af0c22b1a4094f443ce805630150ec23bde77c4"
         ),
         "source_divergence_patch_sha256": (
-            "988530ec2db67c9bde930fd2e2dfeefe46aba47fad35b3b4e08c532c3a86b9a2"
+            "6a692b4b97edcad0eebd29ba157bc39796bdf08063e3dc00df9f79afe7f1589b"
         ),
         "build_profile": "release, signed with the pinned private identity",
         "additional_local_divergence": (
