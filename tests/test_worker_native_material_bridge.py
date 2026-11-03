@@ -973,6 +973,74 @@ def test_a_letter_failed_for_its_compiler_is_prepared_again_once_one_is_availabl
     assert job["cover_letter_delivery"]["status"] == "ready"
 
 
+@pytest.mark.parametrize(
+    ("recorded", "compiler_now", "retried"),
+    [
+        ("cover-letter-renderer/v3", True, True),
+        (None, True, True),
+        ("cover-letter-renderer/v4", True, False),
+        ("cover-letter-renderer/v3", False, False),
+    ],
+)
+def test_a_letter_failed_to_compile_is_prepared_again_after_its_renderer_changed(
+    bound_material_page, monkeypatch, recorded, compiler_now, retried
+):
+    """2026-11-03: a v3 letter body with π₀ failed resume_export_failed; renderer v4
+    maps those symbols, but the failed attempt was never prepared again."""
+    from career_evidence_graph import application_resume_versions
+
+    service, _, _ = bound_material_page
+
+    def missing_glyph(directory, content, template):
+        raise PortalDataError("resume_export_failed", "缺少字形。", 409)
+
+    service.store.cover_letter_exporter = missing_glyph
+    runner = ApplicationRunner(service.store, None)
+    state = service.store.load()
+    job = state["jobs"][0]
+    page = ContextPage(letter_fields(["Upload your CV", "Cover letter"]))
+    runner.pages[job["application_id"]] = page
+    runner.page_ids[page] = job["page_observation"]["page_id"]
+    state["jobs"][0]["form_state"]["snapshot"] = {"fields": []}
+    service.store.save(state)
+
+    runner._prepare_native_cover_letter(job, state["batch_id"], page)
+    state = service.store.load()
+    failed = state["jobs"][0]
+    original = failed["materials"][0]
+    assert (original["status"], original["error_code"]) == ("failed", "resume_export_failed")
+    assert original["renderer_revision"] == "cover-letter-renderer/v4"
+    if recorded is None:
+        del original["renderer_revision"]
+    else:
+        original["renderer_revision"] = recorded
+    service.store.save(state)
+    failed = service.store.load()["jobs"][0]
+
+    service.store.cover_letter_exporter = None
+    compiler = Compiler()
+    monkeypatch.setattr(application_resume_versions, "TectonicCompiler", lambda: compiler)
+    monkeypatch.setattr(
+        application_resume_versions,
+        "tectonic_executable",
+        lambda: "/opt/homebrew/bin/tectonic" if compiler_now else None,
+    )
+    runner._prepare_native_cover_letter(failed, state["batch_id"], page)
+    job = service.store.load()["jobs"][0]
+    if not retried:
+        assert job["materials"] == [original]
+        assert job["cover_letter_delivery"]["reason"] == "resume_export_failed"
+        assert not job.get("material_history")
+        assert compiler.calls == 0
+        return
+    assert compiler.calls == 1
+    letter = job["materials"][0]
+    assert letter["status"] == "ready" and letter["id"] != original["id"]
+    assert letter["renderer_revision"] == "cover-letter-renderer/v4"
+    assert job["material_history"][-1] == original
+    assert job["cover_letter_delivery"]["status"] == "ready"
+
+
 def test_a_failed_letter_is_ready_after_the_next_unparsed_step_with_a_template(
     bound_material_page, monkeypatch
 ):

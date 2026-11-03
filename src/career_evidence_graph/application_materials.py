@@ -614,6 +614,7 @@ class SupplementalMaterials:
     def _prepare_cover_letter(self, job, batch_id, observed):
         """Map one adopted application body to fresh page destinations, without writing."""
         from .application_cover_letter import (
+            RENDERER_REVISION,
             export_cover_letter_pdf,
             read_letter_material,
             render_cover_letter,
@@ -778,7 +779,13 @@ class SupplementalMaterials:
             if (
                 found
                 and found.get("status") == "failed"
-                and found.get("error_code") in _COMPILER_FAILURES
+                and (
+                    found.get("error_code") in _COMPILER_FAILURES
+                    # The renderer that wrote the failed TeX has since changed
+                    # (records without one predate it), so its output may now build.
+                    or found.get("error_code") == "resume_export_failed"
+                    and found.get("renderer_revision") != RENDERER_REVISION
+                )
                 and self._compiler_available()
             ):
                 # Prepared again as above once a compiler can build the letter.
@@ -853,6 +860,7 @@ class SupplementalMaterials:
                     text=text,
                     text_sha256=hashlib.sha256(text.encode()).hexdigest(),
                     template_revision=rendered["template_revision"],
+                    renderer_revision=rendered["renderer_revision"],
                     text_prefix=rendered["text_prefix"],
                     text_suffix=rendered["text_suffix"],
                 )
