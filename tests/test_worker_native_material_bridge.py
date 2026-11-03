@@ -1080,3 +1080,75 @@ def test_a_failed_letter_is_ready_after_the_next_unparsed_step_with_a_template(
     letter = job["materials"][0]
     assert letter["status"] == "ready" and letter["kind"] == "cover_letter"
     assert job["material_history"][-1]["error_code"] == "letter_template_required"
+
+
+@pytest.mark.parametrize("change", [None, "sha256", "questions"])
+def test_unparsed_cover_letter_receipt_journals_without_a_field_intent(bound_material_page, change):
+    """2026-11-04 (run 42): the host sent a zero-question page's letter, then its sealed
+    receipt was refused as native_material_intent_missing and the takeover was lost."""
+    from test_worker_native_assistance import prepare_journal
+
+    service, _, reference, context = prepared_letter_page(
+        bound_material_page, ["Upload your CV", "Cover letter"]
+    )
+    entry = letter_entry(service, reference, context)
+    letter = service.store.load()["jobs"][0]["materials"][0]
+    scope = prepare_journal(service, reference)
+    context["document"] = deepcopy(scope["document"])
+    call = letter_call(context, context["data"]["fields"][1], entry["material_ref"])
+    call["scope"] = {
+        "target_id": scope["native_scope"]["target_id"],
+        "tab_id": scope["native_scope"]["tab_id"],
+        "expected_document": scope["document"],
+    }
+    grant = {"handoff_id": "material-handoff", "generation": 1, "local_tools_drained": True}
+    service.store.record_native_handoff(
+        reference, request_id="journal-run", phase="granted", scope=scope, receipt=grant
+    )
+    service.store.record_native_handoff(
+        reference, request_id="journal-run", phase="granted", scope=scope, receipt=receipt(call)
+    )
+    sealed = dict(
+        call,
+        status="in_flight",
+        material_resolution={
+            "protocol": "fixed-material/v1",
+            "resolution_id": "c" * 32,
+            "material_ref": entry["material_ref"],
+            "kind": "file",
+            "sha256": "e" * 64 if change == "sha256" else letter["sha256"],
+            "size_bytes": len(b"%PDF-1.4 synthetic letter"),
+            "filename": letter["filename"],
+            "mime_type": "application/pdf",
+        },
+    )
+    if change == "questions":
+        # A page with parsed questions needs the saved field intent as before.
+        state = service.store.load()
+        state["jobs"][0]["form_state"]["snapshot"] = {"fields": [field()]}
+        service.store.save(state)
+    assert service.store.load()["jobs"][0].get("intent") is None
+    if change is None:
+        row = service.store.record_native_handoff(
+            reference,
+            request_id="journal-run",
+            phase="granted",
+            scope=scope,
+            receipt=receipt(sealed),
+        )
+        assert (
+            row["events"][-1]["receipt"]["calls"][0]["material_resolution"]["sha256"]
+            == (letter["sha256"])
+        )
+        return
+    before = service.store.path.read_bytes()
+    with pytest.raises(PortalDataError) as caught:
+        service.store.record_native_handoff(
+            reference,
+            request_id="journal-run",
+            phase="granted",
+            scope=scope,
+            receipt=receipt(sealed),
+        )
+    assert caught.value.code == "native_material_intent_missing"
+    assert service.store.path.read_bytes() == before

@@ -883,18 +883,34 @@ def valid_assistance(assistance, application_id):
     )
 
 
-def native_unparsed_resume_resolution(job, call):
-    """A sealed resume for a page the script parsed to zero questions (no field intent).
+def native_unparsed_material_resolution(job, call, letter=None):
+    """A sealed material for a page the script parsed to zero questions (no field intent).
 
     Such a page has no prepared question to carry a send intent, so the Worker admits
-    only the job's own bound resume bytes; the ledger row itself is the attempt record.
+    only the job's own bound bytes; the ledger row itself is the attempt record. Without
+    ``letter`` that is the job's resume; with it, that ready cover-letter material (the
+    zero-question page's letter, 2026-11-04: its receipt was refused for lacking an
+    intent after the host had sent it).
     """
     resolution = call.get("material_resolution") or {}
-    return bool(
-        not ((job.get("form_state") or {}).get("snapshot") or {}).get("fields")
-        and resolution.get("kind") == "file"
-        and resolution.get("sha256") == job.get("file_sha256")
-        and resolution.get("filename") == job.get("filename")
+    if ((job.get("form_state") or {}).get("snapshot") or {}).get("fields"):
+        return False
+    if letter is None:
+        return bool(
+            resolution.get("kind") == "file"
+            and resolution.get("sha256") == job.get("file_sha256")
+            and resolution.get("filename") == job.get("filename")
+        )
+    if letter.get("kind") != "cover_letter" or letter.get("status") != "ready":
+        return False
+    if resolution.get("kind") == "file":
+        return bool(
+            letter.get("file_path")
+            and resolution.get("sha256") == letter.get("sha256")
+            and resolution.get("filename") == letter.get("filename")
+        )
+    return resolution.get("kind") == "text" and resolution.get("sha256") == letter.get(
+        "text_sha256"
     )
 
 
@@ -2589,6 +2605,25 @@ class WorkerStore:
             }.get(previous.get("status"), set())
         )
 
+    def _unparsed_letter(self, expected_ref, job, call):
+        """The ready cover-letter material this call's delivery listing names, or None."""
+        if ((job.get("form_state") or {}).get("snapshot") or {}).get("fields"):
+            return None
+        try:
+            entries = [
+                entry
+                for entry in self.assistance_delivery(expected_ref)["materials"]
+                if entry.get("material_ref") == call.get("material_ref")
+            ]
+        except (PortalDataError, OSError, ValueError, TypeError, KeyError):
+            return None
+        if len(entries) != 1 or entries[0].get("kind") != "cover_letter":
+            return None
+        found = [
+            row for row in job.get("materials", []) if row.get("id") == entries[0]["material_id"]
+        ]
+        return found[0] if len(found) == 1 else None
+
     def native_material_intent(self, state, job, expected_ref, *, request_id=None, call=None):
         """Return only this current job's original native material intent, or False."""
         try:
@@ -2964,9 +2999,13 @@ class WorkerStore:
                         call["tool"] == "browser_deliver_material"
                         and "material_resolution" in call
                         and not protected_call
-                        and not native_unparsed_resume_resolution(job, call)
+                        and not native_unparsed_material_resolution(job, call)
                         and (old_call or {}).get("material_resolution")
                         != call["material_resolution"]
+                        # Read the delivery listing only for a newly sealed resolution.
+                        and not native_unparsed_material_resolution(
+                            job, call, self._unparsed_letter(expected_ref, job, call)
+                        )
                     ):
                         raise PortalDataError(
                             "native_material_intent_missing",
