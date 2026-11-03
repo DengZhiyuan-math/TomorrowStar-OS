@@ -1220,6 +1220,52 @@ def test_filename_shown_readback_completes_only_when_the_page_shows_the_name(
     assert record["reason"] == ["resume_upload_unverified"]
 
 
+def fill_native_unmounted_cv(page):
+    """r12: the re-rendered upload widget unmounted its file input altogether."""
+    fill_native_only(page)
+    page.fields.pop()
+
+
+@pytest.mark.parametrize("delivered", [True, False])
+def test_resume_is_checked_even_when_the_page_lists_no_file_input(
+    returning, monkeypatch, capsys, delivered
+):
+    ctx = returning
+    native_only_turn(ctx, make_report("ready_for_review"), effect=fill_native_unmounted_cv)
+    if delivered:
+        native_cv_delivery(ctx, proof="filename_shown")
+    reads = []
+
+    def filename_shown(page, filename, *, document, target=None):
+        reads.append((filename, (target or {}).get("id")))
+        return True
+
+    monkeypatch.setattr(ctx.runner, "_native_filename_shown", filename_shown)
+    capsys.readouterr()
+    ctx.runner._service_assistance_return()
+    job = current(ctx)
+    assert reads == [(job["filename"], "cv" if delivered else None)]
+    if delivered:
+        outcome = job["assistance"]["outcome"]
+        assert job["status"] == "ready_for_review"
+        assert outcome["kind"] == "filling_complete"
+        assert {
+            "kind": "resume",
+            "filename": job["filename"],
+            "sha256": job["file_sha256"],
+        } in outcome["verified"]["materials"]
+        return
+    # A shown name without any delivery proof is not the job's upload.
+    assert_waiting(ctx, "assistance_completion_unverified")
+    line = next(
+        row
+        for row in capsys.readouterr().out.splitlines()
+        if row.startswith("assistance_completion_unverified: ")
+    )
+    record = json.loads(line.removeprefix("assistance_completion_unverified: "))
+    assert record["reason"] == ["resume_upload_unverified"]
+
+
 def test_unobserved_native_resume_delivery_stays_unverified(returning, capsys):
     ctx = returning
     native_only_turn(ctx, make_report("ready_for_review"))

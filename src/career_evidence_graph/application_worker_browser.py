@@ -4657,7 +4657,9 @@ class ApplicationRunner:
             refused("required_empty_or_invalid")
         verified = self.verified_intents(job)
         materials = outcome["verified"]["materials"]
-        if job.get("file_sha256") and any(row.get("type") == "file" for row in fields):
+        # The job's resume is always checked: a re-rendered upload widget may unmount
+        # its file input, which must not skip the check (2026-11-03).
+        if job.get("file_sha256"):
             visible = {file.get("name") for row in fields for file in row.get("files") or []} | {
                 item.get("name") for item in context["data"].get("attachments", [])
             }
