@@ -438,6 +438,53 @@ def test_unproven_material_destination_refuses_only_that_call_and_keeps_the_take
         adapter.close()
 
 
+@pytest.mark.parametrize(
+    "drift",
+    [
+        None,
+        {"native_ref": "ref-other"},
+        {"field_hint": {"role": "button", "name": "Other"}},
+        {"material_ref": "e" * 64},
+    ],
+)
+def test_declined_material_row_with_driver_refusal_keeps_its_identity(tmp_path, monkeypatch, drift):
+    # 2026-11-03: the host-declined CV came back with r8's refusal (and r10's detail);
+    # that outcome is not a changed call, but any admitted key that moves still is.
+    config, ref, scope, packet, driver, native, events = native_case(tmp_path, monkeypatch)
+    native.calls = [material_call() | {"scope": scope}]
+
+    def resolve(call):
+        error = PortalDataError("material_destination_unverified", "synthetic", 409)
+        error.condition = "resume_inputs!=1"
+        raise error
+
+    original_admit = native.admit_call
+
+    def admit(call_id, arguments_digest, verdict, **kwargs):
+        original_admit(call_id, arguments_digest, verdict, **kwargs)
+        native.calls[0].update(
+            refusal="handoff_host_did_not_authorize",
+            refusal_detail={"in_viewport": True},
+            **(drift or {}),
+        )
+        return native.handoff_status()
+
+    native.admit_call = admit
+    adapter, run = start_case(
+        config, ref, scope, packet, driver, native, before_native_call=resolve
+    )
+    try:
+        for _ in range(2):
+            adapter.progress(run.run_id)
+        if drift is None:
+            assert run.status != "unknown" and not native.revoked
+            assert run.error_code != "native_call_identity_changed"
+        else:
+            assert run.error_code == "native_call_identity_changed"
+    finally:
+        adapter.close()
+
+
 def test_unpersisted_material_metadata_stops_before_resolver_and_admission(tmp_path, monkeypatch):
     config, ref, scope, packet, driver, native, events = native_case(tmp_path, monkeypatch)
     native.calls = [material_call() | {"scope": scope}]

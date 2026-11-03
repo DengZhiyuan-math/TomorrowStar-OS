@@ -507,19 +507,62 @@ def test_runner_resolves_the_resume_on_a_page_without_script_questions(
     assert service.store.path.read_bytes() == before
 
 
-@pytest.mark.parametrize("change", ["second_file", "attached", "document", "cover_letter_ref"])
+def add_file_input(context, label):
+    field = deepcopy(context["data"]["fields"][0])
+    field["label"] = field["material_target"]["label"] = label
+    context["data"]["fields"].append(field)
+
+
+@pytest.mark.parametrize(
+    ("label", "condition"),
+    [
+        # 2026-11-03: other attachments beside the CV are ordinary.
+        ("Other documents", None),
+        ("Cover letter", None),
+        # A second input also named as a CV/resume makes the destination ambiguous.
+        ("Resume (alternative)", "resume_inputs!=1"),
+    ],
+)
+def test_runner_admits_the_resume_beside_other_file_inputs_only_when_unambiguous(
+    bound_material_page, label, condition
+):
+    service, _, issue = bound_material_page
+    reference, context = issue([], prepare=False)
+    call = unparsed_resume_call(service, reference, context, "Upload your CV")
+    add_file_input(context, label)
+    runner = ApplicationRunner(service.store, None)
+    if condition is None:
+        resolved = runner._resolve_native_material_call(reference, call, context)
+        assert resolved["material_id"] == "resume"
+        return
+    with pytest.raises(PortalDataError) as error:
+        runner._resolve_native_material_call(reference, call, context)
+    assert error.value.code == "material_destination_unverified"
+    assert error.value.condition == condition
+
+
+def test_runner_still_refuses_a_file_input_without_a_resume_label_beside_others(
+    bound_material_page,
+):
+    service, _, issue = bound_material_page
+    reference, context = issue([], prepare=False)
+    call = unparsed_resume_call(service, reference, context, "Attachment")
+    add_file_input(context, "Other documents")
+    with pytest.raises(PortalDataError) as error:
+        ApplicationRunner(service.store, None)._resolve_native_material_call(
+            reference, call, context
+        )
+    assert error.value.code == "material_field_changed"
+
+
+@pytest.mark.parametrize("change", ["attached", "document", "cover_letter_ref"])
 def test_runner_refuses_an_unproven_resume_destination_without_questions(
     bound_material_page, change
 ):
     service, _, issue = bound_material_page
     reference, context = issue([], prepare=False)
     call = unparsed_resume_call(service, reference, context, "Upload your CV")
-    if change == "second_file":
-        context["data"]["fields"].append(
-            dict(deepcopy(context["data"]["fields"][0]), label="Other document")
-        )
-        context["data"]["fields"][-1]["material_target"]["label"] = "Other document"
-    elif change == "attached":
+    if change == "attached":
         call["target_descriptor"].update(value_empty=False, file_count=1)
         context["data"]["fields"][0]["material_target"].update(value_empty=False, file_count=1)
     elif change == "document":

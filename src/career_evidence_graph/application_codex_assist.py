@@ -103,6 +103,13 @@ def _without_length_bounds(schema):
 _OUTPUT_SCHEMA = _without_length_bounds(_REPORT_SCHEMA)
 
 
+# A call's identity is what the host admitted; these keys are its later outcome.
+# 2026-11-03: a host-declined CV delivery came back with r8's ``refusal`` and was
+# misread as a changed call, ending the takeover the decline meant to keep.
+_NATIVE_OUTCOME_KEYS = frozenset({"status", "refusal", "refusal_detail"})
+_NATIVE_MATERIAL_OUTCOME_KEYS = _NATIVE_OUTCOME_KEYS | {"material_resolution", "material_readback"}
+
+
 @dataclass(frozen=True)
 class CodexAssistConfig:
     executable: Path
@@ -1000,11 +1007,7 @@ class CodexAdapter:
             if admission is not None and (
                 "identity" in admission or call["tool"] == "browser_deliver_material"
             ):
-                identity = {
-                    k: v
-                    for k, v in call.items()
-                    if k not in {"status", "material_resolution", "material_readback"}
-                }
+                identity = {k: v for k, v in call.items() if k not in _NATIVE_MATERIAL_OUTCOME_KEYS}
                 if (
                     admission.get("identity") != identity
                     or "material_resolution" in call
@@ -1025,12 +1028,7 @@ class CodexAdapter:
             identity = {
                 k: v
                 for k, v in call.items()
-                if k
-                not in (
-                    {"status", "material_resolution", "material_readback"}
-                    if is_material
-                    else {"status"}
-                )
+                if k not in (_NATIVE_MATERIAL_OUTCOME_KEYS if is_material else _NATIVE_OUTCOME_KEYS)
             }
             if previous is not None:
                 if (previous.get("identity") if is_material else previous) != identity:

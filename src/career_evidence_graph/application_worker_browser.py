@@ -3184,7 +3184,9 @@ class ApplicationRunner:
         Preparation owns field meaning; here no prepared question exists, so the
         Worker itself proves the destination: the exact current document, one empty
         single-file input matching the descriptor, labelled as a CV/resume and not as a
-        cover letter or other document. Any other field is refused.
+        cover letter or other document, and no other file input on the page labelled
+        as a CV/resume too. Other attachments may sit beside it (2026-11-03: a CV and
+        an "Other documents" input). Any other field is refused.
         """
         from .application_materials import material_kind
 
@@ -3194,22 +3196,40 @@ class ApplicationRunner:
             for field in context.get("data", {}).get("fields", [])
             if field.get("material_target") == target
         ]
-        files = [
-            field
+
+        def words(values):
+            return [
+                " ".join(re.sub(r"[✱*_\-\[\]]", " ", str(text or "")).split()).casefold()
+                for text in values
+            ]
+
+        def resume_input(values):
+            return any(NATIVE_RESUME_LABEL.search(text) for text in values) and not any(
+                material_kind({"type": "file", "question": text}) != "unknown" for text in values
+            )
+
+        others = [
+            words(
+                [
+                    *(field["material_target"].get(key) for key in ("label", "name", "id")),
+                    *(field.get(key) for key in ("label", "question")),
+                ]
+            )
             for field in context.get("data", {}).get("fields", [])
             if (field.get("material_target") or {}).get("type") == "file"
+            and field.get("material_target") != target
         ]
         texts = [target["label"], target["name"], target["id"], call["field_hint"]["name"]]
         if len(fields) == 1:
             texts += [str(fields[0].get(key) or "") for key in ("label", "question")]
-        texts = [" ".join(re.sub(r"[✱*_\-\[\]]", " ", text).split()).casefold() for text in texts]
+        texts = words(texts)
         unproven = next(
             (
                 name
                 for name, failed in (
                     ("document", call["scope"]["expected_document"] != context.get("document")),
                     ("fields!=1", len(fields) != 1),
-                    ("files!=1", len(files) != 1),
+                    ("resume_inputs!=1", any(resume_input(other) for other in others)),
                     (
                         "target",
                         target["type"] != "file"
@@ -3227,9 +3247,7 @@ class ApplicationRunner:
             raise _material_refusal(
                 "material_destination_unverified", "当前原页没有唯一的空简历附件字段。", unproven
             )
-        if not any(NATIVE_RESUME_LABEL.search(text) for text in texts) or any(
-            material_kind({"type": "file", "question": text}) != "unknown" for text in texts
-        ):
+        if not resume_input(texts):
             raise _material_refusal("material_field_changed", "此字段不是简历附件入口。", "label")
         delivery = self.store.assistance_delivery(reference, page_context=context)
         entries = [
