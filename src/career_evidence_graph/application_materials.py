@@ -569,7 +569,7 @@ class SupplementalMaterials:
         self.allowed, self.update, self.persist = allowed, update, persist
         self.model_context = model_context
 
-    def prepare(self, job, batch_id, observed, *, temporary=None, page_binding=None):
+    def _begin(self, job, *, temporary, page_binding):
         self._temporary = temporary or {}
         self._page_binding = page_binding or {}
         self._fixed_inputs = None
@@ -579,11 +579,25 @@ class SupplementalMaterials:
         if job.get("workflow") == "single":
             self._application(job)
             self._letter_branch = self._fixed_inputs.get("cover_letter")
+
+    def prepare(self, job, batch_id, observed, *, temporary=None, page_binding=None):
+        self._begin(job, temporary=temporary, page_binding=page_binding)
         if self._letter_branch is not None and not self._prepare_cover_letter(
             job, batch_id, observed
         ):
             return False
         return self._prepare_fields(job, batch_id, observed)
+
+    def prepare_cover_letter(self, job, batch_id, observed, *, temporary=None, page_binding=None):
+        """Only the adopted letter's delivery for these fields, by the same policy.
+
+        A page the script parsed to zero questions still shows its letter entrance
+        to the native takeover; other field materials stay with the script.
+        """
+        self._begin(job, temporary=temporary, page_binding=page_binding)
+        if self._letter_branch is None:
+            return True
+        return self._prepare_cover_letter(job, batch_id, observed)
 
     def _letter_state(self, job, batch_id, requirements, **changes):
         view = {**requirements, **changes}

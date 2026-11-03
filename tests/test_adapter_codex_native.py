@@ -1586,7 +1586,14 @@ def test_native_final_report_is_bound_to_the_active_turn(tmp_path, monkeypatch):
         # A refused CV delivery is reported as remaining; the CV is attached last.
         assert "handoff_host_did_not_authorize" in instructions
         # r13: the CV before custom comboboxes, so an open list cannot strand it.
-        assert "checkbox controls first; then attach the CV; then custom comboboxes last" in flat
+        assert (
+            "checkbox controls first; then attach the CV and deliver the cover letter; "
+            "then custom comboboxes last" in flat
+        )
+        # A ready letter goes through its own control with its fixed material, never typed.
+        assert "deliver it right after the CV with browser_deliver_material" in flat
+        assert "the upload ref for a file, the textarea ref for text" in flat
+        assert "never type the letter" in flat
         assert "attach the CV last" not in flat
         # r10: a refused combobox click leaves that control and the turn goes on.
         assert "expand click or its option click is refused" in instructions

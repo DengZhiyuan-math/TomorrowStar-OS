@@ -144,6 +144,61 @@ NATIVE_DONE_STATES = frozenset(
 )
 
 
+def native_cover_letter_controls(page_context):
+    """Cover-letter file inputs and textareas a zero-question page shows, as questions.
+
+    Each pair is (question, page field). The question is the script's own observed
+    shape, so the existing letter policy can prepare it (2026-11-03: onlyfy had a
+    "Cover letter" input but no parsed question, so no letter was delivered).
+    """
+    from .application_materials import material_kind
+
+    pairs = []
+    for field in ((page_context or {}).get("data") or {}).get("fields", []):
+        target = field.get("material_target")
+        if not isinstance(target, dict):
+            continue
+        kind = (
+            "file"
+            if target.get("type") == "file"
+            else "textarea"
+            if target.get("tag") == "textarea"
+            else None
+        )
+        text = " ".join(
+            str(field.get("question") or field.get("label") or target.get("label") or "").split()
+        )
+        if kind is None or not text:
+            continue
+        if material_kind({"type": kind, "question": text}) != "cover_letter":
+            continue
+        identifier = (
+            target.get("id")
+            or target.get("name")
+            or field.get("id")
+            or field.get("name")
+            or "native-" + digest({"question": text, "type": kind})[:16]
+        )
+        question = {
+            "id": identifier,
+            "type": kind,
+            "question": text,
+            "required": bool(target.get("required")),
+            "draft_path": target.get("draft_path", ""),
+            "multiple": False,
+            "accept": target.get("accept", ""),
+            "max_length": target.get("max_length"),
+            "value": "" if kind == "file" else str(field.get("value") or ""),
+            "valid": field.get("valid") is not False,
+            "filename": "",
+            "file_sha256": None,
+            "resume": False,
+        }
+        pairs.append((question, field))
+    identifiers = [question["id"] for question, _ in pairs]
+    return [pair for pair in pairs if identifiers.count(pair[0]["id"]) == 1]
+
+
 def native_resume_deliveries(job, document):
     """Native resume deliveries the ledger observed on this document, by bytes and name.
 
@@ -3370,6 +3425,17 @@ class ApplicationRunner:
             None,
         )
         if snapshot is not None and not snapshot.get("fields"):
+            entries = [
+                row
+                for row in self.store.assistance_delivery(reference, page_context=context)[
+                    "materials"
+                ]
+                if row.get("material_ref") == call["material_ref"]
+            ]
+            if len(entries) == 1 and entries[0].get("kind") == "cover_letter":
+                return self._resolve_unparsed_cover_letter_call(
+                    reference, call, context, entries[0]
+                )
             return self._resolve_unparsed_resume_call(reference, call, context)
         fields = [
             field
@@ -3540,6 +3606,153 @@ class ApplicationRunner:
             "material": deepcopy(entries[0]),
         }
 
+    def _resolve_unparsed_cover_letter_call(self, reference, call, context, entry):
+        """The prepared letter into the one cover-letter control of a zero-question page.
+
+        As for the resume, the Worker proves the destination itself: the exact current
+        document, one empty control matching the descriptor, labelled as a cover letter,
+        no second cover-letter control of the same kind, and the field the letter
+        policy selected and prepared for this page.
+        """
+        from .application_materials import check_cover_letter_text
+
+        target = call["target_descriptor"]
+        fields = [
+            field
+            for field in context.get("data", {}).get("fields", [])
+            if field.get("material_target") == target
+        ]
+        pairs = native_cover_letter_controls(context)
+        owned = [question for question, field in pairs if len(fields) == 1 and field is fields[0]]
+        unproven = next(
+            (
+                name
+                for name, failed in (
+                    ("document", call["scope"]["expected_document"] != context.get("document")),
+                    ("fields!=1", len(fields) != 1),
+                    (
+                        "target",
+                        any(target[key] for key in ("disabled", "readonly", "multiple"))
+                        or target["type"] == "file"
+                        and (
+                            target["tag"] != "input"
+                            or not target["value_empty"]
+                            or target["file_count"] != 0
+                        )
+                        or target["type"] != "file"
+                        and (target["tag"] != "textarea" or not target["value_empty"]),
+                    ),
+                )
+                if failed
+            ),
+            None,
+        )
+        if unproven:
+            raise _material_refusal(
+                "material_destination_unverified", "当前原页没有唯一的空求职信字段。", unproven
+            )
+        if len(owned) != 1:
+            raise _material_refusal("material_field_changed", "此字段不是求职信入口。", "label")
+        question = owned[0]
+        if sum(other["type"] == question["type"] for other, _ in pairs) != 1 or not entry.get(
+            "material_id"
+        ):
+            raise _material_refusal(
+                "material_destination_unverified", "当前原页有多个求职信入口。", "letter_inputs!=1"
+            )
+        state = self.store.load()
+        job = next(
+            row
+            for row in state["jobs"]
+            if row["application_id"] == reference["binding"]["application_id"]
+        )
+        if [question["id"], question["draft_path"]] not in (
+            job.get("cover_letter_delivery") or {}
+        ).get("selected_fields", []):
+            raise _material_refusal(
+                "material_destination_unverified", "当前字段不是已准备的求职信入口。", "selected"
+            )
+        material = self.store.field_material(question, job)
+        if (
+            material is None
+            or material.get("id") != entry["material_id"]
+            or digest(material) != entry["revision"]
+        ):
+            raise _material_refusal("material_not_ready", "当前求职信材料尚不能发送。", "material")
+        result = {
+            "material_id": material["id"],
+            "material_ref": call["material_ref"],
+            "question": None,
+            "material": deepcopy(entry),
+        }
+        if question["type"] == "file":
+            if not material.get("file_path"):
+                raise _material_refusal("material_not_ready", "求职信没有已完成附件。", "file")
+            raw = self.store._read_bound_material_file(
+                Path(material["file_path"]), material["sha256"]
+            )
+            return {
+                **result,
+                "kind": "file",
+                "bytes": raw,
+                "sha256": material["sha256"],
+                "filename": material["filename"],
+            }
+        check_cover_letter_text(question, material["text"])
+        return {
+            **result,
+            "kind": "text",
+            "text": material["text"],
+            "sha256": material["text_sha256"],
+        }
+
+    def _prepare_native_cover_letter(self, job, batch_id, page):
+        """Prepare the adopted letter for a zero-question page's own letter control.
+
+        The script could not parse this page, so its letter delivery was never derived
+        and the native takeover had no letter to deliver (2026-11-03). The same policy
+        runs on questions read from the page with the takeover's own context read,
+        before the takeover's reference binds the job's materials. The caller owns the
+        job's status; a letter that cannot be prepared is logged, never fatal.
+        """
+        from .application_materials import SupplementalMaterials
+
+        if job.get("workflow") != "single" or page is None:
+            return
+        try:
+            with browser_deadline(5):
+                data = page.evaluate(INSPECT_ASSISTANCE_CONTEXT)
+        except (Error, TimeoutError):
+            return
+        questions = [q for q, _ in native_cover_letter_controls({"data": data})]
+        if not questions:
+            return
+
+        def update(job, batch_id, **changes):
+            changes.pop("status", None)
+            changes.pop("reason", None)
+            if changes:
+                self.update(job, batch_id, **changes)
+
+        materials = SupplementalMaterials(
+            self.store,
+            allowed=lambda state, identifier: self.permitted(state, self.pages.get(identifier)),
+            update=update,
+            persist=self.persist,
+            model_context=pause_browser_deadline,
+        )
+        try:
+            materials.prepare_cover_letter(
+                job,
+                batch_id,
+                {"fields": questions},
+                temporary=self.temporary,
+                page_binding={"run_id": self.run_id, "page_id": self.page_ids.get(page)},
+            )
+        except (PortalDataError, Error, OSError, ValueError, StoreError) as error:
+            code = getattr(error, "code", None) or type(error).__name__
+            print("native_cover_letter_unprepared: " + json.dumps({"code": code}), flush=True)
+
     def _prepare_native_material_call(
         self, reference, call, context, *, request_id, scope, receipt
     ):
@@ -3581,11 +3794,26 @@ class ApplicationRunner:
                     for row in state["jobs"]
                     if row["application_id"] == reference["binding"]["application_id"]
                 )
-                if job.get("intent") is not None or native_resume_delivered(
-                    job, call["scope"]["expected_document"]
-                ):
+                # The same material already observed on this document is not resent;
+                # another material (a letter after the CV) is its own attempt.
+                document = call["scope"]["expected_document"]
+                delivered = (
+                    native_resume_delivered(job, document)
+                    if resolved["material_id"] == "resume"
+                    else any(
+                        row.get("tool") == "browser_deliver_material"
+                        and row.get("status") == "observed"
+                        and (row.get("material_resolution") or {}).get("sha256")
+                        == resolved["sha256"]
+                        for run in job.get("native_handoff_runs", [])
+                        if (run.get("scope") or {}).get("document") == document
+                        for event in run.get("events", [])
+                        for row in (event.get("receipt") or {}).get("calls", [])
+                    )
+                )
+                if job.get("intent") is not None or delivered:
                     raise PortalDataError(
-                        "material_attempt_unresolved", "简历已发送或原尝试尚未核验。", 409
+                        "material_attempt_unresolved", "材料已发送或原尝试尚未核验。", 409
                     )
                 self.store.record_native_handoff(
                     reference, request_id=request_id, phase="granted", scope=scope, receipt=receipt
@@ -5135,6 +5363,12 @@ class ApplicationRunner:
                 TypeError,
                 IndexError,
             ) as exc:
+                page = self.pages.get(job["application_id"])
+                code = getattr(exc, "code", None)
+                if code == "unsupported_structure" and page is not None and not page.is_closed():
+                    # The native takeover that follows needs the page's letter ready
+                    # before its reference binds the job's materials.
+                    self._prepare_native_cover_letter(job, batch_id, page)
                 self.update(
                     job,
                     batch_id,
@@ -5143,8 +5377,6 @@ class ApplicationRunner:
                     or self.blocked_pages.get(self.pages.get(job["application_id"]))
                     or "browser_result_unknown",
                 )
-                page = self.pages.get(job["application_id"])
-                code = getattr(exc, "code", None)
                 if (
                     code in {"unsupported_structure", "unsupported_attachments"}
                     and page is not None

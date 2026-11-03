@@ -1,5 +1,6 @@
 """Worker material intents keep native identity and durable ownership together."""
 
+import hashlib
 from copy import deepcopy
 from types import SimpleNamespace
 
@@ -13,6 +14,7 @@ from test_worker_codex_assistance import retained_assistance_page as retained_as
 from test_worker_native_material_journal import material_call as _material_journal
 from test_worker_native_material_journal import sealed_receipt
 
+from career_evidence_graph import application_worker_browser as browser
 from career_evidence_graph._vendor.job_apply_store import StoreError
 from career_evidence_graph.application_worker import _native_handoff_receipt
 from career_evidence_graph.application_worker_browser import ApplicationRunner
@@ -650,3 +652,168 @@ def test_unparsed_resume_delivery_journals_the_ledger_row_as_its_only_attempt(
     )
     job = service.store.load()["jobs"][0]
     assert native_resume_delivered(job, scope["document"])
+
+
+def letter_fields(labels):
+    """A zero-question page's own file inputs with these labels (onlyfy-like)."""
+    fields = []
+    for index, label in enumerate(labels):
+        target = {
+            "frame": "main",
+            "worker_field": "",
+            "draft_path": "",
+            "id": f"upload-{index}",
+            "name": "",
+            "tag": "input",
+            "type": "file",
+            "label": label,
+            "required": False,
+            "disabled": False,
+            "readonly": False,
+            "accept": ".pdf",
+            "multiple": False,
+            "max_length": None,
+            "file_count": 0,
+            "value_empty": True,
+        }
+        fields.append(
+            {
+                "id": target["id"],
+                "type": "file",
+                "label": label,
+                "value": "",
+                "material_target": target,
+            }
+        )
+    return fields
+
+
+def letter_exporter(service):
+    def export(directory, content, template):
+        directory.mkdir(parents=True)
+        pdf = directory / "letter.pdf"
+        pdf.write_bytes(b"%PDF-1.4 synthetic letter")
+        return {
+            "file_path": str(pdf),
+            "filename": "cover-letter.pdf",
+            "sha256": hashlib.sha256(pdf.read_bytes()).hexdigest(),
+        }
+
+    service.store.cover_letter_exporter = export
+
+
+class ContextPage:
+    """The page's own context read; the Worker reads it with the takeover's script."""
+
+    def __init__(self, fields):
+        self.fields = fields
+
+    def evaluate(self, script):
+        assert script == browser.INSPECT_ASSISTANCE_CONTEXT
+        return {"fields": deepcopy(self.fields)}
+
+
+def prepared_letter_page(bound_material_page, labels):
+    """The script found no question; the letter is prepared before the takeover."""
+    service, _, issue = bound_material_page
+    fields = letter_fields(labels)
+    letter_exporter(service)
+    runner = ApplicationRunner(service.store, None)
+    state = service.store.load()
+    job = state["jobs"][0]
+    page = ContextPage(fields)
+    runner.pages[job["application_id"]] = page
+    runner.page_ids[page] = job["page_observation"]["page_id"]
+    state["jobs"][0]["form_state"]["snapshot"] = {"fields": []}
+    service.store.save(state)
+    runner._prepare_native_cover_letter(job, state["batch_id"], page)
+    reference, context = issue([], prepare=False)
+    context["data"]["fields"] = deepcopy(fields)
+    return service, runner, reference, context
+
+
+def letter_call(context, field, material_ref):
+    call = material_call()
+    call.update(
+        material_ref=material_ref,
+        target_descriptor=deepcopy(field["material_target"]),
+        field_hint={"role": "button", "name": field["label"]},
+    )
+    call["scope"]["expected_document"] = deepcopy(context["document"])
+    return call
+
+
+def letter_entry(service, reference, context):
+    return next(
+        row
+        for row in service.store.assistance_delivery(reference, page_context=context)["materials"]
+        if row["kind"] == "cover_letter"
+    )
+
+
+def test_zero_question_page_prepares_and_delivers_its_cover_letter(bound_material_page):
+    service, runner, reference, context = prepared_letter_page(
+        bound_material_page, ["Upload your CV", "Cover letter"]
+    )
+    job = service.store.load()["jobs"][0]
+    projection = job["cover_letter_delivery"]
+    assert projection["selected_fields"] == [["upload-1", ""]]
+    assert projection["fields"][0]["method"] == "file"
+    # The caller owns the job's status; preparing the letter leaves it alone.
+    assert job["status"] == "filling"
+    entry = letter_entry(service, reference, context)
+    assert entry["status"] == "ready" and entry["material_ref"]
+
+    resolved = runner._resolve_native_material_call(
+        reference,
+        letter_call(context, context["data"]["fields"][1], entry["material_ref"]),
+        context,
+    )
+    assert resolved["kind"] == "file" and resolved["question"] is None
+    assert resolved["bytes"] == b"%PDF-1.4 synthetic letter"
+    assert resolved["filename"] == "cover-letter.pdf"
+
+
+def test_page_without_a_letter_control_prepares_no_letter(bound_material_page):
+    service, _, reference, context = prepared_letter_page(
+        bound_material_page, ["Upload your CV", "Other documents"]
+    )
+    assert service.store.load()["jobs"][0].get("cover_letter_delivery") is None
+
+
+@pytest.mark.parametrize(
+    ("labels", "index", "code", "condition"),
+    [
+        # The letter cannot go into the CV's or another document's input.
+        (
+            ["Upload your CV", "Cover letter", "Other documents"],
+            2,
+            "material_field_changed",
+            "label",
+        ),
+        # Two letter inputs make the destination ambiguous.
+        (
+            ["Cover letter", "Motivation letter (optional)"],
+            0,
+            "material_destination_unverified",
+            "letter_inputs!=1",
+        ),
+    ],
+)
+def test_unparsed_cover_letter_destination_is_proven_or_refused(
+    bound_material_page, labels, index, code, condition
+):
+    service, runner, reference, context = prepared_letter_page(
+        bound_material_page, ["Cover letter"]
+    )
+    entry = letter_entry(service, reference, context)
+    fields = letter_fields(labels)
+    context["data"]["fields"] = fields
+    before = service.store.path.read_bytes()
+    with pytest.raises(PortalDataError) as error:
+        runner._resolve_native_material_call(
+            reference, letter_call(context, fields[index], entry["material_ref"]), context
+        )
+    assert error.value.code == code
+    assert error.value.condition == condition
+    assert service.store.path.read_bytes() == before
