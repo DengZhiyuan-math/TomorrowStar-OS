@@ -1107,3 +1107,53 @@ def test_unbuilt_unknown_letter_file_still_needs_recheck(modern):
         materials(prepared).prepare(job, batch, observed)
     assert caught.value.code == "cover_letter_needs_recheck"
     assert service.store.load()["jobs"][0]["materials"] == state["jobs"][0]["materials"]
+
+
+@pytest.mark.parametrize("unchecked_letter_build", ["tectonic"], indirect=True)
+def test_child_worker_rechecks_a_failed_pdf_1_5_letter_with_its_handed_inspector(
+    unchecked_letter_build, monkeypatch
+):
+    """2026-11-03: the child Worker had no PDFKit inspector, so its recheck kept the
+    tectonic PDF 1.5 letter failed as resume_pdf_invalid."""
+    from career_evidence_graph import application_worker_browser
+    from career_evidence_graph.application_pdf import NativePDFInspector
+
+    prepared, observed, directory, native = unchecked_letter_build
+    service, job, batch = prepared
+    state = service.store.load()
+    state["jobs"][0]["materials"][0]["status"] = "failed"
+    service.store.save(state)
+    job.update(deepcopy(state["jobs"][0]))
+    stores = []
+
+    class Store(application_worker_browser.WorkerStore):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            stores.append(self)
+
+    def stop_before_browser():
+        raise OSError("Synthetic stop before browser startup")
+
+    monkeypatch.setattr(application_worker_browser, "WorkerStore", Store)
+    monkeypatch.setattr(application_worker_browser, "sync_playwright", stop_before_browser)
+    application_worker_browser.main(
+        [
+            "--applications",
+            str(service.store.applications.root),
+            "--runtime",
+            str(service.store.root),
+            "--fixture-origin",
+            "http://127.0.0.1:9",
+            "--pdf-inspect",
+            str(native.executable),
+        ]
+    )
+    child = stores[0].pdf_inspector
+    assert isinstance(child, NativePDFInspector) and child.executable == native.executable
+    raw = (directory / "letter.pdf").read_bytes()
+    assert raw.startswith(b"%PDF-1.5") and b"/Type/XRef" in raw
+    service.store.pdf_inspector = child
+    assert materials(prepared).prepare(job, batch, observed)
+    saved = service.store.load()["jobs"][0]
+    assert saved["materials"][0]["status"] == "ready" and saved["materials"][0]["page_count"] == 1
+    assert saved["cover_letter_delivery"]["status"] == "ready"

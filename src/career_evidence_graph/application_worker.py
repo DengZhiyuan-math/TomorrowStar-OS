@@ -4569,6 +4569,11 @@ class WorkerService:
             # The child prepares letters too (a zero-question page's letter, 2026-11-03);
             # without the backend's template every letter failed as template_required.
             args.extend(["--cover-letter-template", str(template)])
+        inspector = getattr(getattr(self.store, "pdf_inspector", None), "executable", None)
+        if inspector is not None:
+            # The child rechecks letter PDFs too; without the native inspector a PDF 1.5
+            # letter only met the regex fallback and failed as resume_pdf_invalid.
+            args.extend(["--pdf-inspect", str(inspector)])
         args.extend(["--live"] if self.live else ["--fixture-origin", self.fixture_origin])
         if self.headless:
             args.append("--headless")

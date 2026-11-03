@@ -12,6 +12,7 @@ import os
 import re
 import signal
 import subprocess
+import sys
 import threading
 import time
 import traceback
@@ -7259,6 +7260,7 @@ def main(argv: list[str] | None = None, *, expected_sources: dict | None = None)
     parser.add_argument("--runtime", type=Path, required=True)
     parser.add_argument("--single-flow-root", type=Path)
     parser.add_argument("--cover-letter-template", type=Path, help="Private letter template")
+    parser.add_argument("--pdf-inspect", type=Path, help="Native PDFKit inspector executable")
     parser.add_argument("--package-resources", type=Path)
     parser.add_argument("--expected-package-manifest")
     parser.add_argument("--expected-worker-revision")
@@ -7348,6 +7350,18 @@ def main(argv: list[str] | None = None, *, expected_sources: dict | None = None)
     store = WorkerStore(ApplicationStore(args.applications), args.runtime, live=args.live)
     if args.cover_letter_template is not None:
         store.cover_letter_template = args.cover_letter_template.expanduser().absolute()
+    if args.pdf_inspect is not None:
+        if (
+            args.pdf_inspect.is_absolute()
+            and args.pdf_inspect.is_file()
+            and os.access(args.pdf_inspect, os.X_OK)
+        ):
+            from .application_pdf import NativePDFInspector
+
+            store.pdf_inspector = NativePDFInspector(args.pdf_inspect)
+        else:
+            # The private worker log keeps why; letters fall back to the regex check.
+            print("pdf_inspect_ignored: not an absolute executable file", file=sys.stderr)
     if args.synthetic_browser is not None:
         from .application_worker_fixtures import browser_fixture_job_url
 

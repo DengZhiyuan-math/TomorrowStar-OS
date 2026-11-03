@@ -94,6 +94,7 @@ def test_spawn_passes_the_persisted_single_flow_root_to_the_child(single_worker,
     argv = calls[0]
     assert argv[argv.index("--single-flow-root") + 1] == str(service.store.single_flow_root)
     assert "--cover-letter-template" not in argv
+    assert "--pdf-inspect" not in argv
 
 
 def test_spawn_passes_the_backends_cover_letter_template_to_the_child(
@@ -135,6 +136,60 @@ def test_spawn_passes_the_backends_cover_letter_template_to_the_child(
     monkeypatch.setattr(application_worker_browser, "sync_playwright", stop_before_browser)
     application_worker_browser.main(argv[argv.index("--applications") :])
     assert stores[0].cover_letter_template == tmp_path / "letter.tex"
+
+
+def spawned_child_store(service, monkeypatch):
+    """Spawn the child argv, then run the child's main until just before its browser."""
+    from types import SimpleNamespace
+
+    from career_evidence_graph import application_worker, application_worker_browser
+
+    calls = []
+    monkeypatch.setattr(
+        application_worker.subprocess,
+        "Popen",
+        lambda args, **kwargs: calls.append(args) or SimpleNamespace(pid=987654321, poll=None),
+    )
+    WorkerService.spawn(service)
+    stores = []
+
+    class Store(application_worker_browser.WorkerStore):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            stores.append(self)
+
+    def stop_before_browser():
+        raise OSError("Synthetic stop before browser startup")
+
+    monkeypatch.setattr(application_worker_browser, "WorkerStore", Store)
+    monkeypatch.setattr(application_worker_browser, "sync_playwright", stop_before_browser)
+    argv = calls[0]
+    application_worker_browser.main(argv[argv.index("--applications") :])
+    return argv, stores[0]
+
+
+@pytest.mark.parametrize("usable", [True, False])
+def test_spawn_hands_the_backends_native_pdf_inspector_to_the_child(
+    single_worker, monkeypatch, tmp_path, capsys, usable
+):
+    """2026-11-03: only the backend held the PDFKit inspector; the child rechecked a
+    PDF 1.5 letter with the regex fallback and failed it as resume_pdf_invalid."""
+    from career_evidence_graph.application_pdf import NativePDFInspector
+
+    service, item, _, _ = single_worker
+    service.request("prepare", {"workflow": "single", "send_confirmed": True, "jobs": [item]})
+    executable = tmp_path / "pdf-inspect"
+    executable.write_text("#!/bin/sh\nexit 1\n")
+    executable.chmod(0o700 if usable else 0o600)
+    service.store.pdf_inspector = NativePDFInspector(executable)
+    argv, store = spawned_child_store(service, monkeypatch)
+    assert argv[argv.index("--pdf-inspect") + 1] == str(executable)
+    if usable:
+        assert isinstance(store.pdf_inspector, NativePDFInspector)
+        assert store.pdf_inspector.executable == executable
+    else:
+        assert getattr(store, "pdf_inspector", None) is None
+        assert "pdf_inspect_ignored" in capsys.readouterr().err
 
 
 def test_child_requires_explicit_matching_flow_root_and_restores_only_persisted_context(
