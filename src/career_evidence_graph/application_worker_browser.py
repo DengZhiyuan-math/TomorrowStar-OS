@@ -246,26 +246,36 @@ def native_choice_fact_value(delivery, field_hint):
     return values.pop() if len(values) == 1 else None
 
 
-def native_combobox_choice_kept(delivery, call, value):
-    """r7: a combobox shown as a choice may be expanded only to keep or set that fact.
+def native_combobox_choice_kept(delivery, call, value, *, page_reopened=False):
+    """r7: why a combobox shown as a choice may not be expanded, or None to admit it.
 
     The driver names the shown value it was asked to expect. A delivered empty value
     is a placeholder (INSPECT's ``shown()``); a shown value equal to the confirmed
-    fact needs no change of answer. Any other shown choice belongs to the user or page.
+    fact needs no change of answer. On a page this Worker run reopened and no takeover
+    has yet touched, the shown value the Worker delivered is the page's own default
+    (2026-11-03: a collapsed button combobox showed "Select title..." with no
+    placeholder marker), so it may be expanded while it still shows that value.
+    On a retained page any other shown choice belongs to the user or page.
     """
     shown = (call.get("expected_target") or {}).get("value", "")
     if not shown or _native_words(shown) == _native_words(value):
-        return True
+        return None
     name = _native_label((call.get("field_hint") or {}).get("name"))
     fields = [
         field
         for field in ((delivery.get("page_context") or {}).get("data") or {}).get("fields", [])
         if _native_label(field.get("label")) == name and _native_control_kind(field) == "combobox"
     ]
-    return bool(fields) and all(field.get("value") == "" for field in fields)
+    if fields and all(field.get("value") == "" for field in fields):
+        return None
+    if not fields or any(
+        _native_words(field.get("value")) != _native_words(shown) for field in fields
+    ):
+        return "shown_changed"
+    return None if page_reopened else "existing_choice"
 
 
-def native_click_denial(delivery, calls, call):
+def native_click_denial(delivery, calls, call, *, page_reopened=False):
     """Why a click is refused, or None: admit a delivered-fact combobox or its fact option.
 
     An option row names only the option; its field is the combobox whose observed
@@ -278,7 +288,7 @@ def native_click_denial(delivery, calls, call):
         value = native_choice_fact_value(delivery, hint)
         if value is None:
             return "unbound_fact"
-        return None if native_combobox_choice_kept(delivery, call, value) else "existing_choice"
+        return native_combobox_choice_kept(delivery, call, value, page_reopened=page_reopened)
     if role != "option":
         return None
     previous = sorted(
@@ -3503,6 +3513,29 @@ class ApplicationRunner:
             )
             return updated and saved.get("intent") is None
 
+    def _native_page_reopened(self, reference):
+        """This run reopened the job's page (APP-13 Continue) and no takeover touched it.
+
+        The marker is the Worker's own ``page_reopen`` record, started by this run for
+        this application, with the current page observed by this run. Any earlier
+        native handoff on the page may have left user edits, so it ends the default.
+        """
+        state = self.store.load()
+        job = next(
+            row
+            for row in state["jobs"]
+            if row["application_id"] == reference["binding"]["application_id"]
+        )
+        reopen = state.get("page_reopen") or {}
+        return bool(
+            self.run_id
+            and reopen.get("status") == "started"
+            and reopen.get("run_id") == self.run_id
+            and reopen.get("application_id") == job["application_id"]
+            and (job.get("page_observation") or {}).get("run_id") == self.run_id
+            and not job.get("native_handoff_runs")
+        )
+
     def start_native_assistance(self, assistance_ref, *, request_id):
         """Deliver JSON, then let the original native session execute its own tools."""
         reference = deepcopy(assistance_ref)
@@ -3549,6 +3582,7 @@ class ApplicationRunner:
         # renewed the page observation; the context follows it, since the status
         # read behind the attestation outlasts the window (seen 2026-11-02).
         self._renew_assistance_context(reference, context)
+        page_reopened = self._native_page_reopened(reference)
         delivery = self.store.assistance_delivery(reference, page_context=context)
         # 2026-11-03: a report claimed consent answers were missing and no ready
         # material_ref was supplied, but the delivery could not be checked. Keys,
@@ -3682,7 +3716,7 @@ class ApplicationRunner:
                 if call.get("text_sha256") not in allowed:
                     return False
             denied = call.get("tool") == "browser_click" and native_click_denial(
-                delivery, latest.get("calls", []), call
+                delivery, latest.get("calls", []), call, page_reopened=page_reopened
             )
             if denied:
                 # Role and condition only; never a name or value.

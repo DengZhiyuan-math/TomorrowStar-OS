@@ -531,32 +531,71 @@ def test_native_set_value_admits_a_radio_option_through_its_delivered_control(
 
 
 @pytest.mark.parametrize(
-    ("steps", "shown", "allowed"),
+    ("steps", "shown", "reopened", "allowed", "condition"),
     [
         # r6: a combobox whose AX name maps to one delivered confirmed fact may open.
-        ([("combobox", "Salutation *")], "", [True]),
-        ([("combobox", "Favourite colour")], "", [False]),
+        ([("combobox", "Salutation *")], "", False, [True], None),
+        ([("combobox", "Favourite colour")], "", False, [False], "unbound_fact"),
         # Its option is admitted only after that observed click, by the exact answer.
-        ([("combobox", "Salutation"), ("option", " mr. ")], "", [True, True]),
-        ([("combobox", "Salutation"), ("option", "Ms.")], "", [True, False]),
+        ([("combobox", "Salutation"), ("option", " mr. ")], "", False, [True, True], None),
+        (
+            [("combobox", "Salutation"), ("option", "Ms.")],
+            "",
+            False,
+            [True, False],
+            "option_not_fact",
+        ),
         # No owning combobox click precedes the option.
-        ([("option", "Mr.")], "", [False]),
+        ([("option", "Mr.")], "", False, [False], "option_owner_unproven"),
         # r7: the driver shows a placeholder, which the delivered context reads as empty.
-        ([("combobox", "Salutation", "Please select"), ("option", "Mr.")], "", [True, True]),
-        # r7: a different existing choice belongs to the user or page.
-        ([("combobox", "Salutation", "Ms.")], "Ms.", [False]),
+        (
+            [("combobox", "Salutation", "Please select"), ("option", "Mr.")],
+            "",
+            False,
+            [True, True],
+            None,
+        ),
+        # r7: a different existing choice on a retained page belongs to the user or page.
+        ([("combobox", "Salutation", "Ms.")], "Ms.", False, [False], "existing_choice"),
         # r7: a shown choice equal to the confirmed fact may be reopened.
-        ([("combobox", "Salutation", " mr. ")], "Mr.", [True]),
+        ([("combobox", "Salutation", " mr. ")], "Mr.", False, [True], None),
         # r7: a pre-ledger refusal row between the expand and the option is no mutation.
         (
             [("combobox", "Salutation"), ("refusal", "Salutation"), ("option", "Mr.")],
             "",
+            False,
             [True, True],
+            None,
+        ),
+        # 2026-11-03: a page this run reopened shows its own default, unread as a
+        # placeholder; it may open while it still shows what the Worker delivered.
+        (
+            [("combobox", "Salutation", "Select title..."), ("option", "Mr.")],
+            "Select title...",
+            True,
+            [True, True],
+            None,
+        ),
+        # The shown value changed since delivery: not the page default any more.
+        (
+            [("combobox", "Salutation", "Ms.")],
+            "Select title...",
+            True,
+            [False],
+            "shown_changed",
+        ),
+        # A retained page keeps the rule: a shown default is an existing choice.
+        (
+            [("combobox", "Salutation", "Select title...")],
+            "Select title...",
+            False,
+            [False],
+            "existing_choice",
         ),
     ],
 )
 def test_native_click_admits_a_delivered_combobox_and_its_confirmed_option(
-    native_page, monkeypatch, capsys, steps, shown, allowed
+    native_page, monkeypatch, capsys, steps, shown, reopened, allowed, condition
 ):
     from test_application_information import answer
 
@@ -568,6 +607,19 @@ def test_native_click_admits_a_delivered_combobox_and_its_confirmed_option(
         service.store.answers.root / "answers.json",
         {"schemaVersion": 1, "answers": dict([answer("Salutation", "Mr.")]), "metadata": {}},
     )
+    if reopened:
+        # The Worker's own APP-13 record: this run reopened and observed the page.
+        state = service.store.load()
+        job = state["jobs"][0]
+        state["page_reopen"] = {
+            "request_id": "reopen-1",
+            "application_id": job["application_id"],
+            "status": "started",
+            "run_id": runner.run_id,
+            "at": time.time(),
+        }
+        job["page_observation"] = dict(job.get("page_observation") or {}, run_id=runner.run_id)
+        service.store.save(state)
     delivery_for_page = service.store.assistance_delivery
 
     def with_combobox(expected_ref, *, page_context=None):
@@ -650,7 +702,9 @@ def test_native_click_admits_a_delivered_combobox_and_its_confirmed_option(
     assert admitted == allowed
     log = capsys.readouterr().out
     denied = [line for line in log.splitlines() if "native_click_admission_denied" in line]
-    assert any("existing_choice" in line for line in denied) is (shown == "Ms.")
+    assert [line.split('"condition": ')[1] for line in denied] == (
+        [f'"{condition}"}}'] if condition else []
+    )
     # Role and condition only: never the field name or a value.
     assert not any("Ms." in line or "Salutation" in line for line in denied)
     refused = [line for line in log.splitlines() if line.startswith("native_driver_refusal: ")]
