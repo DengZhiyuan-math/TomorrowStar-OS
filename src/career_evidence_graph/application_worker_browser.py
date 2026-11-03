@@ -879,6 +879,37 @@ def _abort(route) -> None:
 STOP_RECHECK_INTERVAL = 2.0
 
 
+def _require_owned_document(session, expected_document):
+    """Require the original document's token through an owned CDP session."""
+    # CDP property descriptors do not invoke a page-defined getter.
+    result = session.send(
+        "Runtime.evaluate",
+        {"expression": "this", "silent": True, "returnByValue": False},
+    )
+    handle = result.get("result", {}).get("objectId")
+    if result.get("exceptionDetails") or not isinstance(handle, str):
+        raise PortalDataError("page_observation_changed", "原页文档不能核验。", 409)
+    try:
+        properties = session.send(
+            "Runtime.getProperties", {"objectId": handle, "ownProperties": True}
+        ).get("result", [])
+        descriptor = next(
+            (row for row in properties if row.get("name") == "__tomorrowstarMaterialDocument"),
+            {},
+        )
+        value = descriptor.get("value") or {}
+        if (
+            "get" in descriptor
+            or "set" in descriptor
+            or value.get("type") != "string"
+            or value.get("value") != expected_document
+        ):
+            raise PortalDataError("page_observation_changed", "原页文档已改变。", 409)
+    finally:
+        with browser_deadline(1):
+            session.send("Runtime.releaseObject", {"objectId": handle})
+
+
 class ApplicationRunner:
     def __init__(
         self,
@@ -3052,39 +3083,8 @@ class ApplicationRunner:
             frame = session.send("Page.getFrameTree")["frameTree"]["frame"]
 
             def read_document():
-                if expected_document is None:
-                    return
-                # CDP property descriptors do not invoke a page-defined getter.
-                result = session.send(
-                    "Runtime.evaluate",
-                    {"expression": "this", "silent": True, "returnByValue": False},
-                )
-                handle = result.get("result", {}).get("objectId")
-                if result.get("exceptionDetails") or not isinstance(handle, str):
-                    raise PortalDataError("page_observation_changed", "原页文档不能核验。", 409)
-                try:
-                    properties = session.send(
-                        "Runtime.getProperties", {"objectId": handle, "ownProperties": True}
-                    ).get("result", [])
-                    descriptor = next(
-                        (
-                            row
-                            for row in properties
-                            if row.get("name") == "__tomorrowstarMaterialDocument"
-                        ),
-                        {},
-                    )
-                    value = descriptor.get("value") or {}
-                    if (
-                        "get" in descriptor
-                        or "set" in descriptor
-                        or value.get("type") != "string"
-                        or value.get("value") != expected_document
-                    ):
-                        raise PortalDataError("page_observation_changed", "原页文档已改变。", 409)
-                finally:
-                    with browser_deadline(1):
-                        session.send("Runtime.releaseObject", {"objectId": handle})
+                if expected_document is not None:
+                    _require_owned_document(session, expected_document)
 
             read_document()
             execution = session.send(
@@ -3187,7 +3187,47 @@ class ApplicationRunner:
         identifier = assistance_ref["binding"].get("application_id")
         page = self.pages.get(identifier)
 
+        def same_document():
+            """Re-read an only-expired observation's original document on this thread."""
+            if page is None or page.is_closed() or self.pages.get(identifier) is not page:
+                return False
+            binding = assistance_ref["binding"]
+            state = self.store.load()
+            job = next((row for row in state["jobs"] if row["application_id"] == identifier), None)
+            observation = (job or {}).get("page_observation") or {}
+            runs = (job or {}).get("native_handoff_runs") or [{}]
+            if (
+                # Only a granted native handoff's own Worker work (a file admission and
+                # its delivery, 2026-11-04) holds this thread past the window.
+                runs[-1].get("phase") != "granted"
+                or runs[-1].get("assistance_ref") != assistance_ref
+                or not PAGE_SCOPE.only_expired(PAGE_SCOPE.current(state, job))
+                or (state.get("runtime") or {}).get("id") != self.run_id
+                or observation.get("run_id") != self.run_id
+                or binding.get("run_id") != self.run_id
+                or observation.get("page_id") != binding.get("page_id")
+                or self.page_ids.get(page) != binding.get("page_id")
+                or not isinstance(binding.get("document_token"), str)
+                or not binding["document_token"]
+            ):
+                return False
+            try:
+                with browser_deadline(2):
+                    session = OwnedCDP(page).__enter__()
+                    try:
+                        _require_owned_document(session, binding["document_token"])
+                    finally:
+                        with browser_deadline(1):
+                            session.detach()
+                return True
+            except (Error, PortalDataError):
+                return False  # A busy, unreadable or changed document stays a lost scope.
+
         def check():
+            # Only this page thread's own re-read of the same run, page and document
+            # renews an observation that its own Worker work let expire; a changed
+            # document, page or run still fails below as a changed binding.
+            renewable = same_document()
             with self.store.applications.write_lock():
                 state = self.store.load()
                 job = next(
@@ -3196,12 +3236,13 @@ class ApplicationRunner:
                 assistance = (job or {}).get("assistance")
                 runtime = state.get("runtime") or {}
                 now = time.time()
+                current = PAGE_SCOPE.current(state, job, now)
                 if (
                     job
                     and page is not None
                     and not page.is_closed()
                     and PAGE_SCOPE.refresh_due(state, job, now)
-                    and PAGE_SCOPE.current(state, job, now).valid
+                    and (current.valid or renewable and PAGE_SCOPE.only_expired(current))
                     and PAGE_SCOPE.refresh(state, job, now, run_id=self.run_id)
                 ):
                     # This page thread holds the original handle: each check before and

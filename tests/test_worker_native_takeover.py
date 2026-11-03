@@ -801,7 +801,9 @@ def test_native_control_pump_keeps_progress_while_renderer_scope_read_is_busy(
     monkeypatch.setattr(runner, "pump", deliver_events)
     assert callbacks["pump"]() is (change == "unchanged")
     assert delivered == ["browser-events"]
-    assert calls == []
+    # An only-expired scope tries one bounded document re-read; a busy renderer
+    # leaves it expired, so the pump still refuses (2026-11-04).
+    assert calls == ([("busy_renderer_read", None)] if change == "expired_owner" else [])
     if change == "unchanged":
         assert service.store.load()["jobs"][0]["assistance"]["status"] == "claimed"
 
@@ -1661,3 +1663,56 @@ def test_material_admission_rereads_a_slow_page_and_refuses_only_that_delivery(
     assert (result.code, result.condition) == (outcome, "page_read")
     assert result.code in MATERIAL_DESTINATION_REFUSALS
     assert len(reads) == 3
+
+
+@pytest.mark.parametrize("change", ["unchanged", "document", "run"])
+def test_granted_takeover_renews_an_observation_its_own_admission_let_expire(native_page, change):
+    """2026-11-04: a CV file admission held the page thread 6.6 s; the next check saw
+    only an expired runtime/page observation and revoked an unchanged takeover, so the
+    cover letter's admission was refused (handoff_host_did_not_authorize)."""
+    service, runner, page, ref, _, _ = native_page
+
+    class Adapter:
+        def start_takeover(self, original, **kwargs):
+            self.pump = kwargs["pump"]
+            kwargs["before_yield"](
+                {
+                    "application_ref_digest": digest(ref),
+                    "scope": kwargs["native_scope"],
+                    "request_id": kwargs["request_id"],
+                }
+            )
+            kwargs["after_yield"](
+                {"handoff_id": "native-run", "generation": 1, "local_tools_drained": True}
+            )
+            return SimpleNamespace(run_id="adapter-native-run")
+
+    adapter = runner.codex_assist = Adapter()
+    runner._service_assistance_stop = lambda: None
+    runner.start_native_assistance(ref, request_id="native-expired-own-work")
+    assert service.store.load()["jobs"][0]["native_handoff_runs"][-1]["phase"] == "granted"
+    # The first material's admission and delivery: the tick that would renew is late.
+    stale = time.time() - 6.6
+    state = service.store.load()
+    state["runtime"]["observed_at"] = stale
+    state["jobs"][0]["page_observation"]["at"] = stale
+    if change == "run":
+        state["jobs"][0]["page_observation"]["run_id"] = "another-run"
+    service.store.save(state)
+    if change == "document":
+        page.token = "a-new-document"
+    # The next check came before any tick renewed the observation (the second
+    # material's admission and the stop service both check directly).
+    check = runner._assistance_page_checker(ref)[1]
+    assert runner.assistance_read_permitted(ref) is (change == "unchanged")
+    saved = service.store.load()
+    if change == "unchanged":
+        assert saved["runtime"]["observed_at"] > stale
+        assert saved["jobs"][0]["page_observation"]["at"] > stale
+        check()
+        assert adapter.pump() is True
+    else:
+        assert saved["runtime"]["observed_at"] == stale
+        with pytest.raises(PortalDataError) as caught:
+            check()
+        assert caught.value.code == "assistance_binding_changed"

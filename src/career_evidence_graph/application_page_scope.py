@@ -71,6 +71,23 @@ class PageScope:
         return age is not None and 0 <= age < self.window
 
     @staticmethod
+    def only_expired(scope: ScopeCheck) -> bool:
+        """The observations exist and are not from the future; they are only old.
+
+        Such a scope may be renewed by the page thread after it re-read the same
+        original document itself (2026-11-04: a 6.6 s file admission outlasted the
+        6 s window and the next check revoked an unchanged takeover).
+        """
+        return (
+            not scope.valid
+            and scope.changed in {"runtime_observation", "page_observation"}
+            and scope.runtime_age is not None
+            and scope.page_age is not None
+            and scope.runtime_age >= 0
+            and scope.page_age >= 0
+        )
+
+    @staticmethod
     def refresh(state, job=None, now=None, *, run_id=None):
         """The one writer of both observation times; True when anything changed.
 

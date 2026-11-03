@@ -107,3 +107,13 @@ def test_a_snapshot_is_renewed_only_from_its_own_pages_later_observation(change)
         job = {}
     assert not PAGE_SCOPE.renew_snapshot(snapshot, state, job, run_id="run-1")
     assert snapshot["at"] == snapshot["observed_at"] == 100.0
+
+
+@pytest.mark.parametrize(
+    ("at", "now", "expected"),
+    [(100.0, 106.6, True), (100.0, 103.0, False), (None, 106.6, False), (110.0, 106.6, False)],
+)
+def test_only_an_old_observation_is_renewable(at, now, expected):
+    """2026-11-04: both observations were 6.6 s old after a file admission, nothing else."""
+    state, job = observed(at)
+    assert PAGE_SCOPE.only_expired(PAGE_SCOPE.current(state, job, now)) is expected
