@@ -168,6 +168,8 @@ def test_r10_refusal_detail_rides_only_a_refused_row():
     valid = changed(
         calls=[
             dict(hit, refusal_detail=DETAIL),
+            # r10: nothing at the point (e.g. outside the viewport) reports hit null.
+            dict(hit, call_id="hit-2", sequence=12, refusal_detail=dict(DETAIL, hit=None)),
             dict(REFUSED, refusal_detail={"in_viewport": True}),
             dict(
                 HIDDEN_UPLOAD,
@@ -194,6 +196,8 @@ def test_r10_refusal_detail_rides_only_a_refused_row():
         dict(DETAIL, in_viewport=1),
         dict(DETAIL, hit=dict(DETAIL["hit"], classes=["a", "b", "c", "d"])),
         dict(DETAIL, hit=dict(DETAIL["hit"], tag="a\nb")),
+        dict(DETAIL, hit=[]),
+        dict(DETAIL, hit="none"),
         [],
     ):
         with pytest.raises(ValueError):

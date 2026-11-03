@@ -37,7 +37,7 @@ from .worker_process_identity import (
 
 # Reviewed release build of the restricted-metadata native successor, signed with the
 # pinned private identity. A version string alone cannot admit it.
-_NATIVE_HANDOFF_DRIVER_SHA256 = "39aa6803c846f09aa5b4666001fe24d793bb233a345cb6ef80f5c59ce2da691c"
+_NATIVE_HANDOFF_DRIVER_SHA256 = "f2db30f7d77bbbdd7a815c4c01043564a2a5674a9e630a5520178b25023b76a6"
 # The App bundles one cua-driver, so the script route admits the same reviewed bytes.
 _OWNED_DRIVER_SHA256 = _NATIVE_HANDOFF_DRIVER_SHA256
 NATIVE_HANDOFF_PROTOCOL = "cua-trusted-handoff/v1"
@@ -354,8 +354,9 @@ def _valid_refusal_detail(value):
         "scrolled",
     }:
         return False
+    # r10: hit is null when nothing was at the point (e.g. outside the viewport).
     hit = value.get("hit", {})
-    if not (
+    if hit is not None and not (
         isinstance(hit, dict)
         and set(hit) <= {"tag", "role", "id", "classes", "interactive_break"}
         and all(_detail_text(hit[key]) for key in ("tag", "role", "id") if key in hit)
