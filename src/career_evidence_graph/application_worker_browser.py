@@ -720,6 +720,38 @@ def _manual_submission_target(job, binding, *, document_url=None):
     return False
 
 
+# A native material upload authorization is short and single-use (2026-11-03: onlyfy
+# posts the file to the page's own URL as a Next.js server action).
+NATIVE_UPLOAD_TTL = 60.0
+
+
+def _same_site(url, job_url) -> bool:
+    """The job's ATS origin, or a subdomain of its registrable site, on its scheme."""
+    try:
+        request, job = urlsplit(url), urlsplit(job_url)
+        host, base = request.hostname, job.hostname
+    except ValueError:
+        return False
+    if not host or not base or request.scheme != job.scheme:
+        return False
+    if host == base:
+        return True
+    labels = base.split(".")
+    if re.fullmatch(r"[0-9.]+", base) or ":" in base or len(labels) < 2:
+        return False
+    # A two-letter country code under a generic second level keeps three labels.
+    width = 3 if len(labels) >= 3 and len(labels[-1]) == 2 and len(labels[-2]) <= 3 else 2
+    site = ".".join(labels[-width:])
+    return host == site or host.endswith("." + site)
+
+
+def _carries_material(body, raw: bytes, sha256: str) -> bool:
+    """A request body holding the delivered file's bytes (raw or base64) or its hash."""
+    if not isinstance(body, (bytes, bytearray)) or not raw:
+        return False
+    return raw in body or base64.b64encode(raw) in body or sha256.encode() in body
+
+
 def _abort(route) -> None:
     # A request whose page or frame already closed has nothing left to block; its
     # failed abort is not a lost browser connection (seen on a job board, 2026-10-31).
@@ -761,6 +793,9 @@ class ApplicationRunner:
         self.login_pages: set = set()
         # Non-GET endpoints already blocked on a page the script has not written to.
         self.blocked_endpoints: dict[Page, set] = {}
+        # Single-use native material uploads the host admitted, by page; the file's
+        # bytes stay in memory only and are dropped once used.
+        self.native_uploads: dict[Page, dict] = {}
         self.upload_job: dict | None = None
         self.bound_material_read = None
         self.blocked_pages: dict[Page, str] = {}
@@ -870,7 +905,10 @@ class ApplicationRunner:
             **(facts or {}),
             "at": time.time(),
         }
-        if not caused_stop and stage in ROUTINE_REQUEST_STAGES:
+        # A send during a native takeover is never a routine repeat: each upload
+        # attempt and its block must stay visible (2026-11-03).
+        native_send = row.get("native_takeover") is True and request.method != "GET"
+        if not caused_stop and stage in ROUTINE_REQUEST_STAGES and not native_send:
             # A job board repeats the same polling and tracking requests: 8,626
             # rows, 1,577 distinct, rewritten on every checkpoint save (2026-11-02).
             # A routine repeat adds no fact; stops and rejected responses all stay.
@@ -1348,12 +1386,22 @@ class ApplicationRunner:
             else:
                 route.continue_()
             return
+        native_page = page in self.native_uploads or self._native_assistance_page(page)
+        if (
+            request.method != "GET"
+            and page in self.native_uploads
+            and self._permit_native_upload(route, request, page)
+        ):
+            return
         endpoint = (request.method, *urlsplit(request.url)[:3])
         if (
             endpoint in self.blocked_endpoints.get(page, ())
             and page not in self.editing_pages
             and page not in self.drafts
             and page not in self.workable
+            # During a native takeover every block is recorded: a silently aborted
+            # upload left nothing to diagnose (2026-11-03).
+            and not native_page
         ):
             # The same decision as its first block, without re-reading the checkpoint
             # for each of a job board's many tracking requests.
@@ -1365,6 +1413,8 @@ class ApplicationRunner:
             None,
         )
         facts = _request_diagnostic_facts(request, page, owned_job)
+        if native_page:
+            facts["native_takeover"] = True
         previous_stop = self.blocked_pages.get(page)
         self.request_sequence += 1
         sequence = self.request_sequence
@@ -1731,6 +1781,101 @@ class ApplicationRunner:
                 caused_stop=self.blocked_pages.get(page) != previous_stop,
             )
 
+    def _native_assistance_page(self, page) -> bool:
+        run = self._assistance_run
+        return bool(run) and self.pages.get(run[0]["binding"]["application_id"]) is page
+
+    def _authorize_native_upload(self, reference, payload, resolved, call):
+        """Register one admitted native file delivery's upload, like a script intent."""
+        identifier = reference["binding"]["application_id"]
+        page = self.pages.get(identifier)
+        if payload["kind"] != "file" or page is None or page in self.drafts:
+            return
+        if page in self.workable:
+            return
+        now = time.time()
+        state = self.store.load()
+        job = next(row for row in state["jobs"] if row["application_id"] == identifier)
+        record = {
+            "action": "native_upload_authorized",
+            "application_id": identifier,
+            "run_id": self.run_id,
+            "batch_id": state["batch_id"],
+            "page_id": self.page_ids.get(page),
+            "call_id": call["call_id"],
+            "material_id": resolved["material_id"],
+            "material_ref": payload["material_ref"],
+            "sha256": payload["sha256"],
+            "size_bytes": payload["size_bytes"],
+            "filename": payload["filename"],
+            "authorized_at": now,
+            "expires_at": now + NATIVE_UPLOAD_TTL,
+            "at": now,
+        }
+        self.native_uploads[page] = {
+            **record,
+            "job_url": job["job_url"],
+            "raw": base64.b64decode(payload["bytes_base64"]),
+            "used": False,
+        }
+        self.transports.append(record)
+
+    def _permit_native_upload(self, route, request, page) -> bool:
+        """Send one same-site request that carries the admitted file, then retire it."""
+        upload = self.native_uploads[page]
+        if upload["used"] or time.time() > upload["expires_at"]:
+            return False
+        state = self.store.load()
+        job = next(
+            (row for row in state["jobs"] if row["application_id"] == upload["application_id"]),
+            None,
+        )
+        try:
+            body = request.post_data_buffer
+        except Error:
+            body = None
+        if (
+            job is None
+            or job["status"] == "cancelled"
+            or job.get("handed_off")
+            or self.pages.get(job["application_id"]) is not page
+            or self.page_ids.get(page) != upload["page_id"]
+            or (state.get("runtime") or {}).get("id") != upload["run_id"]
+            or hosted_ats.is_final_submission(request, job)
+            or not _same_site(request.url, upload["job_url"])
+            or not _carries_material(body, upload["raw"], upload["sha256"])
+        ):
+            return False
+        upload.update(used=True, raw=b"")
+        record = {
+            key: upload[key]
+            for key in (
+                "application_id",
+                "run_id",
+                "batch_id",
+                "page_id",
+                "call_id",
+                "material_id",
+                "sha256",
+                "filename",
+            )
+        } | {"action": "native_material_upload", "kind": "native_material_upload"}
+        with suppress(TypeError):
+            self.requests[request] = record
+        self.request_sequence += 1
+        self.request_diagnostic(
+            request,
+            page,
+            job,
+            state,
+            "request_permitted",
+            "native_material_upload",
+            sequence=self.request_sequence,
+            facts={**_request_diagnostic_facts(request, page, job), "native_takeover": True},
+        )
+        route.continue_()
+        return True
+
     def _websocket_guard(self, page, websocket) -> None:
         if getattr(self, "synthetic_browser", False):
             websocket.on_message(lambda _message: None)
@@ -1755,6 +1900,7 @@ class ApplicationRunner:
         self.handed_off_pages.discard(page)
         self.login_pages.discard(page)
         self.blocked_endpoints.pop(page, None)
+        self.native_uploads.pop(page, None)
         self.page_ids.pop(page, None)
         self.page_faults.pop(page, None)
         for request, record in list(self.requests.items()):
@@ -3437,6 +3583,7 @@ class ApplicationRunner:
                 self.store.record_native_handoff(
                     reference, request_id=request_id, phase="granted", scope=scope, receipt=receipt
                 )
+            self._authorize_native_upload(reference, payload, resolved, call)
             return payload
         with self.store.applications.write_lock():
             state = self.store.load()
@@ -3526,6 +3673,7 @@ class ApplicationRunner:
                 if self.store.storage_error:
                     raise StoreError("Native material checkpoint failed") from error
                 raise
+        self._authorize_native_upload(reference, payload, resolved, call)
         return payload
 
     def _reconcile_native_material(self, reference, receipt, *, request_id, after_stop=False):

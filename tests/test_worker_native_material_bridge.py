@@ -606,7 +606,11 @@ def test_unparsed_resume_delivery_journals_the_ledger_row_as_its_only_attempt(
         scope=scope,
         receipt=dict(receipt(call), active_calls=0, local_tools_drained=True),
     )
-    payload = ApplicationRunner(service.store, None)._prepare_native_material_call(
+    runner = ApplicationRunner(service.store, None)
+    page = object()
+    runner.pages[reference["binding"]["application_id"]] = page
+    runner.page_ids[page] = reference["binding"]["page_id"]
+    payload = runner._prepare_native_material_call(
         reference,
         call,
         context,
@@ -617,6 +621,13 @@ def test_unparsed_resume_delivery_journals_the_ledger_row_as_its_only_attempt(
     job = service.store.load()["jobs"][0]
     assert job.get("intent") is None
     assert payload["sha256"] == job["file_sha256"]
+    # The admitted delivery may send its own upload once; only metadata is journaled.
+    upload = runner.native_uploads[page]
+    assert upload["used"] is False and upload["sha256"] == job["file_sha256"]
+    assert upload["material_id"] == "resume" and upload["call_id"] == call["call_id"]
+    assert upload["expires_at"] - upload["authorized_at"] == 60
+    authorized = [r for r in runner.transports if r.get("action") == "native_upload_authorized"]
+    assert len(authorized) == 1 and "raw" not in authorized[0]
     manifest = {k: v for k, v in payload.items() if k != "bytes_base64"}
     observed = dict(
         call,
