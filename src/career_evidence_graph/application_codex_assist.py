@@ -1044,10 +1044,21 @@ class CodexAdapter:
                 allow = allow and not run.tools_revoked
             except (OSError, StoreError) as error:
                 self._native_persistence_failure(run, value, error)
-            except Exception:
+            except Exception as error:
                 if native["persistence_failed"]:
                     raise
                 allow = False
+                # The private log keeps why the Worker refused; no arguments or values.
+                print(
+                    "native_call_admission_denied: "
+                    + json.dumps(
+                        {
+                            "tool": call.get("tool"),
+                            "code": getattr(error, "code", None) or type(error).__name__,
+                        }
+                    ),
+                    flush=True,
+                )
             native["admissions"][call["call_id"]] = (
                 {"identity": identity, "material_resolution": manifest if allow else None}
                 if is_material
