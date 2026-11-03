@@ -79,14 +79,16 @@ def copy_cua_driver(resources: Path, driver: Path) -> dict:
             "hit tests use the input point; a delivered file may be proven by its name shown "
             "in the form item when the FileList is cleared, with a readback diagnosis otherwise; "
             "that name is found again by stable container or form when the input is unmounted; "
-            "an expanded combobox may be clicked again to collapse it"
+            "an expanded combobox may be clicked again to collapse it; "
+            "refusal reasons never take a prose hint's first word; material refusals carry "
+            "their code"
         ),
         # MC-10 successor source tree and its divergence from the sealed MC-06 source.
         "source_manifest_sha256": (
-            "ab3776136073d8bd3904432894e03466159289192bc15e8aa41d81095d50514c"
+            "44eede0cc41975f72ba466c43c99e69864593794a911acce61dd76b31c4249b9"
         ),
         "source_divergence_patch_sha256": (
-            "eec3e664054184e9c19abe8bde066abd7c3743a35ec937e299aae9fbe3d9bef5"
+            "7314957506401a6b74f297f11f3548f7fb14707113ac29b406ee137924f09d5f"
         ),
         "build_profile": "release, signed with the pinned private identity",
         "additional_local_divergence": (
