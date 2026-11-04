@@ -388,7 +388,7 @@ def native_combobox_choice_kept(delivery, call, value, *, page_reopened=False):
 
 
 def native_click_denial(delivery, calls, call, *, page_reopened=False):
-    """Why a click is refused, or None: admit a delivered-fact combobox or its fact option.
+    """Why a click is refused, or None: admit only a delivered-fact combobox or its fact option.
 
     An option row names only the option; its field is the combobox whose observed
     click immediately precedes it in this handoff's ledger (the driver's owner rule).
@@ -402,7 +402,9 @@ def native_click_denial(delivery, calls, call, *, page_reopened=False):
             return "unbound_fact"
         return native_combobox_choice_kept(delivery, call, value, page_reopened=page_reopened)
     if role != "option":
-        return None
+        # APP-11: a native click opens a combobox or picks its option, nothing else.
+        # Buttons and links (Submit, Apply, Send) are refused here, never by name.
+        return "role_not_clickable"
     previous = sorted(
         (
             row
@@ -427,6 +429,30 @@ def native_click_denial(delivery, calls, call, *, page_reopened=False):
         return "option_not_fact"
     return None
 
+
+# APP-11 at the action layer: while the Worker or a native takeover acts on a page,
+# no form there may submit, whether by a submit button, implicit Enter, a page
+# script's requestSubmit() or form.submit(). Unlocked documents (the default, the
+# user's handed-off and sign-in pages, popups) behave natively. A first capture
+# listener stops a submit event before any page or framework handler sees it.
+SUBMIT_LOCK_INSTALL = """(() => {
+  const key = Symbol.for('tomorrowstar.submitLock');
+  if (window[key]) return;
+  const lock = {locked: false};
+  Object.defineProperty(window, key, {value: lock});
+  window.addEventListener('submit', event => {
+    if (lock.locked) { event.preventDefault(); event.stopImmediatePropagation(); }
+  }, true);
+  const proto = HTMLFormElement.prototype;
+  for (const name of ['submit', 'requestSubmit']) {
+    const original = proto[name];
+    proto[name] = function(...args) { if (!lock.locked) return original.apply(this, args); };
+  }
+})()"""
+SUBMIT_LOCK_SET = (
+    "locked => {" + SUBMIT_LOCK_INSTALL + ";"
+    " window[Symbol.for('tomorrowstar.submitLock')].locked = locked; }"
+)
 
 # Fixed DOM reads. Page text and model output never become executable code.
 INSPECT = FORMS["lever"].inspect_script()
@@ -995,6 +1021,8 @@ class ApplicationRunner:
                 "requestfinished", lambda request: self.transport(request, "requestfinished")
             )
             context.on("requestfailed", lambda request: self.transport(request, "requestfailed"))
+        if hasattr(context, "add_init_script"):  # synthetic context doubles omit it
+            context.add_init_script(SUBMIT_LOCK_INSTALL)
         if self.live and context is not None:
             context.route("**/*", self._live_guard)
             context.route_web_socket("**/*", lambda ws: self._websocket_guard(None, ws))
@@ -2215,6 +2243,17 @@ class ApplicationRunner:
         # A routed socket stays local unless connect_to_server() is called.
         websocket.on_message(lambda _message: None)
 
+    @staticmethod
+    def _submit_lock(page, locked: bool) -> None:
+        """Lock (before automated work) or unlock (handoff, sign-in) every frame's forms.
+
+        A new document starts unlocked; the next automated send locks it again.
+        """
+        # Synthetic page doubles without frames have no forms to lock.
+        for frame in getattr(page, "frames", ()):
+            with suppress(Error):
+                frame.evaluate(SUBMIT_LOCK_SET, locked)
+
     def _forget_page(self, identifier: str, page: Page) -> None:
         self.pages.pop(identifier, None)
         self.guards.pop(identifier, None)
@@ -2913,6 +2952,7 @@ class ApplicationRunner:
             if self.cua is not None:
                 self.cua.review(page, pump=self.pump)
             page.unroute("**/*", self.guards[identifier])
+            self._submit_lock(page, False)
             self.handed_off_pages.add(page)
             page.bring_to_front()
             job["handoff"]["status"] = "complete"
@@ -4641,6 +4681,7 @@ class ApplicationRunner:
                 scope=journal_scope,
                 receipt=receipt,
             )
+            self._submit_lock(page, True)
             return True
 
         def pump():
@@ -5793,6 +5834,7 @@ class ApplicationRunner:
                         # pass until the next Continue, except a recognized final
                         # submit (decided 2026-10-31: blocked sign-ins never completed).
                         self.login_pages.add(page)
+                        self._submit_lock(page, False)
                         with suppress(Error, PortalDataError):
                             if self.cua is not None:
                                 self.cua.review(page, pump=self.pump)
@@ -5999,6 +6041,7 @@ class ApplicationRunner:
                 intent["dispatch_state"] = "sent"
                 current["intent"] = deepcopy(intent)
                 self.persist(state)
+            self._submit_lock(self.pages.get(job["application_id"]), True)
             yield
             if intent.get("form_protocol") == "form-state/v1":
                 latest = self.store.load()

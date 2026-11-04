@@ -576,6 +576,17 @@ def test_native_choice_key_ignores_only_case_whitespace_and_edge_punctuation(opt
         ),
         # No owning combobox click precedes the option.
         ([("option", "Mr.")], "", False, [False], "option_owner_unproven"),
+        # APP-11: buttons, links and any other role are never clickable, whatever the name.
+        ([("button", "Submit application")], "", False, [False], "role_not_clickable"),
+        ([("link", "Continue")], "", False, [False], "role_not_clickable"),
+        ([("", "Send")], "", False, [False], "role_not_clickable"),
+        (
+            [("combobox", "Salutation"), ("button", "Submit")],
+            "",
+            False,
+            [True, False],
+            "role_not_clickable",
+        ),
         # r7: the driver shows a placeholder, which the delivered context reads as empty.
         (
             [("combobox", "Salutation", "Please select"), ("option", "Mr.")],
