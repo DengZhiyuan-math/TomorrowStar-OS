@@ -573,6 +573,44 @@ def test_select_captured_full_jd_creates_one_durable_application(full_recommenda
     assert len(store.applications.list_applications()) == 1
 
 
+def test_saved_application_keeps_its_recommendation_after_its_link_is_resolved(
+    full_recommendation,
+):
+    # 2026-11-04: a saved LinkedIn job's link became its Workable apply page without a
+    # listing_url; the same recommendation revision then read as a new conflicting source.
+    store, row = full_recommendation
+    application = store.select(row["id"], row["revision"])["application"]
+    moved = store.applications.update_application(
+        application["id"],
+        {"url": "https://apply.workable.com/synthetic/j/ABC123/apply/"},
+        application["revision"],
+    )
+
+    again = store.select(row["id"], row["revision"])
+    assert again["created"] is False and again["application"]["id"] == application["id"]
+
+    # Another job's link is no resolution of this one.
+    other = store.applications.update_application(
+        application["id"],
+        {"url": "https://www.linkedin.com/jobs/view/99999/"},
+        moved["revision"],
+    )
+    with pytest.raises(PortalDataError) as conflict:
+        store.select(row["id"], row["revision"])
+    assert conflict.value.code == "recommendation_source_conflict"
+    moved = store.applications.update_application(
+        application["id"], {"url": moved["url"]}, other["revision"]
+    )
+
+    # Saved facts still compare: a changed location stays a source conflict.
+    store.applications.update_application(
+        application["id"], {"location": "Basel"}, moved["revision"]
+    )
+    with pytest.raises(PortalDataError) as conflict:
+        store.select(row["id"], row["revision"])
+    assert conflict.value.code == "recommendation_source_conflict"
+
+
 @pytest.mark.parametrize("change", ["message", "url"])
 def test_extracted_job_must_reference_a_captured_mail_link(recommendation_store, change):
     store = recommendation_store

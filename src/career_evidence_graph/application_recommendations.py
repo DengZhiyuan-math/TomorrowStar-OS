@@ -150,10 +150,24 @@ def _listed_at(application, key) -> bool:
     }
 
 
-def _same_saved_facts(record, application) -> bool:
+def _same_saved_facts(record, application, *, same_source=False) -> bool:
+    """The saved application still states this recommendation's facts.
+
+    ``same_source``: the application was saved from this very recommendation
+    revision. Its LinkedIn link then resolved to the employer's own apply page
+    (APP-02) keeps its identity; company, role, location and JD still compare.
+    """
+    board = recommendation_key(record.get("url"))
+    resolved_offsite = (
+        same_source
+        and board is not None
+        and board[0] == "linkedin"
+        and (recommendation_key(application.get("url")) or ("",))[0] != "linkedin"
+    )
     return (
         (
-            record.get("url", "") == application.get("url", "")
+            resolved_offsite
+            or record.get("url", "") == application.get("url", "")
             or _same_identity(record.get("url"), application.get("url"))
             or _listed_at(application, recommendation_key(record.get("url")))
         )
@@ -693,6 +707,7 @@ class RecommendationStore:
             )
             key = recommendation_key(record["url"])
             application = by_job.get(key)
+            same_source = False
             if application is None and record.get("source_kind"):
                 journal = self.root / "selections" / f"{record['id']}.json"
                 if (
@@ -703,6 +718,7 @@ class RecommendationStore:
                     saved = helper.read_json_object(journal, "job selection")
                     identifier = saved.get("application_id")
                     application = by_id.get(identifier) if isinstance(identifier, str) else None
+                    same_source = saved.get("recommendation_revision") == record["revision"]
             record["existing_application"] = (
                 {field: application[field] for field in ("id", "revision", "status")}
                 if application
@@ -711,7 +727,8 @@ class RecommendationStore:
             journal = self.root / "selections" / f"{record['id']}.json"
             record["selection_status"] = (
                 "source_conflict"
-                if application and not _same_saved_facts(record, application)
+                if application
+                and not _same_saved_facts(record, application, same_source=same_source)
                 else "saved"
                 if application
                 else "needs_recheck"
@@ -841,7 +858,8 @@ class RecommendationStore:
             saved = helper.read_json_object(journal, "job selection")
             if saved.get("application_id"):
                 application = self.applications.get_application(saved["application_id"])
-                if not _same_saved_facts(record, application):
+                same_source = saved.get("recommendation_revision") == record["revision"]
+                if not _same_saved_facts(record, application, same_source=same_source):
                     raise PortalDataError(
                         "recommendation_source_conflict",
                         "新来源与已有岗位记录不符，原件已保留。",
