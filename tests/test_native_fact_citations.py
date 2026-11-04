@@ -383,7 +383,8 @@ def test_a_second_model_scores_the_same_prompt_beside_the_first(
         return
     assert models["needs_review"] is (opinion == "differ")
     assert models["differing_requirements"] == ([] if opinion == "agree" else [0])
-    assert score["lower"] == (90 + (85 if opinion == "agree" else 40)) / 2
+    # Decided 2026-11-04: sol 0.45, Opus 0.55.
+    assert score["lower"] == pytest.approx(0.45 * 90 + 0.55 * (85 if opinion == "agree" else 40))
 
 
 def assert_citation_withheld(result):

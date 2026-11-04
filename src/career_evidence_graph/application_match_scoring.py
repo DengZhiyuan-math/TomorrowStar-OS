@@ -275,6 +275,11 @@ def route_for_score(score):
     return {"route": route, "auto_skip": False}
 
 
+# Weights of sol (primary) and Opus (second) in the combined score.
+PRIMARY_WEIGHT = 0.45
+SECOND_WEIGHT = 0.55
+
+
 def combined_score(primary, analysis, requirements):
     """Average the primary and second-opinion scores; flag review when they differ too much.
 
@@ -300,8 +305,9 @@ def combined_score(primary, analysis, requirements):
     def middle(score):
         return (score["lower"] + score["upper"]) / 2
 
-    lower = (primary["lower"] + other["lower"]) / 2
-    upper = (primary["upper"] + other["upper"]) / 2
+    # Decided 2026-11-04: Opus weighs more; sol scored high against Opus.
+    lower = PRIMARY_WEIGHT * primary["lower"] + SECOND_WEIGHT * other["lower"]
+    upper = PRIMARY_WEIGHT * primary["upper"] + SECOND_WEIGHT * other["upper"]
     gap = abs(middle(primary) - middle(other))
     differing = [
         index
