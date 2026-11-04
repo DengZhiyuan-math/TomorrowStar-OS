@@ -1041,3 +1041,36 @@ def test_a_restart_rechecks_only_jobs_whose_page_an_earlier_run_opened(service) 
     opened, fresh = service.store.load()["jobs"]
     assert (opened["status"], opened["reason"]) == ("needs_recheck", "worker_restarted")
     assert fresh["status"] == "queued" and not fresh.get("reason")
+
+
+def test_a_restart_keeps_a_never_opened_current_job_running_beside_a_rechecked_one(
+    service,
+) -> None:
+    # 2026-11-04: the cold-continue rule required a one-job queue, so a restart parked
+    # the queue paused beside a skipped job and the Pipeline stopped with 填写已暂停.
+    from career_evidence_graph.application_worker import start_run
+
+    service.request("prepare", {"jobs": [job(service, 1), job(service, 2)]})
+    start_run(service.store)
+    state = service.store.load()
+    opened, fresh = state["jobs"]
+    opened.update(
+        status="needs_recheck",
+        reason="page_lost",
+        page_observation={"run_id": state["runtime"]["id"], "page_id": "p", "at": 1.0},
+    )
+    for row in state["jobs"]:
+        row["workflow"] = "single"
+    state.update(current_job_id=fresh["application_id"], control="running", worker_pid=999_999)
+    service.store.save(state)
+    start_run(service.store)
+    state = service.store.load()
+    assert state["control"] == "running"
+    assert state["jobs"][1]["status"] == "queued" and not state["jobs"][1].get("reason")
+    assert state["jobs"][0]["status"] == "needs_recheck" and not state["jobs"][0]["page_open"]
+    # A retained page on another job still parks the restart for a recheck.
+    state["jobs"][0]["page_open"] = True
+    state.update(control="running", worker_pid=999_999)
+    service.store.save(state)
+    start_run(service.store)
+    assert service.store.load()["control"] == "paused"

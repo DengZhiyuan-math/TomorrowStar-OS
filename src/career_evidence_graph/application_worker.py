@@ -1503,13 +1503,30 @@ def never_opened(store, state, job):
     )
 
 
+def current_queue_job(state):
+    return next(
+        (job for job in state["jobs"] if job["application_id"] == state.get("current_job_id")),
+        None,
+    )
+
+
 def unopened_single_queue(store, state):
-    """A cold owner can continue only a queue with no browser or action history."""
-    jobs = state["jobs"]
+    """A cold owner can continue only a current job that no run ever opened.
+
+    2026-11-04: the rule once required a one-job queue, so after an App restart a
+    never-opened job beside skipped ones started paused, and the Pipeline stopped
+    with "填写已暂停" because a job without a page has no recovery candidate. Other
+    jobs may hold no page, pending action or handoff; they are still rechecked.
+    """
+    current = current_queue_job(state)
     return bool(
-        len(jobs) == 1
-        and state.get("current_job_id") == jobs[0]["application_id"]
-        and never_opened(store, state, jobs[0])
+        current is not None
+        and never_opened(store, state, current)
+        and not any(
+            job.get("page_open") or job.get("intent") or job.get("handed_off")
+            for job in state["jobs"]
+            if job is not current
+        )
     )
 
 
@@ -1598,7 +1615,7 @@ def start_run(store, *, expected_sources: dict | None = None) -> str:
                     "supersession": "unopened_owner_started_paused",
                 }
             )
-            backend_recovery["binding"] = handoff_binding(state, state["jobs"][0])
+            backend_recovery["binding"] = handoff_binding(state, current_queue_job(state))
         elif backend_recovery.get("status") == "pending" and not backend_recovery_timely(
             backend_recovery
         ):
