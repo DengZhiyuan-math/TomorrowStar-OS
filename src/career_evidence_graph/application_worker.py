@@ -1461,38 +1461,55 @@ def backend_recovery_timely(receipt):
     )
 
 
+UNOPENED_JOB_EMPTY_KEYS = (
+    "page_open",
+    "page_observation",
+    "intent",
+    "observations",
+    "answer_refs",
+    "handed_off",
+    "manual_submission",
+    "submission_observation",
+    "pending_status",
+    "pending_sync",
+    "sync_error",
+    "manual_fields",
+    "manual_attachments",
+    "assistance",
+)
+
+
+def _no_browser_history(store, state):
+    return bool(
+        not (store.root / "browser-profile").exists()
+        and not store.stop_reason()
+        and not state.get("worker_error")
+        and all(c["action"] == "recover-backend" for c in state["commands"])
+    )
+
+
+def never_opened(store, state, job):
+    """A queued job with no page or action history in any run.
+
+    2026-11-04: with a skipped job beside it, a restart demoted the next job before
+    its first page opened (``worker_restarted``), stopping the queue for nothing.
+    """
+    return bool(
+        job.get("workflow") == "single"
+        and job["status"] == "queued"
+        and not job.get("reason")
+        and not any(job.get(key) for key in UNOPENED_JOB_EMPTY_KEYS)
+        and _no_browser_history(store, state)
+    )
+
+
 def unopened_single_queue(store, state):
     """A cold owner can continue only a queue with no browser or action history."""
     jobs = state["jobs"]
     return bool(
         len(jobs) == 1
         and state.get("current_job_id") == jobs[0]["application_id"]
-        and jobs[0].get("workflow") == "single"
-        and jobs[0]["status"] == "queued"
-        and not jobs[0].get("reason")
-        and not any(
-            jobs[0].get(key)
-            for key in (
-                "page_open",
-                "page_observation",
-                "intent",
-                "observations",
-                "answer_refs",
-                "handed_off",
-                "manual_submission",
-                "submission_observation",
-                "pending_status",
-                "pending_sync",
-                "sync_error",
-                "manual_fields",
-                "manual_attachments",
-                "assistance",
-            )
-        )
-        and not (store.root / "browser-profile").exists()
-        and not store.stop_reason()
-        and not state.get("worker_error")
-        and all(c["action"] == "recover-backend" for c in state["commands"])
+        and never_opened(store, state, jobs[0])
     )
 
 
@@ -1542,6 +1559,7 @@ def start_run(store, *, expected_sources: dict | None = None) -> str:
                 or recovering
                 and not unopened
                 and job["status"] != "cancelled"
+                and not never_opened(store, state, job)
                 and not (reopening and job["application_id"] == reopen["application_id"])
             ):
                 job.setdefault("observations", []).append(

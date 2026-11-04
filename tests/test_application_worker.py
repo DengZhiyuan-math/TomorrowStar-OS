@@ -1014,3 +1014,30 @@ def test_saved_job_exception_reuses_one_answer_without_overwriting_global_fact(s
     )
     reopened = WorkerStore(service.store.applications, service.store.root)
     assert reopened.resolve(question, current)[0] == "job@example.test"
+
+
+def test_a_restart_rechecks_only_jobs_whose_page_an_earlier_run_opened(service) -> None:
+    # 2026-11-04: with a skipped job beside it, a restart demoted the next queued job
+    # (worker_restarted) before its first page ever opened.
+    from career_evidence_graph.application_worker import start_run
+
+    service.request("prepare", {"jobs": [job(service, 1), job(service, 2)]})
+    start_run(service.store)
+    state = service.store.load()
+    opened, fresh = state["jobs"]
+    opened.update(
+        status="needs_recheck",
+        reason="page_lost",
+        page_observation={"run_id": state["runtime"]["id"], "page_id": "p", "at": 1.0},
+    )
+    assert fresh["status"] == "queued" and not fresh.get("reason")
+    # Queue jobs are single-flow jobs; the fresh one has no page or action history.
+    for row in state["jobs"]:
+        row["workflow"] = "single"
+    # The earlier Worker exited without clearing its pid: this start is a recovery.
+    state["worker_pid"] = 999_999
+    service.store.save(state)
+    start_run(service.store)
+    opened, fresh = service.store.load()["jobs"]
+    assert (opened["status"], opened["reason"]) == ("needs_recheck", "worker_restarted")
+    assert fresh["status"] == "queued" and not fresh.get("reason")
