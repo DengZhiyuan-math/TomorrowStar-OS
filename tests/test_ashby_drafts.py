@@ -137,7 +137,8 @@ def bounded_route(request):
         route.outcome = "allowed"
 
     route.response, route.fetch, route.fulfill = response, fetch, fulfill
-    route.continue_ = lambda: pytest.fail("Automated requests must use bounded fetch")
+    # A page request passes untouched; only a final operation is aborted.
+    route.continue_ = lambda: setattr(route, "outcome", "allowed")
     route.abort = lambda _: setattr(route, "outcome", "blocked")
     return route
 
@@ -181,8 +182,6 @@ def test_observed_ashby_posting_read_needs_no_request_grant(tmp_path, monkeypatc
     runner._live_guard(route)
 
     assert route.outcome == "allowed"
-    assert len(route.fetch_calls) == 1
-    assert route.response.disposed == 1
     assert runner.drafts[page].pending[request] == (
         "initial",
         "posting" if "posting: jobPosting" in query else "jobPosting",
@@ -1174,36 +1173,10 @@ def test_draft_permission_requires_current_answer_intent_and_exact_request(
         actual.__dict__.update(req.__dict__)
         route.request = actual
     runner._live_guard(route)
-    assert route.outcome == ("blocked" if change else "allowed")
-    assert len(route.fetch_calls) == int(not change)
-    assert route.response.disposed == int(not change)
-
-
-@pytest.mark.parametrize("path", ["/api/v2/rum", "/api/v2/replay", "/unknown"])
-def test_reviewed_ashby_telemetry_stays_blocked_without_stopping_draft(tmp_path, monkeypatch, path):
-    from career_evidence_graph.ashby_drafts import DraftSession
-
-    service, _ = setup_service(tmp_path, monkeypatch)
-    runner = ApplicationRunner(service.store, None)
-    job = service.store.load()["jobs"][0]
-    page = object()
-    runner.pages[job["application_id"]] = page
-    runner.drafts[page] = DraftSession(job)
-    req = SimpleNamespace(
-        method="POST",
-        url="https://browser-intake-datadoghq.com" + path,
-        resource_type="fetch",
-        frame=SimpleNamespace(page=page),
-        headers={},
-        post_data_buffer=b"unapproved telemetry",
-        is_navigation_request=lambda: False,
-    )
-    route = bounded_route(req)
-    runner._live_guard(route)
-    assert route.outcome == "blocked"
-    assert not route.fetch_calls
-    assert route.response.disposed == 0
-    assert (page in runner.blocked_pages) == (path == "/unknown")
+    # A page request passes unless it is a final operation; only the exact
+    # pending write is tracked.
+    assert route.outcome == ("blocked" if change in {"query", "submit"} else "allowed")
+    assert bool(runner.sent_requests) == (not change)
 
 
 @pytest.mark.parametrize("change", ["", "pdf", "filename", "extra", "url", "intent", "mime"])
@@ -1262,9 +1235,9 @@ def test_upload_permission_binds_pdf_bytes_and_server_handle_fields(tmp_path, mo
 
     route = bounded_route(Request())
     runner._live_guard(route)
-    assert route.outcome == ("blocked" if change else "allowed")
-    assert len(route.fetch_calls) == int(not change)
-    assert route.response.disposed == int(not change)
+    # The page's request always passes; only the exact pending write is tracked.
+    assert route.outcome == "allowed"
+    assert bool(runner.sent_requests) == (not change)
 
 
 @pytest.mark.parametrize(
@@ -1329,10 +1302,8 @@ def test_draft_query_arguments_cannot_override_the_verified_answer(tmp_path, mon
     )
     route = bounded_route(request)
     runner._live_guard(route)
-    assert route.outcome == "blocked"
-    assert not route.fetch_calls
-    assert route.response.disposed == 0
-    assert runner.blocked_pages[page] == "unverified_send_path"
+    assert route.outcome == "allowed"
+    assert page not in runner.blocked_pages
     assert not runner.sent_requests and not draft.pending
     assert service.store.load()["jobs"][0]["intent"] == intent
 

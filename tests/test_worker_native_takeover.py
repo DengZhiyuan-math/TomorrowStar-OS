@@ -578,7 +578,7 @@ def test_native_choice_key_ignores_only_case_whitespace_and_edge_punctuation(opt
         ([("option", "Mr.")], "", False, [False], "option_owner_unproven"),
         # APP-11: buttons, links and any other role are never clickable, whatever the name.
         ([("button", "Submit application")], "", False, [False], "role_not_clickable"),
-        ([("link", "Continue")], "", False, [False], "role_not_clickable"),
+        ([("link", "Apply now")], "", False, [False], "role_not_clickable"),
         ([("", "Send")], "", False, [False], "role_not_clickable"),
         (
             [("combobox", "Salutation"), ("button", "Submit")],
@@ -1780,3 +1780,4 @@ def test_an_admitted_native_call_in_progress_renews_without_a_renderer_read(
     else:
         assert calls == [("busy_renderer_read", None)]
         assert saved["runtime"]["observed_at"] == stale
+

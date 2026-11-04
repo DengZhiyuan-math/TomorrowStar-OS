@@ -22,7 +22,7 @@ from copy import deepcopy
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
-from urllib.parse import parse_qsl, urljoin, urlsplit
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 from playwright.sync_api import Error, Page, TimeoutError, sync_playwright
@@ -30,7 +30,7 @@ from playwright.sync_api import Error, Page, TimeoutError, sync_playwright
 from . import application_form_runner as form_flow
 from . import hosted_ats
 from ._vendor.job_apply_store import StoreError, normalize_question
-from .application_automation import _job_identity, validate_application_target
+from .application_automation import validate_application_target
 from .application_codex_assist import CodexAdapter, CodexAssistConfig
 from .application_execution import automated_owner, release_execution, require_execution
 from .application_information import fact_for
@@ -40,7 +40,6 @@ from .application_takeover_record import settle_unstarted_stop, stop_evidence_pr
 from .application_worker import (
     CONTROLLER_HANDOFF_INSPECTION,
     OWNED_PAGE_OBSERVATION,
-    ROUTINE_REQUEST_STAGES,
     WorkerStore,
     adopt_assistance_outcome,
     adopt_assistance_report,
@@ -677,54 +676,6 @@ def pause_browser_deadline():
             signal.setitimer(signal.ITIMER_REAL, *remaining)
 
 
-def _diagnostic_location(url):
-    """Keep structural HTTP location facts without credentials or query values."""
-    try:
-        if not isinstance(url, str):
-            return None
-        parsed = urlsplit(url)
-        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-            return None
-        return {
-            "scheme": parsed.scheme,
-            "hostname": parsed.hostname,
-            "port": parsed.port,
-            "path": parsed.path,
-            "query_keys": sorted(
-                {key for key, _ in parse_qsl(parsed.query, keep_blank_values=True)}
-            ),
-        }
-    except Exception:
-        # Diagnostic metadata must never change a guard decision.
-        return None
-
-
-def _request_diagnostic_facts(request, page, job):
-    facts = {
-        "is_navigation_request": None,
-        "is_main_frame": None,
-        "page_location": None,
-        "redirected_from_location": None,
-        "job_status": job.get("status") if job else None,
-        "job_reason": job.get("reason") if job else None,
-        "http_status": None,
-        "response_redirect_location": None,
-        "redirect_followed": None,
-    }
-    with suppress(Exception):
-        navigation = request.is_navigation_request()
-        facts["is_navigation_request"] = navigation if isinstance(navigation, bool) else None
-    with suppress(Exception):
-        main_frame = request.frame is page.main_frame
-        facts["is_main_frame"] = main_frame if isinstance(main_frame, bool) else None
-    with suppress(Exception):
-        facts["page_location"] = _diagnostic_location(page.url)
-    with suppress(Exception):
-        previous = request.redirected_from
-        facts["redirected_from_location"] = _diagnostic_location(previous.url) if previous else None
-    return facts
-
-
 def _material_refusal(code, message, condition):
     """A material destination the Worker cannot prove, naming the unmet condition."""
     error = PortalDataError(code, message, 409)
@@ -732,59 +683,12 @@ def _material_refusal(code, message, condition):
     return error
 
 
-class _SameOriginReadRedirect(ValueError):
-    """A bodiless subresource read answered by a same-origin redirect."""
-
-
-def _same_origin_read_redirect(request, target) -> bool:
-    """A redirect answer to a page's own read is a read result, not an unknown send.
-
-    A Next.js page prefetches its own route and receives a locale redirect (onlyfy,
-    2026-11-03). The hop is still not followed; only a GET/HEAD subresource without a
-    body, whose target keeps the request's and the page's origin, qualifies.
-    """
-    try:
-        if (
-            not target
-            or request.method not in {"GET", "HEAD"}
-            or request.post_data_buffer is not None
-            or request.is_navigation_request() is not False
-            or request.resource_type == "document"
-        ):
-            return False
-        origins = {
-            (part.scheme, part.hostname, part.port)
-            for part in map(urlsplit, (target, request.url, request.frame.page.url))
-        }
-        return len(origins) == 1 and next(iter(origins))[0] in {"http", "https"}
-    except Exception:
-        return False
-
-
 @contextmanager
-def _fetch_without_redirects(route, facts=None):
+def _fetch_without_redirects(route):
     """Browser redirect hops may bypass routing; never forward an unchecked hop."""
     response = route.fetch(max_redirects=0, max_retries=0, timeout=10000)
     try:
-        status = response.status
-        if facts is not None:
-            facts["http_status"] = status if type(status) is int else None
-        if 300 <= status < 400:
-            target = None
-            try:
-                location = response.headers.get("location")
-                if location:
-                    base = getattr(response, "url", None) or route.request.url
-                    target = urljoin(base, location)
-            except Exception:
-                # A missing response header cannot alter redirect refusal.
-                pass
-            if facts is not None:
-                facts["redirect_followed"] = False
-                if target:
-                    facts["response_redirect_location"] = _diagnostic_location(target)
-            if _same_origin_read_redirect(route.request, target):
-                raise _SameOriginReadRedirect("redirect_not_followed")
+        if 300 <= response.status < 400:
             raise ValueError("redirect_result_unverified")
         yield response
     finally:
@@ -812,96 +716,11 @@ def _manual_submission_target(job, binding, *, document_url=None):
     return False
 
 
-# A native material upload authorization is short and single-use (2026-11-03: onlyfy
-# posts the file to the page's own URL as a Next.js server action).
-NATIVE_UPLOAD_TTL = 60.0
-
-
-def _same_site(url, job_url) -> bool:
-    """The job's ATS origin, or a subdomain of its registrable site, on its scheme."""
-    try:
-        request, job = urlsplit(url), urlsplit(job_url)
-        host, base = request.hostname, job.hostname
-    except ValueError:
-        return False
-    if not host or not base or request.scheme != job.scheme:
-        return False
-    if host == base:
-        return True
-    labels = base.split(".")
-    if re.fullmatch(r"[0-9.]+", base) or ":" in base or len(labels) < 2:
-        return False
-    # A two-letter country code under a generic second level keeps three labels.
-    width = 3 if len(labels) >= 3 and len(labels[-1]) == 2 and len(labels[-2]) <= 3 else 2
-    site = ".".join(labels[-width:])
-    return host == site or host.endswith("." + site)
-
-
 # A slow original-page read, repeated before it fails: a timed-out read's detach can
 # replace its timeout with the outer one, and the ordinary call deadline is another.
 SLOW_READS = frozenset(
     {"owned_browser_read_timeout", "owned_browser_outer_timeout", "native_operation_timeout"}
 )
-
-
-# A native upload's first send may fail inside the widget, which retries: at most
-# this many sends per authorization, a new one only after the last failed or went
-# unanswered this long, and none after a 2xx answer.
-NATIVE_UPLOAD_SENDS = 3
-NATIVE_UPLOAD_ANSWER_WAIT = 10.0
-
-
-def _request_body_facts(request) -> dict:
-    """A send's body shape, never its content (2026-11-03: a File in FormData is a
-    Blob that CDP does not expose, so a body match alone could not see the upload)."""
-    try:
-        body = request.post_data_buffer
-    except Exception:
-        body = None
-    try:
-        headers = {str(k).lower(): str(v) for k, v in (request.headers or {}).items()}
-    except Exception:
-        headers = {}
-    media = headers.get("content-type", "").split(";", 1)[0].strip().lower()
-    length = headers.get("content-length", "").strip()
-    return {
-        "readable": isinstance(body, (bytes, bytearray)),
-        "length": len(body) if isinstance(body, (bytes, bytearray)) else None,
-        "content_type": media[:200] or None,
-        "content_length": int(length) if length.isdigit() else None,
-        "next_action": "next-action" in headers,
-    }
-
-
-NATIVE_UPLOAD_HANDSHAKES = 3
-NATIVE_UPLOAD_HANDSHAKE_BYTES = 4096
-NATIVE_UPLOAD_BYTE_TYPES = frozenset(
-    {"application/pdf", "application/octet-stream", "multipart/form-data"}
-)
-
-
-def _upload_targets(base_url, location, text):
-    """https hosts and paths an upload handshake's answer names; never query or token."""
-    found = []
-    candidates = [urljoin(base_url, location)] if location else []
-    candidates += re.findall(r"https://[^\s\"'<>\\]+", text or "")[:50]
-    for url in candidates:
-        try:
-            parts = urlsplit(url)
-        except ValueError:
-            continue
-        if parts.scheme == "https" and parts.hostname:
-            target = {"host": parts.hostname, "path": parts.path[:500]}
-            if target not in found:
-                found.append(target)
-    return found[:20]
-
-
-def _carries_material(body, raw: bytes, sha256: str) -> bool:
-    """A request body holding the delivered file's bytes (raw or base64) or its hash."""
-    if not isinstance(body, (bytes, bytearray)) or not raw:
-        return False
-    return raw in body or base64.b64encode(raw) in body or sha256.encode() in body
 
 
 def _abort(route) -> None:
@@ -976,21 +795,15 @@ class ApplicationRunner:
         self.handed_off_pages: set = set()
         # Pages waiting for the user's own sign-in; the script does not write there.
         self.login_pages: set = set()
-        # Non-GET endpoints already blocked on a page the script has not written to.
-        self.blocked_endpoints: dict[Page, set] = {}
-        # Single-use native material uploads the host admitted, by page; the file's
-        # bytes stay in memory only and are dropped once used.
-        self.native_uploads: dict[Page, dict] = {}
         self.upload_job: dict | None = None
         self.bound_material_read = None
         self.blocked_pages: dict[Page, str] = {}
-        self.public_reads: dict[Page, set[tuple[str, str, str]]] = {}
+        # Each page's job id, URL and platform for the request guard (never changes).
+        self.page_targets: dict[Page, dict] = {}
         self.document_urls: dict[Page, str] = {}
-        self.editing_pages: set[Page] = set()
         self.drafts: dict[Page, DraftSession] = {}
         self.workable: dict[Page, ResumeUpload] = {}
         self.transports: list[dict] = []
-        self.routine_diagnostics: set[str] = set()
         self.requests: dict = {}
         self.request_sequence = 0
         self.sent_requests: set[tuple[str, str, str]] = set()
@@ -1060,52 +873,33 @@ class ApplicationRunner:
         return False
 
     def request_diagnostic(
-        self, request, page, job, state, stage, reason, *, sequence, caused_stop=False, facts=None
+        self, request, page, job, state, stage, reason, *, sequence, caused_stop=False
     ):
-        """Retain guard facts in the selected private worker checkpoint, never request bodies."""
-        if job is None:
-            return
+        """Retain a blocked final operation in the private checkpoint, never its body."""
         intent = deepcopy(job.get("intent"))
-        row = {
-            "action": "request_diagnostic",
-            "request_id": uuid4().hex,
-            "sequence": sequence,
-            "stage": stage,
-            "method": request.method,
-            **dict(zip(("url", "query_keys"), diagnostic_url(request.url), strict=True)),
-            "resource_type": request.resource_type,
-            "purpose": (
-                "public_read"
-                if stage == "request_permitted" and request.method == "GET"
-                else "unknown"
-            ),
-            "dispatch": "not_sent" if stage == "request_blocked" else "unknown",
-            "application_id": job["application_id"],
-            "batch_id": state["batch_id"],
-            "run_id": self.run_id,
-            "page_id": self.page_ids.get(page),
-            "attempt_id": (intent or {}).get("attempt_id"),
-            "field_id": (intent or {}).get("field_id"),
-            "intent": intent,
-            "reason": reason,
-            "caused_stop": caused_stop,
-            **(facts or {}),
-            "at": time.time(),
-        }
-        # A send during a native takeover is never a routine repeat: each upload
-        # attempt and its block must stay visible (2026-11-03).
-        native_send = row.get("native_takeover") is True and request.method != "GET"
-        if not caused_stop and stage in ROUTINE_REQUEST_STAGES and not native_send:
-            # A job board repeats the same polling and tracking requests: 8,626
-            # rows, 1,577 distinct, rewritten on every checkpoint save (2026-11-02).
-            # A routine repeat adds no fact; stops and rejected responses all stay.
-            seen = digest(
-                {k: v for k, v in row.items() if k not in {"request_id", "sequence", "at"}}
-            )
-            if seen in self.routine_diagnostics:
-                return
-            self.routine_diagnostics.add(seen)
-        self.transports.append(row)
+        self.transports.append(
+            {
+                "action": "request_diagnostic",
+                "request_id": uuid4().hex,
+                "sequence": sequence,
+                "stage": stage,
+                "method": request.method,
+                **dict(zip(("url", "query_keys"), diagnostic_url(request.url), strict=True)),
+                "resource_type": request.resource_type,
+                "purpose": "unknown",
+                "dispatch": "not_sent" if stage == "request_blocked" else "unknown",
+                "application_id": job["application_id"],
+                "batch_id": state["batch_id"],
+                "run_id": self.run_id,
+                "page_id": self.page_ids.get(page),
+                "attempt_id": (intent or {}).get("attempt_id"),
+                "field_id": (intent or {}).get("field_id"),
+                "intent": intent,
+                "reason": reason,
+                "caused_stop": caused_stop,
+                "at": time.time(),
+            }
+        )
 
     def transport(self, request, stage: str, status=None) -> None:
         record = self.requests.get(request)
@@ -1533,7 +1327,32 @@ class ApplicationRunner:
             self.store.block_storage()
             _abort(route)
 
+    def _page_target(self, page):
+        """The page's job identity (id, URL, platform), cached: it never changes."""
+        target = self.page_targets.get(page)
+        if target is None:
+            job = next(
+                (
+                    row
+                    for row in self.store.load()["jobs"]
+                    if self.pages.get(row["application_id"]) is page
+                ),
+                None,
+            )
+            if job is None:
+                return None
+            target = self.page_targets[page] = {
+                key: job[key] for key in ("application_id", "job_url", "platform")
+            }
+        return target
+
     def _live_guard_request(self, route) -> None:
+        """Observe the user's Submit, stop a known final operation, register own writes.
+
+        Every other page request (analytics, captcha, POST reads, draft autosave,
+        logs) passes and never stops the job: none submitted an application on ten
+        real sites (survey 2026-11-04). APP-11 is kept at the action layer.
+        """
         request = route.request
         try:
             page = request.frame.page
@@ -1569,679 +1388,198 @@ class ApplicationRunner:
                 self.transports.append(record | {"stage": "request", "at": time.time()})
             route.continue_()
             return
-        if page in self.login_pages:
+        target = self._page_target(page)
+        if hosted_ats.is_final_submission(request, target):
+            _abort(route)
+            if page in self.login_pages or target is None:
+                return
+            previous_stop = self.blocked_pages.get(page)
+            self.blocked_pages[page] = "manual_submit_required"
             state = self.store.load()
             job = next(
-                (row for row in state["jobs"] if self.pages.get(row["application_id"]) is page),
-                None,
+                row for row in state["jobs"] if row["application_id"] == target["application_id"]
             )
-            if hosted_ats.is_final_submission(request, job):
-                _abort(route)
-            else:
-                route.continue_()
+            self.request_sequence += 1
+            self.request_diagnostic(
+                request,
+                page,
+                job,
+                state,
+                "request_blocked",
+                "manual_submit_required",
+                sequence=self.request_sequence,
+                caused_stop=previous_stop != "manual_submit_required",
+            )
             return
-        native_page = page in self.native_uploads or self._native_assistance_page(page)
-        if (
-            request.method != "GET"
-            and page in self.native_uploads
-            and self._permit_native_upload(route, request, page)
+        upload_page = self.upload_job and page is self.pages.get(self.upload_job["application_id"])
+        if page in self.login_pages or not (
+            page in self.drafts or page in self.workable or upload_page
         ):
+            route.continue_()
             return
-        endpoint = (request.method, *urlsplit(request.url)[:3])
-        if (
-            endpoint in self.blocked_endpoints.get(page, ())
-            and page not in self.editing_pages
-            and page not in self.drafts
-            and page not in self.workable
-            # During a native takeover every block is recorded: a silently aborted
-            # upload left nothing to diagnose (2026-11-03).
-            and not native_page
-        ):
-            # The same decision as its first block, without re-reading the checkpoint
-            # for each of a job board's many tracking requests.
-            _abort(route)
-            return
+        self._route_own_write(route, request, page)
+
+    def _route_own_write(self, route, request, page) -> None:
+        """Register a request that carries the system's own pending write (APP-13).
+
+        Lever resume parsing, an Ashby draft save and a Workable upload are tracked
+        so their unknown or failed result stops the job; anything else continues.
+        """
         state = self.store.load()
         owned_job = next(
             (job for job in state["jobs"] if page is self.pages.get(job["application_id"])),
             None,
         )
-        facts = _request_diagnostic_facts(request, page, owned_job)
-        if native_page:
-            facts["native_takeover"] = True
-            if request.method != "GET":
-                facts["body"] = _request_body_facts(request)
-        previous_stop = self.blocked_pages.get(page)
-        self.request_sequence += 1
-        sequence = self.request_sequence
-        if hosted_ats.is_final_submission(request, owned_job):
-            self.blocked_pages[page] = "manual_submit_required"
-            _abort(route)
-            self.request_diagnostic(
-                request,
-                page,
-                owned_job,
-                state,
-                "request_blocked",
-                "manual_submit_required",
-                sequence=sequence,
-                facts=facts,
-                caused_stop=previous_stop != "manual_submit_required",
-            )
-            return
-        if (
-            owned_job
-            and owned_job["platform"] == "generic"
-            and state.get("generic_enabled") is not True
-        ):
-            self.blocked_pages[page] = "generic_disabled"
-            _abort(route)
-            self.request_diagnostic(
-                request,
-                page,
-                owned_job,
-                state,
-                "request_blocked",
-                "generic_disabled",
-                sequence=sequence,
-                facts=facts,
-                caused_stop=previous_stop != "generic_disabled",
-            )
-            return
-        allowed = False
-        precision_read = request.method == "GET"
-        bounded_public_read = False
-        if owned_job and request.method == "GET":
-            workable = self.workable.get(page)
-            scoped_read = not workable or workable.allows_public_read(request)
-            discovery_allowed = (
-                page not in self.editing_pages
-                and owned_job["status"] == "filling"
-                and (owned_job.get("intent") or {}).get("action") == "open"
-                and (
-                    self.permitted(state, page)
-                    or (
-                        self.blocked_pages.get(page) == "unverified_send_path"
-                        and page not in self.page_faults
-                        and self.permitted(state)
-                    )
-                )
-            )
-            if request.is_navigation_request():
-                allowed = (
-                    scoped_read
-                    and (not workable or discovery_allowed)
-                    and hosted_ats.allows_read(request, [owned_job])
-                )
-                intent = owned_job.get("intent") or {}
-                navigation = intent.get("navigation") or {}
-                document_step = (
-                    intent.get("action") == "advance"
-                    and intent.get("run_id") == self.run_id
-                    and intent.get("page_id") == self.page_ids.get(page)
-                    and request.frame == page.main_frame
-                    and request.redirected_from is None
-                    and request.post_data_buffer is None
-                    and request.url == navigation.get("to_step")
-                    and page.url == navigation.get("from_step")
-                    and page.url == self.document_urls.get(page, owned_job["job_url"])
-                    and hosted_ats.document_step_target(page.url, request.url, owned_job)
-                    and self.permitted(state, page)
-                    and owned_job["status"] == "filling"
-                    and not owned_job["handed_off"]
-                )
-                allowed = allowed or document_step
-                bounded_public_read = document_step
-            else:
-                signature = (request.url, request.resource_type, digest(request.headers))
-                known = self.public_reads.setdefault(page, set())
-                if scoped_read and discovery_allowed:
-                    candidate = hosted_ats.allows_read(request, [owned_job])
-                    if owned_job["platform"] == "generic":
-                        try:
-                            _job_identity(request.url, allow_generic=True)
-                            candidate = True
-                        except PortalDataError:
-                            candidate = False
-                    if candidate:
-                        known.add(signature)
-                allowed = scoped_read and signature in known
-            bounded_public_read = bounded_public_read or bool(allowed and workable)
-        generic_job = owned_job if owned_job and owned_job["platform"] == "generic" else None
+        editing_material = bool(
+            precision_preparation_pending(owned_job)
+            or owned_job
+            and material_edit_pending(owned_job)
+        )
         if self.upload_job and page is self.pages.get(self.upload_job["application_id"]):
-            state = self.store.load()
             current = next(
                 j for j in state["jobs"] if j["application_id"] == self.upload_job["application_id"]
             )
-            upload_allowed = (
-                self.permitted(state, page)
+            if (
+                not editing_material
+                and self.permitted(state, page)
                 and not current["handed_off"]
                 and current["status"] == "filling"
                 and current["intent"] is not None
                 and current["intent"]["action"] == "upload"
                 and hosted_ats.is_resume_parse(request, self.upload_job)
-            )
-            if upload_allowed:
+            ):
                 try:
                     self.check_inputs(current)
+                    self.track_request(request, current, "resume_parse")
                 except PortalDataError as error:
-                    upload_allowed = False
                     self.blocked_pages[page] = error.code
-            if upload_allowed:
-                upload_allowed = self.track_request(request, current, "resume_parse")
-            allowed = allowed or upload_allowed
+                    _abort(route)
+                    return
         draft = self.drafts.get(page)
-        if draft and generic_job:
-            if draft.track_public(request):
-                allowed = True
-                precision_read = True
-            if not allowed:
-                state = self.store.load()
-                current = next(
-                    j for j in state["jobs"] if j["application_id"] == generic_job["application_id"]
-                )
-                native_material = (
-                    self._native_material_network_permitted(state, current, page)
-                    and request.frame is page.main_frame
-                    and request.redirected_from is None
-                )
-                if (
-                    (self.permitted(state, page) or native_material)
-                    and current["status"] == "filling"
-                    and draft.active
-                    and current["intent"] == draft.active["intent"]
-                ):
-                    try:
-                        self.check_inputs(current)
-                        ref = current["intent"].get("answer_ref")
-                        if (
-                            ref
-                            and ref["key"] != "one-use"
-                            and ref.get("source") != "system_material"
-                        ):
-                            record = self.store.answers_for(current).get_answer(ref["key"])
-                            if record is None or digest(record) != ref["revision"]:
-                                raise ValueError
-                        allowed = draft.allows(request)
-                        if allowed:
-                            allowed = self.track_request(
-                                request, current, draft.pending[request][0]
-                            )
-                    except (PortalDataError, OSError, ValueError):
-                        allowed = False
-        workable = self.workable.get(page)
-        workable_kind = None
-        if workable and workable.sensitive(request):
-            # Workable writes never inherit generic public-read grants or discovery.
-            allowed = False
+        if (
+            draft
+            and owned_job
+            and owned_job["platform"] == "generic"
+            and not draft.track_public(request)
+            and not editing_material
+        ):
             current = owned_job
-            if (
-                current
-                and request.frame == page.main_frame
+            native_material = (
+                self._native_material_network_permitted(state, current, page)
+                and request.frame is page.main_frame
                 and request.redirected_from is None
-                and page.url == current["job_url"]
-                and self.permitted(state, page)
-                and not current["handed_off"]
+            )
+            if (
+                (self.permitted(state, page) or native_material)
                 and current["status"] == "filling"
-                and current["intent"] == workable.active
-                and current["intent"] is not None
-                and current["intent"]["action"] == "upload"
-                and current["intent"].get("sha256") == current["file_sha256"]
-                and current["intent"].get("page_id") == self.page_ids.get(page)
+                and draft.active
+                and current["intent"] == draft.active["intent"]
             ):
                 try:
-                    require_execution(
-                        self.store.applications,
-                        current["application_id"],
-                        automated_owner(
-                            self.store.root, state["batch_id"], current["application_id"]
-                        ),
-                        "automated",
-                    )
                     self.check_inputs(current)
-                    kind = workable.allows(request)
-                    if kind:
-                        allowed = self.track_request(request, current, kind)
-                        if allowed:
-                            workable_kind = kind
-                except (PortalDataError, OSError, ValueError, TypeError, KeyError):
-                    workable.failed = True
-            read = self.bound_material_read or {}
-            if (
-                not allowed
-                and current
-                and read.get("page") is page
-                and read.get("application_id") == current["application_id"]
-                and read.get("material_update_id")
-                == (current.get("material_update") or {}).get("id")
-                and (current.get("material_update") or {}).get("status")
-                in {"inspect_pending", "page_verified", "bound"}
-                and state.get("control") in {"paused", "running"}
-                and current.get("intent") == read.get("intent")
-                and not manual_submission_unresolved(
-                    {**current, "observations": [*current["observations"], *self.transports]}
-                )
-                and not any(
-                    _unresolved_write_failure(event, current, state) for event in self.transports
-                )
-                and (
-                    read.get("intent") is None
-                    or self.permitted(state, page)
-                    and current["status"] == "filling"
-                    and not current["handed_off"]
-                )
-                and workable.reading
-                and workable.handle
-                and request.frame == page.main_frame
-                and request.redirected_from is None
-                and request.method == "GET"
-                and request.url == workable.handle["downloadUrl"]
-                and request.post_data_buffer is None
-                and request.resource_type in {"fetch", "xhr"}
-                and (state.get("runtime") or {}).get("id") == self.run_id
-                and self.page_ids.get(page)
-                == (current.get("page_observation") or {}).get("page_id")
-            ):
-                workable_kind = workable.allows(request)
-                allowed = workable_kind == "workable_readback"
-        if (
-            precision_preparation_pending(owned_job)
-            or owned_job
-            and material_edit_pending(owned_job)
-        ) and (not precision_read or workable_kind and workable_kind != "workable_readback"):
-            allowed = False
-        if allowed and workable_kind:
-            # Browser routing does not guarantee interception of redirect hops.
-            # Fetch the exact authorized request once, refusing redirects/retries,
-            # and validate its actual response before the page can consume it.
-            try:
-                with _fetch_without_redirects(route) as response:
-                    workable.response(response, request=request)
-                    route.fulfill(response=response)
-            except (Error, ValueError, TypeError, KeyError, OSError):
-                workable.failed = True
-                self.blocked_pages[page] = "upload_result_unknown"
-                _abort(route)
-        elif allowed and bounded_public_read:
-            # Fetch only a reviewed public read. A public GET redirect
-            # cannot grant its target access outside the original job scope.
-            try:
-                with _fetch_without_redirects(route, facts) as response:
-                    if not 200 <= response.status < 300:
-                        raise ValueError("public read response is not successful")
-                    route.fulfill(response=response)
-                stage, reason = "request_permitted", "request_allowed"
-            except _SameOriginReadRedirect:
-                _abort(route)
-                stage, reason = "request_redirect_not_followed", "same_origin_redirect_read"
-            except (Error, ValueError, TypeError, KeyError, OSError):
-                self.blocked_pages.setdefault(page, "public_read_result_unknown")
-                _abort(route)
-                stage, reason = "public_read_response_rejected", "public_read_result_unknown"
-            self.request_diagnostic(
-                request,
-                page,
-                owned_job,
-                state,
-                stage,
-                reason,
-                sequence=sequence,
-                facts=facts,
-                caused_stop=self.blocked_pages.get(page) != previous_stop,
-            )
-        elif allowed:
-            try:
-                with _fetch_without_redirects(route, facts) as response:
-                    route.fulfill(response=response)
-            except _SameOriginReadRedirect:
-                # The hop is not followed; the page's own read fails without a stop.
-                _abort(route)
-                self.request_diagnostic(
-                    request,
-                    page,
-                    owned_job,
-                    state,
-                    "request_redirect_not_followed",
-                    "same_origin_redirect_read",
-                    sequence=sequence,
-                    facts=facts,
-                )
-                return
-            except (Error, ValueError, TypeError, KeyError, OSError):
-                reason = (
-                    "public_read_result_unknown"
-                    if request.method == "GET"
-                    else "draft_result_unknown"
-                    if draft is not None
-                    else "upload_result_unknown"
-                )
-                self.blocked_pages[page] = reason
-                if draft is not None:
-                    draft.failed = True
-                _abort(route)
-                self.request_diagnostic(
-                    request,
-                    page,
-                    owned_job,
-                    state,
-                    "request_response_rejected",
-                    reason,
-                    sequence=sequence,
-                    facts=facts,
-                    caused_stop=previous_stop != reason,
-                )
-                return
-            self.request_diagnostic(
-                request,
-                page,
-                owned_job,
-                state,
-                "request_permitted",
-                "request_allowed",
-                sequence=sequence,
-                facts=facts,
-            )
-        else:
-            if workable and workable.sensitive(request):
-                workable.failed = True
-            # Reviewed Ashby telemetry remains blocked. It is not a draft action.
-            destination = urlsplit(request.url)
-            telemetry = (
-                draft is not None
-                and request.method == "POST"
-                and destination.scheme == "https"
-                and destination.netloc == "browser-intake-datadoghq.com"
-                and destination.path in {"/api/v2/rum", "/api/v2/replay"}
-            )
-            # A blocked request never left the browser. Before the script writes to
-            # the page it carries no application data, so it does not stop the job
-            # (decided 2026-10-31: job board tracking stopped every listing page).
-            if owned_job and not telemetry and page in self.editing_pages:
-                self.blocked_pages.setdefault(page, "unverified_send_path")
-            elif request.method != "GET" and not hosted_ats.is_final_submission(request, owned_job):
-                self.blocked_endpoints.setdefault(page, set()).add(endpoint)
-            _abort(route)
-            self.request_diagnostic(
-                request,
-                page,
-                owned_job,
-                state,
-                "request_blocked",
-                (
-                    "telemetry_blocked"
-                    if telemetry
-                    else self.blocked_pages.get(page, "read_not_allowed")
-                ),
-                sequence=sequence,
-                facts=facts,
-                caused_stop=self.blocked_pages.get(page) != previous_stop,
-            )
-
-    def _native_assistance_page(self, page) -> bool:
-        run = self._assistance_run
-        return bool(run) and self.pages.get(run[0]["binding"]["application_id"]) is page
-
-    def _authorize_native_upload(self, reference, payload, resolved, call):
-        """Register one admitted native file delivery's upload, like a script intent."""
-        identifier = reference["binding"]["application_id"]
-        page = self.pages.get(identifier)
-        if payload["kind"] != "file" or page is None or page in self.drafts:
-            return
-        if page in self.workable:
-            return
-        now = time.time()
-        state = self.store.load()
-        job = next(row for row in state["jobs"] if row["application_id"] == identifier)
-        record = {
-            "action": "native_upload_authorized",
-            "application_id": identifier,
-            "run_id": self.run_id,
-            "batch_id": state["batch_id"],
-            "page_id": self.page_ids.get(page),
-            "call_id": call["call_id"],
-            "material_id": resolved["material_id"],
-            "material_ref": payload["material_ref"],
-            "sha256": payload["sha256"],
-            "size_bytes": payload["size_bytes"],
-            "filename": payload["filename"],
-            "authorized_at": now,
-            "expires_at": now + NATIVE_UPLOAD_TTL,
-            "at": now,
-        }
-        self.native_uploads[page] = {
-            **record,
-            "job_url": job["job_url"],
-            "raw": base64.b64decode(payload["bytes_base64"]),
-            "used": False,
-            "sends": [],
-            # Two-step uploads: the page's own handshake, then the bytes to the target
-            # its answer names (hosts and paths only), or one exact send elsewhere.
-            "handshakes": [],
-            "targets": [],
-            "cross_site_sent": False,
-        }
-        self.transports.append(record)
-
-    def _native_upload_match(self, upload, request, body, shape):
-        """How a send carries the admitted file, or None.
-
-        On the job's site: the file in the body ("body"), an unreadable multipart body
-        at least the file's size ("shape"), an exact unreadable byte send ("bytes"),
-        or the widget's small handshake that announces the upload ("handshake";
-        2026-11-03: onlyfy first posts a 239-byte text/plain Next.js action). On
-        another https host only the bytes go: to a target a handshake's answer named,
-        or, with no such target, once and exactly.
-        """
-        carries = _carries_material(body, upload["raw"], upload["sha256"])
-        exact = (
-            body is None
-            and shape["content_length"] == upload["size_bytes"]
-            and shape["content_type"] in NATIVE_UPLOAD_BYTE_TYPES
-        )
-        if _same_site(request.url, upload["job_url"]):
-            if carries:
-                return "body"
-            if (
-                body is None
-                and shape["content_type"] == "multipart/form-data"
-                and (
-                    shape["content_length"] is None
-                    or shape["content_length"] >= upload["size_bytes"]
-                )
-            ):
-                return "shape"
-            if exact:
-                return "bytes"
-            if (
-                shape["content_type"] in {"text/plain", "application/json"}
-                and isinstance(body, (bytes, bytearray))
-                and len(body) <= NATIVE_UPLOAD_HANDSHAKE_BYTES
-                and (
-                    shape["next_action"]
-                    or upload["filename"].encode() in body
-                    or str(upload["size_bytes"]).encode() in body
-                )
-            ):
-                return "handshake"
-            return None
-        target = urlsplit(request.url)
-        if target.scheme != "https" or request.method not in {"PUT", "POST"}:
-            return None
-        hosts = {row["host"] for row in upload["targets"]}
-        if hosts:
-            return "bytes" if target.hostname in hosts and (carries or exact) else None
-        if upload["cross_site_sent"]:
-            return None
-        return "bytes" if carries or exact else None
-
-    def _permit_native_upload(self, route, request, page) -> bool:
-        """Send the admitted file's own upload, then retire the authorization.
-
-        See _native_upload_match for what a send may be. A handshake may go up to
-        NATIVE_UPLOAD_HANDSHAKES times; it is fetched once so its answer can name the
-        upload target. A byte send may go again only after the last one failed or
-        went unanswered, at most NATIVE_UPLOAD_SENDS times; a 2xx answer to a byte
-        send uses the authorization up.
-        """
-        upload = self.native_uploads[page]
-        now = time.time()
-        if upload["used"] or now > upload["expires_at"]:
-            upload["raw"] = b""
-            return False
-        try:
-            body = request.post_data_buffer
-        except Error:
-            body = None
-        shape = _request_body_facts(request)
-        match = self._native_upload_match(upload, request, body, shape)
-        if match is None:
-            return False
-        if match == "handshake":
-            if len(upload["handshakes"]) >= NATIVE_UPLOAD_HANDSHAKES:
-                return False
-        else:
-            sends = upload["sends"]
-            if sends:
-                last = sends[-1]
-                settled = last.get("failed") or (
-                    last.get("status") is not None and not 200 <= last["status"] < 300
-                )
-                if len(sends) >= NATIVE_UPLOAD_SENDS or not (
-                    settled
-                    or last.get("status") is None
-                    and now - last["at"] > NATIVE_UPLOAD_ANSWER_WAIT
-                ):
-                    return False
-        state = self.store.load()
-        job = next(
-            (row for row in state["jobs"] if row["application_id"] == upload["application_id"]),
-            None,
-        )
-        if (
-            job is None
-            or job["status"] == "cancelled"
-            or job.get("handed_off")
-            or self.pages.get(job["application_id"]) is not page
-            or self.page_ids.get(page) != upload["page_id"]
-            or (state.get("runtime") or {}).get("id") != upload["run_id"]
-            or hosted_ats.is_final_submission(request, job)
-        ):
-            return False
-        record = {
-            key: upload[key]
-            for key in (
-                "application_id",
-                "run_id",
-                "batch_id",
-                "page_id",
-                "call_id",
-                "material_id",
-                "sha256",
-                "filename",
-            )
-        } | {
-            "action": "native_material_upload",
-            "kind": "native_material_upload",
-            "match": match,
-            "host": urlsplit(request.url).hostname,
-        }
-        facts = {
-            **_request_diagnostic_facts(request, page, job),
-            "native_takeover": True,
-            "body": shape,
-            "match": match,
-            "host": record["host"],
-        }
-        if match == "handshake":
-            upload["handshakes"].append({"at": now, "status": None})
-            record["handshake"] = facts["handshake"] = len(upload["handshakes"])
-            self._send_native_handshake(route, request, upload, facts)
-        else:
-            if not _same_site(request.url, upload["job_url"]) and not upload["targets"]:
-                upload["cross_site_sent"] = True
-            upload["sends"].append({"at": now, "status": None, "failed": False})
-            record["send"] = facts["send"] = len(upload["sends"])
-        with suppress(TypeError):
-            self.requests[request] = record
-        self.request_sequence += 1
-        self.request_diagnostic(
-            request,
-            page,
-            job,
-            state,
-            "request_permitted",
-            "native_material_upload",
-            sequence=self.request_sequence,
-            facts=facts,
-        )
-        if match != "handshake":
+                    ref = current["intent"].get("answer_ref")
+                    if ref and ref["key"] != "one-use" and ref.get("source") != "system_material":
+                        record = self.store.answers_for(current).get_answer(ref["key"])
+                        if record is None or digest(record) != ref["revision"]:
+                            raise ValueError
+                    if draft.allows(request):
+                        self.track_request(request, current, draft.pending[request][0])
+                except (PortalDataError, OSError, ValueError):
+                    pass
+        workable = self.workable.get(page)
+        if not (workable and workable.sensitive(request)):
             route.continue_()
-        return True
-
-    def _send_native_handshake(self, route, request, upload, facts):
-        """Send the handshake once and keep where its answer says the bytes go.
-
-        The answer is passed to the page as received (a redirect is not followed
-        here; the page's own next request meets the guard again).
-        """
-        handshake = upload["handshakes"][-1]
-        try:
-            response = route.fetch(max_redirects=0, max_retries=0, timeout=10000)
-        except Error:
-            handshake["status"] = 0
-            _abort(route)
             return
-        try:
-            handshake["status"] = response.status
+        # Workable storage requests are the system's own upload protocol: one is
+        # sent only for the pending upload and its answer is checked before use.
+        workable_kind = None
+        current = owned_job
+        if (
+            current
+            and not editing_material
+            and request.frame == page.main_frame
+            and request.redirected_from is None
+            and page.url == current["job_url"]
+            and self.permitted(state, page)
+            and not current["handed_off"]
+            and current["status"] == "filling"
+            and current["intent"] == workable.active
+            and current["intent"] is not None
+            and current["intent"]["action"] == "upload"
+            and current["intent"].get("sha256") == current["file_sha256"]
+            and current["intent"].get("page_id") == self.page_ids.get(page)
+        ):
             try:
-                text = response.text()[:200_000]
-            except Exception:
-                text = ""
-            targets = _upload_targets(request.url, response.headers.get("location"), text)
-            for target in targets:
-                if target not in upload["targets"]:
-                    upload["targets"].append(target)
-            facts["http_status"] = response.status
-            facts["targets"] = sorted({row["host"] for row in targets})
-            route.fulfill(response=response)
-        except Error:
+                require_execution(
+                    self.store.applications,
+                    current["application_id"],
+                    automated_owner(self.store.root, state["batch_id"], current["application_id"]),
+                    "automated",
+                )
+                self.check_inputs(current)
+                kind = workable.allows(request)
+                if kind and self.track_request(request, current, kind):
+                    workable_kind = kind
+            except (PortalDataError, OSError, ValueError, TypeError, KeyError):
+                workable.failed = True
+        read = self.bound_material_read or {}
+        if (
+            not workable_kind
+            and current
+            and read.get("page") is page
+            and read.get("application_id") == current["application_id"]
+            and read.get("material_update_id") == (current.get("material_update") or {}).get("id")
+            and (current.get("material_update") or {}).get("status")
+            in {"inspect_pending", "page_verified", "bound"}
+            and state.get("control") in {"paused", "running"}
+            and current.get("intent") == read.get("intent")
+            and not manual_submission_unresolved(
+                {**current, "observations": [*current["observations"], *self.transports]}
+            )
+            and not any(
+                _unresolved_write_failure(event, current, state) for event in self.transports
+            )
+            and (
+                read.get("intent") is None
+                or self.permitted(state, page)
+                and current["status"] == "filling"
+                and not current["handed_off"]
+            )
+            and workable.reading
+            and workable.handle
+            and request.frame == page.main_frame
+            and request.redirected_from is None
+            and request.method == "GET"
+            and request.url == workable.handle["downloadUrl"]
+            and request.post_data_buffer is None
+            and request.resource_type in {"fetch", "xhr"}
+            and (state.get("runtime") or {}).get("id") == self.run_id
+            and self.page_ids.get(page) == (current.get("page_observation") or {}).get("page_id")
+        ):
+            workable_kind = workable.allows(request)
+            if workable_kind != "workable_readback":
+                workable_kind = None
+        if not workable_kind:
+            workable.failed = True
             _abort(route)
-        finally:
-            with suppress(Error):
-                response.dispose()
-
-    def _native_upload_answer(self, record, stage, status) -> None:
-        """Keep a native upload send's answer with its authorization."""
-        upload = next(
-            (
-                row
-                for row in self.native_uploads.values()
-                if row["call_id"] == record["call_id"]
-                and row["application_id"] == record["application_id"]
-            ),
-            None,
-        )
-        if upload is None or not 1 <= record.get("send", 0) <= len(upload["sends"]):
             return
-        send = upload["sends"][record["send"] - 1]
-        if stage == "response" and type(status) is int:
-            send["status"] = status
-            if 200 <= status < 300:
-                upload.update(used=True, raw=b"")
-        elif stage == "requestfailed" and send["status"] is None:
-            send["failed"] = True
+        # Fetch the exact request once, refusing redirects/retries, and check its
+        # actual response before the page can consume it.
+        try:
+            with _fetch_without_redirects(route) as response:
+                workable.response(response, request=request)
+                route.fulfill(response=response)
+        except (Error, ValueError, TypeError, KeyError, OSError):
+            workable.failed = True
+            self.blocked_pages[page] = "upload_result_unknown"
+            _abort(route)
 
     def _websocket_guard(self, page, websocket) -> None:
         if getattr(self, "synthetic_browser", False):
+            # Synthetic pages stay local.
             websocket.on_message(lambda _message: None)
             return
-        if page in self.handed_off_pages:
-            websocket.connect_to_server()
-            return
-        if page is not None:
-            self.blocked_pages[page] = "unverified_send_path"
-        # A routed socket stays local unless connect_to_server() is called.
-        websocket.on_message(lambda _message: None)
+        websocket.connect_to_server()
 
     @staticmethod
     def _submit_lock(page, locked: bool) -> None:
@@ -2259,15 +1597,12 @@ class ApplicationRunner:
         self.guards.pop(identifier, None)
         self.drafts.pop(page, None)
         self.workable.pop(page, None)
-        self.public_reads.pop(page, None)
         self.document_urls.pop(page, None)
         self.blocked_pages.pop(page, None)
-        self.editing_pages.discard(page)
         self.handed_off_pages.discard(page)
         self.login_pages.discard(page)
-        self.blocked_endpoints.pop(page, None)
-        self.native_uploads.pop(page, None)
         self.page_ids.pop(page, None)
+        self.page_targets.pop(page, None)
         self.page_faults.pop(page, None)
         for request, record in list(self.requests.items()):
             if record["application_id"] == identifier:
@@ -4171,7 +3506,6 @@ class ApplicationRunner:
                 self.store.record_native_handoff(
                     reference, request_id=request_id, phase="granted", scope=scope, receipt=receipt
                 )
-            self._authorize_native_upload(reference, payload, resolved, call)
             return payload
         with self.store.applications.write_lock():
             state = self.store.load()
@@ -4261,7 +3595,6 @@ class ApplicationRunner:
                 if self.store.storage_error:
                     raise StoreError("Native material checkpoint failed") from error
                 raise
-        self._authorize_native_upload(reference, payload, resolved, call)
         return payload
 
     def _reconcile_native_material(self, reference, receipt, *, request_id, after_stop=False):
@@ -5525,20 +4858,6 @@ class ApplicationRunner:
             item.get("name") for item in context["data"].get("attachments", [])
         }
 
-        def upload_response(sha256):
-            # The native upload's own 2xx response is second evidence; its absence
-            # refuses nothing (the page's error state decides).
-            statuses = [
-                row["http_status"]
-                for row in [*job["observations"], *self.transports]
-                if row.get("kind") == "native_material_upload"
-                and row.get("stage") == "response"
-                and row.get("sha256") == sha256
-                and type(row.get("http_status")) is int
-                and 200 <= row["http_status"] < 300
-            ]
-            return {"upload_response": statuses[-1]} if statuses else {}
-
         # The job's resume is always checked: a re-rendered upload widget may unmount
         # its file input, which must not skip the check (2026-11-03).
         if job.get("file_sha256"):
@@ -5574,7 +4893,6 @@ class ApplicationRunner:
                     "kind": "resume",
                     "filename": job["filename"],
                     "sha256": job["file_sha256"],
-                    **upload_response(job["file_sha256"]),
                 }
             )
         materials.extend(
@@ -5641,7 +4959,6 @@ class ApplicationRunner:
                     "material_id": letter.get("id", ""),
                     "filename": letter["filename"],
                     "sha256": letter["sha256"],
-                    **upload_response(letter["sha256"]),
                 }
             )
         return outcome, writes
@@ -6180,8 +5497,6 @@ class ApplicationRunner:
             )
             current.update(intent=intent, status="filling")
             self.persist(state)
-            if self.live and intent["action"] in {"fill", "upload"}:
-                self.editing_pages.add(self.pages.get(current["application_id"]))
             return True
 
     @staticmethod
@@ -6588,6 +5903,46 @@ class ApplicationRunner:
                 )
                 self.persist(state)
 
+    def _enter_application(self, page) -> str | None:
+        """Open a job description's one apply entry, as part of opening the job.
+
+        A description page holds nothing to fill or submit, so entering its form
+        needs no guard. Returns the application page URL, or None when the page
+        already is the form or has no single entry.
+        """
+        source = page.url
+        try:
+            entry = page.evaluate(hosted_ats.APPLY_ENTRY)
+        except Error:
+            return None
+        if entry["form"]:
+            return None
+        if len(entry["hrefs"]) == 1:
+            page.goto(entry["hrefs"][0], wait_until="domcontentloaded", timeout=20000)
+        elif not entry["hrefs"] and entry["buttons"] == 1:
+            tab = None
+            try:
+                with page.context.expect_page(timeout=3000) as opened:
+                    page.locator("[data-ts-apply-entry='1']").click(timeout=5000)
+                tab = opened.value
+            except TimeoutError:
+                pass
+            with suppress(TimeoutError, Error):
+                page.wait_for_load_state("domcontentloaded", timeout=10000)
+            if tab is not None:
+                # An entry opening a new tab is followed in the job's own page.
+                with suppress(TimeoutError, Error):
+                    tab.wait_for_load_state("domcontentloaded", timeout=10000)
+                target = tab.url
+                tab.close()
+                if target.startswith(("https://", "http://")):
+                    page.goto(target, wait_until="domcontentloaded", timeout=20000)
+        else:
+            return None
+        with suppress(TimeoutError):
+            page.locator("input[type=email],form,[role=form]").first.wait_for(timeout=10000)
+        return page.url if page.url != source else None
+
     def process(self, job: dict, batch_id: str) -> None:
         require_execution(
             self.store.applications,
@@ -6665,9 +6020,16 @@ class ApplicationRunner:
                     # page stays open; its read leads to a sign-in wait or takeover.
                     if job["platform"] != "generic":
                         raise
+            generic_live = self.live and job["platform"] == "generic"
+            entry_url = self._enter_application(page) if generic_live else None
+            if entry_url:
+                # This open's own reads check the page against the job held here.
+                job = {**job, "entry_url": entry_url}
+                self.document_urls[page] = entry_url
             self.update(
                 job,
                 batch_id,
+                **({"entry_url": entry_url} if entry_url else {}),
                 page_open=True,
                 page_observation={
                     "run_id": self.run_id,

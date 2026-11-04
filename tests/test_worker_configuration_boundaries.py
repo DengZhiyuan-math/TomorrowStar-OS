@@ -14,7 +14,6 @@ from test_hosted_ats import LEVER, PDF
 from career_evidence_graph.application_worker import (
     WorkerService,
     WorkerStore,
-    diagnostic_url,
     start_run,
 )
 from career_evidence_graph.application_worker_browser import ApplicationRunner
@@ -280,62 +279,6 @@ def test_current_runner_aborts_requests_if_checkpoint_directory_binding_changes(
 
     assert outcomes == ["abort"]
     assert runner.storage_stopped
-
-
-@pytest.mark.parametrize("handed_off", [False, True])
-def test_disabled_generic_blocks_automatic_reads_and_preserves_manual_page(
-    tmp_path, monkeypatch, handed_off
-):
-    enabled = live_batch(tmp_path, monkeypatch)
-    start_run(enabled.store)
-    enabled.request("resume", {"controller": "synthetic-controller"})
-    runner = ApplicationRunner(enabled.store, None)
-    state = enabled.store.load()
-    generic = state["jobs"][0]
-    page = object()
-    runner.pages[generic["application_id"]] = page
-    if handed_off:
-        runner.handed_off_pages.add(page)
-    disable_generic(enabled, monkeypatch)
-    before = deepcopy(enabled.store.load())
-    request = SimpleNamespace(
-        frame=SimpleNamespace(page=page),
-        method="GET",
-        url=URL,
-        resource_type="document",
-        is_navigation_request=lambda: True,
-    )
-    outcomes = []
-    route = SimpleNamespace(
-        request=request,
-        continue_=lambda: outcomes.append("continue"),
-        abort=lambda *_: outcomes.append("abort"),
-    )
-
-    runner._live_guard(route)
-
-    assert outcomes == (["continue"] if handed_off else ["abort"])
-    assert runner.pages[generic["application_id"]] is page
-    runner.persist(enabled.store.load())
-    after = enabled.store.load()
-    observations = after["jobs"][0]["observations"]
-    diagnostics = [row for row in observations if row.get("action") == "request_diagnostic"]
-    if handed_off:
-        assert diagnostics == []
-    else:
-        assert len(diagnostics) == 1
-        diagnostic = diagnostics[0]
-        assert diagnostic["stage"] == "request_blocked"
-        assert diagnostic["reason"] == "generic_disabled"
-        assert diagnostic["method"] == "GET"
-        assert (diagnostic["url"], diagnostic["query_keys"]) == diagnostic_url(URL)
-        assert diagnostic["resource_type"] == "document"
-        assert diagnostic["dispatch"] == "not_sent" and diagnostic["caused_stop"] is True
-        assert diagnostic["intent"] == before["jobs"][0]["intent"]
-        assert diagnostic["batch_id"] == before["batch_id"]
-        assert diagnostic["run_id"] == before["runtime"]["id"]
-        observations.remove(diagnostic)
-    assert after == before
 
 
 @pytest.mark.parametrize("operation", ["review", "recheck"])

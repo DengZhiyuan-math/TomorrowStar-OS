@@ -8,13 +8,11 @@ from threading import Thread
 
 import pytest
 from test_application_intake import message, ready
-from test_ashby_bootstrap import ORG, public_request
-from test_ashby_drafts import URL, bounded_route
+from test_ashby_drafts import URL
 from test_career_portal_http import Portal
 from test_worker_backend_recovery import backend
 
 from career_evidence_graph.application_intake import ApplicationIntakeService
-from career_evidence_graph.ashby_drafts import DraftSession
 
 
 @contextmanager
@@ -220,50 +218,6 @@ def test_background_mail_poll_captures_without_advancing_real_waiting_job(mail_b
     assert runner.store.load() == worker_before
     assert runner.pages[worker_before["jobs"][0]["application_id"]] is page
     assert reads == [True] and calls == ["inspect", "label", "inspect", "archive"]
-
-
-def test_ashby_bootstrap_cannot_resolve_unknown_intent_or_replace_skipped_original_page(
-    mail_backend, tmp_path
-):
-    owner, _reopen, runner, page, reads, calls, _current = mail_backend
-    worker_before, policy = wait_current(owner, runner)
-    original = worker_before["jobs"][0]
-    runner.drafts[page] = DraftSession(original)
-    route = bounded_route(public_request(page, ORG))
-    runner._live_guard(route)
-    assert route.outcome == "allowed" and len(route.fetch_calls) == 1
-    assert runner.store.load() == worker_before
-    with http_backend(owner, tmp_path) as portal:
-        assert api(portal, "/api/pipeline/state")["status"] == "needs_recheck"
-        skipped = api(portal, "/api/pipeline/skip", {"request_id": "skip-retained-original"})
-        assert skipped["status"] == "selecting_job" and skipped["active_task_id"] is None
-        assert skipped["current_recommendation_id"] is None
-        assert skipped["items"][0]["status"] == "skipped"
-        assert runner.store.load()["jobs"][0] == original
-        returned = api(
-            portal,
-            "/api/pipeline/return",
-            {
-                "request_id": "return-retained-original",
-                "application_id": original["application_id"],
-            },
-        )
-        assert returned["active_task_id"] == policy["active_task_id"]
-        assert returned["control"] == "paused"
-        assert returned["status"] == "needs_recheck"
-        assert runner.store.load()["jobs"][0] == original
-        assert runner.pages[original["application_id"]] is page
-        assert not reads and not calls
-    final = bounded_route(
-        public_request(
-            page,
-            "SubmitApplication",
-            query="mutation SubmitApplication { submitApplication { id } }",
-        )
-    )
-    runner._live_guard(final)
-    assert final.outcome == "blocked" and not final.fetch_calls
-    assert runner.store.load()["jobs"][0]["intent"] == original["intent"]
 
 
 @pytest.mark.parametrize(

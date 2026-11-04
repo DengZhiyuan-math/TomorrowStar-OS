@@ -409,13 +409,46 @@ INSPECT_HOSTED = r"""async (generic=false) => {
 }""".replace("FORM_OBSERVATION", FORM_OBSERVATION)
 
 
+# A job description page whose application form sits behind one entry (Apply now).
+# Source-owned DOM code: it reads only; the runner opens the entry it names.
+APPLY_ENTRY = r"""() => {
+  const visible = e => Boolean(e.getClientRects().length) &&
+    getComputedStyle(e).visibility !== 'hidden';
+  if ([...document.querySelectorAll('input[type=email],input[type=tel],input[type=file]')]
+    .some(visible)) return {form: true, hrefs: [], buttons: 0};
+  const words = new RegExp('^(apply|apply now|apply online|apply here|' +
+    'apply for (this )?(job|position|role)|start (your )?application|' +
+    '(jetzt |online )?bewerben|postuler( maintenant)?|candidater)$', 'i');
+  const text = e => (e.innerText || e.value || e.getAttribute('aria-label') || '')
+    .replace(/[\s ]+/g, ' ').replace(/[›»→>]+$/, '').trim();
+  const here = location.href.split('#')[0];
+  const hrefs = new Set();
+  let buttons = 0;
+  for (const e of document.querySelectorAll('[data-ts-apply-entry]')) {
+    e.removeAttribute('data-ts-apply-entry');
+  }
+  const candidates = 'a[href],button,[role=button],[role=link],input[type=button]';
+  for (const e of document.querySelectorAll(candidates)) {
+    // An entry is never inside a form: a form's button may be its submit.
+    if (!visible(e) || e.closest('form') || !words.test(text(e))) continue;
+    const href = e.tagName === 'A' && /^https?:/.test(e.href) ? e.href.split('#')[0] : '';
+    if (href && href !== here) hrefs.add(href);
+    else if (!href) { buttons += 1; e.setAttribute('data-ts-apply-entry', String(buttons)); }
+  }
+  return {form: false, hrefs: [...hrefs], buttons};
+}"""
+
+
 def page_url(job: dict) -> str:
     return job["job_url"] + ("/apply" if job["platform"] == "lever" else "")
 
 
 def matches_page(url: str, job: dict, *, document_url: str | None = None) -> bool:
     if document_url is not None:
-        return url == document_url and document_step_target(job["job_url"], document_url, job)
+        return url == document_url and (
+            document_url == job.get("entry_url")
+            or document_step_target(job["job_url"], document_url, job)
+        )
     try:
         platform, normalized = _job_identity(url, allow_generic=job["platform"] == "generic")
     except PortalDataError:
@@ -505,7 +538,11 @@ def observe(page, job: dict, *, document_url: str | None = None) -> dict:
         return " ".join(text.split()).casefold()
 
     identity_matches = (
-        onlyfy_identity(page.url, job)
+        # The application page entered from the job's own description page is
+        # bound by that entry; its heading is the ATS's ("Applying for a job").
+        document_url is not None
+        and document_url == job.get("entry_url")
+        or onlyfy_identity(page.url, job)
         or normalize(result["role"]) == normalize(job["role_title"])
         and normalize(job["company"]) in normalize(result["title"])
         if job["platform"] == "generic"

@@ -635,7 +635,6 @@ def test_material_admission_off_the_worker_thread_never_touches_the_page(bound_m
     thread.join(30)
     assert "error" not in outcome, repr(outcome.get("error"))
     assert outcome["payload"]["kind"] == "file"
-    assert runner.native_uploads[page]["job_url"] == service.store.load()["jobs"][0]["job_url"]
 
 
 def test_unparsed_resume_delivery_journals_the_ledger_row_as_its_only_attempt(
@@ -681,13 +680,7 @@ def test_unparsed_resume_delivery_journals_the_ledger_row_as_its_only_attempt(
     job = service.store.load()["jobs"][0]
     assert job.get("intent") is None
     assert payload["sha256"] == job["file_sha256"]
-    # The admitted delivery may send its own upload once; only metadata is journaled.
-    upload = runner.native_uploads[page]
-    assert upload["used"] is False and upload["sha256"] == job["file_sha256"]
-    assert upload["material_id"] == "resume" and upload["call_id"] == call["call_id"]
-    assert upload["expires_at"] - upload["authorized_at"] == 60
-    authorized = [r for r in runner.transports if r.get("action") == "native_upload_authorized"]
-    assert len(authorized) == 1 and "raw" not in authorized[0]
+    # No network authorization: the page's own upload is neither granted nor held.
     manifest = {k: v for k, v in payload.items() if k != "bytes_base64"}
     observed = dict(
         call,

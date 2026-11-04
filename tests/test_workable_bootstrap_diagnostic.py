@@ -145,29 +145,6 @@ def test_unreviewed_non_get_dependencies_are_distinct_from_public_gets(bootstrap
     assert decision.blocked_reason == "unverified_send_path"
 
 
-@pytest.mark.parametrize("change", ["expired_lease", "future_heartbeat", "paused", "not_open"])
-@pytest.mark.parametrize("resource", ["fetch", "document"])
-def test_new_public_get_respects_actual_control_and_intent_without_ui_age_gate(
-    bootstrap, change, resource
-):
-    service, _, _ = bootstrap
-    state = service.store.load()
-    if change == "expired_lease":
-        state["heartbeat_at"] -= state["lease_seconds"] + 1
-    elif change == "future_heartbeat":
-        state["heartbeat_at"] += state["lease_seconds"] + 1
-    elif change == "paused":
-        state["control"] = "paused"
-    else:
-        state["jobs"][0]["intent"] = None
-    service.store.save(state)
-    decision = decide(bootstrap, FORM if resource == "fetch" else URL, resource=resource)
-    allowed = change in {"expired_lease", "future_heartbeat"}
-    assert decision.outcome == ("continued_without_network" if allowed else "blockedbyclient"), (
-        vars(decision)
-    )
-
-
 def test_retired_public_grant_cannot_authorize_unknown_workable_or_generic_request(bootstrap):
     service, runner, _ = bootstrap
     body = b'{"query":"synthetic public jobs read"}'
@@ -201,77 +178,6 @@ def test_retired_public_grant_cannot_authorize_unknown_workable_or_generic_reque
         assert event["stage"] == "request_blocked"
         assert event["purpose"] == "unknown"
         assert event["dispatch"] == "not_sent"
-
-
-def test_previously_observed_exact_public_get_remains_readable_while_paused(bootstrap):
-    service, _, _ = bootstrap
-    assert decide(bootstrap, JOB).outcome == "continued_without_network"
-    state = service.store.load()
-    state["control"] = "paused"
-    service.store.save(state)
-    assert decide(bootstrap, JOB).outcome == "continued_without_network"
-    assert decide(bootstrap, FORM).outcome == "blockedbyclient"
-
-
-@pytest.mark.parametrize(
-    "change",
-    [
-        "paused",
-        "expired_lease",
-        "future_heartbeat",
-        "runtime_mismatch",
-        "global_fault",
-        "page_fault",
-        "storage_stopped",
-        "stop_marker",
-        "other_blocked",
-        "not_open",
-        "fill_intent",
-        "not_filling",
-        "editing",
-    ],
-)
-def test_sticky_discovery_preserves_required_guards_without_ui_age_gate(bootstrap, change):
-    from career_evidence_graph.application_worker import start_run
-
-    service, runner, page = bootstrap
-    assert decide(bootstrap, TELEMETRY, "POST", b"{}").outcome == "blockedbyclient"
-    state = service.store.load()
-    if change == "paused":
-        state["control"] = "paused"
-    elif change == "expired_lease":
-        state["heartbeat_at"] -= state["lease_seconds"] + 1
-    elif change == "future_heartbeat":
-        state["heartbeat_at"] += state["lease_seconds"] + 1
-    elif change == "runtime_mismatch":
-        run_id = start_run(service.store)
-        state = service.store.load()
-        state["jobs"][0]["status"] = "filling"
-        runner.run_id = "different-from-" + run_id
-    elif change == "global_fault":
-        runner.shared_fault = "context_closed"
-    elif change == "page_fault":
-        runner.page_faults[page] = "page_crashed"
-    elif change == "storage_stopped":
-        runner.storage_stopped = True
-    elif change == "stop_marker":
-        service.store.block_storage()
-    elif change == "other_blocked":
-        runner.blocked_pages[page] = "upload_result_unknown"
-    elif change == "not_open":
-        state["jobs"][0]["intent"] = None
-    elif change == "fill_intent":
-        state["jobs"][0]["intent"]["action"] = "fill"
-    elif change == "not_filling":
-        state["jobs"][0]["status"] = "needs_recheck"
-    elif change == "editing":
-        runner.editing_pages.add(page)
-    service.store.save(state)
-    decision = decide(bootstrap, FORM)
-    allowed = change in {"expired_lease", "future_heartbeat"}
-    assert decision.outcome == ("continued_without_network" if allowed else "blockedbyclient"), (
-        vars(decision)
-    )
 
 
 def test_public_get_recovery_keeps_sticky_automatic_action_stop(bootstrap):
