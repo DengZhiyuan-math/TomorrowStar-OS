@@ -156,6 +156,24 @@ def test_same_jd_can_reuse_its_saved_brief_for_a_different_application(canonical
     )
 
 
+def test_redone_job_interprets_its_jd_anew_instead_of_reusing_the_saved_brief(canonical, tmp_path):
+    # 2026-11-04: an explicit redo after a prompt fix reused the old, incomplete brief.
+    library, _, _, base, *_ = canonical
+    snapshot = thin(canonical)
+    first = RecordedPipeline([requirement("Interdisciplinary research")])
+    root = tmp_path / "analyses"
+    analysis = Analysis(
+        root, runner=first, source_loader=lambda ids: library.snapshot_for_analysis(base, ids)
+    )
+    analysis.prepare(APPLICATION, snapshot, request_id="1" * 32)
+    second = RecordedPipeline(first.requirements)
+    analysis = Analysis(
+        root, runner=second, source_loader=lambda ids: library.snapshot_for_analysis(base, ids)
+    )
+    analysis.prepare(APPLICATION, snapshot, request_id="2" * 32, fresh_job_brief=True)
+    assert len(second.brief_calls) == 1
+
+
 def test_explicit_injected_adapter_is_part_of_the_request_identity(match_inputs, tmp_path):
     application, snapshot = match_inputs
     calls = []
@@ -275,6 +293,34 @@ def test_request_save_failure_never_dispatches_or_replays_an_unknown_intent(
     else:
         assert result["status"] == "complete"
         assert len(calls) == 2  # Existing boundary's version check and evaluation.
+
+
+def test_resumed_attempt_that_never_saved_progress_called_no_model(
+    match_inputs, tmp_path, monkeypatch
+):
+    # 2026-11-04: a resumed attempt stopped inside its job brief before any model call
+    # (no progress saved) blocked every later analysis as an unknown result.
+    from career_evidence_graph._vendor import job_apply_store as helper
+
+    application, snapshot = match_inputs
+    calls = []
+    root = tmp_path / "analyses"
+    analysis = Analysis(root, runner=model_runner(model_output(snapshot), calls))
+    write = helper.atomic_write_json
+
+    def published_only(path, value):
+        write(path, value)
+        if "requests" in path.parts:
+            raise OSError("synthetic stop after publication")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(helper, "atomic_write_json", published_only)
+        with pytest.raises(OSError):
+            analysis.prepare(application, snapshot, request_id="8" * 32)
+    started = root / ("8" * 32) / "job-brief"
+    started.mkdir(parents=True)
+    (started / "job-brief-schema.json").write_text("{}")
+    assert analysis.prepare(application, snapshot, request_id="9" * 32)["status"] == "complete"
 
 
 @pytest.mark.parametrize("attempt_id", ["../escape", "", True, "a" * 31, "g" * 32, {}])

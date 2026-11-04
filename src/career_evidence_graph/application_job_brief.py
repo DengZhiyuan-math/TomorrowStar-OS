@@ -98,24 +98,51 @@ def _job(application):
     return job
 
 
-def _literal_jd_quote(quote, jd):
-    """Restore only case and whitespace; retain exact matches and source spans."""
-    if quote.strip() and quote in jd:
-        return quote
+def _quote_span(quote, jd, start=0):
+    """Where a quote occurs in the JD from ``start``, restoring only case and whitespace."""
+    if quote.strip():
+        index = jd.find(quote, start)
+        if index >= 0:
+            return index, index + len(quote)
     parts = quote.split()
     if not parts:
-        raise _invalid("岗位引用必须来自岗位全文。")
-    pattern = r"\s+".join(re.escape(part) for part in parts)
+        return None
+    # A captured LinkedIn JD renders some colons as "{{:}}" (2026-11-04: every
+    # "Label: duty" bullet); a quote's plain colon still names that passage.
+    pattern = r"\s+".join(re.escape(part).replace(":", r"(?::|\{\{:\}\})") for part in parts)
     # A new tolerant match must not truncate words, decimal numbers or operators.
     pattern = (
         r"(?<![\w+#*/<>=&|%^~\u2010-\u2015\u2212-])(?<!\w\.)(?<!\d,)"
         + pattern
         + r"(?![\w+#*/<>=&|%^~\u2010-\u2015\u2212-]|\.\w|,\d)"
     )
-    match = re.search(pattern, jd, re.IGNORECASE)
-    if match is None:
+    match = re.compile(pattern, re.IGNORECASE).search(jd, start)
+    return match.span() if match else None
+
+
+def _literal_jd_quote(quote, jd):
+    """The literal JD passage a quote names; retain exact matches and source spans.
+
+    A quote that elides words with "..." (2026-11-04: "a Master's ... in Computer
+    Science") becomes the whole passage from its first to its last piece, when the
+    pieces occur in order within one paragraph.
+    """
+    span = _quote_span(quote, jd)
+    pieces = [piece.strip() for piece in re.split(r"\.\.\.|\u2026", quote) if piece.strip()]
+    if span is None and len(pieces) > 1:
+        spans, start = [], 0
+        for piece in pieces:
+            found = _quote_span(piece, jd, start)
+            if found is None:
+                break
+            spans.append(found)
+            start = found[1]
+        else:
+            if "\n" not in jd[spans[0][0] : spans[-1][1]]:
+                span = (spans[0][0], spans[-1][1])
+    if span is None:
         raise _invalid("岗位引用必须来自岗位全文。")
-    return match.group()
+    return jd[span[0] : span[1]]
 
 
 def _literal_group_quote(quote, jd):
@@ -421,13 +448,17 @@ def create_job_brief(
         "methods_role). Business purpose and actual outputs take priority over keyword lists. "
         "Preserve unknown goals or outputs when the full JD leaves them unspecified; "
         "do not invent an industry, goal or duty from a title, employer or isolated keyword. "
-        "Group requirements by actual business responsibility, merge semantic duplicates, "
-        "and use operator all for jointly needed requirements or any for alternatives. "
-        "For nested (A AND B) OR C, use operator any and alternatives [[0,1],[2]], "
-        "where zero-based indices refer to requirements in their original order. Each inner "
-        "list is an AND clause; the outer list ORs clauses. For (A OR B) AND C use "
-        "[[0,2],[1,2]]. Do not leave unused atoms or absorbed redundant branches. "
-        "Copy literal nonempty jd_quote for every group and requirement from the full JD. "
+        "Cover every requirement the JD states, in its duties and in its qualifications "
+        "(education, knowledge, skills, tools, experience and personal qualities): never "
+        "drop a stated requirement because it seems minor or overlaps a duty. "
+        "Group requirements by actual business responsibility and merge only semantic "
+        "duplicates. Keep each condition as one requirement, including a condition that "
+        "can be met in alternative ways (for example a Master's or PhD, or Python or Java): "
+        "its text keeps "
+        "the alternatives and matching judges whether any is met. Split only distinct "
+        "capabilities that are each needed. Use operator all and leave alternatives null. "
+        "Copy every jd_quote literally from the full JD as one continuous passage, such as "
+        "the whole sentence or bullet; never shorten a quote or join pieces with ellipses. "
         "Propose integer weight 1..100 and weight_reason per business group; the program "
         "normalizes group weights to 100 and divides each group equally among its children. "
         "Required/preferred is descriptive, with no fixed 3:1 ratio. Mark hard_condition "
@@ -468,21 +499,26 @@ def create_job_brief(
                             "原岗位解读结果未明，未重复模型请求。",
                             409,
                         )
-                if saved.get("status") != "failed":
+                same_call = (
+                    json.loads(_read_bounded_document(previous / "job-brief-prompt.json").raw)
+                    == {"prompt": prompt}
+                    and json.loads(_read_bounded_document(previous / "job-brief-schema.json").raw)
+                    == _Output.model_json_schema()
+                )
+                failure_path = previous / "validation-failure.json"
+                rejected = failure_path.exists() or failure_path.is_symlink()
+                if saved.get("status") != "failed" and not same_call and rejected:
+                    # A brief rejected under an earlier prompt or schema is never
+                    # adopted; this attempt asks again (2026-11-04: an updated prompt
+                    # made every retry of a rejected brief fail before any model call).
+                    result = None
+                elif saved.get("status") != "failed":
                     result = validate_recorded_result(
                         saved, prompt=prompt, output_schema=schema_path
                     )
-                    if (
-                        json.loads(_read_bounded_document(previous / "job-brief-prompt.json").raw)
-                        != {"prompt": prompt}
-                        or json.loads(
-                            _read_bounded_document(previous / "job-brief-schema.json").raw
-                        )
-                        != _Output.model_json_schema()
-                    ):
+                    if not same_call:
                         raise _invalid("原岗位解读调用与当前协议不一致。")
-                    failure_path = previous / "validation-failure.json"
-                    if failure_path.exists() or failure_path.is_symlink():
+                    if rejected:
                         marker = _output_validation_marker(
                             result, prompt, schema_path, "job_brief_invalid"
                         )

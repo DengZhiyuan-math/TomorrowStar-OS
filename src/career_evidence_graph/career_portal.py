@@ -72,6 +72,7 @@ _PIPELINE_ROUTES = {
         409,
     ),
     "skip": ("skip_current", ({"request_id"},), _PIPELINE_CURRENT, 409),
+    "redo": ("redo_current", ({"request_id"},), _PIPELINE_CURRENT, 409),
     "return": ("return_to", ({"request_id", "application_id"},), _PIPELINE_CURRENT, 409),
     "observe-result": ("observe_result", ({"request_id"},), _PIPELINE_CURRENT, 409),
     "cancel-current": (

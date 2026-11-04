@@ -2058,7 +2058,10 @@ class Analysis:
         matching_only=False,
         job_brief=None,
         admit_call=None,
+        fresh_job_brief=False,
     ):
+        """``fresh_job_brief``: the user redid this job, so its JD is interpreted anew
+        instead of reusing the latest saved interpretation (APP-15 explicit redo)."""
         directory = self._directory(request_id)
         if type(matching_only) is not bool or not isinstance(recovery_candidates, (list, tuple)):
             raise PortalDataError("flow_analysis_mismatch", "分析请求选项不能核验。", 409)
@@ -2071,14 +2074,18 @@ class Analysis:
 
             job_brief = validate_job_brief(job_brief, application)
         library = self.information_provider() if self.information_provider else None
-        binding = self._binding(application, snapshot, library) | {
-            "operation": "prepare",
-            "requirements": requirements,
-            "matching_only": matching_only,
-            "resume_from": resume_from,
-            "recovery_candidates": list(recovery_candidates),
-            "job_brief_revision": (job_brief or {}).get("revision"),
-        }
+        binding = (
+            self._binding(application, snapshot, library)
+            | {
+                "operation": "prepare",
+                "requirements": requirements,
+                "matching_only": matching_only,
+                "resume_from": resume_from,
+                "recovery_candidates": list(recovery_candidates),
+                "job_brief_revision": (job_brief or {}).get("revision"),
+            }
+            | ({"fresh_job_brief": True} if fresh_job_brief is True else {})
+        )
         with self._execution(binding, request_id) as admitted:
             if not admitted:
                 return self.progress(request_id)
@@ -2094,6 +2101,7 @@ class Analysis:
                 and requirements is None
                 and job_brief is None
                 and self.analyzer is None
+                and fresh_job_brief is not True
             ):
                 from .application_job_brief import find_saved_job_brief
 
@@ -2273,7 +2281,13 @@ class Analysis:
                 ended = self._directory(latest["attempt_id"])
                 # This scope's lock is held, so the attempt has ended; every model call
                 # first writes its schema inside it, so one that wrote nothing called none.
-                if not (ended.exists() and any(ended.iterdir())):
+                # The retrieval pipeline saves its progress before each model call and
+                # before a new attempt's job brief, so a resumed attempt that began its
+                # job brief without saved progress called none either (2026-11-04).
+                if not (ended.exists() and any(ended.iterdir())) or (
+                    (ended / "job-brief").is_dir()
+                    and not (ended / "analysis-progress.json").exists()
+                ):
                     outcome = "failed"
             if (
                 latest is not None

@@ -106,7 +106,7 @@ class Flow:
             "legacy_skippable": legacy_skippable,
         }
 
-    def create(self, identifier, revision):
+    def create(self, identifier, revision, **_options):
         task = {
             "id": identifier,
             "application_id": identifier,

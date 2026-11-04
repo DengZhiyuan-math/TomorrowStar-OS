@@ -374,3 +374,44 @@ def test_cancellation_projection_owns_stop_and_unknown_effect_meanings(
         "unknown" if unresolved_intent else "stopped"
     )
     assert service.store.path.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("change", "status"),
+    [("", "stopped"), ("intent", "unknown"), ("page_open", "unknown"), ("task", None)],
+)
+def test_cancellation_reads_an_execution_settled_in_an_archived_batch(
+    claimed_assistance, change, status
+):
+    # 2026-11-04: an execution cancelled in an earlier batch read
+    # "worker_execution_changed" and the pipeline's cancel could never complete.
+    service, identifier, _reference = claimed_assistance
+    state = service.store.load()
+    archived = deepcopy(state["jobs"][0]) | {"status": "cancelled", "intent": None}
+    archived["page_open"] = change == "page_open"
+    if change == "intent":
+        archived["intent"] = {"action": "upload", "attempt_id": "unknown-upload"}
+    state.setdefault("batch_history", []).append(
+        {"batch_id": "archived-batch", "at": 1.0, "jobs": [archived]}
+    )
+    service.store.save(state)
+    before = service.store.path.read_bytes()
+    binding = {
+        "expected_batch_id": "archived-batch",
+        "expected_task_id": "other-task" if change == "task" else "synthetic-task",
+    }
+    if status is None:
+        with pytest.raises(PortalDataError) as changed:
+            service.cancellation_progress(identifier, **binding)
+        assert changed.value.code == "worker_execution_changed"
+    else:
+        assert service.cancellation_progress(identifier, **binding) == {
+            "application_id": identifier,
+            "batch_id": "archived-batch",
+            "run_id": None,
+            "task_id": "synthetic-task",
+            "status": status,
+        }
+    with pytest.raises(PortalDataError):
+        service.cancel_execution(identifier, **binding)
+    assert service.store.path.read_bytes() == before

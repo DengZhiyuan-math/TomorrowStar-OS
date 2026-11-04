@@ -1293,6 +1293,7 @@ class ApplicationFlowService:
             resume_from=attempt.get("resume_from_attempt_id"),
             recovery_candidates=candidates,
             admit_call=lambda: self.analysis_call_allowed(task),
+            **({"fresh_job_brief": True} if task.get("fresh_job_brief") is True else {}),
         )
         result = self._analysis_report(progress)
         self._fresh(task, stage="analysis")
@@ -4863,7 +4864,15 @@ class ApplicationFlowService:
                 raise PortalDataError("flow_worker_mismatch", "执行记录与岗位任务不符。", 409)
             return self._worker_view(task, observed)
 
-    def create(self, application_id, application_revision, *, inputs=None, force_new=False):
+    def create(
+        self,
+        application_id,
+        application_revision,
+        *,
+        inputs=None,
+        force_new=False,
+        fresh_job_brief=False,
+    ):
         self._writable()
         with self.applications.write_lock():
             self._writable()
@@ -4920,6 +4929,9 @@ class ApplicationFlowService:
                 if self.preparation_only:
                     break
             task = self._new_task(application, resolved)
+            if fresh_job_brief:
+                # A redone job interprets its JD anew on its first analysis.
+                task["fresh_job_brief"] = True
             state["tasks"].append(task)
             self._save(state)
             return deepcopy(task)

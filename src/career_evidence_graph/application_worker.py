@@ -6048,13 +6048,58 @@ class WorkerService:
     ):
         """Read cancellation facts without resolving effects or issuing control."""
         with self.store.applications.write_lock():
+            state = self.store.load()
+            if state["batch_id"] != expected_batch_id:
+                return self._archived_cancellation(
+                    state, application_id, expected_batch_id, expected_task_id
+                )
             return self._cancellation_projection(
-                self.store.load(),
+                state,
                 application_id,
                 expected_batch_id=expected_batch_id,
                 expected_run_id=expected_run_id,
                 expected_task_id=expected_task_id,
             )
+
+    @staticmethod
+    def _archived_cancellation(state, application_id, batch_id, task_id):
+        """An execution in an archived batch can no longer run; read how it ended.
+
+        2026-11-04: cancelling a task whose execution was settled in an earlier batch
+        read "worker_execution_changed" and the pipeline could never leave the cancel.
+        """
+        job = next(
+            (
+                row
+                for batch in state.get("batch_history", [])
+                if batch.get("batch_id") == batch_id
+                for row in batch["jobs"]
+                if row["application_id"] == application_id
+            ),
+            None,
+        )
+        bound = (job or {}).get("single_binding") or {}
+        if job is None or task_id is not None and bound.get("task_id") != task_id:
+            raise PortalDataError("worker_execution_changed", "执行批次或原运行已改变。", 409)
+        settled = not (
+            job.get("intent")
+            or job.get("page_open")
+            or manual_submission_unresolved(job)
+            # Archived batches keep no runtime: judge each write in its own run.
+            or any(
+                unresolved_write_failure(
+                    row, job, {"batch_id": batch_id, "runtime": {"id": row.get("run_id")}}
+                )
+                for row in job["observations"]
+            )
+        )
+        return {
+            "application_id": application_id,
+            "batch_id": batch_id,
+            "run_id": None,
+            "task_id": bound.get("task_id"),
+            "status": "stopped" if settled else "unknown",
+        }
 
     def cancel_execution(
         self, application_id, *, expected_batch_id, expected_run_id=None, expected_task_id=None

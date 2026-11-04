@@ -144,6 +144,23 @@ def test_known_invalid_brief_can_be_replaced_without_replaying_forever(
     assert (old / "validation-failure.json").is_file()
 
 
+def test_brief_rejected_under_an_earlier_prompt_is_asked_again(tmp_path, application, output):
+    # 2026-11-04: after a prompt update, retrying a rejected brief failed before any
+    # model call; a rejected brief is never adopted, so the retry asks again.
+    old = tmp_path / "old"
+    calls = []
+    bad = deepcopy(output)
+    bad["groups"][0]["jd_quote"] = "Unrecorded duty"
+    with pytest.raises(PortalDataError):
+        create_job_brief(application, old, runner=model_runner(bad, calls))
+    (old / "job-brief-prompt.json").write_text(json.dumps({"prompt": "an earlier prompt"}))
+    result = create_job_brief(
+        application, tmp_path / "retry", runner=model_runner(output, calls), resume_from=old
+    )
+    assert result["business_object"] == "Pricing and risk decisions"
+    assert len([call for call in calls if call[-1] != "--version"]) == 2
+
+
 @pytest.mark.parametrize("invalid", ["schema", "semantic"])
 def test_invalid_raw_brief_without_marker_is_checked_locally_before_a_later_retry(
     tmp_path, application, output, invalid

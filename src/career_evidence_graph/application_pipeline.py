@@ -1246,6 +1246,68 @@ class ApplicationPipeline:
         self._save(state)
         return self.snapshot()
 
+    def redo_current(self, *, request_id):
+        """Start the cancelled current job again as a new task; the old one stays history.
+
+        Only after its cancel completed. Flow creates a new task for an application
+        whose task was cancelled, so the job is analysed under current rules and its
+        materials are prepared anew. Continue never revives a cancelled job.
+        """
+        with self._control() as state:
+            self._request_id(request_id)
+            requests = state.setdefault("current_requests", [])
+            if any(row["request_id"] == request_id for row in requests):
+                return self.snapshot()
+            cancelled = next(
+                (
+                    row
+                    for row in reversed(state.get("cancellations", []))
+                    if state.get("active_task_id") is not None
+                    and row["task_id"] == state["active_task_id"]
+                ),
+                None,
+            )
+            item = next(
+                (
+                    row
+                    for row in state["items"]
+                    if cancelled is not None and row.get("task_id") == cancelled["task_id"]
+                ),
+                None,
+            )
+            if cancelled is None or cancelled["status"] != "complete" or item is None:
+                raise PortalDataError(
+                    "pipeline_redo_unavailable", "只有已完成取消的当前岗位可以重做。", 409
+                )
+            for key in (
+                "reason",
+                "reason_code",
+                "score_tier",
+                "score_analysis_id",
+                "score_decision",
+                "analysis_attempt_id",
+                "task_revision",
+            ):
+                item.pop(key, None)
+            item.update(task_id=None, status="pending", score=None, fresh_job_brief=True)
+            requests.append(
+                {
+                    "request_id": request_id,
+                    "action": "redo",
+                    "task_id": cancelled["task_id"],
+                    "status": "complete",
+                    "at": time.time(),
+                }
+            )
+            for key in ("wait_reason", "resume_status"):
+                state.pop(key, None)
+            self._preparation_serial += 1
+            state.update(
+                active_task_id=None, control="running", status="matching", notification=None
+            )
+            self._save(state)
+            return self.snapshot()
+
     def _current_request(self, state, action, payload):
         expected = {"request_id", "application_id"} if action == "return" else {"request_id"}
         if action == "continue" and isinstance(payload, dict) and "reclaim" in payload:
@@ -2697,7 +2759,11 @@ class ApplicationPipeline:
                 )
                 self._save(state)
                 return
-            task = self.flow.create(application["id"], application["revision"])
+            task = self.flow.create(
+                application["id"],
+                application["revision"],
+                **({"fresh_job_brief": True} if item.pop("fresh_job_brief", False) else {}),
+            )
             item["task_id"] = task["id"]
             item["status"] = "matching"
             self._save(state)

@@ -327,3 +327,52 @@ def test_cancel_recovers_a_published_worker_before_the_flow_reference_was_saved(
     finally:
         pipeline.close()
         flow.close()
+
+
+def test_redo_starts_a_cancelled_current_job_as_a_new_task(cancellable_pipeline):
+    pipeline, flow, _, worker = cancellable_pipeline
+    pipeline.start(request_id="begin-redo")
+    old = drive(pipeline, "filling")["active_task_id"]
+    with pytest.raises(PortalDataError) as early:
+        pipeline.redo_current(request_id="redo-too-early")
+    assert early.value.code == "pipeline_redo_unavailable"
+    cancelled = pipeline.cancel_current(request_id="cancel-before-redo")
+    assert cancelled["current_cancellation"]["status"] == "complete"
+    with pytest.raises(PortalDataError) as revive:
+        pipeline.continue_current(request_id="continue-is-no-redo")
+    assert revive.value.code == "pipeline_current_cancelled"
+    before = worker.store.path.read_bytes()
+
+    redone = pipeline.redo_current(request_id="redo-cancelled")
+    assert redone["control"] == "running" and redone["status"] == "matching"
+    assert redone["active_task_id"] is None
+    assert worker.store.path.read_bytes() == before
+    assert pipeline.redo_current(request_id="redo-cancelled")["status"] == "matching"
+
+    # The synthetic Flow names a task by its application; the real Flow creates a
+    # new task beside a cancelled one (``ApplicationFlowService.create``).
+    creates, analyses = flow.calls.count(("create", old)), flow.calls.count(("analysis", old))
+    created = []
+    original_create = flow.create
+    flow.create = lambda *args, **options: created.append(options) or original_create(*args)
+    assert drive(pipeline, "generating_resume")["active_task_id"] == old
+    assert flow.calls.count(("create", old)) == creates + 1
+    assert flow.calls.count(("analysis", old)) == analyses + 1
+    # The redone job asks Flow to interpret its JD anew.
+    assert created == [{"fresh_job_brief": True}]
+
+
+def test_redo_needs_a_completed_cancel(cancellable_pipeline, monkeypatch):
+    pipeline, _, _, worker = cancellable_pipeline
+    pipeline.start(request_id="begin-partial-redo")
+    drive(pipeline, "filling")
+
+    def fail(*_a, **_k):
+        raise PortalDataError("synthetic_worker_stop_failed", "Synthetic failure", 409)
+
+    monkeypatch.setattr(worker, "cancel_execution", fail)
+    partial = pipeline.cancel_current(request_id="cancel-partial-redo")
+    assert partial["current_cancellation"]["status"] == "partial"
+    with pytest.raises(PortalDataError) as refused:
+        pipeline.redo_current(request_id="redo-partial")
+    assert refused.value.code == "pipeline_redo_unavailable"

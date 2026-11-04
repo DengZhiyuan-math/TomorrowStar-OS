@@ -696,3 +696,49 @@ def test_nested_alternatives_cannot_claim_all_operator(tmp_path, application, ou
     output["groups"][0]["operator"] = "all"
     with pytest.raises(PortalDataError):
         brief(tmp_path, application, output)
+
+
+@pytest.mark.parametrize(
+    ("quote", "literal"),
+    [
+        # 2026-11-04: a split degree condition elided the other degree.
+        (
+            "Currently pursuing or recently completed a Master's ... in Computer Science.",
+            "Currently pursuing or recently completed a Master's, or PhD in Computer Science.",
+        ),
+        (
+            "currently pursuing … PhD in computer science.",
+            "Currently pursuing or recently completed a Master's, or PhD in Computer Science.",
+        ),
+        ("Python   and SQL", "Python and SQL"),
+        # Pieces out of order, across a paragraph, or not in the JD stay invalid.
+        ("PhD ... Master's", None),
+        ("Computer Science. ... Python", None),
+        ("Master's ... Rust", None),
+    ],
+)
+def test_elided_jd_quote_becomes_its_literal_passage(quote, literal):
+    from career_evidence_graph.application_job_brief import _literal_jd_quote
+
+    jd = (
+        "Currently pursuing or recently completed a Master's, or PhD in Computer Science.\n"
+        "Experience with Python and SQL."
+    )
+    if literal is None:
+        with pytest.raises(PortalDataError):
+            _literal_jd_quote(quote, jd)
+    else:
+        assert _literal_jd_quote(quote, jd) == literal
+
+
+def test_plain_colon_quote_names_a_captured_double_brace_colon():
+    # 2026-11-04: a LinkedIn capture renders "Label: duty" bullets as "Label{{:}} duty".
+    from career_evidence_graph.application_job_brief import _literal_jd_quote
+
+    jd = "• AI Certification Strategy{{:}} Analyze our strategy.\nUse a 3:1 ratio."
+    assert _literal_jd_quote("AI Certification Strategy: Analyze our strategy.", jd) == (
+        "AI Certification Strategy{{:}} Analyze our strategy."
+    )
+    assert _literal_jd_quote("a 3:1 ratio", jd) == "a 3:1 ratio"
+    with pytest.raises(PortalDataError):
+        _literal_jd_quote("AI Certification Strategy; Analyze our strategy.", jd)

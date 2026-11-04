@@ -95,7 +95,8 @@ def current_pipeline(tmp_path, monkeypatch):
                 for row in worker.snapshot()["jobs"]
                 if row["application_id"] == identifier
             )
-            self.tasks[identifier]["worker_ref"]["status"] = status
+            if self.tasks[identifier]["worker_ref"] is not None:
+                self.tasks[identifier]["worker_ref"]["status"] = status
             return deepcopy(self.tasks[identifier])
 
     flow = RealWorkerFlow(tmp_path / "flow", apps, worker)
