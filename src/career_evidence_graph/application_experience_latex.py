@@ -324,6 +324,9 @@ def generation_context(store, identifier):
             ),
             "instructions": MAIN_INSTRUCTIONS
             + " Select and order delivered assignments; write global content as JSON only."
+            # 2026-11-04: a planner cited a dropped experience's fact, then a mis-copied ID.
+            + " headline, summary and skills may cite only the allowed_fact_refs and"
+            + " allowed_inference_refs of the assignments you keep; copy each ID exactly."
             + " When headline_required is true, supply headline as one ContentItem with a concise"
             + " career focus aligned with the delivered job_brief (for example Quantitative"
             + " Research or Data Science), grounded in delivered fact_refs or inference_refs."

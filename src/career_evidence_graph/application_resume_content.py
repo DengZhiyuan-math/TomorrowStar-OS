@@ -178,8 +178,12 @@ def _unique(values, label):
 
 def _references(values, allowed):
     _unique(values, "reference")
-    if not set(values) <= set(allowed):
-        raise ValueError("reference does not belong to the delivered snapshot")
+    outside = [value for value in values if value not in set(allowed)]
+    if outside:
+        # The IDs reach the next attempt's previous_validation (2026-11-04).
+        raise ValueError(
+            "reference does not belong to the delivered snapshot: " + ", ".join(outside[:10])
+        )
 
 
 class WritingAssignment(Contract):
