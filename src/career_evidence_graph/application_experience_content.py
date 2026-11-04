@@ -11,19 +11,16 @@ import hashlib
 import json
 from copy import deepcopy
 
-from pydantic import TypeAdapter
-
 from ._vendor import job_apply_store as helper
 from .application_full_latex import _invalid
 from .application_resume_content import (
-    WritingResult,
     apply_content_patch,
     assemble_content,
+    assignment_schema,
     content_revision,
     validate_content,
     validate_fragment,
     validate_plan,
-    writer_schema,
 )
 from .application_resume_render import render_resume
 from .validation.hashing import record_digest as digest
@@ -196,8 +193,9 @@ def writer_context(state, experience_id):
         "assignment": deepcopy(assignment),
         "instructions": WRITER_INSTRUCTIONS,
         # Strict output makes every offered field mandatory; installed MC-11 writers
-        # then claimed human provenance, which validation rightly refuses.
-        "output_schema": writer_schema(TypeAdapter(WritingResult).json_schema()),
+        # then claimed human provenance, which validation rightly refuses. The
+        # schema also pins this assignment's identity and allowed references.
+        "output_schema": assignment_schema(assignment),
         "previous_fragment": deepcopy(state["fragments"].get(experience_id)),
         "retained_items": deepcopy((previous_experience or {}).get("items", [])),
         "retained_structure_protected": experience_id

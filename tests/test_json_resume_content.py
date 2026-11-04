@@ -446,3 +446,52 @@ def test_personal_project_assembles_without_an_organization():
     assert content["experiences"][0]["organization"] is None
     assert content["experiences"][0]["title"] == "Validation workflow"
     assert content["experiences"][0]["items"][0]["fact_refs"] == ["fact-demo-1"]
+
+
+def test_assignment_schema_pins_identity_and_allowed_references():
+    from career_evidence_graph.application_resume_content import assignment_schema
+    from career_evidence_graph.codex_cli import strict_output_schema
+
+    assigned = assignment()
+    before = deepcopy(assigned)
+    schema = strict_output_schema(assignment_schema(assigned))
+    definitions = schema["$defs"]
+    # An installed writer copied a 64-character revision with two extra characters and
+    # dropped an ``exp-`` prefix from references (2026-11-04); const and enum forbid both.
+    for name in ("ExperienceFragment", "NeedsMaterialFragment"):
+        properties = definitions[name]["properties"]
+        assert properties["assignment_revision"]["const"] == "assignment-demo-1"
+        assert properties["experience_id"]["const"] == "experience-demo-1"
+        assert properties["candidate_id"]["const"] == "candidate-demo-1"
+        assert "assignment_revision" in definitions[name]["required"]
+    item = definitions["ContentItem"]["properties"]
+    assert item["fact_refs"]["items"] == {"enum": ["fact-demo-1"], "type": "string"}
+    assert "enum" not in item["inference_refs"]["items"]
+    request = definitions["MaterialRequest"]["properties"]
+    assert request["fact_refs"]["items"]["enum"] == ["fact-demo-1"]
+    assert not {"origin", "edit_source", "protected"} & set(item)
+    assert assigned == before
+
+
+def test_writer_context_output_schema_is_bound_to_its_assignment():
+    from career_evidence_graph.application_experience_content import writer_context
+    from career_evidence_graph.application_resume_content import assignment_schema
+
+    assigned = assignment()
+    other = assignment() | {
+        "assignment_revision": "assignment-demo-2",
+        "experience_id": "experience-demo-2",
+        "candidate_id": "candidate-demo-2",
+    }
+    other["experience"].update(experience_id="experience-demo-2", candidate_id="candidate-demo-2")
+    state = {"writing_plan": {"assignments": [assigned, other]}, "payload": {}, "fragments": {}}
+    schemas = [
+        writer_context(state, row["experience_id"])["output_schema"] for row in (assigned, other)
+    ]
+    assert schemas == [assignment_schema(assigned), assignment_schema(other)]
+    assert schemas[0] != schemas[1]
+    assert schemas[1]["$defs"]["ExperienceFragment"]["properties"]["assignment_revision"] == {
+        "const": "assignment-demo-2",
+        "title": "Assignment Revision",
+        "type": "string",
+    }

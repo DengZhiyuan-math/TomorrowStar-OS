@@ -219,3 +219,11 @@ macos/App.swift、macos/main_app.py、macos/build.py、loaded_code.py 仅查明�
 - `_prompt_context` 按纳入顺序给资料编 `S1…Sn`，对照表存入 `context-coverage.json` 的 `source_aliases`；输出格式中的 ID 清单同样用短编号。
 - 模型答复校验格式后，程序先把 `source_id`/`source_ids`/`selected_source_ids` 换回原 ID，再执行全部原有核对；未知编号原样保留并按无效引用拒绝。
 - 仅限最终匹配调用；读取步骤仍用长 ID。新测试 RED→GREEN；12 个检查提示词或格式原文 ID 的测试改为经对照表换回。全量离线 8508/3/0。
+
+### 2026-11-02 安装版更新：流程闭环批次 1、2（`claude-code` 本会话）
+
+依据[整合方案](../../flow-closure-plan-2026-11-02/README.md)：输入绑定 Module（C1）、接管记录／期限预算／原页范围 Module（C2、C3、C5）等由两路并发会话实现，
+经验证分支合并到 `module-completion-2026-10-28` @ `85390305`；全量默认离线 63 失败／8561 通过，失败清单为基线 `7a8e738a`（65 失败）的真子集。
+用户授权后按同一流程重建并更新（私人证据 `maintenance-2026-11-02-batch12-r1/`）：构建、`verify.py`、`main_app.py check`、`update`、`codesign --verify`、
+`check_main_permissions.py` 均 exit 0；driver 仍为 `ba1541e7…`（Rust `HOST_ADMISSION_TTL` 改动只有 patch 说明，预算按 15 s 校验）。
+待用户 GUI 验收：重建后在途岗位点一次"继续当前岗位"直接继续；一次自动接管填完 ≥3 个字段且 worker.log 无 `stop_unknown`／`cua_owner_unknown` 循环。

@@ -248,6 +248,41 @@ def writer_schema(schema):
     return schema
 
 
+def assignment_schema(assignment):
+    """A writer's output schema bound to one delivered assignment.
+
+    Identity fields become ``const`` and references an ``enum`` of the delivered
+    allowlist, so strict output cannot miscopy a 64-character revision or drop an
+    ``exp-`` prefix (installed writers did both on 2026-11-04). ``validate_fragment``
+    stays the authority; an empty allowlist keeps the open string schema.
+    """
+    schema = writer_schema(TypeAdapter(WritingResult).json_schema())
+    definitions = schema["$defs"]
+    for name in ("ExperienceFragment", "NeedsMaterialFragment"):
+        properties = definitions[name]["properties"]
+        for key in ("assignment_revision", "experience_id", "candidate_id"):
+            properties[key] = {
+                "const": assignment[key],
+                "title": properties[key]["title"],
+                "type": "string",
+            }
+    allowed = {
+        "fact_refs": list(assignment["allowed_fact_refs"]),
+        "inference_refs": list(assignment["allowed_inference_refs"]),
+    }
+    for name, keys in (
+        ("ContentItem", ("fact_refs", "inference_refs")),
+        ("MaterialRequest", ("fact_refs",)),
+    ):
+        for key in keys:
+            if allowed[key]:
+                definitions[name]["properties"][key]["items"] = {
+                    "enum": allowed[key],
+                    "type": "string",
+                }
+    return schema
+
+
 class ExperienceFragment(Contract):
     schema_version: Literal["experience-writing/v1"]
     assignment_revision: Text
