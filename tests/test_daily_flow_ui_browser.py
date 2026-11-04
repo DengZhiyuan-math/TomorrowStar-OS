@@ -95,7 +95,12 @@ def test_internal_management_is_closed_and_toggling_never_repeats_material_work(
                         else "unresolved",
                         "basis": reason["explanation"],
                         "expression_scope": "Research implementation only",
-                        "facts": [{"source_id": "synthetic-saved-source"}],
+                        "facts": [
+                            {
+                                "source_id": "synthetic-saved-source",
+                                "quote": "Synthetic saved fact quote.",
+                            }
+                        ],
                     }
             route.fulfill(response=response, body=json.dumps(state))
 
@@ -165,7 +170,9 @@ def test_internal_management_is_closed_and_toggling_never_repeats_material_work(
             if fixed_profile:
                 expect(details).to_contain_text("语义推断")
                 expect(details).to_contain_text("Research implementation only")
-                expect(details).to_contain_text("synthetic-saved-source")
+                # A fact shows its quote; its ids stay internal (2026-11-04).
+                expect(details).to_contain_text("Synthetic saved fact quote.")
+                expect(details).not_to_contain_text("synthetic-saved-source")
             expect(
                 page.locator("#flow-fit-details .flow-requirement").filter(
                     has_text=requirement_text

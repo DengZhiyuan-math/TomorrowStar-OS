@@ -895,7 +895,7 @@
       // Decided 2026-10-31: sol and Opus score side by side; a large gap needs the user's review.
       const middle = value => (value.lower + value.upper) / 2;
       const line = `sol ${number(middle(models.primary))} · Opus ${number(middle(models.second))} · 分差 ${number(models.gap)}`;
-      panel.append(node("p", models.needs_review ? "flow-error" : "flow-fit-note", models.needs_review ? `两个模型分差较大，需你审核：${line}` : `两个模型一致，取平均：${line}`));
+      panel.append(node("p", models.needs_review ? "flow-error" : "flow-fit-note", models.needs_review ? `两个模型分差较大，需你审核：${line}` : `两个模型一致，加权平均（sol 0.45 · Opus 0.55）：${line}`));
       const differing = (models.differing_requirements || []).map(index => (explanation.reasons || [])[index]).filter(Boolean);
       if (models.needs_review && differing.length) {
         const list = node("ul", "flow-fit-list");
@@ -1008,7 +1008,13 @@
         if (inference.basis) row.append(node("p", "flow-muted", `短依据：${inference.basis}`));
         if (inference.expression_scope) row.append(node("p", "flow-muted", `表达范围：${inference.expression_scope}`));
         if (inference.calculation) row.append(node("p", "flow-source", `计算记录：${JSON.stringify(inference.calculation)}`));
-        if (inference.facts?.length) appendLines(row, inference.facts, "flow-source");
+        // A fact is shown by its quote only, never its ids and revisions; a quote the
+        // sources below already show is not repeated.
+        const shownQuotes = new Set((reason.sources || []).map(source => source.quote).filter(Boolean));
+        for (const fact of inference.facts || []) {
+          const quote = typeof fact === "string" ? fact : fact?.quote;
+          if (quote && !shownQuotes.has(quote)) { shownQuotes.add(quote); row.append(node("blockquote", "flow-text", quote)); }
+        }
       }
       if (reason.library?.references?.length) row.append(node("p", "flow-source", "依据：信息库中已确认的资料。"));
       for (const source of reason.sources || []) {
