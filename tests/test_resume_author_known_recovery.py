@@ -128,3 +128,29 @@ def test_pipeline_known_author_retry_is_armed_once_per_continue(current_pipeline
     pipeline.continue_current(request_id="another-explicit-retry")
     pipeline._tick()
     assert calls == [task["id"], task["id"]]
+
+
+def test_a_global_reference_with_an_extra_exp_prefix_is_corrected_only_when_unique():
+    # 2026-11-04: the planner wrote exp-X::exp-X-fact-0014 for the delivered exp-X::X-fact-0014.
+    from career_evidence_graph.application_resume_author import repaired_global_refs
+
+    plan = {
+        "assignments": [
+            {
+                "allowed_fact_refs": ["exp-a::a-fact-0014", "exp-a::exp-a-human-cv-L1"],
+                "allowed_inference_refs": ["inf-1"],
+            }
+        ],
+        "headline": {"fact_refs": ["exp-a::exp-a-fact-0014"], "inference_refs": []},
+        "summary": [{"fact_refs": ["exp-a::exp-a-human-cv-L1", "exp-b::exp-b-fact-1"]}],
+        "skills": [{"fact_refs": ["exp-a::exp-a-fact-0014"], "inference_refs": ["inf-1"]}],
+    }
+    repairs = repaired_global_refs(plan)
+    assert repairs == [
+        {"from": "exp-a::exp-a-fact-0014", "to": "exp-a::a-fact-0014"},
+        {"from": "exp-a::exp-a-fact-0014", "to": "exp-a::a-fact-0014"},
+    ]
+    assert plan["headline"]["fact_refs"] == ["exp-a::a-fact-0014"]
+    # An already delivered reference is kept; an undelivered one is left to fail validation.
+    assert plan["summary"][0]["fact_refs"] == ["exp-a::exp-a-human-cv-L1", "exp-b::exp-b-fact-1"]
+    assert plan["skills"][0]["inference_refs"] == ["inf-1"]

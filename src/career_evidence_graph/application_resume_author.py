@@ -161,10 +161,49 @@ def _expanded_plan(original, choices):
     return plan
 
 
+def repaired_global_refs(plan):
+    """Correct a global reference only when it names exactly one delivered reference.
+
+    A planner copied ``exp-X::exp-X-fact-0014`` for the delivered ``exp-X::X-fact-0014``
+    (the same experience's CV lines do carry the ``exp-`` prefix; 2026-11-04). Only that
+    extra prefix is removed, and only when the result is a reference of a chosen
+    experience; anything else still fails validation. Returns the corrections made.
+    """
+    allowed = {
+        kind: {ref for row in plan["assignments"] for ref in row[f"allowed_{kind}_refs"]}
+        for kind in ("fact", "inference")
+    }
+    items = [plan["headline"]] if isinstance(plan.get("headline"), dict) else []
+    items += [row for key in ("summary", "skills") for row in plan.get(key) or []]
+    repairs = []
+    for item in items:
+        for kind in ("fact", "inference"):
+            refs = item.get(f"{kind}_refs") if isinstance(item, dict) else None
+            if not isinstance(refs, list):
+                continue
+            fixed = []
+            for ref in refs:
+                if isinstance(ref, str) and ref not in allowed[kind] and "::" in ref:
+                    owner, local = ref.split("::", 1)
+                    candidate = f"{owner}::{local.removeprefix('exp-')}"
+                    if local.startswith("exp-") and candidate in allowed[kind]:
+                        repairs.append({"from": ref, "to": candidate})
+                        ref = candidate
+                fixed.append(ref)
+            item[f"{kind}_refs"] = fixed
+    return repairs
+
+
 def _rejected(directory, error):
     helper.atomic_write_json(
         directory / "validation-failure.json",
-        {"status": "failed", "reason": str(error), "error_type": type(error).__name__},
+        {
+            "status": "failed",
+            "reason": str(error),
+            "error_type": type(error).__name__,
+            # The rule that refused it (2026-11-04: only a generic message was kept).
+            "cause": str(error.__cause__)[:1000] if error.__cause__ else "",
+        },
     )
     raise _failure("resume_author_failed", "简历作者输出未通过程序核验，已保留原响应。") from error
 
@@ -193,6 +232,10 @@ def _execute_content_generation(
         )
         try:
             plan = _expanded_plan(original, choices)
+            repairs = repaired_global_refs(plan)
+            if repairs:
+                helper.atomic_write_json(call / "reference-repairs.json", {"repairs": repairs})
+                print("resume_plan_reference_repaired: " + json.dumps(repairs), flush=True)
             generation.configure_generation(
                 store, identifier, writing_plan=plan, main_writer_id=main_writer
             )

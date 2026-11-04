@@ -333,6 +333,10 @@ def _preparation_progress(task, analysis):
         status, reason = "waiting", "resume_author_input_required"
         message = "简历写作需要处理对应经历，已保留完成片段和原稿。"
         if resume["error_code"] == "resume_author_failed":
+            # A model output that failed the program's check is not missing experience.
+            message = (
+                "简历写作的模型输出未通过程序核验，已保留原响应和完成片段；点继续会重新核验或重写。"
+            )
             continuation = {"task_id": task["id"], "attempt_id": resume.get("attempt_id")}
     elif export.get("status") == "failed" or (
         resume.get("status") == "failed" and resume.get("error_code") != "resume_author_paused"
