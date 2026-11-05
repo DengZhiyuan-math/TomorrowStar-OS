@@ -1737,6 +1737,47 @@ def test_a_slow_material_read_hands_on_a_context_that_follows_the_renewal(native
     assert received[0]["observed_at"] == received[0]["at"]
 
 
+def test_a_native_admission_checks_its_scope_without_serving_the_stop(native_page):
+    """2026-11-05: each admission's pump served the stop service, which asked the
+    Adapter's progress again (1-4.7 s), and writes reached the driver too late."""
+    _service, runner, _page, ref, _, _ = native_page
+    served, inside = [], []
+
+    def stop_service():
+        served.append(bool(inside))
+
+    class Adapter:
+        def start_takeover(self, original_ref, **kwargs):
+            kwargs["before_yield"](
+                {
+                    "application_ref_digest": digest(ref),
+                    "scope": kwargs["native_scope"],
+                    "request_id": kwargs["request_id"],
+                }
+            )
+            kwargs["after_yield"](
+                {"handoff_id": "native-run", "generation": 1, "local_tools_drained": True}
+            )
+            inside.append(True)
+            kwargs["before_native_call"](
+                {
+                    "call_id": "native-type",
+                    "tool": "browser_type",
+                    "status": "awaiting_host",
+                    "scope": kwargs["native_scope"],
+                    "field_hint": {"name": "Email", "role": "textbox"},
+                    "text_sha256": "0" * 64,
+                }
+            )
+            inside.clear()
+            return SimpleNamespace(run_id="adapter-native-run")
+
+    runner.codex_assist = Adapter()
+    runner._service_assistance_stop = stop_service
+    runner.start_native_assistance(ref, request_id="native-no-stop-service")
+    assert served and True not in served
+
+
 @pytest.mark.parametrize("failure", ["owned_browser_read_timeout", "document_changed"])
 def test_a_slow_start_check_is_retried_but_a_changed_document_is_not(
     native_page, monkeypatch, failure
@@ -1747,12 +1788,14 @@ def test_a_slow_start_check_is_retried_but_a_changed_document_is_not(
     original = runner.pump_codex_events
     failed = []
 
-    def pump(reference, *, document=None, after_stop=False):
+    def pump(reference, *, document=None, after_stop=False, service_stop=True):
         if document is not None and not failed:
             failed.append(True)
             runner._permit_failure = failure
             return False
-        return original(reference, document=document, after_stop=after_stop)
+        return original(
+            reference, document=document, after_stop=after_stop, service_stop=service_stop
+        )
 
     monkeypatch.setattr(runner, "pump_codex_events", pump)
 

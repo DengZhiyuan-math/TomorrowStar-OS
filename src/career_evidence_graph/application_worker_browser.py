@@ -3928,8 +3928,8 @@ class ApplicationRunner:
         }
         latest = {}
 
-        def permitted():
-            return self.pump_codex_events(reference, document=document)
+        def permitted(*, service_stop=True):
+            return self.pump_codex_events(reference, document=document, service_stop=service_stop)
 
         def before_yield(intent):
             if (
@@ -4015,7 +4015,7 @@ class ApplicationRunner:
 
         def admit_native_call(call):
             began = time.monotonic()
-            allowed_now = permitted()
+            allowed_now = permitted(service_stop=False)
             permitted_s = time.monotonic() - began
             if not allowed_now or call.get("scope") != call_scope or not latest.get("handoff_id"):
                 _log_admission_denial(
@@ -4485,10 +4485,18 @@ class ApplicationRunner:
             self.persist(state)
         self._service_assistance_stop()
 
-    def pump_codex_events(self, assistance_ref, *, document=None, after_stop=False) -> bool:
-        """Keep control and browser events alive without executing queued page work."""
+    def pump_codex_events(
+        self, assistance_ref, *, document=None, after_stop=False, service_stop=True
+    ) -> bool:
+        """Keep control and browser events alive without executing queued page work.
+
+        ``service_stop=False`` is a native admission's own check: it runs inside the
+        Adapter's progress, whose stop service would ask that progress again (1-4.7 s
+        per pump, 2026-11-05). Its scope check still refuses a paused, cancelled or
+        changed job; the next ordinary pump serves the stop.
+        """
         started = time.monotonic()
-        self.tick(control_only=True)
+        self.tick(control_only=True, service_stop=service_stop)
         ticked = time.monotonic()
         if self.context is not None:
             # Codex's own loop paces these calls; an idle wait here only delays a
@@ -5126,7 +5134,7 @@ class ApplicationRunner:
             )
         return outcome, writes
 
-    def tick(self, *, control_only=False) -> None:
+    def tick(self, *, control_only=False, service_stop=True) -> None:
         self.work_progressed = False
         try:
             started = time.monotonic()
@@ -5143,7 +5151,8 @@ class ApplicationRunner:
             else:
                 self._tick()
             ticked = time.monotonic()
-            self._service_assistance_stop()
+            if service_stop:
+                self._service_assistance_stop()
             if control_only and time.monotonic() - started > 1.5:
                 # Private timing of a slow control tick inside a takeover (2026-11-05).
                 print(
