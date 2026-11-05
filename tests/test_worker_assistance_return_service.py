@@ -1637,3 +1637,30 @@ def test_native_cover_letter_is_checked_on_the_page_like_the_resume(
         }
     ]
     assert verified["optional_failures"] == []
+
+
+def test_an_observed_cv_delivery_is_not_named_as_remaining():
+    from career_evidence_graph.application_worker_browser import native_remaining_message
+
+    claimed = {
+        "fields": [
+            {"field_id": "_systemfield_resume", "state": "attached"},
+            {"field_id": "why", "state": "unresolved"},
+        ]
+    }
+    fields = [
+        {"id": "_systemfield_resume", "name": "", "label": "Resume (English only)"},
+        {"id": "why", "name": "", "label": "Why are you interested?"},
+    ]
+    verification = [
+        {"id": "_systemfield_resume", "required": True, "value_empty": True},
+        {"id": "why", "required": True, "value_empty": True},
+    ]
+    delivery = {"target_descriptor": {"id": "_systemfield_resume", "name": "", "worker_field": ""}}
+    message = native_remaining_message(claimed, fields, verification, [delivery])
+    assert "Why are you interested?（why）" in message and "Resume" not in message
+    assert "Resume" in native_remaining_message(claimed, fields, verification)
+    # With only the CV named, the Worker's own required-empty read still skips it.
+    alone = {"fields": claimed["fields"][:1]}
+    message = native_remaining_message(alone, fields, verification, [delivery])
+    assert "why" in message and "Resume" not in message

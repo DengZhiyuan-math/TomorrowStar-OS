@@ -240,16 +240,29 @@ def native_resume_delivered(job, document):
     return bool(native_resume_deliveries(job, document))
 
 
-def native_remaining_message(claimed, fields, verification):
-    """Name the controls the native turn left (labels/ids only), for the user's choice."""
+def native_remaining_message(claimed, fields, verification, delivered=()):
+    """Name the controls the native turn left (labels/ids only), for the user's choice.
+
+    ``delivered`` are the file inputs the ledger observed a delivery into; Codex's own
+    word for them ("attached", 2026-11-05 Harmattan's CV) does not reopen them.
+    """
+    done = {
+        value
+        for call in delivered
+        for value in (
+            (call.get("target_descriptor") or {}).get(key) for key in ("id", "name", "worker_field")
+        )
+        if value
+    }
     named = [(claimed.get("next_step") or {}).get("field_id")] + [
         row.get("field_id")
         for row in claimed.get("fields", [])
         if str(row.get("state", "")).strip().casefold() not in NATIVE_DONE_STATES
     ]
-    if not any(named):
+    if not any(name not in done for name in named if name):
         # Codex named nothing; the Worker's own read names the required empty ones.
         named = [row["id"] for row in verification if row["required"] and row["value_empty"]]
+    named = [name for name in named if name not in done]
     names = []
     for identifier in dict.fromkeys(name for name in named if name):
         rows = [row for row in fields if identifier in {row.get("id"), row.get("name")}]
@@ -5035,7 +5048,12 @@ class ApplicationRunner:
                 # the script; name what the native path left, never its values.
                 raise PortalDataError(
                     "native_controls_remaining",
-                    native_remaining_message(claimed, fields, verification),
+                    native_remaining_message(
+                        claimed,
+                        fields,
+                        verification,
+                        native_resume_deliveries(job, context["document"]),
+                    ),
                     409,
                 )
             done = {row["field_id"] for row in attributed}
