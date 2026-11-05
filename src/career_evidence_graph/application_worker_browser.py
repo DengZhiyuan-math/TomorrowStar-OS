@@ -5129,6 +5129,7 @@ class ApplicationRunner:
     def tick(self, *, control_only=False) -> None:
         self.work_progressed = False
         try:
+            started = time.monotonic()
             maintain = getattr(self.cua, "maintain", None)
             if maintain is not None and not self.shared_fault:
                 try:
@@ -5136,11 +5137,26 @@ class ApplicationRunner:
                 except PortalDataError as error:
                     print(f"cua_owner_unknown: {error.code} {error}", flush=True)
                     self.event("cua_owner_unknown")
+            maintained = time.monotonic()
             if control_only:
                 self._tick(control_only=True)
             else:
                 self._tick()
+            ticked = time.monotonic()
             self._service_assistance_stop()
+            if control_only and time.monotonic() - started > 1.5:
+                # Private timing of a slow control tick inside a takeover (2026-11-05).
+                print(
+                    "control_tick_slow: "
+                    + json.dumps(
+                        {
+                            "maintain_s": round(maintained - started, 2),
+                            "state_s": round(ticked - maintained, 2),
+                            "stop_service_s": round(time.monotonic() - ticked, 2),
+                        }
+                    ),
+                    flush=True,
+                )
             if not control_only:
                 self._service_assistance_dispatch()
                 self._service_assistance_return()
