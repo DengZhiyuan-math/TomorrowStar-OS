@@ -411,6 +411,23 @@ INSPECT_HOSTED = r"""async (generic=false) => {
 
 # A job description page whose application form sits behind one entry (Apply now).
 # Source-owned DOM code: it reads only; the runner opens the entry it names.
+# A job page whose apply step lives on another site names it in its own data
+# (2026-11-05, BCG Platinion): Phenom keeps an external applyUrl without rendering an
+# Apply button, and Avature first asks how to apply; "Apply Manually" is the form.
+SITE_APPLY_LINK = r"""() => {
+  const job = window.phApp?.ddo?.jobDetail?.data?.job;
+  if (job && job.isExternalApply === true && typeof job.applyUrl === 'string' &&
+      /^https:\/\//.test(job.applyUrl)) return job.applyUrl;
+  if (/(^|\.)avature\.net$/.test(location.hostname) &&
+      /\/ApplicationMethods$/.test(location.pathname)) {
+    const link = [...document.querySelectorAll('a[href]')].find(a =>
+      a.hostname === location.hostname && /\/Register$/.test(a.pathname) &&
+      /[?&]jobId=/.test(a.search));
+    return link ? link.href : null;
+  }
+  return null;
+}"""
+
 APPLY_ENTRY = r"""() => {
   const visible = e => Boolean(e.getClientRects().length) &&
     getComputedStyle(e).visibility !== 'hidden';

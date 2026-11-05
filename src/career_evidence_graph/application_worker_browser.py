@@ -5912,11 +5912,16 @@ class ApplicationRunner:
         """
         source = page.url
         try:
+            for _hop in range(2):
+                target = page.evaluate(hosted_ats.SITE_APPLY_LINK)
+                if not target or target == page.url:
+                    break
+                page.goto(target, wait_until="domcontentloaded", timeout=20000)
             entry = page.evaluate(hosted_ats.APPLY_ENTRY)
-        except Error:
-            return None
+        except (Error, TimeoutError):
+            return page.url if page.url != source else None
         if entry["form"]:
-            return None
+            return page.url if page.url != source else None
         if len(entry["hrefs"]) == 1:
             page.goto(entry["hrefs"][0], wait_until="domcontentloaded", timeout=20000)
         elif not entry["hrefs"] and entry["buttons"] == 1:
