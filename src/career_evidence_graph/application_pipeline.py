@@ -12,6 +12,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from copy import deepcopy
 from pathlib import Path
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 from ._vendor import job_apply_store as helper
@@ -231,15 +232,29 @@ class ApplicationPipeline:
                 retained_recommendations = {
                     item.get("recommendation_id") for item in state["items"]
                 }
+                recommendations = self.intake.snapshot().get("recommendations", [])
                 state["pending_recommendations"] = [
                     row
-                    for row in self.intake.snapshot().get("recommendations", [])
+                    for row in recommendations
                     if row["id"] != state.get("current_recommendation_id")
                     and row["id"] not in retained_recommendations
                 ]
             except (OSError, ValueError, TypeError, KeyError, PortalDataError, helper.StoreError):
+                recommendations = []
                 state["pending_recommendations"] = []
                 state["mail_intake_error"] = "intake_unavailable"
+            # A job skipped before it had an application (no full JD, a source
+            # conflict) is labelled from its recommendation, else its source host.
+            by_id = {row.get("id"): row for row in recommendations if isinstance(row, dict)}
+            for item in state["items"]:
+                row = by_id.get(item.get("recommendation_id"))
+                if item.get("company") or row is None:
+                    continue
+                item.update(
+                    company=row.get("company") or "", role_title=row.get("role_title") or ""
+                )
+                url = row.get("jd_source_url") or row.get("url") or row.get("mail_url") or ""
+                item["source_host"] = (urlsplit(url).hostname or "") if isinstance(url, str) else ""
             return state | {
                 "notice": self._notice(state),
                 "enabled": self._owner and not self._closed.is_set() and not self._runtime_error,

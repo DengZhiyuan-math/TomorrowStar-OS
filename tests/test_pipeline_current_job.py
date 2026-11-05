@@ -414,6 +414,12 @@ def test_source_wait_skip_return_reuses_current_pointer_and_continue_retries_sou
     first_id = waiting["current_recommendation_id"]
     pipeline.skip_current(request_id="skip-source")
     second = drive(pipeline, "filling")
+    # A job skipped before it had an application is still labelled in the list.
+    skipped = next(row for row in second["items"] if row["recommendation_id"] == first_id)
+    record = next(row for row in intake.snapshot()["recommendations"] if row["id"] == first_id)
+    assert "application_id" not in skipped or skipped["application_id"] is None
+    assert (skipped["company"], skipped["role_title"]) == (record["company"], record["role_title"])
+    assert skipped["source_host"] == "www.linkedin.com"
     pipeline.return_to(first_id, request_id="return-source")
     pipeline.continue_current(request_id="source-still-failed")
     drive(pipeline, "needs_input")

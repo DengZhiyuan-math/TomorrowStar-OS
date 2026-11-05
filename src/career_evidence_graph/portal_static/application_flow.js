@@ -311,7 +311,7 @@
   function renderPipeline() {
     automation.hidden = flow?.mode === "preparation";
     automation.dataset.taskId = `${pipeline?.id || ""}/${pipelineScope()}/${pipeline?.active_task_id || ""}`;
-    const key = JSON.stringify([flow?.mode, pipeline?.enabled, pipeline?.id, pipeline?.control, pipeline?.status, pipeline?.current_recommendation_id, pipeline?.active_task_id, pipeline?.wait_reason, pipeline?.notice?.message || pipeline?.notice?.title, pipeline?.items?.map(item => [item.application_id, item.recommendation_id, item.company, item.role_title, item.status, item.score?.lower, item.score?.upper, item.score?.coverage])]);
+    const key = JSON.stringify([flow?.mode, pipeline?.enabled, pipeline?.id, pipeline?.control, pipeline?.status, pipeline?.current_recommendation_id, pipeline?.active_task_id, pipeline?.wait_reason, pipeline?.notice?.message || pipeline?.notice?.title, pipeline?.items?.map(item => [item.application_id, item.recommendation_id, item.company, item.role_title, item.status, item.reason, item.source_host, item.pipeline_context?.notification?.message, item.score?.lower, item.score?.upper, item.score?.coverage])]);
     if (renderedPipeline === key) return;
     renderedPipeline = key;
     automation.replaceChildren(node("h2", "", "自动申请流程"));
@@ -347,20 +347,49 @@
     if (pipeline?.wait_reason === "score_approval") automation.append(node("p", "flow-muted", "此岗位匹配分在 55–75 区间，或两个模型分差较大：已完成分析、尚未生成材料。查看匹配概览后，点击“继续当前岗位”即批准生成材料；不投可点跳过。"));
     if (pipeline?.wait_reason === "precision_adjustment") automation.append(node("p", "flow-muted", "此岗位已完成分析、完整简历与已发现的必要附稿。你可以先调整材料，再点击“继续当前岗位”使用当前版本填写。"));
     if (pipeline?.notice) automation.append(node("p", "flow-muted", pipeline.notice.message || pipeline.notice.title));
-    for (const item of pipeline?.items || []) {
+    // One row per job: title, a status badge with its reason, and the row's action.
+    // The current job comes first, then the rest newest first.
+    const items = (pipeline?.items || []).map((item, index) => ({ item, index, current: item.status !== "skipped" && item.status !== "analysis_failed" && item.recommendation_id === pipeline.current_recommendation_id }));
+    items.sort((a, b) => (b.current - a.current) || (b.index - a.index));
+    const list = node("ol", "flow-pipeline-items");
+    for (const { item, current } of items) {
       const score = item.score;
-      const line = node("p", "flow-muted", `${item.company || "岗位"}${item.role_title ? ` · ${item.role_title}` : ""}${score && typeof score.lower === "number" ? ` · 匹配 ${Math.round(score.lower) === Math.round(score.upper) ? Math.round(score.upper) : `${Math.round(score.lower)}–${Math.round(score.upper)}`}` : ""}${item.status === "analysis_failed" ? " · 分析结果未通过校验，已保留记录并跳过" : ""}${item.status === "skipped" && item.reason === "low_match_score" ? " · 匹配分低于 15，已自动跳过；可返回此岗位继续" : ""}${item.status === "skipped" && item.reason === "posting_closed" ? " · 领英显示岗位已停止招聘，已标为岗位已关闭并跳过" : ""}${item.status === "skipped" && item.reason === "easy_apply_only" ? " · 只能在领英站内申请（Easy Apply），已跳过；需要时请自己在领英投递" : ""}`);
-      automation.append(line);
+      const [badge, tone, reason] = current ? ["当前岗位", "reviewed", ""]
+        : item.status === "analysis_failed" ? ["分析未通过", "rejected", "分析结果未通过校验，已保留记录"]
+        : item.status !== "skipped" ? ["已处理", "applied", ""]
+        : item.reason === "posting_closed" ? ["已停招", "withdrawn", "领英显示岗位已停止招聘"]
+        : item.reason === "easy_apply_only" ? ["仅领英站内申请", "withdrawn", "只能用领英 Easy Apply，需要时请自己投递"]
+        : item.reason === "low_match_score" ? ["匹配过低", "withdrawn", "匹配分低于 15，已自动跳过"]
+        : ["已跳过", "candidate", item.pipeline_context?.notification?.message ? `跳过时：${item.pipeline_context.notification.message}` : ""];
+      const row = node("li", `flow-pipeline-item${current ? " is-current" : ""}`);
+      const main = node("div", "flow-pipeline-item-main");
+      const title = node("p", "flow-pipeline-item-title");
+      title.append(node("strong", "", item.company || (item.source_host ? `${item.source_host} 推荐` : "未命名岗位")));
+      if (item.role_title) title.append(node("span", "", item.role_title));
+      else if (!item.company) title.append(node("span", "", "未取得岗位信息"));
+      const meta = node("p", "flow-pipeline-item-meta");
+      meta.append(node("span", `status-badge status-${tone}`, badge));
+      if (score && typeof score.lower === "number") meta.append(node("span", "", `匹配 ${Math.round(score.lower) === Math.round(score.upper) ? Math.round(score.upper) : `${Math.round(score.lower)}–${Math.round(score.upper)}`}`));
+      if (reason) meta.append(node("span", "", reason));
+      main.append(title, meta);
+      row.append(main);
       if (item.status === "skipped") {
         const restore = button("返回此岗位", () => pipelineAction("return", { application_id: item.application_id || item.recommendation_id }, true), "", true);
         restore.dataset.flowStop = "true";
-        line.append(restore);
+        row.append(restore);
+      } else if (current && pipeline?.active_task_id) {
+        row.append(followButton());
       }
+      list.append(row);
     }
-    if (pipeline?.active_task_id) {
-      const open = button("跟随当前岗位与材料", () => { followingPipeline = true; selectedTask = pipeline.active_task_id; refresh(); }, "flow-pipeline-current", true);
-      delete open.dataset.flowWrite; automation.append(open);
-    }
+    if (items.length) automation.append(node("h3", "", `本次处理的岗位（${items.length}）`), list);
+    if (pipeline?.active_task_id && !automation.querySelector("#flow-pipeline-current")) automation.append(followButton());
+  }
+
+  function followButton() {
+    const open = button("跟随当前岗位与材料", () => { followingPipeline = true; selectedTask = pipeline.active_task_id; refresh(); }, "flow-pipeline-current", true);
+    delete open.dataset.flowWrite;
+    return open;
   }
 
   function pipelineAction(action, payload = {}, stopping = false) {

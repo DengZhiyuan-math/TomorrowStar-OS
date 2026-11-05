@@ -279,3 +279,17 @@
 .flow-final-pdf > h3 { margin-top: 0; }
 .flow-final-pdf .flow-pdf { height: min(72vh, 820px); min-height: 420px; }
 .flow-system-details > summary { font-weight: 600; }
+
+/* Automatic pipeline: one aligned row per job. */
+.flow-pipeline-items { list-style: none; margin: 8px 0 0; padding: 0; border-top: 1px solid var(--line); }
+.flow-pipeline-item { display: flex; align-items: center; gap: 16px; padding: 12px 10px; border-bottom: 1px solid var(--line); }
+.flow-pipeline-item.is-current { background: var(--green-soft); border-radius: 8px; border-bottom-color: transparent; margin-bottom: 4px; }
+.flow-pipeline-item-main { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.flow-pipeline-item-title { font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.flow-pipeline-item-title strong { font-weight: 600; color: var(--ink); }
+.flow-pipeline-item-title span { color: var(--muted); }
+.flow-pipeline-item-title span::before { content: " · "; }
+.flow-pipeline-item-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 12px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
+.flow-pipeline-item > .button { flex-shrink: 0; }
+.flow-pipeline-item-meta .status-badge { font-size: 11px; }
+@media (max-width: 620px) { .flow-pipeline-item { flex-direction: column; align-items: stretch; gap: 10px; } }
