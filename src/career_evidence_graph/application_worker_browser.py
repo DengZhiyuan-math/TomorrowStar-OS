@@ -4104,6 +4104,7 @@ class ApplicationRunner:
                 # The same settling read as start and return (2026-11-03: a CV's
                 # admission read timed out once and revoked the whole takeover).
                 # A read that still fails refuses only this delivery.
+                material_started = time.monotonic()
                 try:
                     context = self._observe_settling_context(reference)
                 except (PortalDataError, Error) as error:
@@ -4118,16 +4119,34 @@ class ApplicationRunner:
                 # The admission read verified this page's document just now; the
                 # snapshot follows that observation, as at the takeover's start
                 # (2026-11-05: Harmattan's CV read as an expired JSON context).
+                read_s = time.monotonic() - material_started
                 self._renew_own_observation(reference)
                 self._renew_assistance_context(reference, context)
-                return self._prepare_native_material_call(
-                    reference,
-                    call,
-                    context,
-                    request_id=request_id,
-                    scope=journal_scope,
-                    receipt=receipt,
-                )
+                renewed = time.monotonic()
+                try:
+                    return self._prepare_native_material_call(
+                        reference,
+                        call,
+                        context,
+                        request_id=request_id,
+                        scope=journal_scope,
+                        receipt=receipt,
+                    )
+                finally:
+                    # Private timing of a material admission's steps (2026-11-05).
+                    print(
+                        "native_material_steps: "
+                        + json.dumps(
+                            {
+                                "permitted_s": round(permitted_s, 2),
+                                "checks_s": round(material_started - began - permitted_s, 2),
+                                "page_read_s": round(read_s, 2),
+                                "renew_s": round(renewed - material_started - read_s, 2),
+                                "prepare_s": round(time.monotonic() - renewed, 2),
+                            }
+                        ),
+                        flush=True,
+                    )
             recorded = time.monotonic()
             self.store.record_native_handoff(
                 reference,
