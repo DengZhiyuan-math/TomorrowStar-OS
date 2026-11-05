@@ -4020,7 +4020,7 @@ class ApplicationRunner:
             if not allowed_now or call.get("scope") != call_scope or not latest.get("handoff_id"):
                 _log_admission_denial(
                     call,
-                    "not_permitted"
+                    f"not_permitted:{self._permit_failure}"
                     if not allowed_now
                     else "scope_changed"
                     if call.get("scope") != call_scope
