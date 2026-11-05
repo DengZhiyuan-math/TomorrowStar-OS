@@ -1147,6 +1147,33 @@ def test_unknown_qualification_continues_preparation_without_becoming_confirmed(
     assert any(call[0] == "prepare" for call in flow.calls)
 
 
+def test_a_qualification_conflict_names_the_hard_conditions_not_met(environment):
+    pipeline, flow, _, _, _ = environment
+    original = flow.start
+
+    def start(identifier, revision, stage):
+        result = original(identifier, revision, stage)
+        if stage == "analysis":
+            requirement = flow.tasks[identifier]["artifacts"][-1]["result"]["requirements"][0]
+            requirement.update(
+                text="Speak German at a native level.", hard_condition=True, judgment="gap"
+            )
+        return result
+
+    flow.start = start
+    pipeline.start(request_id="qualification-conflict")
+    state = advance(pipeline, "needs_input")
+    item = next(row for row in state["items"] if row.get("reason") == "flow_eligibility_required")
+    assert state["wait_reason"] == "qualification_conflict"
+    assert item["mismatch"] == ["Speak German at a native level."]
+    # A job stopped before the field existed learns it on the next running tick.
+    saved = pipeline._load()
+    for row in saved["items"]:
+        row.pop("mismatch", None)
+    pipeline._advance(saved)
+    assert pipeline._load()["items"][0]["mismatch"] == ["Speak German at a native level."]
+
+
 @pytest.mark.parametrize(
     "upper,review,tier",
     [

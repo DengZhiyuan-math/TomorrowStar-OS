@@ -74,6 +74,11 @@ _EXPORT_ENVIRONMENT_FAILURES = frozenset(
 )
 
 
+def _mismatch(eligibility):
+    """The JD's hard conditions the saved facts do not meet, as listed to the user."""
+    return [row["text"] for row in eligibility["conditions"] if row["status"] == "conflict"][:3]
+
+
 class ApplicationPipeline:
     """A persistent mail queue with one current job and manual final submission."""
 
@@ -2199,6 +2204,9 @@ class ApplicationPipeline:
     def _task(self, state):
         return self.flow.task_snapshot(state["active_task_id"])
 
+    def _task_by_id(self, item):
+        return self.flow.task_snapshot(item["task_id"])
+
     def _check_posting(self, state, item, application):
         """Read a LinkedIn job once before matching (decided 2026-10-31).
 
@@ -2561,6 +2569,19 @@ class ApplicationPipeline:
         self._save(state)
 
     def _advance(self, state):
+        backfill = [
+            item
+            for item in state["items"]
+            if item.get("reason") == "flow_eligibility_required" and "mismatch" not in item
+        ]
+        for item in backfill:
+            # Jobs stopped before 2026-11-05 learn which hard conditions they miss.
+            try:
+                item["mismatch"] = _mismatch(task_eligibility(self._task_by_id(item)))
+            except (OSError, PortalDataError, KeyError, TypeError, ValueError):
+                item["mismatch"] = []
+        if backfill:
+            self._save(state)
         if match_refresh_running(self.flow, other_than=state.get("active_task_id")):
             # Skip releases adoption, not the callback's physical execution slot.
             return
@@ -2844,15 +2865,15 @@ class ApplicationPipeline:
                 score_tier=score_tier(score, needs_review=bool(models and models["needs_review"])),
                 score_analysis_id=task["analysis_id"],
             )
-            eligible = task_eligibility(task)["status"] in {
-                "supported",
-                "not_specified",
-                "needs_input",
-            }
+            eligibility = task_eligibility(task)
+            eligible = eligibility["status"] in {"supported", "not_specified", "needs_input"}
             item.update(
                 status="matched" if eligible and score["lower"] is not None else "needs_input",
                 reason="" if eligible else "flow_eligibility_required",
             )
+            item.pop("mismatch", None)
+            if not eligible:
+                item["mismatch"] = _mismatch(eligibility)
             if item["status"] == "needs_input":
                 state.update(
                     active_task_id=task["id"],

@@ -311,7 +311,7 @@
   function renderPipeline() {
     automation.hidden = flow?.mode === "preparation";
     automation.dataset.taskId = `${pipeline?.id || ""}/${pipelineScope()}/${pipeline?.active_task_id || ""}`;
-    const key = JSON.stringify([flow?.mode, pipeline?.enabled, pipeline?.id, pipeline?.control, pipeline?.status, pipeline?.current_recommendation_id, pipeline?.active_task_id, pipeline?.wait_reason, pipeline?.notice?.message || pipeline?.notice?.title, pipeline?.items?.map(item => [item.application_id, item.recommendation_id, item.company, item.role_title, item.status, item.reason, item.source_host, item.pipeline_context?.notification?.message, item.score?.lower, item.score?.upper, item.score?.coverage])]);
+    const key = JSON.stringify([flow?.mode, pipeline?.enabled, pipeline?.id, pipeline?.control, pipeline?.status, pipeline?.current_recommendation_id, pipeline?.active_task_id, pipeline?.wait_reason, pipeline?.notice?.message || pipeline?.notice?.title, pipeline?.items?.map(item => [item.application_id, item.recommendation_id, item.company, item.role_title, item.status, item.reason, item.mismatch, item.source_host, item.pipeline_context?.notification?.message, item.score?.lower, item.score?.upper, item.score?.coverage])]);
     if (renderedPipeline === key) return;
     renderedPipeline = key;
     automation.replaceChildren(node("h2", "", "自动申请流程"));
@@ -358,6 +358,7 @@
       const score = item.score;
       const [badge, tone, reason] = current ? ["当前岗位", "reviewed", ""]
         : item.status === "analysis_failed" ? ["分析未通过", "rejected", "分析结果未通过校验，已保留记录"]
+        : item.reason === "flow_eligibility_required" ? ["岗位不匹配", "rejected", item.mismatch?.length ? `不满足：${item.mismatch.join("；")}` : "JD 的硬性条件与信息库不符"]
         : item.status !== "skipped" ? ["已处理", "applied", ""]
         : item.reason === "posting_closed" ? ["已停招", "withdrawn", "领英显示岗位已停止招聘"]
         : item.reason === "easy_apply_only" ? ["仅领英站内申请", "withdrawn", "只能用领英 Easy Apply，需要时请自己投递"]
