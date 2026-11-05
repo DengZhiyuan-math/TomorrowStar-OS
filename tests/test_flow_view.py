@@ -277,3 +277,31 @@ def test_preparation_projection_keeps_runtime_identity(roots):
         assert state["capabilities"]["worker"] is False
     finally:
         runtime.close()
+
+
+def test_reads_share_one_parse_until_the_record_is_replaced(roots, monkeypatch):
+    # 2026-11-05: every read parsed the 125 MB record under the shared write lock.
+    runtime = _open(roots)
+    try:
+        task = _task(runtime)
+        flow = runtime.flow
+        original, loads = flow._load, []
+
+        def counted():
+            loads.append(True)
+            return original()
+
+        monkeypatch.setattr(flow, "_load", counted)
+        flow._shared = None
+        first = flow.task_snapshot(task["id"])
+        flow.task_snapshot(task["id"])
+        flow.progress(task["id"])
+        assert len(loads) == 1
+        # A caller's copy never changes the shared parse.
+        first["status"] = "synthetic-change"
+        assert flow.task_snapshot(task["id"])["status"] != "synthetic-change"
+        cancelled = flow.cancel(task["id"], task["revision"])
+        assert flow.task_snapshot(task["id"])["revision"] == cancelled["revision"]
+        assert len(loads) >= 2
+    finally:
+        runtime.close()

@@ -507,6 +507,7 @@ class ApplicationFlowService:
         ):
             raise PortalDataError("flow_root_conflict", "任务目录与投递记录目录须独立。", 409)
         self.path = self.root / "flow.json"
+        self._shared = None
         self.callbacks = dict(callbacks or {})
         self.input_provider = input_provider
         self.information_provider = information_provider
@@ -554,6 +555,30 @@ class ApplicationFlowService:
         if self._owner:
             self._thread = threading.Thread(target=self._run, name="application-flow", daemon=True)
             self._thread.start()
+
+    def _load_shared(self):
+        """The validated record for reads; a caller copies what it keeps (2026-11-05).
+
+        The 125 MB record was parsed and validated on every read, several times per
+        UI poll, under the shared write lock. One parse serves until the file is
+        replaced (inode, mtime and size).
+        """
+        try:
+            info = self.path.stat()
+            key = (info.st_ino, info.st_mtime_ns, info.st_size)
+        except OSError:
+            key = None
+        cached = self._shared
+        if key is not None and cached is not None and cached[0] == key:
+            return cached[1]
+        state = self._load()
+        try:
+            info = self.path.stat()
+            if key == (info.st_ino, info.st_mtime_ns, info.st_size):
+                self._shared = (key, state)
+        except OSError:
+            pass
+        return state
 
     def _load(self):
         if self.path.is_symlink():
@@ -4977,7 +5002,7 @@ class ApplicationFlowService:
     def progress(self, task_id):
         """Read preparation progress without dispatching or inspecting execution."""
         with self.applications.write_lock():
-            task = self._task(self._load(), task_id)
+            task = deepcopy(self._task(self._load_shared(), task_id))
             return _preparation_progress(
                 task,
                 _analysis_outcome(task, known_attempt_failure=self._known_attempt_failure(task)),
@@ -5092,13 +5117,15 @@ class ApplicationFlowService:
         """Project one task with current Worker/handoff checks and no history projection."""
         from .application_existing_handoff import project
 
+        # Under the lock a reader sees only whole writes; the shared parse makes the
+        # hold one task copy instead of a 125 MB parse (2026-11-05).
         with self.applications.write_lock():
-            task = self._task(self._load(), task_id)
+            task = deepcopy(self._task(self._load_shared(), task_id))
             return project(self, self._worker_view(task))
 
     def snapshot(self, task_id=None):
         with self.applications.write_lock():
-            state = deepcopy(self._load())
+            state = deepcopy(self._load_shared())
             from .application_existing_handoff import project
 
             state["tasks"] = [project(self, self._worker_view(task)) for task in state["tasks"]]
