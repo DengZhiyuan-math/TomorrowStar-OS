@@ -1174,8 +1174,12 @@ class NativeCuaSessionClient:
             raise ValueError("Native control timeout must be positive and within the action bound")
         return value
 
-    def _control_request(self, message, *, pump=None, timeout=None):
-        """The original host can revoke while the borrowed action stream is busy."""
+    def _control_request(self, message, *, pump=None, timeout=None, refusal_answers=False):
+        """The original host can revoke while the borrowed action stream is busy.
+
+        ``refusal_answers``: the driver's typed refusal is this request's answer, the
+        session stays intact and the refusal is raised as ``cua_refused``.
+        """
         if self._closed or self.process.poll() is not None:
             raise PortalDataError("cua_handoff_unknown", "原生接管控制连接已失效。", 409)
         timeout = self._control_timeout(timeout)
@@ -1198,6 +1202,11 @@ class NativeCuaSessionClient:
             if remaining <= 0:
                 raise TimeoutError("native control connection deadline")
             return self._exchange(stream, message, pump=control_pump, timeout=remaining)
+        except PortalDataError as error:
+            if refusal_answers and error.code == "cua_refused":
+                raise
+            self.failed = True
+            raise PortalDataError("cua_handoff_unknown", "原生接管控制结果未知。", 409) from error
         except (Exception, KeyboardInterrupt) as error:
             self.failed = True
             if isinstance(error, KeyboardInterrupt):
@@ -1375,22 +1384,39 @@ class NativeCuaSessionClient:
                 raise PortalDataError(
                     "cua_handoff_invalid", "原生材料授权记录无效。", 409
                 ) from None
-        return self._handoff_status(
-            self._control_request(
-                {
-                    "method": "trusted_session_handoff_admit",
-                    "args": {
-                        "handoff_id": self._handoff["handoff_id"],
-                        "call_id": call_id,
-                        "arguments_digest": arguments_digest,
-                        "decision": decision,
-                        **material,
+        started = time.monotonic()
+        try:
+            return self._handoff_status(
+                self._control_request(
+                    {
+                        "method": "trusted_session_handoff_admit",
+                        "args": {
+                            "handoff_id": self._handoff["handoff_id"],
+                            "call_id": call_id,
+                            "arguments_digest": arguments_digest,
+                            "decision": decision,
+                            **material,
+                        },
                     },
-                },
-                pump=pump,
-                timeout=timeout,
+                    pump=pump,
+                    timeout=timeout,
+                    refusal_answers=decision == "deny",
+                )
             )
-        )
+        except PortalDataError as error:
+            if decision != "deny" or error.code != "cua_refused":
+                raise
+            # The installed driver answers a denied call with its typed refusal
+            # (2026-11-05: a declined CV ended the whole takeover as an unknown
+            # result). The session is intact: the call ends refused, read the status.
+            print(f"native_deny_refused: {error.__cause__}"[:200], flush=True)
+            budget = self._control_timeout(timeout)
+            remaining = budget - (time.monotonic() - started)
+            if remaining <= 0:
+                raise PortalDataError(
+                    "cua_handoff_unknown", "原生动作拒绝后的状态尚未确认。", 409
+                ) from error
+            return self.handoff_status(pump=pump, timeout=remaining)
 
     def resume_after_handoff(self, *, pump=None):
         if self.failed or self._handoff is None:

@@ -32,6 +32,7 @@ def native_service(
     fail_yield_once=False,
     control_delay=0,
     yielded=True,
+    deny_refused=False,
 ):
     requests = []
     state = {"return_ready": False, "active_calls": 1}
@@ -123,6 +124,20 @@ def native_service(
                 }:
                     if control_delay:
                         stopped.wait(control_delay)
+                    if (
+                        deny_refused
+                        and method == "trusted_session_handoff_admit"
+                        and message["args"]["decision"] == "deny"
+                    ):
+                        # The installed driver answers a denied call with its refusal.
+                        self.wfile.write(
+                            (
+                                json.dumps({"ok": False, "error": "handoff_host_did_not_authorize"})
+                                + "\n"
+                            ).encode()
+                        )
+                        self.wfile.flush()
+                        continue
                     result = {
                         "handoff_id": "handoff-test",
                         "generation": 1,
@@ -431,6 +446,45 @@ def test_host_admission_is_native_control_metadata_not_an_action_reimplementatio
                 "decision": "allow",
             }
             assert not any(r.get("name") == "browser_click" for r in requests)
+        finally:
+            client.close()
+
+
+def test_a_denied_call_refused_by_the_driver_keeps_the_handoff(tmp_path, monkeypatch):
+    # 2026-11-05: the driver answered a declined CV with handoff_host_did_not_authorize
+    # and the client called the whole takeover's result unknown.
+    import career_evidence_graph.cua_driver as module
+
+    monkeypatch.setattr(
+        module, "verify_native_handoff_recipient", lambda *args, **kwargs: {"pid": 20}
+    )
+    with native_service(tmp_path, deny_refused=True) as (path, options, process, requests, _):
+        client = NativeCuaSessionClient(path, process, options, driver_sha256="1" * 64, timeout=1)
+        try:
+            client.yield_to(
+                ready_record(path),
+                request_id="borrow-one",
+                scope={
+                    "target_id": "original",
+                    "tab_id": "tab",
+                    "expected_document": {
+                        "frame_id": "frame",
+                        "loader_id": "loader",
+                        "url": "https://example.invalid",
+                    },
+                },
+                application_ref_digest="a" * 64,
+                appserver_identity={},
+                driver_executable="/native/driver",
+            )
+            status = client.admit_call("native-call", "b" * 64, "deny", timeout=0.5)
+            # The refused deny is followed by one status read on the intact session.
+            assert status["handoff_id"] == "handoff-test" and not client.failed
+            sent = [r["method"] for r in requests if r["method"].startswith("trusted_session_")]
+            assert sent[-2:] == ["trusted_session_handoff_admit", "trusted_session_handoff_status"]
+            # An allowed call is answered as before.
+            assert client.admit_call("next-call", "c" * 64, "allow", timeout=0.5)["handoff_id"]
+            assert not client.failed
         finally:
             client.close()
 
