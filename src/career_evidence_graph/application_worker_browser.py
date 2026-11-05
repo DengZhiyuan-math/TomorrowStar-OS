@@ -734,6 +734,21 @@ def _abort(route) -> None:
 STOP_RECHECK_INTERVAL = 2.0
 
 
+def _log_admission_denial(call, condition):
+    """Private log of why the Worker denied a native call; never its arguments."""
+    print(
+        "native_admission_denied: "
+        + json.dumps(
+            {
+                "tool": call.get("tool"),
+                "role": (call.get("field_hint") or {}).get("role"),
+                "condition": condition,
+            }
+        ),
+        flush=True,
+    )
+
+
 def _log_typing_denial(call, fact, confirmed, condition):
     """Private log of a denied native write: its fact and role, never a value."""
     hint = call.get("field_hint") or {}
@@ -3966,7 +3981,16 @@ class ApplicationRunner:
                 self._native_work -= 1
 
         def admit_native_call(call):
-            if not permitted() or call.get("scope") != call_scope or not latest.get("handoff_id"):
+            allowed_now = permitted()
+            if not allowed_now or call.get("scope") != call_scope or not latest.get("handoff_id"):
+                _log_admission_denial(
+                    call,
+                    "not_permitted"
+                    if not allowed_now
+                    else "scope_changed"
+                    if call.get("scope") != call_scope
+                    else "handoff_missing",
+                )
                 return False
             current = next(
                 row
@@ -3974,6 +3998,7 @@ class ApplicationRunner:
                 if row["application_id"] == reference["binding"]["application_id"]
             )
             if current.get("intent") is not None and not takeover_pending_intent(current):
+                _log_admission_denial(call, "intent_pending")
                 return False
             self.store.validate_native_answers(reference, delivery["answers"])
             if call.get("tool") in {"browser_type", "browser_set_value"}:
