@@ -3929,7 +3929,17 @@ class ApplicationRunner:
         latest = {}
 
         def permitted(*, service_stop=True):
-            return self.pump_codex_events(reference, document=document, service_stop=service_stop)
+            # A slow read is checked again, as at the start: one 2 s frame read that
+            # timed out denied a write or the yield and revoked the takeover
+            # (2026-11-05, Harmattan). A changed document still fails at once.
+            for attempt in range(3):
+                if self.pump_codex_events(reference, document=document, service_stop=service_stop):
+                    return True
+                if attempt < 2 and self._permit_failure in SLOW_READS:
+                    print(f"assistance_check_retried: {self._permit_failure}", flush=True)
+                    continue
+                return False
+            return False
 
         def before_yield(intent):
             if (
@@ -4015,12 +4025,7 @@ class ApplicationRunner:
 
         def admit_native_call(call):
             began = time.monotonic()
-            # A slow read is retried, as at the start; a denial revokes the takeover
-            # (2026-11-05: a 2 s frame read timed out and Harmattan's Name was denied).
-            for _attempt in range(3):
-                allowed_now = permitted(service_stop=False)
-                if allowed_now or self._permit_failure not in SLOW_READS:
-                    break
+            allowed_now = permitted(service_stop=False)
             permitted_s = time.monotonic() - began
             if not allowed_now or call.get("scope") != call_scope or not latest.get("handoff_id"):
                 _log_admission_denial(
