@@ -66,6 +66,7 @@ _PREPARATION_MODULES = (
     "application_second_opinion",
     "browser_sign_in",
     "job_listing_links",
+    "indeed_job_source",
     "application_job_brief",
     "application_jd_extract",
     "application_input_limits",

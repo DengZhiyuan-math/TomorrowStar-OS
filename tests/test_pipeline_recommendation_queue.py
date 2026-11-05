@@ -403,3 +403,23 @@ def test_closed_and_easy_apply_postings_leave_the_queue_with_their_reason(
     closed = flow.applications.get_application(skipped[0]["application_id"])
     assert closed["status"] == "closed"
     assert flow.applications.get_application(skipped[1]["application_id"])["status"] == "drafting"
+
+
+def test_an_indeed_apply_job_leaves_the_queue_with_its_reason(queue_environment, monkeypatch):
+    from career_evidence_graph import indeed_job_source, job_listing_links
+
+    # 2026-11-05: Indeed names the apply route on the page read at intake; an
+    # Indeed Apply job keeps Indeed and is set aside like an Easy Apply one.
+    pipeline, flow, _intake, _worker, _reads, _fetches, _messages = queue_environment
+    monkeypatch.setattr(job_listing_links, "posting_status", lambda url, read=None: (None, None))
+    monkeypatch.setattr(
+        indeed_job_source,
+        "apply_route",
+        lambda record: "indeed_apply" if record["url"].rstrip("/").endswith("10000") else "",
+    )
+    pipeline.start(request_id="indeed-apply")
+    filling = drive(pipeline, "filling")
+    skipped = [row for row in filling["items"] if row["status"] == "skipped"]
+    assert [row["reason"] for row in skipped] == ["indeed_apply_only"]
+    application = flow.applications.get_application(skipped[0]["application_id"])
+    assert application["status"] == "drafting" and "Indeed Apply" in application["next_action"]

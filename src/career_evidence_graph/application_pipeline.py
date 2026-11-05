@@ -2201,14 +2201,27 @@ class ApplicationPipeline:
     def _check_posting(self, state, item, application):
         """Read a LinkedIn job once before matching (decided 2026-10-31).
 
-        A closed posting is marked closed and an Easy Apply one keeps LinkedIn; both
-        leave the queue with their reason. An open one moves to the employer's page.
+        A closed posting is marked closed and an Easy Apply or Indeed Apply one keeps
+        its job board; each leaves the queue with its reason. An open one moves to the
+        employer's page.
         Returns the application to continue with, or None when the job was left.
         """
+        from .indeed_job_source import apply_route
         from .job_listing_links import employer_url, posting_status
 
         listing = application.get("listing_url") or application["url"]
         status, target = posting_status(listing)
+        if status is None:
+            # An Indeed job's route was read with its page (2026-11-05).
+            record = next(
+                (
+                    row
+                    for row in self.intake.snapshot().get("recommendations", [])
+                    if row["id"] == item["recommendation_id"]
+                ),
+                None,
+            )
+            status = "indeed_apply" if apply_route(record) == "indeed_apply" else None
         today = time.strftime("%Y-%m-%d")
         changes, reason = {}, None
         if status == "closed":
@@ -2222,6 +2235,12 @@ class ApplicationPipeline:
             changes = {
                 "next_action": "只能在领英站内申请（Easy Apply），自动流程不能填写；"
                 "需要时请自己在领英投递。"
+            }
+        elif status == "indeed_apply":
+            reason = "indeed_apply_only"
+            changes = {
+                "next_action": "只能在 Indeed 站内申请（Indeed Apply），自动流程不能填写；"
+                "需要时请自己在 Indeed 投递。"
             }
         elif status == "open" and listing == application["url"]:
             final = employer_url(target)

@@ -330,13 +330,14 @@
     pausePipeline.dataset.flowStop = "true";
     pausePipeline.dataset.blocked = String(pipeline?.control !== "running");
     // Sign in once in the App's own browser; later job pages open signed in.
-    const signIn = button("登录领英", () => mutate(async () => {
-      await api("/api/browser-sign-in", { method: "POST", body: JSON.stringify({ site: "linkedin" }) });
-      signInNote.hidden = false;
-    }, { domain: "pipeline" }), "flow-sign-in", true);
-    const signInNote = node("p", "flow-muted", "已打开领英登录窗口：登录后关闭该窗口即可，之后的岗位页会保持登录。");
+    const signInNote = node("p", "flow-muted", "");
     signInNote.hidden = true;
-    actions.append(startPipeline, pausePipeline, signIn);
+    const signInTo = (site, label, id) => button(label, () => mutate(async () => {
+      await api("/api/browser-sign-in", { method: "POST", body: JSON.stringify({ site }) });
+      signInNote.textContent = `已打开${label.slice(2).trim()}登录窗口：登录后关闭该窗口即可，之后的岗位页会保持登录。`;
+      signInNote.hidden = false;
+    }, { domain: "pipeline" }), id, true);
+    actions.append(startPipeline, pausePipeline, signInTo("linkedin", "登录领英", "flow-sign-in"), signInTo("indeed", "登录 Indeed", "flow-sign-in-indeed"));
     if (pipeline?.current_recommendation_id) {
       const skip = button("跳过当前岗位", () => pipelineAction("skip", {}, true), "flow-pipeline-skip", true);
       skip.dataset.flowStop = "true";
@@ -359,6 +360,7 @@
         : item.status !== "skipped" ? ["已处理", "applied", ""]
         : item.reason === "posting_closed" ? ["已停招", "withdrawn", "领英显示岗位已停止招聘"]
         : item.reason === "easy_apply_only" ? ["仅领英站内申请", "withdrawn", "只能用领英 Easy Apply，需要时请自己投递"]
+        : item.reason === "indeed_apply_only" ? ["仅 Indeed 站内申请", "withdrawn", "只能用 Indeed Apply，需要时请自己投递"]
         : item.reason === "low_match_score" ? ["匹配过低", "withdrawn", "匹配分低于 15，已自动跳过"]
         : ["已跳过", "candidate", item.pipeline_context?.notification?.message ? `跳过时：${item.pipeline_context.notification.message}` : ""];
       const row = node("li", `flow-pipeline-item${current ? " is-current" : ""}`);

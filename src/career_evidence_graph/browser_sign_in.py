@@ -13,7 +13,11 @@ from pathlib import Path
 from .career_portal_data import PortalDataError
 from .cua_driver import load_login_state, save_login_state
 
-SIGN_IN_PAGES = {"linkedin": "https://www.linkedin.com/login"}
+SIGN_IN_PAGES = {
+    "linkedin": "https://www.linkedin.com/login",
+    # Indeed's "Apply on company site" continues only for a signed-in account.
+    "indeed": "https://secure.indeed.com/auth",
+}
 _open: set[str] = set()
 _lock = threading.Lock()
 

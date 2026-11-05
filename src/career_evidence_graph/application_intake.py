@@ -22,7 +22,7 @@ from .application_gmail import (
     validate_recommendation_query,
 )
 from .application_jd_extract import extract_job_fields
-from .application_job_source import _url, fetch_job_source
+from .application_job_source import _url
 from .application_recommendations import (
     RecommendationStore,
     normalize_message,
@@ -30,6 +30,7 @@ from .application_recommendations import (
 )
 from .application_storage import private_root
 from .career_portal_data import PortalDataError
+from .indeed_job_source import fetch_job_source_or_browser
 from .validation.hashing import record_digest as digest
 from .workable_uploads import job_shortcode
 
@@ -96,7 +97,7 @@ class ApplicationIntakeService:
         root: Path,
         *,
         reader=read_recommendation_emails,
-        fetcher=fetch_job_source,
+        fetcher=fetch_job_source_or_browser,
         extractor=extract_job_fields,
         processed_label=None,
         mailbox=process_recommendation_email,
