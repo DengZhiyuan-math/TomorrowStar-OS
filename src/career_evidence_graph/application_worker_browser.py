@@ -4014,7 +4014,9 @@ class ApplicationRunner:
                 self._native_work -= 1
 
         def admit_native_call(call):
+            began = time.monotonic()
             allowed_now = permitted()
+            permitted_s = time.monotonic() - began
             if not allowed_now or call.get("scope") != call_scope or not latest.get("handoff_id"):
                 _log_admission_denial(
                     call,
@@ -4130,6 +4132,8 @@ class ApplicationRunner:
                 "native_admission_steps: "
                 + json.dumps(
                     {
+                        "permitted_s": round(permitted_s, 2),
+                        "checks_s": round(recorded - began - permitted_s, 2),
                         "record_s": round(locked - recorded, 2),
                         "submit_lock_s": round(time.monotonic() - locked, 2),
                         "frames": len(getattr(page, "frames", ())),
@@ -4483,14 +4487,32 @@ class ApplicationRunner:
 
     def pump_codex_events(self, assistance_ref, *, document=None, after_stop=False) -> bool:
         """Keep control and browser events alive without executing queued page work."""
+        started = time.monotonic()
         self.tick(control_only=True)
+        ticked = time.monotonic()
         if self.context is not None:
             # Codex's own loop paces these calls; an idle wait here only delays a
             # write's admission, which the driver drops after 15 s (2026-11-02).
             self.pump(idle_ms=5)
-        return self.assistance_read_permitted(
+        pumped = time.monotonic()
+        permitted = self.assistance_read_permitted(
             assistance_ref, document=document, after_stop=after_stop
         )
+        if time.monotonic() - started > 2:
+            # Private timing of a slow pump: an admission waits on it (2026-11-05).
+            print(
+                "codex_pump_slow: "
+                + json.dumps(
+                    {
+                        "tick_s": round(ticked - started, 2),
+                        "pump_s": round(pumped - ticked, 2),
+                        "check_s": round(time.monotonic() - pumped, 2),
+                        "caller": _callers(3),
+                    }
+                ),
+                flush=True,
+            )
+        return permitted
 
     def _fill_route(self, page, question):
         return (
