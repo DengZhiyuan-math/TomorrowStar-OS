@@ -734,6 +734,26 @@ def _abort(route) -> None:
 STOP_RECHECK_INTERVAL = 2.0
 
 
+def _log_typing_denial(call, fact, confirmed, condition):
+    """Private log of a denied native write: its fact and role, never a value."""
+    hint = call.get("field_hint") or {}
+    print(
+        "native_type_admission_denied: "
+        + json.dumps(
+            {
+                "tool": call.get("tool"),
+                "role": hint.get("role"),
+                "label": str(hint.get("label") or "")[:80],
+                "fact": fact,
+                "confirmed_values": confirmed,
+                "condition": condition,
+            },
+            ensure_ascii=False,
+        ),
+        flush=True,
+    )
+
+
 def _callers(depth=4):
     """The nearest worker functions on this stack, for the private log only."""
     import traceback
@@ -3959,6 +3979,7 @@ class ApplicationRunner:
             if call.get("tool") in {"browser_type", "browser_set_value"}:
                 field_name = (call.get("field_hint") or {}).get("name")
                 if not isinstance(field_name, str) or not field_name.strip():
+                    _log_typing_denial(call, None, 0, "field_unnamed")
                     return False
                 expected_fact = fact_for(field_name)
                 values = [
@@ -3981,6 +4002,8 @@ class ApplicationRunner:
                         if words & vocabulary:
                             allowed.add(hashlib.sha256(state.encode()).hexdigest())
                 if call.get("text_sha256") not in allowed:
+                    # A denied write revokes the takeover; the log names the field's fact.
+                    _log_typing_denial(call, expected_fact, len(values), "value_not_confirmed")
                     return False
             denied = call.get("tool") == "browser_click" and native_click_denial(
                 delivery, latest.get("calls", []), call, page_reopened=page_reopened
