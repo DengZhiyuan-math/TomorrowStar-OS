@@ -23,6 +23,7 @@ BASELINE = {
     "admission_wait": {"n": 16, "p95": 11.38},
     "status_poll": {"n": 80, "p95": 5.88},
     "page_read": {"n": 43, "p95": 2.02},
+    "page_age": {"n": 43, "p95": 7.21},
     "stop_confirm": {"n": 0, "p95": None},
 }
 
@@ -30,7 +31,7 @@ BASELINE = {
 def test_default_budget_is_twice_the_measured_p95_and_planned_elsewhere():
     budget = TakeoverBudget.from_baseline(BASELINE)
     assert budget == DEFAULT_BUDGET
-    assert (budget.admission, budget.status_poll, budget.scope_window) == (23.0, 12.0, 6.0)
+    assert (budget.admission, budget.status_poll, budget.scope_window) == (23.0, 12.0, 14.0)
     assert (budget.stop, budget.thread_start, budget.startup) == (10.0, 45.0, 30.0)
     assert MEASURED.isdisjoint(PLANNED)
     assert TakeoverBudget.from_dict(budget.to_dict()) == budget

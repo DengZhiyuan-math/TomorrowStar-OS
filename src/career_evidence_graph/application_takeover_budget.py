@@ -51,7 +51,10 @@ class TakeoverBudget:
     # The admission time the installed driver actually gives a write.
     driver_admission_ttl: float = CURRENT_DRIVER_ADMISSION_TTL
     # How old the original-page observation may be when a takeover read is checked.
-    scope_window: float = 6.0
+    # About twice the measured page age (P95 7.21 s): one admission's own decision
+    # took 7 s (status poll and event pump), and the 6 s window revoked healthy
+    # takeovers on BCG and Harmattan (2026-11-05). Document checks stay per read.
+    scope_window: float = 14.0
     # How long the driver's embedded receiver waits for the host's grant after it
     # publishes the rendezvous (its pending TTL); the host's ready-to-yield chain
     # measured over the earlier 10 s wait (2026-11-02).
@@ -144,13 +147,22 @@ class TakeoverBudget:
 
         defaults = cls.__dataclass_fields__
         page_read = (latency.get("page_read") or {}).get("p95")
+        page_age = (latency.get("page_age") or {}).get("p95")
         values = {
             "admission": doubled("admission_wait", defaults["admission"].default),
             "status_poll": doubled("status_poll", defaults["status_poll"].default),
             "stop": doubled("stop_confirm", defaults["stop"].default),
             "thread_start": doubled("thread_start", defaults["thread_start"].default),
-            "scope_window": max(6.0, 2 * page_read)
-            if isinstance(page_read, (int, float))
+            "scope_window": min(
+                max(
+                    6.0,
+                    2 * page_read if isinstance(page_read, (int, float)) else 0,
+                    2 * page_age if isinstance(page_age, (int, float)) else 0,
+                ),
+                # The receiver must outwait one yield call and its page check.
+                CURRENT_DRIVER_GRANT_WAIT - defaults["driver_timeout"].default - 1,
+            )
+            if isinstance(page_read, (int, float)) or isinstance(page_age, (int, float))
             else defaults["scope_window"].default,
         }
         return cls(**(values | overrides))

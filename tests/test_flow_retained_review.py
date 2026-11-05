@@ -8,6 +8,7 @@ from copy import deepcopy
 import pytest
 from test_application_single_binding import bound_single
 
+from career_evidence_graph.application_page_scope import PAGE_SCOPE
 from career_evidence_graph.application_worker import digest, start_run
 from career_evidence_graph.career_portal import create_server
 
@@ -490,7 +491,7 @@ def test_review_still_checks_real_bound_inputs_and_current_page(
         monkeypatch.setenv("TOMORROWSTAR_CODEX_EXECUTABLE", "/synthetic-missing/codex")
     else:
         state = worker.store.load()
-        state["runtime"]["observed_at"] -= 9.5
+        state["runtime"]["observed_at"] -= PAGE_SCOPE.window + 3.5
         worker.store.save(state)
     before = flow.path.read_bytes()
     pdf_path = flow.root / "resumes" / task["resume_id"] / "resume.pdf"

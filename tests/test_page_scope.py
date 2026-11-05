@@ -19,7 +19,7 @@ def observed(at, *, run="run-1"):
 
 
 def test_window_comes_from_the_budget():
-    assert PAGE_SCOPE.window == DEFAULT_BUDGET.scope_window == 6.0
+    assert PAGE_SCOPE.window == DEFAULT_BUDGET.scope_window == 14.0
 
 
 @pytest.mark.parametrize("window", [6.0, 15.0])
@@ -48,7 +48,7 @@ def test_renewal_before_and_after_each_read_keeps_a_slow_read_current(window):
 
 def test_each_part_reports_what_changed():
     state, job = observed(100.0)
-    job["page_observation"]["at"] = 90.0
+    job["page_observation"]["at"] = 100.0 - PAGE_SCOPE.window
     assert PAGE_SCOPE.current(state, job, 101.0).changed == "page_observation"
     assert PAGE_SCOPE.current(state, job, 99.0).changed == "clock"
     assert PAGE_SCOPE.current({}, job, 101.0).changed == "runtime_observation"
@@ -111,9 +111,11 @@ def test_a_snapshot_is_renewed_only_from_its_own_pages_later_observation(change)
 
 @pytest.mark.parametrize(
     ("at", "now", "expected"),
-    [(100.0, 106.6, True), (100.0, 103.0, False), (None, 106.6, False), (110.0, 106.6, False)],
+    [(100.0, 0.6, True), (100.0, -3.0, False), (None, 0.6, False), (110.0, 0.6, False)],
 )
 def test_only_an_old_observation_is_renewable(at, now, expected):
     """2026-11-04: both observations were 6.6 s old after a file admission, nothing else."""
+    # ``now`` is seconds past the window after 100.0.
+    now = 100.0 + PAGE_SCOPE.window + now
     state, job = observed(at)
     assert PAGE_SCOPE.only_expired(PAGE_SCOPE.current(state, job, now)) is expected

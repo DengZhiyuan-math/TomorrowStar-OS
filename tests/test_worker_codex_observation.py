@@ -11,6 +11,7 @@ from owned_cdp_fake import OwnedCDPFake
 from test_single_application_worker import single_worker as single_worker
 from test_worker_codex_assistance import retained_assistance_page as retained_assistance_page
 
+from career_evidence_graph.application_page_scope import PAGE_SCOPE
 from career_evidence_graph.application_worker_browser import ApplicationRunner
 from career_evidence_graph.career_portal_data import PortalDataError
 
@@ -217,9 +218,9 @@ def test_changed_saved_scope_never_collects_or_overwrites_page_content(owned_cod
     elif change == "source":
         state["runtime"]["source"]["sha256"] = "a" * 64
     elif change == "stale_runtime":
-        state["runtime"]["observed_at"] -= 10
+        state["runtime"]["observed_at"] -= PAGE_SCOPE.window + 4
     elif change == "stale_page":
-        job["page_observation"]["at"] -= 10
+        job["page_observation"]["at"] -= PAGE_SCOPE.window + 4
     elif change == "pause":
         state["control"] = "paused"
     elif change == "cancel":

@@ -15,6 +15,7 @@ from test_worker_native_assistance import journal_scope, native_service
 from test_worker_native_material_journal import material_call as _material_journal
 
 from career_evidence_graph import cua_driver
+from career_evidence_graph.application_page_scope import PAGE_SCOPE
 from career_evidence_graph.application_worker import compact_native_runs, digest
 from career_evidence_graph.career_portal_data import PortalDataError
 
@@ -176,7 +177,7 @@ def test_native_yield_rechecks_original_document_and_durable_intent(
                 )
             elif change == "expired_owner":
                 state = service.store.load()
-                state["runtime"]["observed_at"] = time.time() - 10
+                state["runtime"]["observed_at"] = time.time() - PAGE_SCOPE.window - 4
                 service.store.save(state)
             elif change == "pause":
                 service.request("pause", {"controller": "synthetic-controller"})
@@ -292,7 +293,7 @@ def test_native_mutation_is_recorded_only_after_current_field_and_scope_check(na
                 )
             elif change == "expired_owner":
                 state = service.store.load()
-                state["runtime"]["observed_at"] = time.time() - 10
+                state["runtime"]["observed_at"] = time.time() - PAGE_SCOPE.window - 4
                 service.store.save(state)
             elif change == "changed_backend":
                 state = service.store.load()
@@ -806,7 +807,7 @@ def test_native_control_pump_keeps_progress_while_renderer_scope_read_is_busy(
             )
         elif change == "expired_owner":
             state = service.store.load()
-            state["runtime"]["observed_at"] = time.time() - 10
+            state["runtime"]["observed_at"] = time.time() - PAGE_SCOPE.window - 4
             service.store.save(state)
 
     monkeypatch.setattr(runner, "pump", deliver_events)
@@ -1687,7 +1688,7 @@ def test_a_slow_material_read_hands_on_a_context_that_follows_the_renewal(native
         if not sealed:
             return original(reference, after_stop=after_stop)
         page_id = service.store.load()["jobs"][0]["page_observation"]["page_id"]
-        stale = time.time() - 6.5
+        stale = time.time() - PAGE_SCOPE.window - 0.5
         return {
             "status": "captured",
             "binding": {"page_id": page_id},
@@ -1763,7 +1764,7 @@ def test_granted_takeover_renews_an_observation_its_own_admission_let_expire(nat
     runner.start_native_assistance(ref, request_id="native-expired-own-work")
     assert service.store.load()["jobs"][0]["native_handoff_runs"][-1]["phase"] == "granted"
     # The first material's admission and delivery: the tick that would renew is late.
-    stale = time.time() - 6.6
+    stale = time.time() - PAGE_SCOPE.window - 0.6
     state = service.store.load()
     state["runtime"]["observed_at"] = stale
     state["jobs"][0]["page_observation"]["at"] = stale
@@ -1815,7 +1816,7 @@ def test_an_observation_current_when_looked_at_is_renewed_after_a_slow_reload(
     runner.codex_assist = Adapter()
     runner._service_assistance_stop = lambda: None
     runner.start_native_assistance(ref, request_id="native-slow-reload")
-    seen = time.time() - 5.9
+    seen = time.time() - PAGE_SCOPE.window + 0.1
     state = service.store.load()
     state["runtime"]["observed_at"] = seen
     state["jobs"][0]["page_observation"]["at"] = seen
@@ -1833,8 +1834,8 @@ def test_an_observation_current_when_looked_at_is_renewed_after_a_slow_reload(
     check = runner._assistance_page_checker(ref)[1]
     check()
     saved = service.store.load()
-    assert saved["runtime"]["observed_at"] > seen + 5.9
-    assert saved["jobs"][0]["page_observation"]["at"] > seen + 5.9
+    assert saved["runtime"]["observed_at"] > seen + PAGE_SCOPE.window - 0.1
+    assert saved["jobs"][0]["page_observation"]["at"] > seen + PAGE_SCOPE.window - 0.1
 
 
 @pytest.mark.parametrize("active_calls", [1, 0])
@@ -1864,7 +1865,7 @@ def test_an_admitted_native_call_in_progress_renews_without_a_renderer_read(
     runner.codex_assist = Adapter()
     runner._service_assistance_stop = lambda: None
     runner.start_native_assistance(ref, request_id="native-active-call")
-    stale = time.time() - 6.2
+    stale = time.time() - PAGE_SCOPE.window - 0.2
     state = service.store.load()
     state["jobs"][0]["native_handoff_runs"][-1]["events"][-1]["receipt"]["active_calls"] = (
         active_calls

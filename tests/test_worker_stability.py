@@ -12,6 +12,7 @@ from owned_cdp_fake import OwnedCDPFake
 from test_application_worker import job
 from test_application_worker import service as _service
 
+from career_evidence_graph.application_page_scope import PAGE_SCOPE
 from career_evidence_graph.application_worker import WorkerService, start_run
 from career_evidence_graph.career_portal_data import PortalDataError
 
@@ -105,7 +106,7 @@ def test_partial_review_rejects_unverified_original_page(retained_live_page, pag
     current["page_open"] = page_open
     page = current["page_observation"]
     if change == "stale_runtime":
-        state["runtime"]["observed_at"] -= 6
+        state["runtime"]["observed_at"] -= PAGE_SCOPE.window
     elif change == "future_runtime":
         state["runtime"]["observed_at"] += 1
     elif change == "different_run":
@@ -276,7 +277,7 @@ def test_runtime_history_freshness_and_managed_exit(service, monkeypatch):
     assert service.snapshot()["jobs"][0]["page_current"]
     monkeypatch.setattr(
         "career_evidence_graph.application_worker.time.time",
-        lambda: state["runtime"]["observed_at"] + 6,
+        lambda: state["runtime"]["observed_at"] + PAGE_SCOPE.window,
     )
     assert service.snapshot()["runtime_status"]["observation"] == "stale"
     assert not service.snapshot()["jobs"][0]["page_current"]

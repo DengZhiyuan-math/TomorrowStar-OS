@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 from test_worker_stability import retained_live_page as _retained_live_page
 
+from career_evidence_graph.application_page_scope import PAGE_SCOPE
 from career_evidence_graph.career_portal_data import PortalDataError
 
 retained_live_page = _retained_live_page
@@ -88,9 +89,9 @@ def test_observation_rejects_incompatible_or_changed_owner_without_side_effects(
     elif change in {"running", "cancelled"}:
         state["control"] = change
     elif change == "stale":
-        state["runtime"]["observed_at"] -= 6
+        state["runtime"]["observed_at"] -= PAGE_SCOPE.window
     elif change in {"stale_page", "future_page"}:
-        page["at"] += -6 if change == "stale_page" else 1
+        page["at"] += -PAGE_SCOPE.window if change == "stale_page" else 1
     elif change == "stop_marker":
         server.store.block_storage()
     elif change == "terminal_error":
