@@ -3276,6 +3276,11 @@ class ApplicationRunner:
                 material_kind({"type": "file", "question": text}) != "unknown" for text in values
             )
 
+        def autofill_input(values):
+            # Ashby's "Autofill from resume" parses a CV to prefill fields; it is not
+            # the application's resume field (2026-11-05: Harmattan AI's CV refused).
+            return any("autofill" in text for text in values)
+
         others = [
             words(
                 [
@@ -3297,7 +3302,10 @@ class ApplicationRunner:
                 for name, failed in (
                     ("document", call["scope"]["expected_document"] != context.get("document")),
                     ("fields!=1", len(fields) != 1),
-                    ("resume_inputs!=1", any(resume_input(other) for other in others)),
+                    (
+                        "resume_inputs!=1",
+                        any(resume_input(other) and not autofill_input(other) for other in others),
+                    ),
                     (
                         "target",
                         target["type"] != "file"

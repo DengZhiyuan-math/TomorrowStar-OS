@@ -524,6 +524,8 @@ def add_file_input(context, label):
         ("Cover letter", None),
         # A second input also named as a CV/resume makes the destination ambiguous.
         ("Resume (alternative)", "resume_inputs!=1"),
+        # 2026-11-05 (Ashby): the autofill upload only parses a CV to prefill fields.
+        ("Autofill from resume Upload your resume here to autofill key application fields.", None),
     ],
 )
 def test_runner_admits_the_resume_beside_other_file_inputs_only_when_unambiguous(
