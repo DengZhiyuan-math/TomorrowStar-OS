@@ -38,8 +38,12 @@ def fetch_job_source_or_browser(url, *, read=None):
     ):
         return capture
     host = urlsplit(capture["url"]).hostname
-    model = (read or _read_in_browser)(f"https://{host}/viewjob?jk={job_key}")
-    return capture if model is None else indeed_capture(capture, model, job_key)
+    try:
+        model = (read or _read_in_browser)(f"https://{host}/viewjob?jk={job_key}")
+    except Exception as error:  # noqa: BLE001 - a routine page failure stays a receipt.
+        # The refused receipt keeps why the browser read failed.
+        return _finish(capture | {"browser_error": f"{type(error).__name__}: {error}"[:300]})
+    return indeed_capture(capture, model, job_key)
 
 
 def indeed_capture(capture: dict, model, job_key: str) -> dict:
@@ -104,22 +108,19 @@ def apply_route(record: dict | None) -> str:
 
 
 def _read_in_browser(url: str):
-    from playwright.sync_api import Error, sync_playwright
+    from playwright.sync_api import sync_playwright
 
-    try:
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(channel="chrome", headless=False)
-            try:
-                saved = load_login_state(job_listing_links.LOGIN_ROOT)
-                context = browser.new_context(**({"storage_state": saved} if saved else {}))
-                page = context.new_page()
-                page.goto(url, wait_until="domcontentloaded", timeout=60_000)
-                page.wait_for_function(
-                    "() => window._initialData?.viewJobClientSideModel?.jobKey",
-                    timeout=PAGE_WAIT_MS,
-                )
-                return page.evaluate("() => window._initialData.viewJobClientSideModel")
-            finally:
-                browser.close()
-    except (Error, OSError, ValueError):
-        return None
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(channel="chrome", headless=False)
+        try:
+            saved = load_login_state(job_listing_links.LOGIN_ROOT)
+            context = browser.new_context(**({"storage_state": saved} if saved else {}))
+            page = context.new_page()
+            page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+            page.wait_for_function(
+                "() => window._initialData?.viewJobClientSideModel?.jobKey",
+                timeout=PAGE_WAIT_MS,
+            )
+            return page.evaluate("() => window._initialData.viewJobClientSideModel")
+        finally:
+            browser.close()

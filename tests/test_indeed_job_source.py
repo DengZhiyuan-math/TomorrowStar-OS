@@ -114,6 +114,13 @@ def test_only_a_refused_indeed_read_opens_the_browser(monkeypatch):
     fetch_job_source_or_browser(URL, read=read)
     monkeypatch.setattr(indeed_job_source, "fetch_job_source", lambda url: refused(url))
     assert fetch_job_source_or_browser(URL, read=lambda url: None) == refused()
+
+    def broken(url):
+        raise RuntimeError("Chrome did not start")
+
+    failed = fetch_job_source_or_browser(URL, read=broken)
+    assert failed["acquisition_status"] == "login_required"
+    assert failed["browser_error"] == "RuntimeError: Chrome did not start"
     assert reads == [URL]
 
 
