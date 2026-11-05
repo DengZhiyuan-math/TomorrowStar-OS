@@ -898,6 +898,16 @@ class RecommendationStore:
             raise PortalDataError(
                 "recommendation_needs_recheck", "前次保存结果尚不能核验，请先检查已有申请。", 409
             )
+        from .indeed_job_source import employer_apply_url
+        from .job_listing_links import employer_url, posting_status
+
+        # One read of a LinkedIn job before any record exists (2026-11-05): a closed
+        # posting creates no application; an open one opens on the employer's page.
+        status, target = posting_status(record.get("url", ""))
+        if status == "closed":
+            raise PortalDataError(
+                "recommendation_posting_closed", "领英显示岗位已停止招聘，未建申请记录。", 409
+            )
         origin = record.get("source_kind", "gmail-recommendation")
         attempt = {
             "request_id": digest({"source": origin, "job": key})[:32],
@@ -906,11 +916,10 @@ class RecommendationStore:
             "status": "pending",
         }
         helper.atomic_write_json(journal, attempt)
-        from .indeed_job_source import employer_apply_url
-        from .job_listing_links import resolve_apply_url
-
         # A job board link becomes the employer's own page when it can be resolved.
-        apply_url = employer_apply_url(record) or resolve_apply_url(record.get("url", ""))
+        apply_url = employer_apply_url(record) or (
+            employer_url(target) if status == "open" else None
+        )
         try:
             application = self.applications.create_application(
                 {

@@ -826,6 +826,8 @@ class ApplicationIntakeService:
                 result = self.store.select(row["id"], row["revision"])
                 return {"save_status": "saved", "application_id": result["application"]["id"]}
             except PortalDataError as error:
+                if error.code == "recommendation_posting_closed":
+                    return {"save_status": "closed"}
                 return {"save_status": "needs_recheck", "save_error_code": error.code}
 
     def _perform(self, request):

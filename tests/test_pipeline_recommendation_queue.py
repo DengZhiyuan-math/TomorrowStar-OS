@@ -382,27 +382,41 @@ def test_low_score_is_skipped_and_a_middle_score_waits_for_one_continue(
     assert [call[0] for call in flow.calls].count("resume") == 1
 
 
-def test_closed_and_easy_apply_postings_leave_the_queue_with_their_reason(
+def test_a_closed_posting_leaves_unrecorded_and_easy_apply_with_its_reason(
     queue_environment, monkeypatch
 ):
     from career_evidence_graph import job_listing_links
 
-    # Decided 2026-10-31: a LinkedIn job is read once before matching. A closed posting
-    # is marked closed, an Easy Apply one keeps LinkedIn; both are set aside.
-    pipeline, flow, _intake, _worker, _reads, _fetches, _messages = queue_environment
+    # Decided 2026-10-31: a LinkedIn job is read once before matching; an Easy Apply
+    # one keeps LinkedIn and is set aside. 2026-11-05: a closed posting creates no
+    # application record and is not listed; the queue still never picks it again.
+    pipeline, flow, intake, _worker, _reads, _fetches, _messages = queue_environment
     statuses = {"10000": ("closed", None), "10001": ("easy_apply", None)}
     monkeypatch.setattr(
         job_listing_links,
         "posting_status",
         lambda url, read=None: statuses.get(url.rstrip("/").rsplit("/", 1)[-1], (None, None)),
     )
+    before = {row["id"] for row in flow.applications.list_applications()}
     pipeline.start(request_id="postings")
     filling = drive(pipeline, "filling")
+    closed = next(
+        row["id"]
+        for row in intake.snapshot()["recommendations"]
+        if row["url"].rstrip("/").endswith("10000")
+    )
+    assert filling["closed_postings"] == [closed]
+    assert closed not in {row["recommendation_id"] for row in filling["items"]}
+    assert closed not in {row["id"] for row in filling["pending_recommendations"]}
     skipped = [row for row in filling["items"] if row["status"] == "skipped"]
-    assert [row["reason"] for row in skipped] == ["posting_closed", "easy_apply_only"]
-    closed = flow.applications.get_application(skipped[0]["application_id"])
-    assert closed["status"] == "closed"
-    assert flow.applications.get_application(skipped[1]["application_id"])["status"] == "drafting"
+    assert [row["reason"] for row in skipped] == ["easy_apply_only"]
+    created = {row["id"] for row in flow.applications.list_applications()} - before
+    assert skipped[0]["application_id"] in created
+    assert all(
+        not row["url"].rstrip("/").endswith("10000")
+        for row in flow.applications.list_applications()
+    )
+    assert flow.applications.get_application(skipped[0]["application_id"])["status"] == "drafting"
 
 
 def test_an_indeed_apply_job_leaves_the_queue_with_its_reason(queue_environment, monkeypatch):

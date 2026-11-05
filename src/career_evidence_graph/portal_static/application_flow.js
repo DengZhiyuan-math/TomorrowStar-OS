@@ -350,7 +350,8 @@
     if (pipeline?.notice) automation.append(node("p", "flow-muted", pipeline.notice.message || pipeline.notice.title));
     // One row per job: title, a status badge with its reason, and the row's action.
     // The current job comes first, then the rest newest first.
-    const items = (pipeline?.items || []).map((item, index) => ({ item, index, current: item.status !== "skipped" && item.status !== "analysis_failed" && item.recommendation_id === pipeline.current_recommendation_id }));
+    // A closed posting is not listed (2026-11-05); older ones stay recorded only.
+    const items = (pipeline?.items || []).filter(item => item.reason !== "posting_closed").map((item, index) => ({ item, index, current: item.status !== "skipped" && item.status !== "analysis_failed" && item.recommendation_id === pipeline.current_recommendation_id }));
     items.sort((a, b) => (b.current - a.current) || (b.index - a.index));
     const list = node("ol", "flow-pipeline-items");
     for (const { item, current } of items) {

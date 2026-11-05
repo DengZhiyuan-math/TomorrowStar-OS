@@ -231,7 +231,7 @@ class ApplicationPipeline:
             try:
                 retained_recommendations = {
                     item.get("recommendation_id") for item in state["items"]
-                }
+                } | set(state.get("closed_postings", []))
                 recommendations = self.intake.snapshot().get("recommendations", [])
                 state["pending_recommendations"] = [
                     row
@@ -1227,6 +1227,7 @@ class ApplicationPipeline:
                     )
                 ]
             seen = {row.get("recommendation_id") for row in state["items"]}
+            seen |= set(state.get("closed_postings", []))
             applications = {
                 row.get("application_id") for row in state["items"] if row.get("application_id")
             }
@@ -2445,6 +2446,7 @@ class ApplicationPipeline:
             if intake["status"] == "running":
                 return
             seen = {row.get("recommendation_id") for row in state["items"]}
+            seen |= set(state.get("closed_postings", []))
             applications = {
                 row.get("application_id") for row in state["items"] if row.get("application_id")
             }
@@ -2529,7 +2531,22 @@ class ApplicationPipeline:
             state["status"] = "acquiring_source"
             self._save(state)
             return
-        selected = self.intake.select(record["id"], record["revision"])
+        try:
+            selected = self.intake.select(record["id"], record["revision"])
+        except PortalDataError as error:
+            if error.code != "recommendation_posting_closed":
+                raise
+            # A closed posting leaves the queue unlisted and creates no record.
+            closed = state.setdefault("closed_postings", [])
+            if record["id"] not in closed:
+                closed.append(record["id"])
+            state["items"] = [
+                row for row in state["items"] if row.get("recommendation_id") != record["id"]
+            ]
+            state.pop("source_receipt", None)
+            state.update(current_recommendation_id=None, status="selecting_job")
+            self._save(state)
+            return
         state["source_receipt"]["status"] = "adopted"
         item = next(
             (row for row in state["items"] if row.get("recommendation_id") == record["id"]), None
