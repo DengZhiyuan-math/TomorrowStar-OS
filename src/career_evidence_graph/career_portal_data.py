@@ -17,6 +17,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 from collections import OrderedDict
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -321,6 +322,38 @@ def _check_root(root: Path) -> None:
         raise PortalDataError("source-unavailable", "数据目录暂不可用，请检查本地连接。", 503)
 
 
+def _log_lock_hold(asked, held):
+    """Private log of a write lock held over a second, with its holder (2026-11-05).
+
+    Takeover checks waited 1.3 s at the median for this lock; the log names who
+    held it. Only when TOMORROWSTAR_LOCK_LOG names a file; never values.
+    """
+    path = os.environ.get("TOMORROWSTAR_LOCK_LOG")
+    if not path or held is None or time.monotonic() - held < 1.0:
+        return
+    import traceback
+
+    callers = [
+        frame.name
+        for frame in traceback.extract_stack()[:-3]
+        if "career_evidence_graph" in frame.filename
+    ][-5:]
+    row = {
+        "at": time.time(),
+        "pid": os.getpid(),
+        "process": Path(sys.argv[0]).name if sys.argv else "",
+        "wait_s": round(held - asked, 2),
+        "hold_s": round(time.monotonic() - held, 2),
+        "callers": callers,
+    }
+    try:
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(descriptor, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(row) + "\n")
+    except OSError:
+        pass
+
+
 class ApplicationStore:
     """Versioned JSON application records with a preserved legacy-note adapter."""
 
@@ -343,13 +376,16 @@ class ApplicationStore:
                 os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW,
                 0o600,
             )
+            asked, held = time.monotonic(), None
             try:
                 fcntl.flock(descriptor, fcntl.LOCK_EX)
                 self._write_descriptor = descriptor
+                held = time.monotonic()
                 yield
             finally:
                 self._write_descriptor = None
                 os.close(descriptor)
+                _log_lock_hold(asked, held)
 
     @staticmethod
     def _json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:

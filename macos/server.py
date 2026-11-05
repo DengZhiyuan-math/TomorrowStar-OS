@@ -847,6 +847,10 @@ def main() -> int:
         codex_home = support / "codex-home"
         codex_home_usable = False
         if synthetic_root is None:
+            # Long write-lock holds are logged privately; the Worker inherits this.
+            os.environ.setdefault(
+                "TOMORROWSTAR_LOCK_LOG", str(support / "diagnostics" / "lock-holds.jsonl")
+            )
             os.environ[CODEX_HOME_ENVIRONMENT] = str(codex_home)
             try:
                 codex_home.mkdir(mode=0o700, parents=True, exist_ok=True)
