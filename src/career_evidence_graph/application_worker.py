@@ -1516,14 +1516,16 @@ def unopened_single_queue(store, state):
     2026-11-04: the rule once required a one-job queue, so after an App restart a
     never-opened job beside skipped ones started paused, and the Pipeline stopped
     with "填写已暂停" because a job without a page has no recovery candidate. Other
-    jobs may hold no page, pending action or handoff; they are still rechecked.
+    jobs may hold no pending action or handoff; they are still rechecked.
+    2026-11-05: a skipped job's page marked open is gone after a restart (the run
+    records it as a historical page), so it no longer parks the current job.
     """
     current = current_queue_job(state)
     return bool(
         current is not None
         and never_opened(store, state, current)
         and not any(
-            job.get("page_open") or job.get("intent") or job.get("handed_off")
+            job.get("intent") or job.get("handed_off")
             for job in state["jobs"]
             if job is not current
         )

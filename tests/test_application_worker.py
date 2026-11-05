@@ -1068,8 +1068,17 @@ def test_a_restart_keeps_a_never_opened_current_job_running_beside_a_rechecked_o
     assert state["control"] == "running"
     assert state["jobs"][1]["status"] == "queued" and not state["jobs"][1].get("reason")
     assert state["jobs"][0]["status"] == "needs_recheck" and not state["jobs"][0]["page_open"]
-    # A retained page on another job still parks the restart for a recheck.
+    # 2026-11-05: another job's page lost in the restart is only rechecked.
     state["jobs"][0]["page_open"] = True
+    state.update(control="running", worker_pid=999_999)
+    service.store.save(state)
+    start_run(service.store)
+    state = service.store.load()
+    assert state["control"] == "running"
+    assert state["jobs"][0]["reason"] == "worker_restarted" and not state["jobs"][0]["page_open"]
+    assert state["jobs"][1]["status"] == "queued"
+    # A pending action on another job still parks the restart for a recheck.
+    state["jobs"][0]["intent"] = {"action": "fill", "attempt_id": "a"}
     state.update(control="running", worker_pid=999_999)
     service.store.save(state)
     start_run(service.store)
