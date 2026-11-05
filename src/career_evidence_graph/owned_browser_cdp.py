@@ -76,6 +76,9 @@ def _safe_alarm(deadline):
     started = time.monotonic()
     previous = signal.setitimer(signal.ITIMER_REAL, 0)
     parents = _ACTIVE_DEADLINE.get() or ()
+    # An enclosing scope bounds this call only: a 1 s release inside a session once
+    # left the session's own deadline at 1 s for every later read (2026-11-05).
+    own = deadline.end
     if parents:
         deadline.end = min(deadline.end, parents[-1].end)
     if previous[0]:
@@ -84,6 +87,7 @@ def _safe_alarm(deadline):
         deadline.remaining()
         yield
     finally:
+        deadline.end = own
         if previous[0]:
             remaining = previous[0] - (time.monotonic() - started)
             if remaining > 0:

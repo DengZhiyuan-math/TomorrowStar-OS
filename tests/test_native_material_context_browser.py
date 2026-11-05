@@ -322,3 +322,28 @@ def test_context_names_each_controls_form_item_and_hidden_twin(json_page):
     assert all(
         isinstance(row["container_id"], str) and type(row["hidden"]) is bool for row in fields
     )
+
+
+def test_a_context_read_survives_driver_state_reads_of_seconds(json_page, monkeypatch):
+    # 2026-11-05: Hexagon and BCG timed out after the document check, whose 1 s
+    # release had left the whole session at 1 s; each owner and page check is a
+    # native driver read that can take seconds.
+    import time
+
+    _service, runner, _page, reference, _ = json_page
+    original = runner._assistance_page_checker
+
+    def slow(assistance_ref, *, after_stop=False):
+        page, check = original(assistance_ref, after_stop=after_stop)
+
+        def slow_check():
+            time.sleep(1.6)
+            return check()
+
+        return page, slow_check
+
+    monkeypatch.setattr(runner, "_assistance_page_checker", slow)
+    started = time.monotonic()
+    context = runner.observe_assistance_context(reference)
+    assert time.monotonic() - started > 5
+    assert context["status"] == "captured" and context["data"]["fields"]

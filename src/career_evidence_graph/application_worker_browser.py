@@ -457,6 +457,7 @@ SUBMIT_LOCK_SET = (
 INSPECT = FORMS["lever"].inspect_script()
 
 # Add semantic locator hints only to JSON handoff; keep the v1 image payload stable.
+ASSISTANCE_CONTEXT_SECONDS = 20
 INSPECT_ASSISTANCE_CONTEXT = (
     "() => { const data = ("
     + INSPECT_OWNED_PAGE
@@ -2450,7 +2451,14 @@ class ApplicationRunner:
         )
 
     def _capture_owned_page(
-        self, page, check, *, expected_document=None, include_screenshot=True, owner=None
+        self,
+        page,
+        check,
+        *,
+        expected_document=None,
+        include_screenshot=True,
+        owner=None,
+        seconds=5,
     ):
         """Read one retained handle; callers keep state checks outside Page IO."""
         if threading.get_ident() != self._page_thread:
@@ -2470,7 +2478,7 @@ class ApplicationRunner:
             owner = self.cua.observe_owner(pump=self.pump)
         check()
         url = page.url
-        session = OwnedCDP(page).__enter__()
+        session = OwnedCDP(page, seconds=seconds).__enter__()
         try:
             frame = session.send("Page.getFrameTree")["frameTree"]["frame"]
 
@@ -2883,12 +2891,16 @@ class ApplicationRunner:
     def observe_assistance_context(self, assistance_ref, *, after_stop=False):
         """Read JSON locator context from the original Page without taking a screenshot."""
         page, check = self._assistance_page_checker(assistance_ref, after_stop=after_stop)
-        with browser_deadline(5):
+        # The native owner is read twice and the page checked four times, each a driver
+        # state read that can take seconds (2026-11-03); 58 Avature fields read in 4 ms.
+        # The budget still ends a hung read.
+        with browser_deadline(ASSISTANCE_CONTEXT_SECONDS):
             captured = self._capture_owned_page(
                 page,
                 check,
                 expected_document=assistance_ref["binding"].get("document_token"),
                 include_screenshot=False,
+                seconds=ASSISTANCE_CONTEXT_SECONDS,
                 # The reclaim just re-bound the owner; two more driver state reads
                 # (seconds each, 2026-11-03) would spend this read's 5 s budget.
                 owner={"status": "reclaimed", "transport": "retained-playwright"}
