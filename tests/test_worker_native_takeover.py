@@ -1737,6 +1737,51 @@ def test_a_slow_material_read_hands_on_a_context_that_follows_the_renewal(native
     assert received[0]["observed_at"] == received[0]["at"]
 
 
+@pytest.mark.parametrize("failure", ["owned_browser_read_timeout", "document_changed"])
+def test_a_slow_start_check_is_retried_but_a_changed_document_is_not(
+    native_page, monkeypatch, failure
+):
+    """2026-11-05: a takeover start failed as assistance_binding_changed on one slow
+    2 s frame read, with nothing naming why."""
+    service, runner, _page, ref, _, _ = native_page
+    original = runner.pump_codex_events
+    failed = []
+
+    def pump(reference, *, document=None, after_stop=False):
+        if document is not None and not failed:
+            failed.append(True)
+            runner._permit_failure = failure
+            return False
+        return original(reference, document=document, after_stop=after_stop)
+
+    monkeypatch.setattr(runner, "pump_codex_events", pump)
+
+    class Adapter:
+        def start_takeover(self, original_ref, **kwargs):
+            kwargs["before_yield"](
+                {
+                    "application_ref_digest": digest(ref),
+                    "scope": kwargs["native_scope"],
+                    "request_id": kwargs["request_id"],
+                }
+            )
+            kwargs["after_yield"](
+                {"handoff_id": "native-run", "generation": 1, "local_tools_drained": True}
+            )
+            return SimpleNamespace(run_id="adapter-native-run")
+
+    runner.codex_assist = Adapter()
+    runner._service_assistance_stop = lambda: None
+    if failure == "document_changed":
+        with pytest.raises(PortalDataError) as error:
+            runner.start_native_assistance(ref, request_id="native-start-changed")
+        assert error.value.code == "assistance_binding_changed"
+        return
+    runner.start_native_assistance(ref, request_id="native-start-slow")
+    assert failed == [True]
+    assert service.store.load()["jobs"][0]["native_handoff_runs"][-1]["phase"] == "granted"
+
+
 @pytest.mark.parametrize("change", ["unchanged", "document", "run"])
 def test_granted_takeover_renews_an_observation_its_own_admission_let_expire(native_page, change):
     """2026-11-04: a CV file admission held the page thread 6.6 s; the next check saw

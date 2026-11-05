@@ -830,6 +830,7 @@ class ApplicationRunner:
         # Native calls this page thread is admitting or recording right now.
         self._native_work = 0
         self._last_scope_check = None
+        self._permit_failure = None
         self._assistance_baseline = None
         self._servicing_assistance_stop = False
         # (run_id, next attempt, delay): an unconfirmed stop is retried, not every tick.
@@ -2848,7 +2849,13 @@ class ApplicationRunner:
         return True
 
     def assistance_read_permitted(self, assistance_ref, *, document=None, after_stop=False):
-        """Cheap current-scope check for the read-only protocol event pump."""
+        """Cheap current-scope check for the read-only protocol event pump.
+
+        ``self._permit_failure`` keeps why the last check failed: "document_changed",
+        a slow read's message, or the refusing code (2026-11-05: a takeover start
+        failed as assistance_binding_changed with nothing naming why).
+        """
+        self._permit_failure = None
         try:
             page, check = self._assistance_page_checker(assistance_ref, after_stop=after_stop)
             check()
@@ -2862,6 +2869,7 @@ class ApplicationRunner:
                             "loader_id": frame.get("loaderId"),
                             "url": frame.get("url"),
                         }:
+                            self._permit_failure = "document_changed"
                             return False
                         check()
                     finally:
@@ -2869,7 +2877,18 @@ class ApplicationRunner:
                             session.detach()
                 check()
             return True
-        except (Error, OSError, StoreError, PortalDataError, ValueError, KeyError, TypeError):
+        except (
+            Error,
+            OSError,
+            StoreError,
+            PortalDataError,
+            ValueError,
+            KeyError,
+            TypeError,
+        ) as error:
+            self._permit_failure = getattr(error, "code", None) or getattr(
+                error, "message", type(error).__name__
+            )
             return False
 
     def observe_assistance_page(self, assistance_ref):
@@ -3861,10 +3880,16 @@ class ApplicationRunner:
         context["native_scope"] = native_scope
         # Startup work (page context, native scope, Codex launch) can outlast the
         # observation window; each check first refreshes it (seen 2026-10-31: 6.2 s).
-        if not self.pump_codex_events(reference, document=context["document"]):
-            raise PortalDataError(
-                "assistance_binding_changed", "原页文档已改变，保留当前现场。", 409
-            )
+        # A slow read is retried, as the context read is; a changed document is not.
+        for attempt in range(3):
+            if self.pump_codex_events(reference, document=context["document"]):
+                break
+            failure = self._permit_failure
+            print(f"assistance_start_check_failed: {failure}"[:200], flush=True)
+            if attempt == 2 or failure not in SLOW_READS:
+                raise PortalDataError(
+                    "assistance_binding_changed", "原页文档已改变，保留当前现场。", 409
+                )
         # That pump re-read the original frame against the captured document and
         # renewed the page observation; the context follows it, since the status
         # read behind the attestation outlasts the window (seen 2026-11-02).
