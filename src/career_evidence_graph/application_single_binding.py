@@ -22,9 +22,11 @@ from .career_portal_data import CareerCatalog, PortalDataError
 READ_TIME_RESULT_KEYS = frozenset({"preview_url", "used_source_ids"})
 
 
-# flow.json holds one task's full prior copy during a material update; a real job
-# reached 37 MB (2026-10-31). The bound still refuses unbounded local records.
-def _read(path: Path, *, expected_sha256=None, maximum_bytes=64_000_000) -> dict:
+# flow.json keeps every task's stage results inline (`artifacts[*].result`, about
+# 9 MB per job that reaches materials_ready) plus one task's full prior copy during
+# a material update: a real job reached 37 MB (2026-10-31) and 21 tasks reached
+# 72.7 MB (2026-11-05). The bound still refuses unbounded local records.
+def _read(path: Path, *, expected_sha256=None, maximum_bytes=256_000_000) -> dict:
     if (
         any(part.is_symlink() for part in (path, *path.parents))
         or path.stat().st_size > maximum_bytes
