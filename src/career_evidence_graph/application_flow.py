@@ -5131,10 +5131,13 @@ class ApplicationFlowService:
 
     def snapshot(self, task_id=None):
         with self.applications.write_lock():
-            state = deepcopy(self._load_shared())
+            shared = self._load_shared()
             from .application_existing_handoff import project
 
-            state["tasks"] = [project(self, self._worker_view(task)) for task in state["tasks"]]
+            # Each task view is its own copy; copying the whole record first only
+            # doubled a 125 MB copy under the shared write lock (2026-11-05).
+            state = {key: deepcopy(value) for key, value in shared.items() if key != "tasks"}
+            state["tasks"] = [project(self, self._worker_view(task)) for task in shared["tasks"]]
             active = self._task(state, task_id) if task_id else None
             if not task_id:
                 if self.preparation_only:

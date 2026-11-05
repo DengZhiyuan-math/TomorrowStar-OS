@@ -305,6 +305,10 @@ def test_reads_share_one_parse_until_the_record_is_replaced(roots, monkeypatch):
         # A caller's copy never changes the shared parse.
         first["status"] = "synthetic-change"
         assert flow.task_snapshot(task["id"])["status"] != "synthetic-change"
+        listed = flow.snapshot()
+        listed["tasks"][0]["status"] = listed["schemaVersion"] = "synthetic-change"
+        assert flow.snapshot()["tasks"][0]["status"] != "synthetic-change"
+        assert flow._load_shared()["schemaVersion"] == 1
         cancelled = flow.cancel(task["id"], task["revision"])
         assert flow.task_snapshot(task["id"])["revision"] == cancelled["revision"]
         assert len(loads) >= 2
