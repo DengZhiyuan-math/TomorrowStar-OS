@@ -3222,6 +3222,8 @@ class ApplicationRunner:
             None,
         )
         if snapshot is not None and not snapshot.get("fields"):
+            # One delivery projection per admission: each waits on the shared write
+            # lock (2026-11-05: Harmattan's CV admission waited on it twice).
             entries = [
                 row
                 for row in self.store.assistance_delivery(reference, page_context=context)[
@@ -3233,7 +3235,7 @@ class ApplicationRunner:
                 return self._resolve_unparsed_cover_letter_call(
                     reference, call, context, entries[0]
                 )
-            return self._resolve_unparsed_resume_call(reference, call, context)
+            return self._resolve_unparsed_resume_call(reference, call, context, entries)
         fields = [
             field
             for field in context.get("data", {}).get("fields", [])
@@ -3295,7 +3297,7 @@ class ApplicationRunner:
                 reference, call["material_ref"], question=question, page_context=context
             )
 
-    def _resolve_unparsed_resume_call(self, reference, call, context):
+    def _resolve_unparsed_resume_call(self, reference, call, context, entries):
         """The job's resume into the one resume file input of a page with no script questions.
 
         Preparation owns field meaning; here no prepared question exists, so the
@@ -3374,10 +3376,6 @@ class ApplicationRunner:
             )
         if not resume_input(texts):
             raise _material_refusal("material_field_changed", "此字段不是简历附件入口。", "label")
-        delivery = self.store.assistance_delivery(reference, page_context=context)
-        entries = [
-            row for row in delivery["materials"] if row.get("material_ref") == call["material_ref"]
-        ]
         if len(entries) != 1 or entries[0].get("kind") != "resume":
             raise _material_refusal(
                 "material_reference_invalid", "固定材料引用不是本岗位简历。", "delivery_entry"

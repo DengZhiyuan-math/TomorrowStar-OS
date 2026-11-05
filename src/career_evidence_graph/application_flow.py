@@ -1672,9 +1672,9 @@ class ApplicationFlowService:
             self._writable()
         return getattr(self, action.replace("-", "_"))(**payload)
 
-    def _checked(self, task_id, task_revision, *, allow_existing_handoff=False):
+    def _checked(self, task_id, task_revision, *, allow_existing_handoff=False, shared=False):
         self._writable()
-        state, task = self._read_checked(task_id, task_revision)
+        state, task = self._read_checked(task_id, task_revision, shared=shared)
         if (
             task.get("codex_handoff_ref") or task.get("codex_handoff_attempt")
         ) and not allow_existing_handoff:
@@ -1683,12 +1683,17 @@ class ApplicationFlowService:
             )
         return state, task
 
-    def _read_checked(self, task_id, task_revision):
-        state = self._load()
+    def _read_checked(self, task_id, task_revision, *, shared=False):
+        """``shared`` reads the cached parse: its state is read-only, its task a copy.
+
+        2026-11-05: the pipeline's 4 s heartbeat fully parsed the 125 MB record under
+        the shared write lock, holding it about 1.9 s each time.
+        """
+        state = self._load_shared() if shared else self._load()
         task = self._task(state, task_id)
         if task["revision"] != task_revision:
             raise PortalDataError("conflict", "任务已变化，请重新读取。", 409)
-        return state, task
+        return state, deepcopy(task) if shared else task
 
     def _batch_after(self, state, task):
         if self.material_batch and task.get("origin") != "existing_latex":
@@ -4836,11 +4841,12 @@ class ApplicationFlowService:
                 and not self._closed.is_set()
                 and not self._runtime_error
             )
-            state, task = (
-                self._read_checked(task_id, task_revision)
+            # The task is only read here; worker commands own their own persistence.
+            _state, task = (
+                self._read_checked(task_id, task_revision, shared=True)
                 if observer_review
                 or operation in {"observe-page", "inspect-handoff", "verify-handoff"}
-                else self._checked(task_id, task_revision)
+                else self._checked(task_id, task_revision, shared=True)
             )
             # Existing-page review uses the worker's full single-binding check.
             # A duplicate input scan here can starve its heartbeat under this lock.
@@ -4880,7 +4886,7 @@ class ApplicationFlowService:
     def observe_worker(self, task_id, task_revision, worker):
         """Validate a current observation and return it without changing Flow."""
         with self.applications.write_lock():
-            _state, task = self._read_checked(task_id, task_revision)
+            _state, task = self._read_checked(task_id, task_revision, shared=True)
             observed = self._worker_reference(task, worker)
             previous = task["worker_ref"]
             if previous is None or any(

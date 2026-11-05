@@ -488,13 +488,20 @@ def unparsed_resume_call(service, reference, context, label):
     ],
 )
 def test_runner_resolves_the_resume_on_a_page_without_script_questions(
-    bound_material_page, label, accepted
+    bound_material_page, label, accepted, monkeypatch
 ):
     service, _, issue = bound_material_page
     reference, context = issue([], prepare=False)
     call = unparsed_resume_call(service, reference, context, label)
     runner = ApplicationRunner(service.store, None)
     before = service.store.path.read_bytes()
+    projected = service.store.assistance_delivery
+    projections = []
+    monkeypatch.setattr(
+        service.store,
+        "assistance_delivery",
+        lambda *a, **k: projections.append(a) or projected(*a, **k),
+    )
 
     if not accepted:
         with pytest.raises(PortalDataError) as error:
@@ -503,6 +510,8 @@ def test_runner_resolves_the_resume_on_a_page_without_script_questions(
         assert service.store.path.read_bytes() == before
         return
     resolved = runner._resolve_native_material_call(reference, call, context)
+    # Each projection waits on the shared write lock; one serves the admission.
+    assert len(projections) == 1
     job = service.store.load()["jobs"][0]
     assert resolved["question"] is None
     assert resolved["material_id"] == "resume"

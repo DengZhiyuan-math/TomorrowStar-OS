@@ -13,7 +13,7 @@ from test_preparation_entry import post, snapshot
 from test_runtime_assembly import roots as roots
 
 from career_evidence_graph.career_portal import _STATIC
-from career_evidence_graph.career_portal_data import ApplicationStore
+from career_evidence_graph.career_portal_data import ApplicationStore, PortalDataError
 
 ADDITIVE = {"progress", "preparation_activity"}
 # /api/flow/state key order recorded from the before-copy (`mc15-projection/before`) served
@@ -296,6 +296,11 @@ def test_reads_share_one_parse_until_the_record_is_replaced(roots, monkeypatch):
         first = flow.task_snapshot(task["id"])
         flow.task_snapshot(task["id"])
         flow.progress(task["id"])
+        # 2026-11-05: a worker action (the pipeline's 4 s heartbeat) read it too.
+        for operation in ("observe-page", "heartbeat"):
+            with pytest.raises(PortalDataError) as error:
+                flow.worker_action(task["id"], task["revision"], operation, {})
+            assert error.value.code == "flow_worker_unavailable"
         assert len(loads) == 1
         # A caller's copy never changes the shared parse.
         first["status"] = "synthetic-change"
