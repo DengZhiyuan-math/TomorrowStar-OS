@@ -110,6 +110,21 @@ _NATIVE_OUTCOME_KEYS = frozenset({"status", "refusal", "refusal_detail"})
 _NATIVE_MATERIAL_OUTCOME_KEYS = _NATIVE_OUTCOME_KEYS | {"material_resolution", "material_readback"}
 
 
+# Events drained around one admission. A slow decision (a material's page read)
+# let more than 64 ordinary events queue; each poll then dropped the decision
+# unanswered until the driver stopped waiting (2026-11-05: Harmattan's CV).
+_ADMISSION_DRAIN = 4096
+
+
+def _log_admission_deferred(call, condition):
+    """Private log of an admission left unanswered for the next poll; never arguments."""
+    print(
+        "native_admission_deferred: "
+        + json.dumps({"tool": call.get("tool"), "condition": condition}),
+        flush=True,
+    )
+
+
 def admission_frames(error):
     """The last three application frames of a refused admission, without values."""
     import traceback
@@ -1078,7 +1093,7 @@ class CodexAdapter:
                 # Ordinary events that arrive meanwhile are consumed and the checks
                 # repeat at once; only a persisting backlog waits for the next poll.
                 for _attempt in range(4):
-                    for _ in range(64):
+                    for _ in range(_ADMISSION_DRAIN):
                         if not self._consume(run):
                             break
                     if not run.events.empty():
@@ -1089,6 +1104,7 @@ class CodexAdapter:
                     if run.events.empty():
                         break
                 else:
+                    _log_admission_deferred(call, "backlog_before_decision")
                     return  # Defer without recording admission until the backlog is observed.
                 # Validate and persist after the last owner pump. No later pump
                 # may apply a fact correction between this callback and admission.
@@ -1109,10 +1125,13 @@ class CodexAdapter:
                     allow = decision is True
                 # A terminal may have arrived while the intent was persisted; ordinary
                 # events are only observed, never a fact correction.
-                for _ in range(64):
+                for _ in range(_ADMISSION_DRAIN):
                     if not self._consume(run):
                         break
                 if not run.events.empty() or run.tools_revoked:
+                    _log_admission_deferred(
+                        call, "revoked" if run.tools_revoked else "backlog_after_decision"
+                    )
                     return
                 allow = allow and not run.tools_revoked
             except (OSError, StoreError) as error:

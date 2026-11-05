@@ -1299,6 +1299,46 @@ def test_ordinary_event_during_durable_callback_still_admits_in_the_same_poll(
         adapter.close()
 
 
+def test_a_long_ordinary_backlog_during_a_slow_callback_still_admits(tmp_path, monkeypatch):
+    """2026-11-05: Harmattan's CV decision read the page while Codex streamed; more
+    than 64 ordinary events queued and every poll dropped the answer unsent."""
+    config, ref, scope, packet, driver, native, events = native_case(tmp_path, monkeypatch)
+
+    def persist_intent(call):
+        events.append("persisted-intent")
+        for _ in range(100):
+            adapter._runs[run.run_id].events.put_nowait(
+                {"method": "item/started", "params": {"threadId": "thread-native"}}
+            )
+        return True
+
+    adapter, run = start_case(
+        config, ref, scope, packet, driver, native, before_native_call=persist_intent
+    )
+    try:
+        native.calls = [
+            {
+                "call_id": "long-backlog",
+                "tool": "browser_click",
+                "arguments_digest": "a" * 64,
+                "status": "awaiting_host",
+                "generation": 1,
+                "sequence": 1,
+                "mutation": True,
+                "semantic_verified": False,
+                "scope": scope,
+                "native_ref": "control-1",
+                "field_hint": {"role": "button", "name": "Expand details"},
+            }
+        ]
+        current = adapter.progress(run.run_id)
+        assert events.count("persisted-intent") == 1
+        assert events.count(("admit", "long-backlog", "allow")) == 1
+        assert current.status == "ready" and not current.tools_revoked
+    finally:
+        adapter.close()
+
+
 def test_terminal_queued_during_durable_callback_defers_native_admission(tmp_path, monkeypatch):
     config, ref, scope, packet, driver, native, events = native_case(tmp_path, monkeypatch)
 
