@@ -4,6 +4,7 @@ import base64
 import json
 import time
 from copy import deepcopy
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -324,6 +325,36 @@ def test_a_cancelled_current_job_lets_the_next_job_be_prepared(single_worker):
     with pytest.raises(PortalDataError) as error:
         service.request("prepare", {"workflow": "single", "send_confirmed": True, "jobs": [first]})
     assert error.value.code in {"current_job_exists", "job_retained"}
+
+
+def test_a_cancelled_job_can_be_redone_in_the_same_batch(single_worker):
+    # 2026-11-05: Harmattan AI was redone after a cancel and hit job_retained, because
+    # the batch kept its cancelled record. That record is now retired with its file.
+    service, item, _, _ = single_worker
+    first, policy = pipeline_job(service, item)
+    service.request("prepare", {"workflow": "single", "send_confirmed": True, "jobs": [first]})
+    state = service.store.load()
+    batch, old_file = state["batch_id"], state["jobs"][0]["file_path"]
+    state["jobs"][0]["status"] = "cancelled"
+    state["current_job_id"] = None
+    service.store.save(state)
+    again, _ = pipeline_job(service, item, policy=policy)
+    service.request("prepare", {"workflow": "single", "send_confirmed": True, "jobs": [again]})
+    after = service.store.load()
+    assert after["batch_id"] == batch and after["current_job_id"] == item["application_id"]
+    assert [job["status"] for job in after["jobs"]] == ["queued"]
+    retired = after["retired_jobs"][0]
+    assert retired["batch_id"] == batch and retired["job"]["status"] == "cancelled"
+    assert Path(retired["job"]["file_path"]).is_file()
+    assert Path(after["jobs"][0]["file_path"]).is_file() and Path(old_file).is_file()
+    # A cancelled record whose page is still open stays, and the redo is refused.
+    after["jobs"][0].update(status="cancelled", page_open=True)
+    after["current_job_id"] = None
+    service.store.save(after)
+    third, _ = pipeline_job(service, item, policy=policy)
+    with pytest.raises(PortalDataError) as error:
+        service.request("prepare", {"workflow": "single", "send_confirmed": True, "jobs": [third]})
+    assert error.value.code == "job_retained"
 
 
 def test_direct_prepare_cannot_replace_a_waiting_job(single_worker):

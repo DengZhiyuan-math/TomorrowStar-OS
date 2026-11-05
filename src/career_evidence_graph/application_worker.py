@@ -7598,6 +7598,8 @@ class WorkerService:
                     )
                     if self.live and not fixed_qualification:
                         self.store.check_language_requirement(app, country=item["country"])
+        if append_current:
+            self._retire_cancelled(state, {job["application_id"] for job in jobs})
         if append_current and any(
             job["application_id"] in {old["application_id"] for old in state["jobs"]}
             for job in jobs
@@ -7670,6 +7672,37 @@ class WorkerService:
         )
         if workflow == "single":
             state["current_job_id"] = jobs[0]["application_id"]
+
+    def _retire_cancelled(self, state: dict, identifiers: set) -> None:
+        """Let a job redone in this batch replace its cancelled record (2026-11-05).
+
+        Only a cancelled record with no page, action, handoff or submission left is
+        retired; it keeps its history under ``retired_jobs`` and its attachment.
+        """
+        retired = [old for old in state["jobs"] if old["application_id"] in identifiers]
+        if not retired or any(
+            old["status"] != "cancelled"
+            or old.get("page_open")
+            or old.get("intent")
+            or old.get("handed_off")
+            or old.get("manual_submission")
+            or state.get("current_job_id") == old["application_id"]
+            for old in retired
+        ):
+            return
+        directory = self.store.root / "attachments" / state["batch_id"]
+        for old in retired:
+            own = directory / old["application_id"]
+            if own.is_dir() and not own.is_symlink():
+                target = directory / ".retired" / f"{old['application_id']}-{uuid4().hex}"
+                target.parent.mkdir(mode=0o700, exist_ok=True)
+                own.rename(target)
+                if old.get("file_path"):
+                    old["file_path"] = str(target / Path(old["file_path"]).name)
+            state.setdefault("retired_jobs", []).append(
+                {"batch_id": state["batch_id"], "job": deepcopy(old), "at": time.time()}
+            )
+        state["jobs"] = [old for old in state["jobs"] if old["application_id"] not in identifiers]
 
     def _resolve_form_differences(self, state: dict, payload: dict) -> None:
         job = self._job(state, payload.get("application_id"))
