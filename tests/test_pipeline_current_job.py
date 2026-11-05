@@ -433,6 +433,22 @@ def test_source_wait_skip_return_reuses_current_pointer_and_continue_retries_sou
     assert len(calls) == 4
 
 
+def test_an_indeed_verification_stop_says_the_user_completes_it(current_pipeline):
+    pipeline, _flow, intake, _worker = current_pipeline
+    original = intake.fetcher
+
+    def fetch(url):
+        if url.endswith("10001"):
+            held = page(url, status="login_required", completeness="unknown")
+            return held | {"error_code": "verification_required"}
+        return original(url)
+
+    intake.fetcher = fetch
+    pipeline.start(request_id="verification")
+    waiting = drive(pipeline, "needs_input")
+    assert "Indeed 要求人工验证" in waiting["notification"]["message"]
+
+
 def test_codex_filling_complete_projects_manual_submit_wait_not_submitted(current_pipeline):
     import hashlib
     import json

@@ -21,6 +21,10 @@ PAGE_WAIT_MS = 120_000
 ROUTES = {"indeed_apply", "company_site"}
 
 
+class VerificationRequired(Exception):
+    """Indeed kept its verification page; only the user may complete it."""
+
+
 def indeed_job_key(url) -> str | None:
     key = recommendation_key(url)
     return key[1] if key and key[0] == "indeed" else None
@@ -42,7 +46,10 @@ def fetch_job_source_or_browser(url, *, read=None):
         model = (read or _read_in_browser)(f"https://{host}/viewjob?jk={job_key}")
     except Exception as error:  # noqa: BLE001 - a routine page failure stays a receipt.
         # The refused receipt keeps why the browser read failed.
-        return _finish(capture | {"browser_error": f"{type(error).__name__}: {error}"[:300]})
+        failed = {"browser_error": f"{type(error).__name__}: {error}"[:300]}
+        if isinstance(error, VerificationRequired):
+            failed["error_code"] = "verification_required"
+        return _finish(capture | failed)
     return indeed_capture(capture, model, job_key)
 
 
@@ -108,7 +115,7 @@ def apply_route(record: dict | None) -> str:
 
 
 def _read_in_browser(url: str):
-    from playwright.sync_api import sync_playwright
+    from playwright.sync_api import TimeoutError, sync_playwright  # noqa: A004
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(channel="chrome", headless=False)
@@ -117,10 +124,16 @@ def _read_in_browser(url: str):
             context = browser.new_context(**({"storage_state": saved} if saved else {}))
             page = context.new_page()
             page.goto(url, wait_until="domcontentloaded", timeout=60_000)
-            page.wait_for_function(
-                "() => window._initialData?.viewJobClientSideModel?.jobKey",
-                timeout=PAGE_WAIT_MS,
-            )
+            try:
+                page.wait_for_function(
+                    "() => window._initialData?.viewJobClientSideModel?.jobKey",
+                    timeout=PAGE_WAIT_MS,
+                )
+            except TimeoutError as error:
+                # Cloudflare's check usually clears by itself; one that stays needs the user.
+                if "__cf_chl" in page.url or page.title().casefold() == "just a moment...":
+                    raise VerificationRequired(page.url.split("?", 1)[0]) from error
+                raise
             return page.evaluate("() => window._initialData.viewJobClientSideModel")
         finally:
             browser.close()

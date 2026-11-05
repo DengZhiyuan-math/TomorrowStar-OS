@@ -2501,6 +2501,8 @@ class ApplicationPipeline:
                 "needs_recheck" if unknown else "needs_input",
                 "当前岗位取源结果待核验。"
                 if unknown
+                else "Indeed 要求人工验证：点继续会重开岗位页，请在弹出的 Chrome 窗口完成验证。"
+                if record.get("source_error_code") == "verification_required"
                 else "当前岗位未取得完整 JD，请处理原因后继续重试、补充来源或跳过。",
             )
             return

@@ -121,6 +121,14 @@ def test_only_a_refused_indeed_read_opens_the_browser(monkeypatch):
     failed = fetch_job_source_or_browser(URL, read=broken)
     assert failed["acquisition_status"] == "login_required"
     assert failed["browser_error"] == "RuntimeError: Chrome did not start"
+    assert "error_code" not in failed
+
+    def verification(url):
+        raise indeed_job_source.VerificationRequired(url)
+
+    held = fetch_job_source_or_browser(URL, read=verification)
+    assert held["acquisition_status"] == "login_required"
+    assert held["error_code"] == "verification_required"
     assert reads == [URL]
 
 
