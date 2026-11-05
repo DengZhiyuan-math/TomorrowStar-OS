@@ -2689,9 +2689,26 @@ class ApplicationRunner:
             # Only this page thread's own re-read of the same run, page and document
             # renews an observation that its own Worker work let expire; a changed
             # document, page or run still fails below as a changed binding.
+            started = time.monotonic()
             renewable = same_document()
+            renewed = time.monotonic()
             with self.store.applications.write_lock():
+                locked = time.monotonic()
                 state = self.store.load()
+                loaded = time.monotonic()
+                if loaded - started > 1:
+                    # Private timing of a slow scope check (2026-11-05).
+                    print(
+                        "scope_check_slow: "
+                        + json.dumps(
+                            {
+                                "same_document_s": round(renewed - started, 2),
+                                "lock_wait_s": round(locked - renewed, 2),
+                                "load_s": round(loaded - locked, 2),
+                            }
+                        ),
+                        flush=True,
+                    )
                 job = next(
                     (row for row in state["jobs"] if row["application_id"] == identifier), None
                 )
