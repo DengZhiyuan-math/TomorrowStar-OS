@@ -4907,8 +4907,13 @@ class ApplicationRunner:
             if call["status"] == "observed" and call["call_id"] not in collapses
         ]
 
+        def bare(value):
+            # A page shows a required field as "Email*"; its label is "Email"
+            # (2026-11-05: Harmattan's typed Name and Email read as unattributed).
+            return norm(value).rstrip("*✱").strip()
+
         def named(row, name):
-            return name in ({norm(row.get(key)) for key in ("label", "id", "name")} - {""})
+            return bare(name) in ({bare(row.get(key)) for key in ("label", "id", "name")} - {""})
 
         def owned(call):
             """The combobox fields an option click set, with their hidden native twins."""

@@ -631,6 +631,17 @@ def test_return_refuses_an_ambiguous_label_mapping(returning):
     assert_waiting(returning, "assistance_return_unverified")
 
 
+def test_a_required_marker_on_the_native_field_name_still_attributes_it(returning):
+    """2026-11-05: the page named Harmattan's fields "Name*" and "Email*" while their
+    labels were "Name" and "Email"; both typed values read as unattributed."""
+    ctx = returning
+    run_turn(ctx, report=make_report(), planned=[click("native-click", "Country*")])
+    ctx.runner._service_assistance_return()
+    job = current(ctx)
+    assert job["assistance"]["status"] == "released"
+    assert job["assistance"]["outcome"]["attributed_fields"][0]["field_id"] == "country"
+
+
 def test_return_acknowledges_native_trusted_input_on_attributed_field(returning):
     """Native typing is trusted input; after return the script must not see it as human."""
     ctx = returning
