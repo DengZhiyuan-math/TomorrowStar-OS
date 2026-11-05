@@ -56,7 +56,7 @@ class FlowView:
         # Progress belongs to the same saved task revision as the snapshot.
         with flow.applications.write_lock():
             with lock_step("snapshot"):
-                state = flow.snapshot(task_id, brief_tasks=True)
+                state = flow.snapshot(task_id, brief_tasks=True, explanation=False)
             task = state["active_task"]
             try:
                 with lock_step("progress"):
@@ -64,6 +64,10 @@ class FlowView:
             except (PortalDataError, KeyError, TypeError, ValueError):
                 # The additive progress never hides the old projection.
                 progress = None
+        if not preparation_only and task and task.get("analysis_id"):
+            # Display only, from this snapshot's copy of the task; its library and
+            # source reads need not hold the shared write lock.
+            state["match_explanation"] = flow._task_explanation(task)
         if progress is not None:
             progress.pop("task")
         state["mode"] = "preparation" if preparation_only else "application"

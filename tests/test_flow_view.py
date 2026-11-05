@@ -300,6 +300,32 @@ def test_the_page_lists_other_tasks_briefly_and_the_active_one_whole(roots):
         runtime.close()
 
 
+def test_the_display_explanation_is_built_after_the_lock_is_released(roots, monkeypatch):
+    # 2026-11-06: it was 0.65 s of each poll's hold of the shared write lock.
+    runtime = _open(roots)
+    try:
+        _task(runtime)
+        flow, original = runtime.flow, runtime.flow.snapshot
+        held = []
+
+        def analysed(*args, **options):
+            state = original(*args, **options)
+            state["active_task"]["analysis_id"] = "synthetic-analysis"
+            return state
+
+        def explanation(task):
+            held.append(flow.applications._write_descriptor is not None)
+            return {"task_id": task["id"]}
+
+        monkeypatch.setattr(flow, "snapshot", analysed)
+        monkeypatch.setattr(flow, "_task_explanation", explanation)
+        state = runtime.flow_view.state()
+        assert held == [False]
+        assert state["match_explanation"] == {"task_id": state["active_task"]["id"]}
+    finally:
+        runtime.close()
+
+
 def test_preparation_mode_keeps_every_task_whole(roots):
     runtime = _open(roots, preparation_only=True)
     try:

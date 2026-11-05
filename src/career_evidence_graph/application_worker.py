@@ -2320,6 +2320,19 @@ class WorkerStore:
             self._loaded = (key, deepcopy(state))
         return state
 
+    def read_shared(self) -> dict:
+        """The cached validated checkpoint for a read-only caller (2026-11-06).
+
+        The page poll read a whole copy once per bound task, 0.79 s of each hold of
+        the shared write lock. The caller copies what it keeps and changes nothing.
+        """
+        key = _file_key(self.path)
+        cached = getattr(self, "_loaded", None)
+        if key is None or cached is None or cached[0] != key:
+            return self.load()
+        self.check_applications_root(cached[1])
+        return cached[1]
+
     def _read_checked(self) -> dict:
         state = unpack_source_sets(
             helper.read_json_object(self.path, "worker state"), self.root / "source-sets"
@@ -5291,7 +5304,8 @@ class WorkerService:
         self, application_id, task_id, *, expected_batch_id=None, expected_run_id=None
     ):
         """Read one single-task execution without loading materials or creating work."""
-        state = self.store.load()
+        # Read-only: only scalars leave this method.
+        state = self.store.read_shared()
         job = self._bound_execution_job(
             state,
             application_id,

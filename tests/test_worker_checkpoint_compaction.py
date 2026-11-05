@@ -5,6 +5,7 @@ import json
 from test_workable_uploads import setup_service
 
 from career_evidence_graph._vendor import job_apply_store as helper
+from career_evidence_graph.career_portal_data import PortalDataError
 from career_evidence_graph.application_worker import (
     ROUTINE_OBSERVATION_WINDOW,
     compact_native_runs,
@@ -171,6 +172,30 @@ def test_an_unchanged_checkpoint_is_not_parsed_again_and_each_load_is_a_copy(tmp
     service.store.save(second)
     assert service.store.load()["worker_error"] == "synthetic_change"
     assert reads.count("worker state") == 2
+
+
+def test_an_execution_reference_reads_the_shared_checkpoint_without_a_copy(
+    tmp_path, monkeypatch
+):
+    # 2026-11-06: the page poll copied the whole checkpoint once per bound task.
+    service = setup_service(tmp_path, monkeypatch)
+    start_run(service.store)
+    service.store.load()  # The first read parses and keeps the validated state.
+    shared = service.store.read_shared()
+    assert service.store.read_shared() is shared
+    copies = []
+    original = service.store.load
+    monkeypatch.setattr(service.store, "load", lambda: copies.append(True) or original())
+    job = shared["jobs"][0]
+    try:
+        service.execution_reference(job["application_id"], "synthetic-task")
+    except PortalDataError:
+        pass
+    assert copies == []
+    changed = original()
+    changed["worker_error"] = "synthetic_change"
+    service.store.save(changed)
+    assert service.store.read_shared()["worker_error"] == "synthetic_change"
 
 
 def test_diagnostic_rows_keep_no_query_values_or_credentials():

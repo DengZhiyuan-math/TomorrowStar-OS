@@ -5138,15 +5138,19 @@ class ApplicationFlowService:
             task = deepcopy(self._task(self._load_shared(), task_id))
             return project(self, self._worker_view(task))
 
-    def snapshot(self, task_id=None, *, brief_tasks=False):
+    def snapshot(self, task_id=None, *, brief_tasks=False, explanation=True):
         """The Flow page state.
 
         ``brief_tasks`` (application mode): the active task stays whole and every
         other task carries only ``TASK_BRIEF_KEYS`` with its projected status. The
         page's poll returned all tasks whole, about 107 MB each 1.2 s (2026-11-05).
+        ``explanation=False`` leaves application mode's display-only
+        ``match_explanation`` to the caller, outside this lock (2026-11-06: 0.65 s
+        of each poll's hold).
         """
         with self.applications.write_lock():
-            shared = self._load_shared()
+            with lock_step("load"):
+                shared = self._load_shared()
             from .application_existing_handoff import project
 
             # Each task view is its own copy; copying the whole record first only
@@ -5182,15 +5186,16 @@ class ApplicationFlowService:
                 batch = state.get("preparation_batch") or {}
                 if batch.get("active_task_id"):
                     active = self._task(state, batch["active_task_id"])
-            snapshot = state | {
-                "enabled": True,
-                "active_task": active,
-                "local_materials": bool(active and local_materials(active)),
-                "eligibility": task_eligibility(active)
-                if active and not self.preparation_only
-                else None,
-                "runtime_error": self._runtime_error,
-            }
+            with lock_step("fields"):
+                snapshot = state | {
+                    "enabled": True,
+                    "active_task": active,
+                    "local_materials": bool(active and local_materials(active)),
+                    "eligibility": task_eligibility(active)
+                    if active and not self.preparation_only
+                    else None,
+                    "runtime_error": self._runtime_error,
+                }
             if active and active.get("experience_handoff"):
                 reader = self.callbacks.get("experience_generation")
                 try:
@@ -5226,7 +5231,7 @@ class ApplicationFlowService:
                 snapshot["active_explanation"] = explanation
                 if explanation:
                     snapshot["eligibility"] = explanation["qualification"]
-            elif active and active.get("analysis_id"):
+            elif explanation and active and active.get("analysis_id"):
                 # Display only: application-mode gates never read this explanation.
                 with lock_step("explanation"):
                     snapshot["match_explanation"] = self._task_explanation(active)
