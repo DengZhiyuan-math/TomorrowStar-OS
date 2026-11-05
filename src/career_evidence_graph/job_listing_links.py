@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+import socket
 import urllib.request
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -82,7 +83,7 @@ def resolve_apply_url(url: str, *, read=None, fetch=fetch_job_source) -> str | N
     return employer_url(target, fetch=fetch) if status == "open" else None
 
 
-def employer_url(target: str, *, fetch=fetch_job_source) -> str | None:
+def employer_url(target: str, *, fetch=fetch_job_source, read_page=None) -> str | None:
     """Follow LinkedIn's offsite URL to the employer's final page."""
     try:
         capture = fetch(target)
@@ -92,7 +93,48 @@ def employer_url(target: str, *, fetch=fetch_job_source) -> str | None:
         return None
     # A site that refuses a direct read still opens in the worker's browser.
     final = target if capture.get("error_code") else capture.get("final_url") or target
-    return None if _linkedin(urlsplit(final).hostname or "") else final
+    if _linkedin(urlsplit(final).hostname or ""):
+        return None
+    # LinkedIn's links to Phenom career sites carry utm_medium=phenom-feeds.
+    if "phenom" not in urlsplit(target).query.casefold():
+        return final
+    return external_apply_url(final, read=read_page) or final
+
+
+def external_apply_url(url: str, *, read=None) -> str | None:
+    """The other site a Phenom job page names for applying, or None (2026-11-05).
+
+    BCG Platinion's Phenom page renders no Apply button; its data names Avature.
+    Opening that page directly keeps the native takeover on one site: the driver
+    refused a handoff after the open page itself had moved to another site.
+    """
+    try:
+        page = (read or _read_page)(url)
+    except (OSError, ValueError):
+        return None
+    if "phApp.ddo" not in page or '"isExternalApply":true' not in page:
+        return None
+    found = re.search(r'"applyUrl":"(https://(?:[^"\\]|\\.)+)"', page)
+    if not found:
+        return None
+    target = json.loads(f'"{found.group(1)}"')
+    host = urlsplit(target).hostname or ""
+    return target if host and host != urlsplit(url).hostname else None
+
+
+def _read_page(url: str) -> str:
+    from .application_job_source import MAX_RESPONSE_BYTES, _addresses, _https_get, _url
+
+    url = _url(url)
+    result = _https_get(
+        url,
+        addresses=_addresses(socket.getaddrinfo, url, 20),
+        timeout=20,
+        max_bytes=MAX_RESPONSE_BYTES,
+    )
+    if result["status"] != 200:
+        raise ValueError("page_unavailable")
+    return result["body"].decode("utf-8", "replace")
 
 
 def _read(url: str, cookies: dict) -> str:

@@ -52,3 +52,41 @@ def test_escaped_url_and_a_refused_direct_read(tmp_path):
     )
     assert resolved == "https://example.onlyfy.jobs/job/abc?a=1&src=LinkedIn"
     links.configure(None)
+
+
+PHENOM = (
+    "https://careers.bcg.com/global/en/job/BCG1US794EXTERNALENGLOBAL/AI-Tech-Consultant"
+    "?utm_source=linkedin&utm_medium=phenom-feeds"
+)
+AVATURE = "https://platinion.avature.net/CareersDeEn/ApplicationMethods?jobId=794"
+
+
+def test_a_phenom_job_applying_elsewhere_opens_on_that_site():
+    # 2026-11-05: BCG Platinion's Phenom page renders no Apply button; its data names
+    # Avature, and the native takeover refused a page that had moved to Avature itself.
+    page = (
+        '<script>phApp.ddo = {"jobDetail":{"data":{"job":{"isExternalApply":true,'
+        f'"applyUrl":"{AVATURE}"}}}}}};</script>'
+    )
+    reads = []
+
+    def read(url):
+        reads.append(url)
+        return page
+
+    fetch = lambda url: {"final_url": url}  # noqa: E731
+    assert links.employer_url(PHENOM, fetch=fetch, read_page=read) == AVATURE
+    # A Phenom job applying on its own site, or a page naming none, keeps the page.
+    internal = page.replace('"isExternalApply":true', '"isExternalApply":false')
+    assert links.employer_url(PHENOM, fetch=fetch, read_page=lambda url: internal) == PHENOM
+    same_site = page.replace(AVATURE, "https://careers.bcg.com/apply/794")
+    assert links.employer_url(PHENOM, fetch=fetch, read_page=lambda url: same_site) == PHENOM
+
+    def unreadable(url):
+        raise OSError("refused")
+
+    assert links.employer_url(PHENOM, fetch=fetch, read_page=unreadable) == PHENOM
+    # Only LinkedIn's Phenom feed links are read a second time.
+    onlyfy = "https://example.onlyfy.jobs/job/abc"
+    assert links.employer_url(onlyfy, fetch=fetch, read_page=read) == onlyfy
+    assert reads == [PHENOM]
