@@ -4078,8 +4078,11 @@ class ApplicationRunner:
                             code or "read_timeout", "原页读取超时，本次材料未发送。", "page_read"
                         ) from error
                     raise
-                # The admission read verified this page's document just now.
+                # The admission read verified this page's document just now; the
+                # snapshot follows that observation, as at the takeover's start
+                # (2026-11-05: Harmattan's CV read as an expired JSON context).
                 self._renew_own_observation(reference)
+                self._renew_assistance_context(reference, context)
                 return self._prepare_native_material_call(
                     reference,
                     call,

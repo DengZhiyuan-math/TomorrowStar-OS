@@ -1676,6 +1676,66 @@ def test_material_admission_rereads_a_slow_page_and_refuses_only_that_delivery(
     assert len(reads) == 3
 
 
+def test_a_slow_material_read_hands_on_a_context_that_follows_the_renewal(native_page, monkeypatch):
+    """2026-11-05: Harmattan's CV admission read took long enough that its snapshot
+    reached the delivery as an expired JSON context and revoked the takeover."""
+    service, runner, _page, ref, _, _ = native_page
+    sealed, received = [], []
+    original = runner.observe_assistance_context
+
+    def observe(reference, *, after_stop=False):
+        if not sealed:
+            return original(reference, after_stop=after_stop)
+        page_id = service.store.load()["jobs"][0]["page_observation"]["page_id"]
+        stale = time.time() - 6.5
+        return {
+            "status": "captured",
+            "binding": {"page_id": page_id},
+            "at": stale,
+            "observed_at": stale,
+            "document": "synthetic",
+        }
+
+    monkeypatch.setattr(runner, "observe_assistance_context", observe)
+    monkeypatch.setattr(
+        runner,
+        "_prepare_native_material_call",
+        lambda reference, call, context, **kwargs: received.append(context) or {"ok": True},
+    )
+
+    class Adapter:
+        def start_takeover(self, original_ref, **kwargs):
+            kwargs["before_yield"](
+                {
+                    "application_ref_digest": digest(ref),
+                    "scope": kwargs["native_scope"],
+                    "request_id": kwargs["request_id"],
+                }
+            )
+            kwargs["after_yield"](
+                {"handoff_id": "native-run", "generation": 1, "local_tools_drained": True}
+            )
+            sealed.append(True)
+            kwargs["before_native_call"](
+                {
+                    "call_id": "native-cv",
+                    "tool": "browser_deliver_material",
+                    "status": "awaiting_host",
+                    "scope": kwargs["native_scope"],
+                }
+            )
+            return SimpleNamespace(run_id="adapter-native-run")
+
+        def progress(self, run_id):
+            return SimpleNamespace(status="ready", tools_revoked=False)
+
+    runner.codex_assist = Adapter()
+    runner._service_assistance_stop = lambda: None
+    runner.start_native_assistance(ref, request_id="native-material-stale-context")
+    assert received and time.time() - received[0]["at"] < 2
+    assert received[0]["observed_at"] == received[0]["at"]
+
+
 @pytest.mark.parametrize("change", ["unchanged", "document", "run"])
 def test_granted_takeover_renews_an_observation_its_own_admission_let_expire(native_page, change):
     """2026-11-04: a CV file admission held the page thread 6.6 s; the next check saw
