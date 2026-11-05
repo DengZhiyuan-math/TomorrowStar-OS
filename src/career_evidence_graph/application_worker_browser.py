@@ -734,6 +734,18 @@ def _abort(route) -> None:
 STOP_RECHECK_INTERVAL = 2.0
 
 
+def _callers(depth=4):
+    """The nearest worker functions on this stack, for the private log only."""
+    import traceback
+
+    frames = [
+        frame.name
+        for frame in traceback.extract_stack()[:-2]
+        if frame.filename.endswith("application_worker_browser.py")
+    ]
+    return frames[-depth:]
+
+
 def _require_owned_document(session, expected_document):
     """Require the original document's token through an owned CDP session."""
     # CDP property descriptors do not invoke a page-defined getter.
@@ -782,6 +794,7 @@ class ApplicationRunner:
         self._assistance_run = None
         # Native calls this page thread is admitting or recording right now.
         self._native_work = 0
+        self._last_scope_check = None
         self._assistance_baseline = None
         self._servicing_assistance_stop = False
         # (run_id, next attempt, delay): an unconfirmed stop is retried, not every tick.
@@ -2698,11 +2711,16 @@ class ApplicationRunner:
                     or not scope.valid
                     or state.get("worker_error")
                 ):
-                    # The private log keeps which part of the page scope changed.
+                    # The private log keeps which part of the page scope changed,
+                    # and what last checked it before the window passed (2026-11-05).
+                    last = self._last_scope_check
                     print(
                         "assistance_binding_changed: "
                         + json.dumps(
                             {
+                                "since_last_check": last and round(time.monotonic() - last[0], 1),
+                                "last_check_by": last and last[1],
+                                "check_by": _callers(),
                                 "status": (assistance or {}).get("status"),
                                 "writer": (assistance or {}).get("active_writer"),
                                 "backend": bool(
@@ -2730,6 +2748,7 @@ class ApplicationRunner:
                     raise PortalDataError(
                         "assistance_binding_changed", "原页、材料或接管范围已改变。", 409
                     )
+                self._last_scope_check = (time.monotonic(), _callers())
                 require_execution(
                     self.store.applications,
                     identifier,
