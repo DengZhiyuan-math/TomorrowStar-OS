@@ -1601,6 +1601,9 @@ def test_native_final_report_is_bound_to_the_active_turn(tmp_path, monkeypatch):
         instructions = thread["params"]["developerInstructions"]
         assert "next_step" in instructions and "null" in instructions
         assert "schema" in instructions
+        # 2026-11-05: an inspection without the exact target and tab was refused.
+        flat_scope = " ".join(instructions.split())
+        assert "pass the handoff's native_scope target_id and tab_id exactly" in flat_scope
         # Non-text controls use the DOM set_value tool; only unsupported ones return.
         assert "with browser_set_value" in instructions
         assert "browser_deliver_material" in instructions
