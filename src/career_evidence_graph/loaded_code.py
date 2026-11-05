@@ -67,6 +67,7 @@ _PREPARATION_MODULES = (
     "browser_sign_in",
     "job_listing_links",
     "indeed_job_source",
+    "employer_page_search",
     "application_job_brief",
     "application_jd_extract",
     "application_input_limits",

@@ -15,6 +15,7 @@ from . import job_listing_links
 from .application_automation import recommendation_key
 from .application_job_source import _finish, _text, fetch_job_source
 from .cua_driver import load_login_state
+from .employer_page_search import find_employer_page
 
 # Long enough for the user to finish a verification Indeed shows in the window.
 PAGE_WAIT_MS = 120_000
@@ -30,8 +31,12 @@ def indeed_job_key(url) -> str | None:
     return key[1] if key and key[0] == "indeed" else None
 
 
-def fetch_job_source_or_browser(url, *, read=None):
-    """The direct read, or for a refused Indeed job the page read in the App's Chrome."""
+def fetch_job_source_or_browser(url, *, read=None, find=None):
+    """The direct read, or for a refused Indeed job the page read in the App's Chrome.
+
+    A company-site job also gets the employer's own application page when one is
+    found and verified (2026-11-05); an injected reader finds only with ``find``.
+    """
     capture = fetch_job_source(url)
     job_key = indeed_job_key(capture.get("url"))
     if (
@@ -50,7 +55,16 @@ def fetch_job_source_or_browser(url, *, read=None):
         if isinstance(error, VerificationRequired):
             failed["error_code"] = "verification_required"
         return _finish(capture | failed)
-    return indeed_capture(capture, model, job_key)
+    result = indeed_capture(capture, model, job_key)
+    fields = result.get("job_fields") or {}
+    find = find or (find_employer_page if read is None else None)
+    if find is None or fields.get("indeed_apply_route") != "company_site":
+        return result
+    found = find(fields, result["body_text"])
+    if not found:
+        return result
+    fields = fields | {"employer_apply_url": found["url"], "employer_found_by": found["found_by"]}
+    return _finish(result | {"job_fields": fields})
 
 
 def indeed_capture(capture: dict, model, job_key: str) -> dict:
@@ -112,6 +126,18 @@ def apply_route(record: dict | None) -> str:
     fields = (record or {}).get("documentary_fields") or {}
     route = fields.get("indeed_apply_route")
     return route if route in ROUTES else ""
+
+
+def employer_apply_url(record: dict | None) -> str | None:
+    """The verified employer application page saved with a company-site Indeed job."""
+    url = ((record or {}).get("documentary_fields") or {}).get("employer_apply_url")
+    if (
+        apply_route(record) == "company_site"
+        and isinstance(url, str)
+        and url.startswith("https://")
+    ):
+        return url
+    return None
 
 
 def _read_in_browser(url: str):

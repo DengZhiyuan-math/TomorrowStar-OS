@@ -906,10 +906,11 @@ class RecommendationStore:
             "status": "pending",
         }
         helper.atomic_write_json(journal, attempt)
+        from .indeed_job_source import employer_apply_url
         from .job_listing_links import resolve_apply_url
 
         # A job board link becomes the employer's own page when it can be resolved.
-        apply_url = resolve_apply_url(record.get("url", ""))
+        apply_url = employer_apply_url(record) or resolve_apply_url(record.get("url", ""))
         try:
             application = self.applications.create_application(
                 {
