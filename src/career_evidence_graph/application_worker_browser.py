@@ -4015,7 +4015,12 @@ class ApplicationRunner:
 
         def admit_native_call(call):
             began = time.monotonic()
-            allowed_now = permitted(service_stop=False)
+            # A slow read is retried, as at the start; a denial revokes the takeover
+            # (2026-11-05: a 2 s frame read timed out and Harmattan's Name was denied).
+            for _attempt in range(3):
+                allowed_now = permitted(service_stop=False)
+                if allowed_now or self._permit_failure not in SLOW_READS:
+                    break
             permitted_s = time.monotonic() - began
             if not allowed_now or call.get("scope") != call_scope or not latest.get("handoff_id"):
                 _log_admission_denial(

@@ -1737,6 +1737,64 @@ def test_a_slow_material_read_hands_on_a_context_that_follows_the_renewal(native
     assert received[0]["observed_at"] == received[0]["at"]
 
 
+@pytest.mark.parametrize("failure", ["native_operation_timeout", "document_changed"])
+def test_an_admission_retries_a_slow_scope_read_but_not_a_changed_document(
+    native_page, monkeypatch, failure
+):
+    """2026-11-05: Harmattan's Name write was denied when one 2 s frame read in its
+    scope check timed out, and the denial revoked the takeover."""
+    _service, runner, _page, ref, _, _ = native_page
+    original = runner.pump_codex_events
+    failed, results = [], []
+
+    attempts = []
+
+    def pump(reference, *, document=None, after_stop=False, service_stop=True):
+        if not service_stop:
+            attempts.append(True)
+        if not service_stop and not failed:
+            failed.append(True)
+            runner._permit_failure = failure
+            return False
+        return original(
+            reference, document=document, after_stop=after_stop, service_stop=service_stop
+        )
+
+    monkeypatch.setattr(runner, "pump_codex_events", pump)
+
+    class Adapter:
+        def start_takeover(self, original_ref, **kwargs):
+            kwargs["before_yield"](
+                {
+                    "application_ref_digest": digest(ref),
+                    "scope": kwargs["native_scope"],
+                    "request_id": kwargs["request_id"],
+                }
+            )
+            kwargs["after_yield"](
+                {"handoff_id": "native-run", "generation": 1, "local_tools_drained": True}
+            )
+            results.append(
+                kwargs["before_native_call"](
+                    {
+                        "call_id": "native-click",
+                        "tool": "browser_click",
+                        "status": "awaiting_host",
+                        "scope": kwargs["native_scope"],
+                        "field_hint": {"name": "Expand", "role": "button"},
+                    }
+                )
+            )
+            return SimpleNamespace(run_id="adapter-native-run")
+
+    runner.codex_assist = Adapter()
+    runner._service_assistance_stop = lambda: None
+    runner.start_native_assistance(ref, request_id="native-admission-slow-read")
+    assert failed == [True] and results == [False]  # the button is not clickable here
+    # Only a slow read is checked again; a changed document is denied at once.
+    assert len(attempts) == (1 if failure == "document_changed" else 2)
+
+
 def test_a_native_admission_checks_its_scope_without_serving_the_stop(native_page):
     """2026-11-05: each admission's pump served the stop service, which asked the
     Adapter's progress again (1-4.7 s), and writes reached the driver too late."""
