@@ -4701,7 +4701,6 @@ class ApplicationRunner:
                         ),
                     ),
                     ("document_changed", context["document"] != run["scope"]["document"]),
-                    ("validation_errors", bool(context["data"]["validation_errors"])),
                     (
                         "baseline_missing",
                         not self._assistance_baseline or self._assistance_baseline[0] != run_id,
@@ -4739,6 +4738,19 @@ class ApplicationRunner:
             return row.get("value") in (None, "") or (
                 row.get("type") == "checkbox" and row.get("value") == "false"
             )
+
+        invalid = [
+            row
+            for row in fields
+            if row.get("valid") is False or row.get("aria_invalid") not in (None, "", "false")
+        ]
+        if kind == "script_checkpoint":
+            # A required field left for the script is invalid only because it is still
+            # empty (2026-11-05: Harmattan's return refused for its 7 remaining fields);
+            # an invalid value already on the page still refuses the return.
+            invalid = [row for row in invalid if not empty(row)]
+        if invalid:
+            refused("validation_errors")
 
         verification = [
             {

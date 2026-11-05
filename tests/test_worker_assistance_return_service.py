@@ -571,6 +571,30 @@ def test_next_step_dom_id_maps_to_script_question(returning):
     assert job["assistance"]["outcome"]["checkpoint_field_id"] == "hosted-2"
 
 
+@pytest.mark.parametrize("invalid", ["empty_left_for_script", "filled_value"])
+def test_a_script_return_is_refused_only_by_an_invalid_value_on_the_page(returning, invalid):
+    """2026-11-05: Harmattan's return to the script was refused because its required
+    fields still left for the script were natively invalid while empty."""
+    ctx = returning
+    hosted_snapshot(ctx)
+
+    def effect(page):
+        select_country(page)
+        if invalid == "empty_left_for_script":
+            page.fields[2]["valid"] = False
+        else:
+            page.fields[0]["aria_invalid"] = "true"
+
+    run_turn(ctx, report=report_next("phone"), effect=effect)
+    ctx.runner._service_assistance_return()
+    if invalid == "empty_left_for_script":
+        job = current(ctx)
+        assert job["assistance"]["status"] == "released"
+        assert job["assistance"]["outcome"]["checkpoint_field_id"] == "hosted-2"
+    else:
+        assert_waiting(ctx, "assistance_return_unverified")
+
+
 @pytest.mark.parametrize("field_id", ["fax", "email", "duplicate"])
 def test_next_step_unknown_filled_or_ambiguous_field_refuses_return(returning, field_id):
     ctx = returning
