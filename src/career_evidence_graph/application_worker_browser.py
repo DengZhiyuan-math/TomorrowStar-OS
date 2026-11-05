@@ -2588,12 +2588,13 @@ class ApplicationRunner:
             job = next((row for row in state["jobs"] if row["application_id"] == identifier), None)
             observation = (job or {}).get("page_observation") or {}
             runs = (job or {}).get("native_handoff_runs") or [{}]
+            current = PAGE_SCOPE.current(state, job)
             if (
                 # Only a granted native handoff's own Worker work (a file admission and
                 # its delivery, 2026-11-04) holds this thread past the window.
                 runs[-1].get("phase") != "granted"
                 or runs[-1].get("assistance_ref") != assistance_ref
-                or not PAGE_SCOPE.only_expired(PAGE_SCOPE.current(state, job))
+                or not (current.valid or PAGE_SCOPE.only_expired(current))
                 or (state.get("runtime") or {}).get("id") != self.run_id
                 or observation.get("run_id") != self.run_id
                 or binding.get("run_id") != self.run_id
@@ -2603,6 +2604,11 @@ class ApplicationRunner:
                 or not binding["document_token"]
             ):
                 return False
+            if current.valid:
+                # Still current when this thread looked: the check right after may
+                # renew it although its own reload of a 9 MB checkpoint let the
+                # window pass (2026-11-05: BCG's takeover was revoked at 6.4 s).
+                return True
             receipt = (runs[-1].get("events") or [{}])[-1].get("receipt") or {}
             if self._native_work or receipt.get("active_calls", 0) >= 1:
                 # This Worker's own admitted native call on this page and document is
@@ -4338,6 +4344,13 @@ class ApplicationRunner:
 
                 print("native_assistance_unavailable: " + repr(error)[:500], flush=True)
                 print("".join(traceback.format_exc(limit=-8))[-3000:], flush=True)
+            else:
+                # The private log keeps the cause behind a coded refusal (2026-11-05:
+                # cua_page_unverified named none of its four conditions).
+                print(
+                    f"native_assistance_failed: {code} cause={error.__cause__!r}"[:600],
+                    flush=True,
+                )
         if code is None:
             return
         with self.store.applications.write_lock():

@@ -1729,6 +1729,54 @@ def test_granted_takeover_renews_an_observation_its_own_admission_let_expire(nat
         assert caught.value.code == "assistance_binding_changed"
 
 
+def test_an_observation_current_when_looked_at_is_renewed_after_a_slow_reload(
+    native_page, monkeypatch
+):
+    """2026-11-05: BCG's granted takeover was revoked at 6.4 s. The renewal check saw a
+    still-current observation and declined; the check's own reload then let it pass."""
+    from career_evidence_graph import application_worker_browser as browser
+
+    service, runner, _page, ref, _, _ = native_page
+
+    class Adapter:
+        def start_takeover(self, original, **kwargs):
+            kwargs["before_yield"](
+                {
+                    "application_ref_digest": digest(ref),
+                    "scope": kwargs["native_scope"],
+                    "request_id": kwargs["request_id"],
+                }
+            )
+            kwargs["after_yield"](
+                {"handoff_id": "native-run", "generation": 1, "local_tools_drained": True}
+            )
+            return SimpleNamespace(run_id="adapter-native-run")
+
+    runner.codex_assist = Adapter()
+    runner._service_assistance_stop = lambda: None
+    runner.start_native_assistance(ref, request_id="native-slow-reload")
+    seen = time.time() - 5.9
+    state = service.store.load()
+    state["runtime"]["observed_at"] = seen
+    state["jobs"][0]["page_observation"]["at"] = seen
+    service.store.save(state)
+
+    class Later:
+        # The check's own clock reads after its slow reload: the window has passed.
+        def __getattr__(self, name):
+            return getattr(time, name)
+
+        def time(self):
+            return time.time() + 0.5
+
+    monkeypatch.setattr(browser, "time", Later())
+    check = runner._assistance_page_checker(ref)[1]
+    check()
+    saved = service.store.load()
+    assert saved["runtime"]["observed_at"] > seen + 5.9
+    assert saved["jobs"][0]["page_observation"]["at"] > seen + 5.9
+
+
 @pytest.mark.parametrize("active_calls", [1, 0])
 def test_an_admitted_native_call_in_progress_renews_without_a_renderer_read(
     native_page, active_calls
@@ -1780,4 +1828,3 @@ def test_an_admitted_native_call_in_progress_renews_without_a_renderer_read(
     else:
         assert calls == [("busy_renderer_read", None)]
         assert saved["runtime"]["observed_at"] == stale
-
