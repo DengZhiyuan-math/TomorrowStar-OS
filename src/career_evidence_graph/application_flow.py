@@ -485,6 +485,10 @@ def compact_match_rechecks(task):
         receipt.pop("result", None)
 
 
+# What the page reads of a task other than the active one (application mode).
+TASK_BRIEF_KEYS = frozenset({"id", "revision", "application_id", "status"})
+
+
 class ApplicationFlowService:
     """One job runner, with independently retained authors for the current job."""
 
@@ -4584,9 +4588,12 @@ class ApplicationFlowService:
             raise PortalDataError("flow_worker_mismatch", "执行记录与岗位任务不符。", 409)
         return deepcopy(worker)
 
-    def _worker_view(self, task, reference=None):
-        """Project the bound worker without changing material state or its revision."""
-        view = deepcopy(task)
+    def _worker_view(self, task, reference=None, *, copy=True):
+        """Project the bound worker without changing material state or its revision.
+
+        ``copy=False`` returns a shallow view whose nested values are the task's own.
+        """
+        view = deepcopy(task) if copy else dict(task)
         previous = task.get("worker_ref")
         if not previous:
             return view
@@ -4595,7 +4602,8 @@ class ApplicationFlowService:
                 callback = self.callbacks.get("worker_reference")
                 if callback is None:
                     raise PortalDataError("flow_worker_unavailable", "填写状态暂不能核验。", 409)
-                reference = callback(deepcopy(task))
+                # The reference reads only the task's ids and worker_ref.
+                reference = callback(deepcopy(task) if copy else task)
             reference = self._worker_reference(task, reference)
             if any(previous[key] != reference[key] for key in ("batch_id", "job_id")):
                 raise PortalDataError("flow_worker_mismatch", "执行记录与岗位任务不符。", 409)
@@ -5129,7 +5137,13 @@ class ApplicationFlowService:
             task = deepcopy(self._task(self._load_shared(), task_id))
             return project(self, self._worker_view(task))
 
-    def snapshot(self, task_id=None):
+    def snapshot(self, task_id=None, *, brief_tasks=False):
+        """The Flow page state.
+
+        ``brief_tasks`` (application mode): the active task stays whole and every
+        other task carries only ``TASK_BRIEF_KEYS`` with its projected status. The
+        page's poll returned all tasks whole, about 107 MB each 1.2 s (2026-11-05).
+        """
         with self.applications.write_lock():
             shared = self._load_shared()
             from .application_existing_handoff import project
@@ -5137,7 +5151,26 @@ class ApplicationFlowService:
             # Each task view is its own copy; copying the whole record first only
             # doubled a 125 MB copy under the shared write lock (2026-11-05).
             state = {key: deepcopy(value) for key, value in shared.items() if key != "tasks"}
-            state["tasks"] = [project(self, self._worker_view(task)) for task in shared["tasks"]]
+            whole = None
+            if brief_tasks and not self.preparation_only:
+                whole = (
+                    self._task(shared, task_id)
+                    if task_id
+                    else next(iter(reversed(shared["tasks"])), None)
+                )
+            state["tasks"] = [
+                project(self, self._worker_view(task))
+                if whole is None or task is whole
+                else {
+                    key: value
+                    # A brief view is shallow: projection replaces top-level keys only.
+                    for key, value in project(
+                        self, self._worker_view(task, copy=False), copy=False
+                    ).items()
+                    if key in TASK_BRIEF_KEYS
+                }
+                for task in shared["tasks"]
+            ]
             active = self._task(state, task_id) if task_id else None
             if not task_id:
                 if self.preparation_only:

@@ -26,7 +26,11 @@ def preparation_activity(task):
 
 
 class FlowView:
-    """Project the Flow page state; old keys keep their shape, new keys are additive."""
+    """Project the Flow page state; old keys keep their shape, new keys are additive.
+
+    Exception (2026-11-05): in application mode ``tasks`` lists only the active task
+    whole; the others carry ``TASK_BRIEF_KEYS``, all the page reads of them.
+    """
 
     def __init__(self, runtime, *, analysis_injected=False, resume_injected=False):
         self.runtime = runtime
@@ -51,7 +55,7 @@ class FlowView:
 
         # Progress belongs to the same saved task revision as the snapshot.
         with flow.applications.write_lock():
-            state = flow.snapshot(task_id)
+            state = flow.snapshot(task_id, brief_tasks=True)
             task = state["active_task"]
             try:
                 progress = flow.progress(task["id"]) if task else None

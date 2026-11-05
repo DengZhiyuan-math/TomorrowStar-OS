@@ -156,8 +156,8 @@ def test_progress_is_read_with_the_snapshot_under_one_lock(roots):
         flow, original = runtime.flow, runtime.flow.snapshot
         writer = {}
 
-        def snapshot_then_race(task_id=None):
-            observed = original(task_id)
+        def snapshot_then_race(task_id=None, **options):
+            observed = original(task_id, **options)
             # A concurrent writer between snapshot and progress must wait for the lock.
             writer["thread"] = threading.Thread(
                 target=lambda: writer.setdefault("task", flow.cancel(task["id"], task["revision"]))
@@ -275,6 +275,36 @@ def test_preparation_projection_keeps_runtime_identity(roots):
         assert state["runtime"] == runtime.identity and state["runtime"] is not runtime.identity
         assert state["mode"] == "preparation"
         assert state["capabilities"]["worker"] is False
+    finally:
+        runtime.close()
+
+
+def test_the_page_lists_other_tasks_briefly_and_the_active_one_whole(roots):
+    # 2026-11-05: the 1.2 s poll returned every task whole, about 107 MB.
+    runtime = _open(roots)
+    try:
+        older, newer = _task(runtime, "Older Employer"), _task(runtime, "Newer Employer")
+        brief = {"id", "revision", "application_id", "status"}
+        state = runtime.flow_view.state()
+        rows = {row["id"]: row for row in state["tasks"]}
+        assert state["active_task"]["id"] == newer["id"]
+        assert set(rows[older["id"]]) == brief and rows[older["id"]]["status"] == older["status"]
+        assert "job_description" in rows[newer["id"]]
+        chosen = runtime.flow_view.state(older["id"])
+        rows = {row["id"]: row for row in chosen["tasks"]}
+        assert chosen["active_task"]["id"] == older["id"] and "inputs" in rows[older["id"]]
+        assert set(rows[newer["id"]]) == brief
+        # Other readers of the snapshot keep every task whole.
+        assert all("inputs" in row for row in runtime.flow.snapshot()["tasks"])
+    finally:
+        runtime.close()
+
+
+def test_preparation_mode_keeps_every_task_whole(roots):
+    runtime = _open(roots, preparation_only=True)
+    try:
+        _task(runtime, "Older Employer"), _task(runtime, "Newer Employer")
+        assert all("inputs" in row for row in runtime.flow_view.state()["tasks"])
     finally:
         runtime.close()
 

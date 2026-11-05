@@ -327,10 +327,11 @@ def _project_attempt(flow, task):
     return view
 
 
-def project(flow, task):
+def project(flow, task, *, copy=True):
+    """``copy=False`` returns a shallow view: only top-level keys are replaced."""
     from .application_flow import _material_pending
 
-    view = deepcopy(task)
+    view = deepcopy(task) if copy else dict(task)
     if task.get("codex_handoff_restart"):
         view["codex_handoff_restart"] = {
             **task["codex_handoff_restart"],
