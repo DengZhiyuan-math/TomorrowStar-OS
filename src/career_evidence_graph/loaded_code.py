@@ -220,6 +220,7 @@ _RUNTIME_VALUES = {
     "career_evidence_graph.application_single_binding": {"_PREPARATION_TARGET"},
     "career_evidence_graph.application_worker": {"PUBLIC_ROOT"},
     "career_evidence_graph.owned_browser_cdp": {"_ACTIVE_DEADLINE"},
+    "career_evidence_graph.career_portal_data": {"_LOCK_STEPS"},
 }
 
 

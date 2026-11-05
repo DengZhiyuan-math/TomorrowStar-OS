@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-from .career_portal_data import PortalDataError
+from .career_portal_data import PortalDataError, lock_step
 
 _RUNNING = {"queued", "running"}
 
@@ -55,10 +55,12 @@ class FlowView:
 
         # Progress belongs to the same saved task revision as the snapshot.
         with flow.applications.write_lock():
-            state = flow.snapshot(task_id, brief_tasks=True)
+            with lock_step("snapshot"):
+                state = flow.snapshot(task_id, brief_tasks=True)
             task = state["active_task"]
             try:
-                progress = flow.progress(task["id"]) if task else None
+                with lock_step("progress"):
+                    progress = flow.progress(task["id"]) if task else None
             except (PortalDataError, KeyError, TypeError, ValueError):
                 # The additive progress never hides the old projection.
                 progress = None

@@ -344,3 +344,28 @@ def test_reads_share_one_parse_until_the_record_is_replaced(roots, monkeypatch):
         assert len(loads) >= 2
     finally:
         runtime.close()
+
+
+def test_a_long_hold_logs_its_named_steps(roots, tmp_path, monkeypatch):
+    import json
+    import time
+
+    from career_evidence_graph import career_portal_data
+
+    log = tmp_path / "locks.jsonl"
+    monkeypatch.setenv("TOMORROWSTAR_LOCK_LOG", str(log))
+    runtime = _open(roots)
+    try:
+        _task(runtime)
+        clock = iter(range(0, 1000, 2))
+        monkeypatch.setattr(career_portal_data.time, "monotonic", lambda: next(clock))
+        runtime.flow_view.state()
+        monkeypatch.setattr(career_portal_data.time, "monotonic", time.monotonic)
+        rows = [json.loads(line) for line in log.read_text().splitlines()]
+        steps = next(row["steps"] for row in rows if "snapshot" in row.get("steps", {}))
+        assert {"snapshot", "tasks", "progress"} <= set(steps)
+        # Outside a hold, a step records nothing.
+        with career_portal_data.lock_step("outside"):
+            pass
+    finally:
+        runtime.close()

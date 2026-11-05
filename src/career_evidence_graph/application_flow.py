@@ -37,7 +37,7 @@ from .application_input_binding import (
     retained_configuration_inputs as retained_configuration_inputs,
 )
 from .application_storage import private_root
-from .career_portal_data import ApplicationStore, PortalDataError
+from .career_portal_data import ApplicationStore, PortalDataError, lock_step
 from .validation.hashing import record_digest as digest
 
 _PIPELINE_HTTP_ENTRY = ContextVar("pipeline_http_entry", default=None)
@@ -4603,7 +4603,8 @@ class ApplicationFlowService:
                 if callback is None:
                     raise PortalDataError("flow_worker_unavailable", "填写状态暂不能核验。", 409)
                 # The reference reads only the task's ids and worker_ref.
-                reference = callback(deepcopy(task) if copy else task)
+                with lock_step("worker_reference"):
+                    reference = callback(deepcopy(task) if copy else task)
             reference = self._worker_reference(task, reference)
             if any(previous[key] != reference[key] for key in ("batch_id", "job_id")):
                 raise PortalDataError("flow_worker_mismatch", "执行记录与岗位任务不符。", 409)
@@ -5158,19 +5159,20 @@ class ApplicationFlowService:
                     if task_id
                     else next(iter(reversed(shared["tasks"])), None)
                 )
-            state["tasks"] = [
-                project(self, self._worker_view(task))
-                if whole is None or task is whole
-                else {
-                    key: value
-                    # A brief view is shallow: projection replaces top-level keys only.
-                    for key, value in project(
-                        self, self._worker_view(task, copy=False), copy=False
-                    ).items()
-                    if key in TASK_BRIEF_KEYS
-                }
-                for task in shared["tasks"]
-            ]
+            with lock_step("tasks"):
+                state["tasks"] = [
+                    project(self, self._worker_view(task))
+                    if whole is None or task is whole
+                    else {
+                        key: value
+                        # A brief view is shallow: projection replaces top-level keys only.
+                        for key, value in project(
+                            self, self._worker_view(task, copy=False), copy=False
+                        ).items()
+                        if key in TASK_BRIEF_KEYS
+                    }
+                    for task in shared["tasks"]
+                ]
             active = self._task(state, task_id) if task_id else None
             if not task_id:
                 if self.preparation_only:
@@ -5226,7 +5228,8 @@ class ApplicationFlowService:
                     snapshot["eligibility"] = explanation["qualification"]
             elif active and active.get("analysis_id"):
                 # Display only: application-mode gates never read this explanation.
-                snapshot["match_explanation"] = self._task_explanation(active)
+                with lock_step("explanation"):
+                    snapshot["match_explanation"] = self._task_explanation(active)
             return snapshot
 
     def _task_explanation(self, task):

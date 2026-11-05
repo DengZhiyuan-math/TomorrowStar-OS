@@ -23,7 +23,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, date, datetime
 from pathlib import Path
-from threading import RLock
+from threading import RLock, local
 from uuid import uuid4
 
 STATUS_LABELS = {
@@ -322,7 +322,26 @@ def _check_root(root: Path) -> None:
         raise PortalDataError("source-unavailable", "数据目录暂不可用，请检查本地连接。", 503)
 
 
-def _log_lock_hold(asked, held):
+_LOCK_STEPS = local()
+
+
+@contextmanager
+def lock_step(name):
+    """Time one named step of the current outermost write-lock hold (2026-11-06).
+
+    The step times join that hold's private log row; outside a hold, or with the
+    log off, this does nothing.
+    """
+    steps = getattr(_LOCK_STEPS, "steps", None)
+    started = time.monotonic()
+    try:
+        yield
+    finally:
+        if steps is not None:
+            steps[name] = round(steps.get(name, 0) + time.monotonic() - started, 2)
+
+
+def _log_lock_hold(asked, held, steps=None):
     """Private log of a write lock held over a second, with its holder (2026-11-05).
 
     Takeover checks waited 1.3 s at the median for this lock; the log names who
@@ -346,6 +365,8 @@ def _log_lock_hold(asked, held):
         "hold_s": round(time.monotonic() - held, 2),
         "callers": callers,
     }
+    if steps:
+        row["steps"] = steps
     try:
         descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
         with os.fdopen(descriptor, "a", encoding="utf-8") as handle:
@@ -381,11 +402,14 @@ class ApplicationStore:
                 fcntl.flock(descriptor, fcntl.LOCK_EX)
                 self._write_descriptor = descriptor
                 held = time.monotonic()
+                if os.environ.get("TOMORROWSTAR_LOCK_LOG"):
+                    _LOCK_STEPS.steps = {}
                 yield
             finally:
                 self._write_descriptor = None
                 os.close(descriptor)
-                _log_lock_hold(asked, held)
+                steps, _LOCK_STEPS.steps = getattr(_LOCK_STEPS, "steps", None), None
+                _log_lock_hold(asked, held, steps)
 
     @staticmethod
     def _json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
