@@ -7366,7 +7366,15 @@ class WorkerService:
         if "current_job_id" not in state:
             self._check_legacy_prepare(state)
             return
-        if state["control"] != "paused" or state["current_job_id"] is not None:
+        current = next(
+            (job for job in state["jobs"] if job["application_id"] == state["current_job_id"]),
+            None,
+        )
+        # A cancelled current job has left the queue like a skipped one; its page, if
+        # retained, stays as it is (2026-11-05: cancel-job kept current_job_id set).
+        if state["control"] != "paused" or (
+            state["current_job_id"] is not None and (current or {}).get("status") != "cancelled"
+        ):
             raise PortalDataError("current_job_exists", "当前岗位尚未完成或跳过。", 409)
         if any(job.get("workflow") != "single" for job in state["jobs"]):
             raise PortalDataError("batch_exists", "旧批次须保留原控制方式。", 409)

@@ -298,6 +298,34 @@ def pipeline_job(service, item, *, policy=None):
     return {**item, "single_binding": {"task_id": task["id"]}}, policy
 
 
+def test_a_cancelled_current_job_lets_the_next_job_be_prepared(single_worker):
+    service, item, _, _ = single_worker
+    first, policy = pipeline_job(service, item)
+    service.request("prepare", {"workflow": "single", "send_confirmed": True, "jobs": [first]})
+    state = service.store.load()
+    state["jobs"][0]["status"] = "cancelled"
+    service.store.save(state)
+    app = service.store.applications.create_application(
+        {
+            "company": "Synthetic second",
+            "role_title": "Engineer",
+            "status": "drafting",
+            "url": "https://jobs.lever.co/synthetic/00000000-0000-0000-0000-000000000002",
+        }
+    )
+    second, _ = pipeline_job(
+        service, {**item, "application_id": app["id"], "revision": app["revision"]}, policy=policy
+    )
+    service.request("prepare", {"workflow": "single", "send_confirmed": True, "jobs": [second]})
+    after = service.store.load()
+    assert after["current_job_id"] == app["id"]
+    assert [job["status"] for job in after["jobs"]][0] == "cancelled"
+    # The same job cannot be prepared again into the batch that retains it.
+    with pytest.raises(PortalDataError) as error:
+        service.request("prepare", {"workflow": "single", "send_confirmed": True, "jobs": [first]})
+    assert error.value.code in {"current_job_exists", "job_retained"}
+
+
 def test_direct_prepare_cannot_replace_a_waiting_job(single_worker):
     service, item, _, _ = single_worker
     first, policy = pipeline_job(service, item)
