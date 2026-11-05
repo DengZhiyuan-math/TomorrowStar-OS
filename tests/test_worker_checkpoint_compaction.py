@@ -186,3 +186,75 @@ def test_diagnostic_rows_keep_no_query_values_or_credentials():
     assert "secret" not in json.dumps(row) and "abc" not in json.dumps(row)
     assert row["url"] == "https://bucket.s3.example/uploads/a.pdf"
     assert row["query_keys"] == ["X-Amz-Expires", "X-Amz-Signature"]
+
+
+def test_source_sets_are_stored_once_beside_the_checkpoint_and_verified(tmp_path, monkeypatch):
+    # 2026-11-05: two 1.4 MB source lists were most of a 9.6 MB checkpoint.
+    from career_evidence_graph import application_worker as worker
+
+    service = setup_service(tmp_path, monkeypatch)
+    start_run(service.store)
+    state = service.store.load()
+    state["jobs"][0]["materials"] = [letter("current")]
+    expected = json.loads(json.dumps(state))
+    service.store.save(state)
+    stored = json.loads(service.store.path.read_text())["jobs"][0]["source_sets"]
+    (key,) = stored
+    assert stored[key] == {"file": f"{key}.json"}
+    sidecar = service.store.root / "source-sets" / f"{key}.json"
+    assert json.loads(sidecar.read_text())["sources"] == SOURCES
+    assert service.store.load()["jobs"][0]["materials"] == expected["jobs"][0]["materials"]
+    # A changed or missing file never loads; the cache is per process.
+    worker._SOURCE_SET_CACHE.clear()
+    sidecar.write_text(json.dumps({"schemaVersion": 1, "sources": [{"evidence_id": "x"}]}))
+    packed = json.loads(service.store.path.read_text())
+    for directory in (service.store.root / "source-sets", tmp_path / "missing"):
+        try:
+            unpack_source_sets(json.loads(json.dumps(packed)), directory)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("a changed or missing source set must not load")
+
+
+def test_old_audit_history_moves_to_the_archive_and_the_newest_rows_stay(tmp_path, monkeypatch):
+    from career_evidence_graph.application_worker import HISTORY_KEPT, REOPEN_RUNS_KEPT, RUN_ARCHIVE
+
+    service = setup_service(tmp_path, monkeypatch)
+    start_run(service.store)
+    state = service.store.load()
+    state["runtime_history"] = [{"id": f"run-{i}"} for i in range(HISTORY_KEPT + 10)]
+    job = state["jobs"][0]
+    job["submission_observation_history"] = [{"at": i} for i in range(HISTORY_KEPT + 4)]
+    runs = [{"handoff_id": "h", "phase": "stopped", "events": []}]
+    job["observations"] = [
+        {
+            "action": "page_reopen_requested",
+            "request_id": f"reopen-{i}",
+            "at": i,
+            "retired_native_handoff_runs": runs,
+        }
+        for i in range(REOPEN_RUNS_KEPT + 3)
+    ]
+    service.store.save(state)
+    saved = service.store.load()
+    assert [row["id"] for row in saved["runtime_history"]] == [
+        f"run-{i}" for i in range(10, HISTORY_KEPT + 10)
+    ]
+    kept = saved["jobs"][0]
+    assert [row["at"] for row in kept["submission_observation_history"]][0] == 4
+    reopen = [row for row in kept["observations"] if row["action"] == "page_reopen_requested"]
+    assert len(reopen) == REOPEN_RUNS_KEPT + 3
+    assert [row["retired_native_handoff_runs_archived"] for row in reopen[:3]] == [1, 1, 1]
+    assert all(row["retired_native_handoff_runs"] == [] for row in reopen[:3])
+    assert all(row["retired_native_handoff_runs"] for row in reopen[3:])
+    archived = [
+        json.loads(line) for line in (service.store.root / RUN_ARCHIVE).read_text().splitlines()
+    ]
+    kinds = [row["kind"] for row in archived]
+    assert kinds.count("runtime_history") == 10
+    assert kinds.count("submission_observation_history") == 4
+    assert kinds.count("retired_native_handoff_runs") == 3
+    # A second save moves nothing more.
+    service.store.save(service.store.load())
+    assert len((service.store.root / RUN_ARCHIVE).read_text().splitlines()) == len(archived)

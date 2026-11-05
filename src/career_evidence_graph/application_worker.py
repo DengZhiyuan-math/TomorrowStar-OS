@@ -1915,13 +1915,17 @@ def compact_native_runs(runs):
 SOURCE_SET_ROWS = ("materials", "material_history")
 
 
-def pack_source_sets(state: dict) -> dict:
+def pack_source_sets(state: dict, directory: Path | None = None) -> dict:
     """The stored form: each job keeps one copy of each material source list.
 
     Every cover-letter attempt kept the same 1.4 MB ``source_binding.sources``
     (329 career sources), four copies in one job (2026-11-04). Lossless and
     in-file: rows keep ``{"source_set": key}`` and ``job["source_sets"][key]`` the
     list. The caller's state is not changed.
+
+    With ``directory``, each list is written once to ``<directory>/<key>.json`` and
+    the job keeps ``{"file": "<key>.json"}``: two 1.4 MB lists were most of a
+    9.6 MB checkpoint read and rewritten on every tick (2026-11-05).
     """
     jobs = []
     for job in state.get("jobs", []):
@@ -1942,11 +1946,55 @@ def pack_source_sets(state: dict) -> dict:
                     row = {**row, "source_binding": {**binding, "sources": {"source_set": key}}}
                 out.append(row)
             packed[name] = out
+        if sets and directory is not None:
+            sets = {key: _store_source_set(directory, key, rows) for key, rows in sets.items()}
         jobs.append({**job, **packed, "source_sets": sets} if sets else job)
     return {**state, "jobs": jobs}
 
 
-def unpack_source_sets(state: dict) -> dict:
+_SOURCE_SET_CACHE: dict = {}
+
+
+def _store_source_set(directory: Path, key: str, rows: list) -> dict:
+    """Write one content-addressed source list once; it never changes afterwards."""
+    path = directory / f"{key}.json"
+    if key not in _SOURCE_SET_CACHE or not path.is_file():
+        if not path.is_file():
+            directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+            helper.atomic_write_json(path, {"schemaVersion": 1, "sources": rows})
+        _SOURCE_SET_CACHE[key] = deepcopy(rows)
+    return {"file": path.name}
+
+
+def _load_source_set(directory: Path | None, key: str, value) -> list:
+    if isinstance(value, list):
+        return value
+    if (
+        directory is None
+        or not isinstance(value, dict)
+        or set(value) != {"file"}
+        or value["file"] != f"{key}.json"
+        or re.fullmatch(r"[a-f0-9]{64}", key) is None
+    ):
+        raise ValueError("Invalid worker source set file.")
+    if key not in _SOURCE_SET_CACHE:
+        path = directory / value["file"]
+        if path.is_symlink() or not path.is_file():
+            raise ValueError("Worker source set file is missing.")
+        rows = helper.read_json_object(path, "worker source set").get("sources")
+        if (
+            not isinstance(rows, list)
+            or hashlib.sha256(
+                json.dumps(rows, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest()
+            != key
+        ):
+            raise ValueError("Worker source set file changed.")
+        _SOURCE_SET_CACHE[key] = rows
+    return _SOURCE_SET_CACHE[key]
+
+
+def unpack_source_sets(state: dict, directory: Path | None = None) -> dict:
     """Restore the rows' source lists from their job's ``source_sets`` (in place)."""
     for job in state.get("jobs", []) if isinstance(state.get("jobs"), list) else []:
         if not isinstance(job, dict) or "source_sets" not in job:
@@ -1954,6 +2002,7 @@ def unpack_source_sets(state: dict) -> dict:
         sets = job.pop("source_sets")
         if not isinstance(sets, dict):
             raise ValueError("Invalid worker source sets.")
+        sets = {key: _load_source_set(directory, key, value) for key, value in sets.items()}
         for name in SOURCE_SET_ROWS:
             for row in job.get(name) or []:
                 binding = row.get("source_binding") if isinstance(row, dict) else None
@@ -1981,6 +2030,57 @@ def diagnostic_url(url):
         return urlunsplit((parts.scheme, netloc, parts.path, "", "")), keys
     except (TypeError, ValueError):
         return "", []
+
+
+# Audit-only history the checkpoint keeps in place; older rows move to the archive.
+HISTORY_KEPT = 20
+REOPEN_RUNS_KEPT = 5
+RUN_ARCHIVE = "run-archive.jsonl"
+
+
+def archive_history(state: dict) -> list:
+    """Take old audit-only rows out of the checkpoint (in place) and return them.
+
+    Nothing reads these back: 125 runtime records, 712 submission observations and
+    94 page reopens each carrying retired native runs were 3 MB of a 9.6 MB
+    checkpoint rewritten on every tick (2026-11-05). The newest rows stay.
+    """
+    rows = []
+    history = state.get("runtime_history")
+    if isinstance(history, list) and len(history) > HISTORY_KEPT:
+        rows += [{"kind": "runtime_history", "row": row} for row in history[:-HISTORY_KEPT]]
+        state["runtime_history"] = history[-HISTORY_KEPT:]
+    for job in state.get("jobs", []) if isinstance(state.get("jobs"), list) else []:
+        if not isinstance(job, dict):
+            continue
+        identifier = job.get("application_id")
+        history = job.get("submission_observation_history")
+        if isinstance(history, list) and len(history) > HISTORY_KEPT:
+            rows += [
+                {"kind": "submission_observation_history", "application_id": identifier, "row": row}
+                for row in history[:-HISTORY_KEPT]
+            ]
+            job["submission_observation_history"] = history[-HISTORY_KEPT:]
+        reopens = [
+            row
+            for row in job.get("observations") or []
+            if isinstance(row, dict)
+            and row.get("action") == "page_reopen_requested"
+            and isinstance(row.get("retired_native_handoff_runs"), list)
+            and row["retired_native_handoff_runs"]
+        ]
+        for row in reopens[:-REOPEN_RUNS_KEPT]:
+            rows.append(
+                {
+                    "kind": "retired_native_handoff_runs",
+                    "application_id": identifier,
+                    "request_id": row.get("request_id"),
+                    "row": row["retired_native_handoff_runs"],
+                }
+            )
+            row["retired_native_handoff_runs_archived"] = len(row["retired_native_handoff_runs"])
+            row["retired_native_handoff_runs"] = []
+    return rows
 
 
 def compact_observations(job: dict) -> None:
@@ -2221,7 +2321,9 @@ class WorkerStore:
         return state
 
     def _read_checked(self) -> dict:
-        state = unpack_source_sets(helper.read_json_object(self.path, "worker state"))
+        state = unpack_source_sets(
+            helper.read_json_object(self.path, "worker state"), self.root / "source-sets"
+        )
         self.check_applications_root(state)
         if state.get("schemaVersion") != 1 or state.get("control") not in {
             "paused",
@@ -2429,12 +2531,31 @@ class WorkerStore:
             material_required=material_required,
         )
 
+    def _append_archive(self, rows: list) -> None:
+        """Append audit rows before the checkpoint drops them; a retry may repeat them."""
+        path = self.root / RUN_ARCHIVE
+        if path.is_symlink():
+            raise OSError("Unsafe worker archive.")
+        at = time.time()
+        text = "".join(
+            json.dumps({"at": at, **row}, ensure_ascii=False, allow_nan=False) + "\n"
+            for row in rows
+        )
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(descriptor, "a", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+
     def save(self, state: dict) -> None:
         self.check_applications_root(state)
         for job in state.get("jobs", []):
             compact_observations(job)
         try:
-            helper.atomic_write_json(self.path, pack_source_sets(state))
+            archived = archive_history(state)
+            if archived:
+                self._append_archive(archived)
+            helper.atomic_write_json(self.path, pack_source_sets(state, self.root / "source-sets"))
         except (OSError, ValueError, TypeError):
             self._last_write = None
             self.block_storage()
