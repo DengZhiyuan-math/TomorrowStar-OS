@@ -1072,6 +1072,7 @@ class CodexAdapter:
             allow = False
             declined = None
             resolution, manifest = None, None
+            decided = 0.0
             try:
                 # A queued native terminal revokes admission before another dispatch.
                 # Ordinary events that arrive meanwhile are consumed and the checks
@@ -1091,7 +1092,9 @@ class CodexAdapter:
                     return  # Defer without recording admission until the backlog is observed.
                 # Validate and persist after the last owner pump. No later pump
                 # may apply a fact correction between this callback and admission.
+                decided = time.monotonic()
                 decision = native["before_native_call"](json.loads(json.dumps(call)))
+                decided = time.monotonic() - decided
                 if is_material:
                     resolution = validate_fixed_material_resolution(
                         decision, material_ref=call["material_ref"]
@@ -1153,14 +1156,31 @@ class CodexAdapter:
                 if is_material
                 else identity
             )
-            result = native["client"].admit_call(
-                call["call_id"],
-                call["arguments_digest"],
-                "allow" if allow else "deny",
-                pump=None,
-                timeout=run.budget.admit,
-                **({"material_resolution": resolution} if allow and is_material else {}),
-            )
+            answered = time.monotonic()
+            try:
+                result = native["client"].admit_call(
+                    call["call_id"],
+                    call["arguments_digest"],
+                    "allow" if allow else "deny",
+                    pump=None,
+                    timeout=run.budget.admit,
+                    **({"material_resolution": resolution} if allow and is_material else {}),
+                )
+            finally:
+                # Private timing of one admission: the Worker's decision and the answer
+                # to the driver, whose wait for the host is fixed (2026-11-05).
+                print(
+                    "native_admission_timing: "
+                    + json.dumps(
+                        {
+                            "tool": call.get("tool"),
+                            "allow": allow,
+                            "decide_s": round(decided, 2),
+                            "answer_s": round(time.monotonic() - answered, 2),
+                        }
+                    ),
+                    flush=True,
+                )
             acknowledged = self._native_status(run, result)
             if not allow and not declined:
                 run.tools_revoked = True

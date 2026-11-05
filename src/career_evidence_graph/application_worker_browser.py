@@ -4091,6 +4091,7 @@ class ApplicationRunner:
                     scope=journal_scope,
                     receipt=receipt,
                 )
+            recorded = time.monotonic()
             self.store.record_native_handoff(
                 reference,
                 request_id=request_id,
@@ -4098,7 +4099,19 @@ class ApplicationRunner:
                 scope=journal_scope,
                 receipt=receipt,
             )
+            locked = time.monotonic()
             self._submit_lock(page, True)
+            print(
+                "native_admission_steps: "
+                + json.dumps(
+                    {
+                        "record_s": round(locked - recorded, 2),
+                        "submit_lock_s": round(time.monotonic() - locked, 2),
+                        "frames": len(getattr(page, "frames", ())),
+                    }
+                ),
+                flush=True,
+            )
             return True
 
         def pump():
