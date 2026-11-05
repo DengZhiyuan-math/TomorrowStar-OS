@@ -200,7 +200,11 @@ class ApplicationPipeline:
             pass
 
     def snapshot(self):
-        with self._guard, self.flow.applications.write_lock():
+        # A read holds only this process's guard. It parsed the 125 MB flow record
+        # several times (7-10 s per poll) under the shared write lock, and the
+        # Worker's takeover checks waited 1.7 s on it at the median (2026-11-05);
+        # every record it reads is replaced atomically.
+        with self._guard:
             state = deepcopy(self._load())
             try:
                 state["can_resume_matching"] = (
