@@ -58,7 +58,7 @@ from .application_takeover_record import canonical_sha256 as _canonical_sha256
 from .application_takeover_record import takeover_slot as _takeover_slot
 from .application_takeover_record import valid_takeover_blocker as _valid_takeover_blocker
 from .application_takeover_record import valid_timestamp as _timestamp
-from .career_portal_data import ApplicationStore, PortalDataError
+from .career_portal_data import ApplicationStore, PortalDataError, lock_step
 from .job_screening import LEVELS, screen_applications
 from .validation.hashing import record_digest as digest
 from .worker_measurement import MeasurementLog
@@ -4725,13 +4725,15 @@ class WorkerService:
 
     def snapshot(self) -> dict:
         with self.store.applications.write_lock():
-            state = self.store.load()
+            with lock_step("worker_load"):
+                state = self.store.load()
             if self.store.stop_reason():
                 state.update(control="paused", worker_error=self.store.stop_reason())
             state["enabled"] = True
-            state["library"] = self.store.library()
-            for record in state["library"]:
-                record["content_revision"] = digest(record)
+            with lock_step("worker_library"):
+                state["library"] = self.store.library()
+                for record in state["library"]:
+                    record["content_revision"] = digest(record)
             state["model_mode"] = "reviewed_aliases_only"
             state["live_enabled"] = self.live
             state["generic_enabled"] = self.generic and state.get("generic_enabled") is True
@@ -4792,54 +4794,56 @@ class WorkerService:
                 if self.process
                 else None
             )
-            for job in state["jobs"]:
-                job.pop("file_path", None)
-                for material in job.get("materials", []):
-                    material["material_revision"] = digest(material)
-                if job["intent"]:
-                    job["intent_ref"] = job["intent"].get("attempt_id") or digest(job["intent"])
-                job["page_current"] = self._page_current(state, job, now=now)
-                job["page_inspection_target"] = self._page_inspection_target(state, job)
-                inspection = job.get("owned_page_inspection") or {}
-                if inspection:
-                    pending = inspection.get("status") == "pending"
-                    if pending:
-                        inspection_state = (
-                            "pending"
-                            if 0 <= now - inspection.get("requested_at", 0) < 10
-                            and inspection.get("binding") == job["page_inspection_target"]
-                            else "timed_out"
+            with lock_step("worker_jobs"):
+                for job in state["jobs"]:
+                    job.pop("file_path", None)
+                    for material in job.get("materials", []):
+                        material["material_revision"] = digest(material)
+                    if job["intent"]:
+                        job["intent_ref"] = job["intent"].get("attempt_id") or digest(job["intent"])
+                    job["page_current"] = self._page_current(state, job, now=now)
+                    job["page_inspection_target"] = self._page_inspection_target(state, job)
+                    inspection = job.get("owned_page_inspection") or {}
+                    if inspection:
+                        pending = inspection.get("status") == "pending"
+                        if pending:
+                            inspection_state = (
+                                "pending"
+                                if 0 <= now - inspection.get("requested_at", 0) < 10
+                                and inspection.get("binding") == job["page_inspection_target"]
+                                else "timed_out"
+                            )
+                        elif inspection.get("status") == "captured":
+                            inspection_state = (
+                                "current"
+                                if 0 <= now - inspection.get("at", 0) < 10
+                                and inspection.get("binding") == job["page_inspection_target"]
+                                and inspection.get("worker_source")
+                                == (runtime or {}).get("source", {}).get("sha256")
+                                else "historical"
+                            )
+                        else:
+                            inspection_state = "failed"
+                        job["owned_page_inspection_state"] = inspection_state
+                    job["email_correction_target"] = self._email_correction_target(state, job)
+                    corrections = job.get("email_corrections", [])
+                    if corrections:
+                        job["email_correction_status"] = (
+                            "queued"
+                            if any(
+                                event.get("action") == "email_correction_queued"
+                                and event.get("correction_id") == corrections[-1]["id"]
+                                for event in job["observations"]
+                            )
+                            else "staged"
                         )
-                    elif inspection.get("status") == "captured":
-                        inspection_state = (
-                            "current"
-                            if 0 <= now - inspection.get("at", 0) < 10
-                            and inspection.get("binding") == job["page_inspection_target"]
-                            and inspection.get("worker_source")
-                            == (runtime or {}).get("source", {}).get("sha256")
-                            else "historical"
-                        )
-                    else:
-                        inspection_state = "failed"
-                    job["owned_page_inspection_state"] = inspection_state
-                job["email_correction_target"] = self._email_correction_target(state, job)
-                corrections = job.get("email_corrections", [])
-                if corrections:
-                    job["email_correction_status"] = (
-                        "queued"
-                        if any(
-                            event.get("action") == "email_correction_queued"
-                            and event.get("correction_id") == corrections[-1]["id"]
-                            for event in job["observations"]
-                        )
-                        else "staged"
-                    )
-                    job["email_correction_readback"] = email_correction_readback(state, job)
+                        job["email_correction_readback"] = email_correction_readback(state, job)
             state["measurement_incomplete"] = (
                 self.store.measurements.incomplete
                 or (self.store.root / ".measurement-incomplete").exists()
             )
-            state["input_items"] = _input_items(state)
+            with lock_step("worker_inputs"):
+                state["input_items"] = _input_items(state)
             return state
 
     def spawn(self) -> None:
