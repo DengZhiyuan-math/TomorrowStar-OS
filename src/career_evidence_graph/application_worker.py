@@ -71,6 +71,8 @@ OWNED_PAGE_OBSERVATION = "owned-page-observation/v1"
 CONTROLLER_HANDOFF_INSPECTION = "controller-handoff-inspection/v1"
 CODEX_ASSISTANCE = "codex-assistance/v1"
 CODEX_NATIVE_ASSISTANCE = "codex-assistance/native/v1"
+# A saved-answer reference to the adopted cover letter's motivation paragraphs.
+LETTER_MOTIVATION_KEY = "cover_letter_motivation:"
 # Result-stage keys a native call may gain, change or drop; every other key is identity.
 NATIVE_CALL_OUTCOME_KEYS = frozenset(
     {"status", "refusal", "refusal_detail", "material_resolution", "material_readback", "result"}
@@ -2760,6 +2762,22 @@ class WorkerStore:
                     "native_answers_changed", "原生接管范围已改变，不能采用旧答案。", 409
                 )
             selected = [fact for fact in answers["facts"] if fact["status"] == "confirmed"]
+            # A letter motivation answer is bound to its adopted letter revision when
+            # delivered; here its text must still be that delivered text.
+            letter = [
+                fact
+                for fact in selected
+                if all(ref["key"].startswith(LETTER_MOTIVATION_KEY) for ref in fact["references"])
+            ]
+            if any(
+                ref["revision"] != hashlib.sha256(fact["value"].encode()).hexdigest()
+                for fact in letter
+                for ref in fact["references"]
+            ):
+                raise PortalDataError(
+                    "native_answers_changed", "求职信动机段与交付时不同。", 409
+                )
+            selected = [fact for fact in selected if fact not in letter]
             if not selected:
                 return True
             library = read_information_library(self.answers_for(job).root)
@@ -3427,6 +3445,7 @@ class WorkerStore:
         )
 
         selected = {}
+        labels = {}
         for field in (page_context.get("data") or {}).get("fields", []):
             if (
                 field.get("type") in {"password", "hidden", "file"}
@@ -3438,6 +3457,7 @@ class WorkerStore:
             if fact is None:
                 continue
             selected.setdefault(fact, []).append(field.get("id", ""))
+            labels.setdefault(fact, field.get("question") or field.get("label") or "")
         if len(selected) > 64:
             raise PortalDataError("assistance_answer_limit", "当前页面事实范围超过交接上限。", 409)
         if not selected:
@@ -3474,6 +3494,17 @@ class WorkerStore:
                     row["status"] = "unsupported_value"
                 else:
                     row.update(value=item["value"], references=references)
+            elif item["status"] == "missing":
+                motivation = self.letter_motivation({"question": labels[item["fact"]]}, job)
+                if motivation is not None:
+                    text, ref = motivation
+                    row.update(
+                        status="confirmed",
+                        value=text,
+                        references=[
+                            {"key": ref["key"], "revision": ref["revision"], "fact": item["fact"]}
+                        ],
+                    )
             facts.append(row)
         result = {"library_status": library["status"], "facts": facts}
         return {**result, "revision": digest(result)}
@@ -4377,6 +4408,44 @@ class WorkerStore:
                 raise
         return material
 
+    def letter_motivation(self, question, job):
+        """The adopted cover letter's motivation paragraphs, for a "why us" question.
+
+        The user's rule (2026-11-06): such a question is answered by the letter's own
+        motivation paragraph, not a separately written text. None without one.
+        """
+        from .application_materials import material_consistency_status, material_kind
+
+        label = question.get("question") or ""
+        if (
+            job.get("workflow") != "single"
+            or material_kind({"question": label, "type": "textarea"}) != "motivation_text"
+        ):
+            return None
+        try:
+            fixed = self.material_inputs(job)
+            if material_consistency_status(fixed) in {"queued", "running"}:
+                return None
+        except PortalDataError:
+            return None
+        branch = fixed.get("cover_letter") or {}
+        result = branch.get("result") or {}
+        # One line: a "why us" field is often a single-line input.
+        text = " ".join(
+            " ".join(paragraph["text"].split())
+            for paragraph in (result.get("content") or {}).get("paragraphs", [])
+            if paragraph.get("kind") == "motivation"
+            and isinstance(paragraph.get("text"), str)
+            and paragraph["text"].strip()
+        )
+        if branch.get("status") != "ready" or not text or not result.get("content_revision"):
+            return None
+        return text, {
+            "key": LETTER_MOTIVATION_KEY + result["content_revision"],
+            "revision": hashlib.sha256(text.encode()).hexdigest(),
+            "source": "system_material",
+        }
+
     def resolve(self, question: dict, job: dict, temporary: dict | None = None):
         from .application_information import applicable_answers
         from .application_materials import material_kind
@@ -4431,7 +4500,16 @@ class WorkerStore:
                     "draft_path": question.get("draft_path", ""),
                 }
             if not records:
-                return None
+                motivation = self.letter_motivation(question, job)
+                if motivation is None:
+                    return None
+                text, ref = motivation
+                return text, {
+                    **ref,
+                    "fact": fact,
+                    "field_id": question["id"],
+                    "draft_path": question.get("draft_path", ""),
+                }
         if len({digest(r["value"]) for r in records}) != 1:
             return None
         record = records[-1]

@@ -189,6 +189,8 @@ tomorrowstar-career-data/
 - 岗位来源：不查证来历，所有"从哪里得知"类问题共用 `referral_source`，
   选择题取第一个选项，文本题填已保存答案；不进入匹配；
 - 搬迁：所有 relocate 类问题共用 `relocation_willing`，长期同意；
+- 动机（"Why are you interested in …"）：没有已保存答案时，取当前已采用求职信里
+  标为 motivation 的段落，合成一行填写；不单独另写动机文本；
 - 到岗时间与期望薪资：各种问法分别共用 `earliest_start_date` 和
   `salary_expectation`；薪资按国家保存市场区间；
 - 偏好；

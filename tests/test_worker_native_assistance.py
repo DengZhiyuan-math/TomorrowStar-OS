@@ -190,6 +190,48 @@ def test_native_handoff_delivers_only_saved_answers_for_current_dom_fields(
     assert native.assistance_context(identifier)["assistance_ref"] == ref
 
 
+def test_native_handoff_answers_a_why_us_field_with_the_letter_motivation(
+    retained_assistance_page, monkeypatch
+):
+    import hashlib
+
+    from test_worker_assistance_delivery import page_context
+
+    from career_evidence_graph.career_portal_data import PortalDataError
+    from career_evidence_graph.validation.hashing import record_digest as digest
+
+    service, identifier = retained_assistance_page
+    native, ref = claim_native(service, identifier, monkeypatch)
+    save_native_answers(native, [])
+    paragraph = "I am motivated by the team's work."
+    key = "cover_letter_motivation:" + "b" * 64
+
+    def letter_motivation(question, job):
+        if question["question"] != "Why are you interested in Example AG?":
+            return None
+        revision = hashlib.sha256(paragraph.encode()).hexdigest()
+        return paragraph, {"key": key, "revision": revision, "source": "system_material"}
+
+    monkeypatch.setattr(native.store, "letter_motivation", letter_motivation)
+    context = page_context(native, ref)
+    context["data"]["fields"] = [
+        {"id": "why", "type": "text", "label": "Why are you interested in Example AG?", "value": ""},
+        {"id": "other", "type": "text", "label": "Favourite colour", "value": ""},
+    ]
+    delivery = native.assistance_delivery(identifier, ref, page_context=context)
+    facts = {row["fact"]: row for row in delivery["answers"]["facts"]}
+    why = facts["question:why are you interested in example ag"]
+    assert (why["status"], why["value"], why["field_ids"]) == ("confirmed", paragraph, ["why"])
+    assert why["references"][0]["key"] == key
+    assert facts["question:favourite colour"]["status"] == "missing"
+    assert native.store.validate_native_answers(ref, delivery["answers"]) is True
+    changed = deepcopy(delivery["answers"])
+    next(row for row in changed["facts"] if row["fact"] == why["fact"])["value"] = "Other text"
+    changed["revision"] = digest({k: v for k, v in changed.items() if k != "revision"})
+    with pytest.raises(PortalDataError, match="动机段"):
+        native.store.validate_native_answers(ref, changed)
+
+
 def test_native_scope_is_explicit_bound_metadata_not_a_grant(retained_assistance_page, monkeypatch):
     import os
 

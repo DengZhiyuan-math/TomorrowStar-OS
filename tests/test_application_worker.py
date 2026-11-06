@@ -172,6 +172,37 @@ def test_referral_takes_the_first_option_and_relocation_is_agreed(service) -> No
     assert service.store.resolve(move, current)[0] == "Ja"
 
 
+def test_why_us_questions_take_the_adopted_letter_motivation_paragraph(
+    service, monkeypatch
+) -> None:
+    service.request("prepare", {"jobs": [job(service)]})
+    current = {**service.store.load()["jobs"][0], "workflow": "single"}
+    letter = {
+        "status": "ready",
+        "result": {
+            "content_revision": "a" * 64,
+            "content": {
+                "paragraphs": [
+                    {"kind": "motivation", "text": "I am motivated by  the\nteam's work."},
+                    {"kind": "fact", "text": "In my research I built experiments."},
+                    {"kind": "motivation", "text": "I would like to contribute."},
+                ]
+            },
+        },
+    }
+    fixed = {"cover_letter": letter}
+    monkeypatch.setattr(service.store, "material_inputs", lambda _job: fixed)
+    why = {"id": "why", "question": "Why are you interested in Example AG?", "type": "text"}
+    text, ref = service.store.resolve(why, current)
+    assert text == "I am motivated by the team's work. I would like to contribute."
+    assert ref["key"] == "cover_letter_motivation:" + "a" * 64
+    assert ref["source"] == "system_material" and ref["field_id"] == "why"
+    salary = {"id": "pay", "question": "What are your salary expectations?", "type": "text"}
+    assert service.store.resolve(salary, current) is None
+    letter["status"] = "generating"
+    assert service.store.resolve(why, current) is None
+
+
 def test_fact_aliases_keep_time_and_authorization_distinct() -> None:
     assert fact_for("Will you now or in the future require visa sponsorship?") == fact_for(
         "Do you require visa sponsorship now or in the future?"
