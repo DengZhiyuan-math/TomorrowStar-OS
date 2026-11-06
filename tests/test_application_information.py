@@ -565,3 +565,36 @@ def test_data_protection_consent_maps_to_one_standing_fact_and_other_agreements_
     ]
     assert {information_fact(label) for label in consent} == {"data_processing_consent"}
     assert all(information_fact(label).startswith("question:") for label in other)
+
+
+def test_start_date_and_salary_wordings_reuse_one_saved_answer():
+    from career_evidence_graph.application_information import information_context
+
+    start = answer("What is your earliest possible start date?", "2027-08-01")
+    salary = answer(
+        "What are your salary expectations?",
+        "CHF 120,000 – 160,000 gross per year",
+        scope={"country": "CHE"},
+    )
+    library = library_with(start, salary)
+    asked = {
+        "When can you start?": "2027-08-01",
+        "Earliest start date": "2027-08-01",
+        "Salary expectations": "CHF 120,000 – 160,000 gross per year",
+        "Expected salary": "CHF 120,000 – 160,000 gross per year",
+    }
+    from career_evidence_graph.application_information import information_fact
+
+    for label, value in asked.items():
+        fact = information_fact(label)
+        (item,) = information_context(APPLICATION, library, fact_keys=[fact])["facts"]
+        assert (item["status"], item.get("value")) == ("confirmed", value), label
+    # The market range is a Swiss answer; another country still asks.
+    abroad = information_context(
+        APPLICATION | {"country": "FRA"},
+        library,
+        fact_keys=[information_fact("What are your salary expectations?")],
+    )["facts"][0]
+    assert abroad["status"] == "missing"
+    # An internship start keeps its own month answer.
+    assert information_fact("Internship Start Date (MM/YYYY)") == "internship_start"
