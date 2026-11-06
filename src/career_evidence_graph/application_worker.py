@@ -4439,7 +4439,14 @@ class WorkerStore:
         if not isinstance(value, str) or not value.strip():
             return None
         options = question.get("options", [])
-        if fact == "data_processing_consent" and value == "Yes" and value not in options:
+        if fact == "referral_source" and options:
+            # Standing rule: where the job was found never matters; take the first option.
+            value = options[0]
+        if (
+            fact in {"data_processing_consent", "relocation_willing"}
+            and value == "Yes"
+            and value not in options
+        ):
             # Standing agreement: a lone consent box is ticked by its own label,
             # and a localized Yes/No choice takes its one affirmative option.
             agree = (

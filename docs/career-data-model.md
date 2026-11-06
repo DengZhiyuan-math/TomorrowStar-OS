@@ -186,6 +186,11 @@ tomorrowstar-career-data/
 - 语言能力：自报等级按原级别使用；
 - 数据保护同意：用户长期同意集团内转交、保存期限和隐私处理的问题，统一记为
   `data_processing_consent`；背景调查、营销和其他协议仍按各自问题处理；
+- 岗位来源：不查证来历，所有"从哪里得知"类问题共用 `referral_source`，
+  选择题取第一个选项，文本题填已保存答案；不进入匹配；
+- 搬迁：所有 relocate 类问题共用 `relocation_willing`，长期同意；
+- 到岗时间与期望薪资：各种问法分别共用 `earliest_start_date` 和
+  `salary_expectation`；薪资按国家保存市场区间；
 - 偏好；
 - 敏感人口信息：仅在明确需要时填写。
 

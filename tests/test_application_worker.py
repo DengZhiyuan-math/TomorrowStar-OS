@@ -154,6 +154,24 @@ def test_standing_data_consent_ticks_a_lone_box_or_the_affirmative_choice(servic
     assert service.store.resolve(check, current) is None
 
 
+def test_referral_takes_the_first_option_and_relocation_is_agreed(service) -> None:
+    service.request("prepare", {"jobs": [job(service)]})
+    current = service.store.load()["jobs"][0]
+    service.store.answers.put_answer(
+        {"question": "How did you hear about us?", "value": "LinkedIn", "state": "confirmed"}
+    )
+    service.store.answers.put_answer(
+        {"question": "Are you willing to relocate?", "value": "Yes", "state": "confirmed"}
+    )
+    text = {"question": "How did you hear about this job?", "type": "text", "options": []}
+    pick = {"question": "Where did you hear about us?", "type": "select",
+            "options": ["Job board", "LinkedIn", "Friend"]}
+    move = {"question": "Would you relocate to Paris?", "type": "radio", "options": ["Nein", "Ja"]}
+    assert service.store.resolve(text, current)[0] == "LinkedIn"
+    assert service.store.resolve(pick, current)[0] == "Job board"
+    assert service.store.resolve(move, current)[0] == "Ja"
+
+
 def test_fact_aliases_keep_time_and_authorization_distinct() -> None:
     assert fact_for("Will you now or in the future require visa sponsorship?") == fact_for(
         "Do you require visa sponsorship now or in the future?"

@@ -561,10 +561,11 @@ def test_data_protection_consent_maps_to_one_standing_fact_and_other_agreements_
         "I consent to a background check",
         "I agree to receive marketing emails about our data products",
         "I agree to the terms of use",
-        "Do you consent to relocate?",
     ]
     assert {information_fact(label) for label in consent} == {"data_processing_consent"}
     assert all(information_fact(label).startswith("question:") for label in other)
+    # Not data consent: the standing relocation rule (2026-11-06) answers it.
+    assert information_fact("Do you consent to relocate?") == "relocation_willing"
 
 
 def test_start_date_and_salary_wordings_reuse_one_saved_answer():
@@ -598,3 +599,22 @@ def test_start_date_and_salary_wordings_reuse_one_saved_answer():
     assert abroad["status"] == "missing"
     # An internship start keeps its own month answer.
     assert information_fact("Internship Start Date (MM/YYYY)") == "internship_start"
+
+
+def test_referral_and_relocation_questions_map_to_standing_facts():
+    from career_evidence_graph.application_information import information_fact
+
+    referral = [
+        "How did you hear about us?",
+        "How did you hear about this position?",
+        "Where did you hear about Harmattan AI?",
+        "How did you find this job?",
+    ]
+    relocation = [
+        "Are you willing to relocate to Paris?",
+        "Would you consider relocating?",
+        "Are you open to relocation?",
+    ]
+    assert {information_fact(label) for label in referral} == {"referral_source"}
+    assert {information_fact(label) for label in relocation} == {"relocation_willing"}
+    assert information_fact("Why are you interested in Harmattan AI?").startswith("question:")

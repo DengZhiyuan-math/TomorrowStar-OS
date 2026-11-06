@@ -22,7 +22,7 @@ COUNTRIES = {"CHE", "USA", "GBR", "DEU", "FRA", "CAN", "OTHER"}
 MAX_DOCUMENT_BYTES = 2 * 1024 * 1024
 CONTACT_FACTS = ("name", "first_name", "last_name", "email", "phone", "github_url", "linkedin_url")
 # Contact and identity answers never bear on a JD requirement.
-MATCH_EXCLUDED_FACTS = (*CONTACT_FACTS, "pronouns", "data_processing_consent")
+MATCH_EXCLUDED_FACTS = (*CONTACT_FACTS, "pronouns", "data_processing_consent", "referral_source")
 # Bookkeeping that identifies a saved answer but says nothing about the applicant.
 _RECORD_BOOKKEEPING = {"key", "revision", "confirmedAt", "updatedAt", "state", "fact"}
 ADDITIONAL_LANGUAGE_FACTS = (
@@ -210,9 +210,24 @@ _NOT_DATA_CONSENT = re.compile(
 )
 
 
+# Standing user rules (2026-11-06): where a job was found never matters, so any
+# referral question takes one saved answer (a choice its first option); every
+# relocation question is agreed to.
+_REFERRAL = re.compile(
+    r"\b(?:how|where) did you (?:first )?(?:hear|learn|find out) (?:about|of)\b"
+    r"|\bhow did you (?:find|discover) (?:us|this|the)\b"
+    r"|\breferral source\b"
+)
+_RELOCATION = re.compile(r"\brelocat\w*\b")
+
+
 def canonical_question_fact(question: str) -> str | None:
     """Extra saved aliases shared with filling, without invoking its fallback."""
     normalized = helper.normalize_question(question).strip(" *:")
+    if _REFERRAL.search(normalized):
+        return "referral_source"
+    if _RELOCATION.search(normalized):
+        return "relocation_willing"
     if (
         _DATA_CONSENT.search(normalized)
         and _DATA_CONSENT_TOPIC.search(normalized)
