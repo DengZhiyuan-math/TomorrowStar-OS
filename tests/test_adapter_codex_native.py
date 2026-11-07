@@ -1642,7 +1642,11 @@ def test_native_final_report_is_bound_to_the_active_turn(tmp_path, monkeypatch):
         assert "expand click or its option click is refused" in instructions
         assert "except handoff_fresh_native_ref_required" in " ".join(instructions.split())
         assert "next_step naming the first refused one" in instructions
-        assert "refused CV deliveries and combobox clicks" in instructions
+        # A refused action leaves only its control; an unknown result still stops.
+        assert "Any other refused action: do not retry it and do not stop" in " ".join(
+            instructions.split()
+        )
+        assert "After an unknown result, do not retry: stop" in " ".join(instructions.split())
         current = settle(adapter, run, config)
         assert current.native_turn_status == "completed"
         report = current.report

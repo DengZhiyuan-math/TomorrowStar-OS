@@ -81,14 +81,15 @@ def copy_cua_driver(resources: Path, driver: Path) -> dict:
             "that name is found again by stable container or form when the input is unmounted; "
             "an expanded combobox may be clicked again to collapse it; "
             "refusal reasons never take a prose hint's first word; material refusals carry "
-            "their code"
+            "their code; a handoff click may take any named control except one whose name "
+            "sends the application"
         ),
         # MC-10 successor source tree and its divergence from the sealed MC-06 source.
         "source_manifest_sha256": (
-            "44eede0cc41975f72ba466c43c99e69864593794a911acce61dd76b31c4249b9"
+            "3e13e5c367ee860299af4ee421cd9aab5713cef1a4517d8e25cb8d4360587e53"
         ),
         "source_divergence_patch_sha256": (
-            "7314957506401a6b74f297f11f3548f7fb14707113ac29b406ee137924f09d5f"
+            "5b1a1a01bef5bcf4c83b73b6f2a3809ae3e1c3946a3861ec454117ccf27f9249"
         ),
         "build_profile": "release, signed with the pinned private identity",
         "additional_local_divergence": (

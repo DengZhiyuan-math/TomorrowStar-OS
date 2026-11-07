@@ -769,9 +769,9 @@ class CodexAdapter:
                                 "(state left_for_script). "
                                 "Never navigate. handoff_fresh_native_ref_required means the "
                                 "ref was stale: take a new snapshot and retry once with its "
-                                "ref. Except for those refused CV deliveries and combobox "
-                                "clicks, after an unknown result or any other refusal, such as "
-                                "handoff_existing_content or handoff_option_owner_unproven, "
+                                "ref. Any other refused action: do not retry it and do not "
+                                "stop; leave that control, finish the remaining controls, "
+                                "then list it as left_for_script. After an unknown result, "
                                 "do not retry: stop and report it."
                             )
                         }
