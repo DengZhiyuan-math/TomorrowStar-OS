@@ -124,6 +124,8 @@ def _analysis_outcome(task, *, known_attempt_failure=False):
             "match_attribution_invalid",
             "match_inference_invalid",
             "retrieval_invalid",
+            # A size refusal is raised before that call reaches the model (2026-11-07).
+            "retrieval_too_large",
             "job_brief_invalid",
             # A refused recovery calls nothing; the next attempt re-checks the records.
             "match_resume_invalid",
