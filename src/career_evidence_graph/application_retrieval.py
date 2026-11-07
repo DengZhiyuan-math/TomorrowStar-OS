@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from ._vendor import job_apply_store as helper
 from .application_information import _read_document as _read_bounded_document
+from .application_input_limits import MAX_MATCH_CONTEXT_BYTES
 from .application_storage import private_root
 from .career_portal_data import PortalDataError
 from .codex_cli import CodexCLIError, run_codex_exec, validate_recorded_result
@@ -25,8 +26,11 @@ from .validation.models import CodexCLIConfig
 
 MAX_PAGE_BYTES = 48_000
 MAX_JD_BYTES = 48_000
-MAX_FACT_BYTES = 24_000
-MAX_PROMPT_BYTES = 128_000
+# The confirmed answers grow with each job's own questions; 38 answers took 25.6 KB
+# and stopped every later job's analysis (2026-11-07). The prompt keeps the match
+# context's budget.
+MAX_FACT_BYTES = 64_000
+MAX_PROMPT_BYTES = MAX_MATCH_CONTEXT_BYTES
 POLICY_VERSION = "requirement-retrieval/v1"
 
 

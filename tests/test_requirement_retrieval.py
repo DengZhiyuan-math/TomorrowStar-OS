@@ -441,3 +441,16 @@ def test_full_retrieval_context_budget_fails_before_call_instead_of_truncating(
         )
     assert error.value.code == "retrieval_too_large"
     assert not calls
+
+
+def test_a_grown_answer_library_still_fits_retrieval(inputs, tmp_path):
+    # 38 confirmed answers took 25.6 KB and stopped every job's analysis (2026-11-07).
+    app, snapshot = inputs
+    snapshot["information_context"] = {
+        "facts": [{"fact": f"q{i}", "text": "x" * 700} for i in range(38)]
+    }
+    calls = []
+    retrieval.plan_retrieval(
+        app, snapshot, tmp_path / "grown", runner=model_runner(relevant, calls)
+    )
+    assert calls
