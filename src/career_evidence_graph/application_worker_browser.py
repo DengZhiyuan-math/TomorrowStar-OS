@@ -399,8 +399,20 @@ def native_combobox_choice_kept(delivery, call, value, *, page_reopened=False):
     return None if page_reopened else "existing_choice"
 
 
+# Names of controls that may send an application. A click on one is never admitted.
+SUBMIT_LIKE = re.compile(
+    r"\b(?:submit|apply|send|finish|complete|confirm)|提交|申请|投递|发送|"
+    r"envoyer|postuler|soumettre|valider|bewerb|absenden|abschicken|senden|"
+    r"enviar|candidat|invia",
+    re.IGNORECASE,
+)
+
+
 def native_click_denial(delivery, calls, call, *, page_reopened=False):
-    """Why a click is refused, or None: admit only a delivered-fact combobox or its fact option.
+    """Why a click is refused, or None.
+
+    A combobox and its option follow the delivered fact; any other named control is
+    admitted unless its name looks like sending the application.
 
     An option row names only the option; its field is the combobox whose observed
     click immediately precedes it in this handoff's ledger (the driver's owner rule).
@@ -414,9 +426,13 @@ def native_click_denial(delivery, calls, call, *, page_reopened=False):
             return "unbound_fact"
         return native_combobox_choice_kept(delivery, call, value, page_reopened=page_reopened)
     if role != "option":
-        # APP-11: a native click opens a combobox or picks its option, nothing else.
-        # Buttons and links (Submit, Apply, Send) are refused here, never by name.
-        return "role_not_clickable"
+        # APP-11 keeps final sending manual. Ashby's Yes/No and Submit buttons share one
+        # structure (no form, no type), so only the name tells them apart (2026-11-07).
+        # Any other named control is the agent's to click; the result is checked later.
+        name = str(hint.get("name") or "").strip()
+        if not name or SUBMIT_LIKE.search(name):
+            return "submit_like"
+        return None
     previous = sorted(
         (
             row
@@ -514,7 +530,10 @@ INSPECT_ASSISTANCE_CONTEXT = (
         const text=e.getAttribute('description')||(group?.getAttribute('aria-labelledby')||'')
           .split(/\s+/).filter(Boolean).map(id=>document.getElementById(id)?.textContent||'')
           .join(' ')||group?.getAttribute('aria-label')||
-          group?.querySelector('legend')?.textContent||'';
+          group?.querySelector('legend')?.textContent||
+          // Ashby: a hidden checkbox behind Yes/No buttons; its label names it by name.
+          (e.name&&!e.id&&document.querySelector(`label[for="${CSS.escape(e.name)}"]`)
+            ?.textContent)||'';
         const question=text.replace(/[✱*]/g,'').trim().replace(/\s+/g,' ').slice(0,4000);
         if(question) field.question=question;
       }

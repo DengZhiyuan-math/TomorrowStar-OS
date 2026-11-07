@@ -577,17 +577,24 @@ def test_native_choice_key_ignores_only_case_whitespace_and_edge_punctuation(opt
         ),
         # No owning combobox click precedes the option.
         ([("option", "Mr.")], "", False, [False], "option_owner_unproven"),
-        # APP-11: buttons, links and any other role are never clickable, whatever the name.
-        ([("button", "Submit application")], "", False, [False], "role_not_clickable"),
-        ([("link", "Apply now")], "", False, [False], "role_not_clickable"),
-        ([("", "Send")], "", False, [False], "role_not_clickable"),
+        # APP-11: a control named like sending the application is never clickable.
+        ([("button", "Submit application")], "", False, [False], "submit_like"),
+        ([("button", "Submit Application")], "", False, [False], "submit_like"),
+        ([("link", "Apply now")], "", False, [False], "submit_like"),
+        ([("", "Send")], "", False, [False], "submit_like"),
+        ([("button", "Candidature : envoyer")], "", False, [False], "submit_like"),
+        ([("button", "提交申请")], "", False, [False], "submit_like"),
+        ([("button", "")], "", False, [False], "submit_like"),
         (
             [("combobox", "Salutation"), ("button", "Submit")],
             "",
             False,
             [True, False],
-            "role_not_clickable",
+            "submit_like",
         ),
+        # 2026-11-07, Ashby: any other named control is the agent's to click.
+        ([("button", "No")], "", False, [True], None),
+        ([("checkbox", "I agree to the privacy policy")], "", False, [True], None),
         # r7: the driver shows a placeholder, which the delivered context reads as empty.
         (
             [("combobox", "Salutation", "Please select"), ("option", "Mr.")],
@@ -1781,7 +1788,7 @@ def test_an_admission_retries_a_slow_scope_read_but_not_a_changed_document(
                         "tool": "browser_click",
                         "status": "awaiting_host",
                         "scope": kwargs["native_scope"],
-                        "field_hint": {"name": "Expand", "role": "button"},
+                        "field_hint": {"name": "Submit", "role": "button"},
                     }
                 )
             )
@@ -1790,7 +1797,7 @@ def test_an_admission_retries_a_slow_scope_read_but_not_a_changed_document(
     runner.codex_assist = Adapter()
     runner._service_assistance_stop = lambda: None
     runner.start_native_assistance(ref, request_id="native-admission-slow-read")
-    assert failed == [True] and results == [False]  # the button is not clickable here
+    assert failed == [True] and results == [False]  # a Submit button is never clickable
     # Only a slow read is checked again; a changed document is denied at once.
     assert len(attempts) == (1 if failure == "document_changed" else 2)
 

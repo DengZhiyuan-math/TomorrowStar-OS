@@ -3450,8 +3450,10 @@ class WorkerStore:
             if (
                 field.get("type") in {"password", "hidden", "file"}
                 or field.get("visible") is False
+                and field.get("type") not in {"checkbox", "radio"}
                 or field.get("disabled") is True
             ):
+                # A hidden choice input often stands behind visible buttons (Ashby Yes/No).
                 continue
             fact = native_field_fact(field)
             if fact is None:

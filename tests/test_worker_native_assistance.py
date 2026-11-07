@@ -232,6 +232,33 @@ def test_native_handoff_answers_a_why_us_field_with_the_letter_motivation(
         native.store.validate_native_answers(ref, changed)
 
 
+def test_a_hidden_choice_behind_buttons_still_delivers_its_answer(
+    retained_assistance_page, monkeypatch
+):
+    # 2026-11-07, Ashby: Yes/No buttons stand in front of a display:none checkbox.
+    from test_application_information import answer
+    from test_worker_assistance_delivery import page_context
+
+    service, identifier = retained_assistance_page
+    native, ref = claim_native(service, identifier, monkeypatch)
+    question = "Do you have the Right to Work in France?"
+    save_native_answers(native, [answer(question, "No")])
+    context = page_context(native, ref)
+    context["data"]["fields"] = [
+        {"id": "", "name": "86c4", "type": "checkbox", "label": "", "question": question,
+         "value": "", "visible": False},
+        {"id": "pw", "type": "password", "label": "Password", "value": "", "visible": False},
+        {"id": "note", "type": "text", "label": "Hidden note", "value": "", "visible": False},
+    ]
+    delivery = native.assistance_delivery(identifier, ref, page_context=context)
+    facts = {row["fact"]: row for row in delivery["answers"]["facts"]}
+    assert list(facts) == ["question:do you have the right to work in france"]
+    assert (facts[next(iter(facts))]["status"], facts[next(iter(facts))]["value"]) == (
+        "confirmed",
+        "No",
+    )
+
+
 def test_native_scope_is_explicit_bound_metadata_not_a_grant(retained_assistance_page, monkeypatch):
     import os
 
