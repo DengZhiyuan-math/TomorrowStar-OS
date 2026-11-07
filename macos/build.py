@@ -82,14 +82,15 @@ def copy_cua_driver(resources: Path, driver: Path) -> dict:
             "an expanded combobox may be clicked again to collapse it; "
             "refusal reasons never take a prose hint's first word; material refusals carry "
             "their code; a handoff click may take any named control except one whose name "
-            "sends the application"
+            "sends the application, and its trusted click counts as delivered on the proven "
+            "target in the same document, its effect checked after the handoff"
         ),
         # MC-10 successor source tree and its divergence from the sealed MC-06 source.
         "source_manifest_sha256": (
-            "3e13e5c367ee860299af4ee421cd9aab5713cef1a4517d8e25cb8d4360587e53"
+            "f64c104d7dbb66704689bc6e30f300709716e7e055b1e154eac9f3b00f0593ca"
         ),
         "source_divergence_patch_sha256": (
-            "5b1a1a01bef5bcf4c83b73b6f2a3809ae3e1c3946a3861ec454117ccf27f9249"
+            "5f860fb0c90d02ce04bab4798322bceb4062bd4ea3b1dbd1829eec11770764a8"
         ),
         "build_profile": "release, signed with the pinned private identity",
         "additional_local_divergence": (

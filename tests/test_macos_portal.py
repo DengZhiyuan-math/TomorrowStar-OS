@@ -544,10 +544,10 @@ def test_bundled_helper_records_the_native_successor_provenance(tmp_path, monkey
     assert record["sha256"] == digest
     # One bundled driver serves the script and native takeover (MC-10 successor).
     assert record["source_manifest_sha256"] == (
-        "3e13e5c367ee860299af4ee421cd9aab5713cef1a4517d8e25cb8d4360587e53"
+        "f64c104d7dbb66704689bc6e30f300709716e7e055b1e154eac9f3b00f0593ca"
     )
     assert record["source_divergence_patch_sha256"] == (
-        "5b1a1a01bef5bcf4c83b73b6f2a3809ae3e1c3946a3861ec454117ccf27f9249"
+        "5f860fb0c90d02ce04bab4798322bceb4062bd4ea3b1dbd1829eec11770764a8"
     )
     assert "trusted native handoff" in record["local_divergence"]
     assert "DOM set_value with read-back" in record["local_divergence"]
