@@ -742,7 +742,7 @@ class CuaMcpClient:
         ):
             raise PortalDataError(
                 "cua_refused", data.get("refusal", {}).get("message", "Cua 拒绝该操作。"), 409
-            )
+            ) from ValueError(f"{name}: {data.get('refusal') or data.get('status')}"[:200])
         return data
 
     def close(self):
@@ -1149,7 +1149,10 @@ class NativeCuaSessionClient:
             or data.get("refusal")
             or data.get("status") in {"refused", "error"}
         ):
-            raise PortalDataError("cua_refused", "Cua 拒绝该操作。", 409)
+            # The tool and the driver's refusal stay as the private cause only.
+            raise PortalDataError("cua_refused", "Cua 拒绝该操作。", 409) from ValueError(
+                f"{name}: {data.get('refusal') or data.get('status')}"[:200]
+            )
         return data
 
     @property
@@ -2521,7 +2524,7 @@ class CuaDriver:
                     # for the user's Submit (2026-11-03, 22:56).
                     print(
                         f"cua_owner_retry: {error.code} {self._owner_failures}/"
-                        f"{OWNER_READ_RETRIES} {str(error)[:200]}",
+                        f"{OWNER_READ_RETRIES} {str(error)[:200]} cause={error.__cause__!r}"[:600],
                         flush=True,
                     )
                     return

@@ -4524,10 +4524,13 @@ class ApplicationRunner:
             else:
                 # The private log keeps the cause behind a coded refusal (2026-11-05:
                 # cua_page_unverified named none of its four conditions).
+                import traceback
+
                 print(
                     f"native_assistance_failed: {code} cause={error.__cause__!r}"[:600],
                     flush=True,
                 )
+                print("".join(traceback.format_exc(limit=-6))[-2000:], flush=True)
         if code is None:
             return
         with self.store.applications.write_lock():
