@@ -269,3 +269,29 @@ def test_invalid_page_marker_cannot_authorize_retry_of_damaged_receipts(inputs, 
         )
     assert error.value.code == "retrieval_invalid"
     assert len(calls) == 1
+
+
+def test_a_call_refused_before_writing_anything_is_not_resumed(inputs, tmp_path, monkeypatch):
+    # A retrieval_too_large refusal left an empty folder; each retry then failed to
+    # read its record (Overstory, 2026-11-07).
+    app, snapshot = inputs
+    monkeypatch.setattr(retrieval, "MAX_FACT_BYTES", 1)
+    with pytest.raises(PortalDataError) as error:
+        plan_retrieval(
+            app,
+            snapshot,
+            tmp_path / "old",
+            runner=model_runner(relevant, []),
+            invocation_id="b" * 32,
+        )
+    assert error.value.code == "retrieval_too_large"
+    monkeypatch.undo()
+    calls = []
+    result = plan_retrieval(
+        app,
+        snapshot,
+        tmp_path / "new",
+        runner=model_runner(relevant, calls),
+        resume_from=tmp_path / "old" / ("b" * 32),
+    )
+    assert calls and result["selected_candidate_ids"]

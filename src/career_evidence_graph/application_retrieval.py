@@ -278,6 +278,14 @@ def plan_retrieval(
         ],
     }
     previous_invocation = Path(resume_from).expanduser() if resume_from is not None else None
+    # A call refused before writing anything left an empty folder; nothing was sent, so
+    # there is nothing to resume (a retrieval_too_large retry failed on it, 2026-11-07).
+    if (
+        previous_invocation is not None
+        and previous_invocation.is_dir()
+        and not any(previous_invocation.iterdir())
+    ):
+        previous_invocation = None
     if previous_invocation is not None and previous_invocation.exists():
         try:
             if (
