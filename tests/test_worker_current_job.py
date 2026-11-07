@@ -180,6 +180,12 @@ def test_continue_reads_unknown_intent_but_never_clears_or_replays_it(single_wor
         ("Your application has been submitted.", 200, "success"),
         ("Application could not be submitted.", 422, "rejected"),
         ("Please wait", 200, "unknown"),
+        (
+            "Success\nThank you for applying to Harmattan A! We'll review your application "
+            "and be in touch about the next steps.",
+            200,
+            "success",
+        ),
     ],
 )
 def test_result_observation_reads_only_and_separates_success_rejection_unknown(
@@ -697,3 +703,49 @@ def test_reopen_follows_a_link_the_user_corrected(single_worker):
     assert job["job_url"] != old_url
     assert job["revision"] == corrected["revision"]
     assert job["observations"][-1]["previous"]["job_url"] == old_url
+
+
+def test_a_read_before_the_users_submit_waits_for_it_even_without_a_form_element(
+    single_worker, monkeypatch
+):
+    # Ashby's application has no <form>; the first read came before Submit (2026-11-07).
+    service, item, _checks, _launches = single_worker
+    runner, _page = retained_page(service, item)
+    state = service.store.load()
+    current = state["jobs"][0]
+    current.update(status="ready_for_review", handed_off=True)
+    service.store.save(state)
+    page = {"url": current["job_url"], "messages": ["Machine Learning Engineer"], "has_form": False}
+    monkeypatch.setattr(runner, "read_submission_page", lambda *_: page)
+    service.request(
+        "observe-result", {"application_id": item["application_id"], "request_id": "before-submit"}
+    )
+    state = service.store.load()
+    runner.commands(state)
+    runner.persist(state)
+    after = service.store.load()["jobs"][0]
+    assert after["submission_observation"]["conclusion"] == "awaiting_submit"
+    assert after["manual_submission"] is None
+
+
+def test_a_generic_platform_submit_on_the_jobs_own_page_and_host_is_its_target():
+    from career_evidence_graph.application_worker_browser import _manual_submission_target
+
+    job = {
+        "platform": "generic",
+        "job_url": "https://jobs.ashbyhq.com/acme/785027fc-f918-4503-91f6-1b9c5a3c6e07",
+    }
+    job["entry_url"] = job["job_url"] + "/application"
+    binding = {
+        "job_url": job["job_url"],
+        "request_url": "https://jobs.ashbyhq.com/api/non-user-graphql"
+        "?op=ApiSubmitSingleApplicationFormAction",
+        "method": "POST",
+        "page_url": job["entry_url"],
+    }
+    page = job["entry_url"]
+    assert _manual_submission_target(job, binding, document_url=page)
+    assert not _manual_submission_target(
+        job, binding | {"request_url": "https://evil.example/api"}, document_url=page
+    )
+    assert not _manual_submission_target(job, binding | {"method": "GET"}, document_url=page)

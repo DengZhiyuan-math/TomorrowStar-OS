@@ -744,8 +744,9 @@ def _manual_submission_target(job, binding, *, document_url=None):
         return request.path.rstrip("/") == expected.path.rstrip("/") + "/apply"
     if job["platform"] == "greenhouse":
         return request.path.rstrip("/") == expected.path.rstrip("/")
-    # A generic GraphQL operation name alone carries no verified job identity.
-    return False
+    # Elsewhere (Ashby's GraphQL submit, 2026-11-07) the final request was seen on
+    # this job's own handed-off page and host; the page's own success text decides.
+    return True
 
 
 # A slow original-page read, repeated before it fails: a timed-out read's detach can
@@ -2186,20 +2187,23 @@ class ApplicationRunner:
             messages = [
                 re.sub(r"\s+", " ", text).strip().lower() for text in data.get("messages", [])
             ]
-            positive = any(
-                re.fullmatch(
-                    r"(?:your application (?:has been|was) (?:successfully )?submitted|"
-                    r"application (?:successfully )?submitted|we have received your application|"
-                    r"thank you for applying)[.!]?",
+            # A confirmation sentence often continues ("Thank you for applying to
+            # Harmattan AI! We'll review…", Ashby 2026-11-07), so it is searched for.
+            negative = any(
+                re.search(
+                    r"application (?:could not be|was not|not) submitted|"
+                    r"(?:could not|couldn't|cannot) submit your application|"
+                    r"application submission failed",
                     text,
                 )
                 for text in messages
             )
-            negative = any(
-                re.fullmatch(
-                    r"(?:application (?:could not be|was not|not) submitted|"
-                    r"(?:we )?(?:could not|couldn't|cannot) submit your application|"
-                    r"application submission failed)[.!]?",
+            positive = any(
+                re.search(
+                    r"your application (?:has been|was) (?:successfully )?(?:submitted|received)|"
+                    r"application (?:successfully )?submitted|"
+                    r"we(?: have|'ve|’ve) received your application|"
+                    r"thank(?:s| you) for (?:applying|your application)",
                     text,
                 )
                 for text in messages
@@ -2216,8 +2220,10 @@ class ApplicationRunner:
                 and not data.get("has_form")
                 else "rejected"
                 if target_verified and bound_url and job["handed_off"] and negative
+                # Before the user's Submit is seen, the page is still waiting for it,
+                # even where the form has no <form> element (Ashby, 2026-11-07).
                 else "awaiting_submit"
-                if not events and not positive and not negative and data.get("has_form")
+                if not events and not positive and not negative
                 else "unknown"
             )
             receipt.update(
@@ -2469,10 +2475,12 @@ class ApplicationRunner:
         """Read stable status messages from the retained handle; never navigate or submit."""
         script = """() => ({url: location.href,
           messages: [...document.querySelectorAll(
-            'h1,h2,[role=status],[role=alert],.application-confirmation,.application-success'
+            'h1,h2,[role=status],[role=alert],.application-confirmation,.application-success,' +
+            '[class*=success i],[class*=confirmation i]'
           )].filter(e => e.getClientRects().length)
             .map(e => e.innerText.trim()).filter(Boolean).slice(0,40),
-          has_form: !!document.querySelector('form input, form textarea')})"""
+          has_form: [...document.querySelectorAll(
+            'input:not([type=hidden]),textarea,select')].some(e => e.getClientRects().length)})"""
         first = page.evaluate(script)
         if page.evaluate(script) != first:
             raise PortalDataError("submission_page_changed", "观察期间结果页已变化。", 409)
