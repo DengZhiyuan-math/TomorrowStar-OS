@@ -34,6 +34,8 @@ POLICY = "email-to-manual-submit/v1"
 QUEUE_ASSERTION_LOG = "queue-state-assertions.jsonl"
 # Seconds a current result read may stay pending before it is asked again.
 RESULT_READ_WAIT = 30
+# Seconds after the user's Submit request settles before its result page is read.
+SUBMIT_RENDER_WAIT = 2
 
 
 def queue_state(state):
@@ -3137,6 +3139,7 @@ class ApplicationPipeline:
             or (job.get("handoff") or {}).get("status") != "complete"
             or self._result_read_awaited(current, job, observed)
             or time.time() < state.get("result_poll_at", 0)
+            or not self._submit_unread(job, observed)
         ):
             return
         state["result_poll_at"] = time.time() + 5
@@ -3147,6 +3150,29 @@ class ApplicationPipeline:
             )
         except PortalDataError as error:
             self._stop(state, "needs_recheck", str(error))
+
+    @staticmethod
+    def _submit_unread(job, observed):
+        """The page is read once, after the user's latest Submit request has settled.
+
+        Submit changes the page, so nothing is read before it (2026-11-07: a read
+        every 5 seconds before Submit was unnecessary).
+        """
+        settled = max(
+            (
+                row["at"]
+                for row in job.get("observations", [])
+                if row.get("kind") == "manual_submit"
+                and row.get("stage") in {"requestfinished", "requestfailed"}
+                and type(row.get("at")) in {int, float}
+            ),
+            default=None,
+        )
+        return (
+            settled is not None
+            and settled > observed.get("at", 0)
+            and time.time() >= settled + SUBMIT_RENDER_WAIT
+        )
 
     @staticmethod
     def _result_read_awaited(current, job, observed):

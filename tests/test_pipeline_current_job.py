@@ -356,11 +356,15 @@ def test_a_stale_pending_result_read_does_not_stop_observing_the_users_submit(
     old = {
         "request_id": "stale-request",
         "status": "pending",
-        "at": time.time() - (3600 if stale == "expired" else 1),
+        "at": time.time() - (3600 if stale == "expired" else 10),
         "run_id": "earlier-run" if stale == "old_run" else state["runtime"]["id"],
         "page_id": "earlier-page" if stale == "old_page" else job["page_observation"]["page_id"],
     }
     job["submission_observation"] = dict(old)
+    # The user's Submit settled after that read; only then is the page read again.
+    job["observations"].append(
+        {"kind": "manual_submit", "stage": "requestfinished", "at": time.time() - 5}
+    )
     worker.store.save(state)
     drive(pipeline, "ready_for_review")
     job = worker.store.load()["jobs"][0]
@@ -371,6 +375,15 @@ def test_a_stale_pending_result_read_does_not_stop_observing_the_users_submit(
     assert [c["request_id"] for c in commands if c["action"] == "observe-result"] == [
         job["submission_observation"]["request_id"]
     ]
+
+
+def test_the_result_page_is_not_read_before_the_users_submit(current_pipeline, monkeypatch):
+    ready = handed_over(current_pipeline, monkeypatch)
+    pipeline, worker = ready.pipeline, ready.worker
+    drive(pipeline, "ready_for_review")
+    pipeline._tick()
+    commands = worker.store.load()["commands"]
+    assert not [c for c in commands if c["action"] == "observe-result"]
 
 
 def test_a_current_pending_result_read_is_awaited(current_pipeline, monkeypatch):
