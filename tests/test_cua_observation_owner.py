@@ -130,7 +130,8 @@ def test_transport_becoming_unknown_during_the_read_cannot_publish_health(fault)
     assert len(calls) == 1
 
 
-@pytest.mark.parametrize("code", ["cua_refused", "cua_scope_expired", "cua_result_unknown"])
+# A typed cua_refused is read again (test_a_refused_owner_read_is_read_again).
+@pytest.mark.parametrize("code", ["cua_scope_expired", "cua_result_unknown"])
 def test_rpc_refusal_or_unknown_result_does_not_retry_or_refresh(code):
     calls = []
     client = SimpleNamespace(failed=False, process=SimpleNamespace(poll=lambda: None))
@@ -235,3 +236,43 @@ for line in sys.stdin:
             ]
         finally:
             client.close()
+
+
+def test_a_refused_owner_read_is_read_again(monkeypatch):
+    # 2026-11-07, Harmattan: the driver's host check raced the App's process lookup and
+    # one refused read at takeover start revoked the takeover.
+    calls = []
+
+    def call(name, arguments, **kwargs):
+        calls.append(name)
+        if len(calls) == 1:
+            raise PortalDataError("cua_refused", "Cua 拒绝该操作。", 409)
+        return {
+            "status": "ok",
+            "binding_quality": "exact",
+            "endpoint_access_class": "driver_owned",
+            "target_id": "synthetic-owner-target",
+        }
+
+    client = SimpleNamespace(failed=False, process=SimpleNamespace(poll=lambda: None), call=call)
+    driver = CuaDriver(client, 42, window_id=7, driver_owned=True)
+    monkeypatch.setattr("career_evidence_graph.cua_driver.time.sleep", lambda _: None)
+
+    assert driver.observe_owner(pump=None)["status"] == "accepted"
+    assert calls == ["get_browser_state", "get_browser_state"]
+
+
+def test_an_owner_read_refused_every_time_still_fails(monkeypatch):
+    calls = []
+
+    def call(name, arguments, **kwargs):
+        calls.append(name)
+        raise PortalDataError("cua_refused", "Cua 拒绝该操作。", 409)
+
+    client = SimpleNamespace(failed=False, process=SimpleNamespace(poll=lambda: None), call=call)
+    driver = CuaDriver(client, 42, window_id=7, driver_owned=True)
+    monkeypatch.setattr("career_evidence_graph.cua_driver.time.sleep", lambda _: None)
+
+    with pytest.raises(PortalDataError) as error:
+        driver.observe_owner(pump=None)
+    assert error.value.code == "cua_refused" and len(calls) == 3

@@ -2570,7 +2570,19 @@ class CuaDriver:
 
     def observe_owner(self, *, pump) -> dict:
         """Read the existing owner without selecting a browser tab."""
-        self._owner_state(pump=pump)
+        for attempt in range(OWNER_READ_RETRIES):
+            try:
+                self._owner_state(pump=pump)
+                break
+            except PortalDataError as error:
+                # A typed refusal leaves the session intact. The driver's host check
+                # can race the App's own process lookup ("application process changed
+                # during identity lookup", 2026-11-07, Harmattan): one refused read at
+                # takeover start revoked it. Read again, as owner upkeep does.
+                if error.code != "cua_refused" or attempt == OWNER_READ_RETRIES - 1:
+                    raise
+                print(f"cua_owner_read_retry: {attempt + 1} cause={error.__cause__!r}"[:400])
+                time.sleep(0.5)
         return {
             "status": "accepted",
             "pid": self.pid,
