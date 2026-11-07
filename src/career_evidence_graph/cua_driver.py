@@ -1403,16 +1403,18 @@ class NativeCuaSessionClient:
                     },
                     pump=pump,
                     timeout=timeout,
-                    refusal_answers=decision == "deny",
+                    refusal_answers=True,
                 )
             )
         except PortalDataError as error:
-            if decision != "deny" or error.code != "cua_refused":
+            if error.code != "cua_refused":
                 raise
             # The installed driver answers a denied call with its typed refusal
             # (2026-11-05: a declined CV ended the whole takeover as an unknown
-            # result). The session is intact: the call ends refused, read the status.
-            print(f"native_deny_refused: {error.__cause__}"[:200], flush=True)
+            # result), and an allow that arrives after its fixed admission hold
+            # (2026-11-07, Harmattan: a 13 s CV admission). The session is intact:
+            # the call ends refused, so read the status.
+            print(f"native_admit_refused: {decision} {error.__cause__}"[:200], flush=True)
             budget = self._control_timeout(timeout)
             remaining = budget - (time.monotonic() - started)
             if remaining <= 0:
