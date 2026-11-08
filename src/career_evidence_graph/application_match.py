@@ -2244,14 +2244,29 @@ class Analysis:
             raise PortalDataError("flow_analysis_mismatch", "分析报告与本次请求输入不符。", 409)
 
     def _recovery_directory(self, resume_from, candidates):
-        if resume_from is not None:
+        seen = set()
+        while resume_from is not None:
             directory = self._directory(resume_from)
-            if not (directory / "analysis-progress.json").is_file():
-                if self.analyzer is not None and self._adapter_rejection(resume_from) is not None:
-                    return directory
+            if (directory / "analysis-progress.json").is_file():
+                self._checkpoint(resume_from)
+                return directory
+            if self.analyzer is not None and self._adapter_rejection(resume_from) is not None:
+                return directory
+            request = self._request(resume_from)
+            if (
+                resume_from in seen
+                or request is None
+                or directory.is_symlink()
+                or directory.exists()
+                and any(directory.iterdir())
+            ):
                 raise PortalDataError("match_resume_invalid", "原分析接续记录不能核验。", 409)
-            self._checkpoint(resume_from)
-            return directory
+            # An attempt refused before it wrote anything hides no call; resume what it
+            # was resuming (2026-11-08: Keyrock's retry resumed such an empty attempt).
+            seen.add(resume_from)
+            resume_from = (request.get("binding") or {}).get("resume_from")
+            if resume_from is None:
+                return None
         for attempt_id in candidates:
             directory = self._directory(attempt_id)
             if (directory / "analysis-progress.json").exists():

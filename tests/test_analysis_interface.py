@@ -1171,3 +1171,25 @@ def test_an_evaluation_refused_before_its_prompt_is_a_known_failure(tmp_path, sa
     assert checked["status"] == status
     if status == "failed":
         assert checked["error_code"] == "retrieval_execution_incomplete"
+
+
+def test_an_empty_refused_attempt_resumes_what_it_was_resuming(tmp_path, monkeypatch):
+    """2026-11-08, Keyrock: a retry refused before writing anything left an empty
+    attempt; the next retry resumed it and was refused again, forever."""
+    root = tmp_path / "analyses"
+    analysis = Analysis(root)
+    first, empty, newer = "a" * 32, "b" * 32, "c" * 32
+    (root / first).mkdir(parents=True)
+    (root / first / "analysis-progress.json").write_text("{}")
+    (root / empty).mkdir()
+    requests = {empty: {"binding": {"resume_from": first}}, newer: {"binding": {}}}
+    monkeypatch.setattr(analysis, "_request", lambda attempt_id: requests.get(attempt_id))
+    monkeypatch.setattr(analysis, "_checkpoint", lambda attempt_id: None)
+    assert analysis._recovery_directory(empty, []) == root / first
+    # An empty attempt that resumed nothing starts afresh.
+    (root / newer).mkdir()
+    assert analysis._recovery_directory(newer, []) is None
+    # An attempt that wrote something without a checkpoint stays unverifiable.
+    (root / empty / "partial.json").write_text("{}")
+    with pytest.raises(PortalDataError):
+        analysis._recovery_directory(empty, [])
