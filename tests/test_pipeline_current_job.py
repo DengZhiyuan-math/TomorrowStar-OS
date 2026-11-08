@@ -1,6 +1,7 @@
 """A real intake and WorkerService retain skipped jobs while selecting one current job."""
 
 import base64
+import time
 from copy import deepcopy
 
 import pytest
@@ -1197,3 +1198,58 @@ def test_a_skipped_job_the_user_submitted_is_recorded_as_applied(current_pipelin
     if current_id:
         with pytest.raises(PortalDataError):
             pipeline.mark_submitted(application_id=current_id, request_id="mark-3")
+
+
+def test_a_confirmation_mail_records_the_computer_use_submission(
+    current_pipeline, monkeypatch, tmp_path
+):
+    """2026-11-08: Keyrock's success page was not read; its confirmation mail is."""
+    from career_evidence_graph import application_computer_use
+
+    pipeline, flow, _intake, worker = current_pipeline
+    searches = []
+
+    def confirmations(company, since):
+        searches.append(company)
+        return [
+            {
+                "from": f"{company} <no-reply@example.invalid>",
+                "subject": f"Thank you for applying to {company}",
+                "body_text": "",
+            }
+        ]
+
+    pipeline.computer_use = {
+        "executable": "/bin/codex",
+        "root": tmp_path / "cu",
+        "confirmations": confirmations,
+    }
+    monkeypatch.setattr(
+        application_computer_use,
+        "run_fill",
+        lambda *a, **k: {
+            "status": "ready_for_review",
+            "summary": "",
+            "filled": [],
+            "unanswered": [],
+        },
+    )
+    monkeypatch.setattr(
+        worker.store, "_native_answer_reference", lambda job: {"confirmed_answers": []}
+    )
+    pipeline.start(request_id="start")
+    first = drive(pipeline, "ready_for_review")
+    for _ in range(200):
+        pipeline._tick()
+        item = next(
+            row
+            for row in pipeline.snapshot()["items"]
+            if row.get("task_id") == first["active_task_id"]
+        )
+        if item["status"] == "completed":
+            break
+        time.sleep(0.01)
+    assert item["status"] == "completed" and item["submitted_by"] == "confirmation_email"
+    assert searches and flow.applications.get_application(item["application_id"])["status"] == (
+        "applied"
+    )

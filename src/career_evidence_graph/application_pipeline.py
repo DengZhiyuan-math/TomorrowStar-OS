@@ -81,6 +81,10 @@ def _mismatch(eligibility):
     return [row["text"] for row in eligibility["conditions"] if row["status"] == "conflict"][:3]
 
 
+# How often a waiting Computer Use job checks for the company's confirmation mail.
+CONFIRMATION_POLL = 300
+
+
 class ApplicationPipeline:
     """A persistent mail queue with one current job and manual final submission."""
 
@@ -99,6 +103,7 @@ class ApplicationPipeline:
         # user's everyday Chrome instead of the isolated Worker browser.
         self.computer_use = computer_use
         self._computer_use_runs = {}
+        self._confirmation_reads = {}
         # Automatic takeover is on but could not be configured at startup (MC-22).
         self.takeover_unavailable_reason = takeover_unavailable_reason
         self.path = Path(flow.root) / "pipeline.json"
@@ -2417,8 +2422,11 @@ class ApplicationPipeline:
                 and state.get("id")
                 and state.get("worker_batch_id")
                 and state["status"] != "continuing_worker"
+                and not state.get("computer_use")
             ):
                 self._observe_submission(state)
+            if self._watch_confirmation(state):
+                return
             if state["control"] != "running":
                 return
             try:
@@ -3223,7 +3231,11 @@ class ApplicationPipeline:
         state.update(
             status="filling",
             control="running",
-            computer_use={"run_id": run_id, "started_at": time.time()},
+            computer_use={
+                "run_id": run_id,
+                "started_at": time.time(),
+                "company": job.get("company", ""),
+            },
             notification=None,
         )
         self._save(state)
@@ -3281,12 +3293,70 @@ class ApplicationPipeline:
             state.update(control="running", status="starting_worker", notification=None)
             self._save(state)
             return self.snapshot()
-        recommendation = state.get("current_recommendation_id")
-        self._leave_current(state, payload["request_id"])
-        item = next(row for row in state["items"] if row.get("recommendation_id") == recommendation)
-        item.update(status="completed", submitted_by="user", submitted_at=time.time())
-        self._save(state)
+        self._record_submission(state, payload["request_id"], "user")
         return self.snapshot()
+
+    def _record_submission(self, state, request_id, by):
+        """Leave the current job as completed and mark its tracker record applied."""
+        recommendation = state.get("current_recommendation_id")
+        self._leave_current(state, request_id)
+        item = next(row for row in state["items"] if row.get("recommendation_id") == recommendation)
+        item.update(status="completed", submitted_by=by, submitted_at=time.time())
+        self._save(state)
+        if item.get("application_id"):
+            record = self.flow.applications.get_application(item["application_id"])
+            if record.get("status") != "applied":
+                self.flow.applications.update_application(
+                    record["id"],
+                    {
+                        "status": "applied",
+                        "next_action": "已提交（确认邮件）。"
+                        if by == "confirmation_email"
+                        else "已由用户提交。",
+                    },
+                    record["revision"],
+                )
+
+    def _watch_confirmation(self, state):
+        """While a Computer Use fill waits for the user's Submit, look for the
+        company's confirmation mail (2026-11-08) and record the submission.
+
+        Returns True when it recorded one this tick.
+        """
+        use = state.get("computer_use") or {}
+        reader = (self.computer_use or {}).get("confirmations")
+        if (
+            not use
+            or reader is None
+            or state["status"] not in {"ready_for_review", "needs_input"}
+            or not use.get("company")
+        ):
+            return False
+        read = self._confirmation_reads.get(use["run_id"])
+        if read is not None and read.get("email") is not None:
+            self._confirmation_reads.pop(use["run_id"], None)
+            self._record_submission(state, "confirmation-" + use["run_id"], "confirmation_email")
+            return True
+        if (read is not None and read["thread"].is_alive()) or time.time() < use.get(
+            "confirmation_poll_at", 0
+        ):
+            return False
+        from .application_computer_use import confirmation_email
+
+        record = {"email": None}
+
+        def work(company=use["company"], since=use["started_at"]):
+            try:
+                record["email"] = confirmation_email(reader(company, since), company)
+            except (OSError, ValueError, TypeError, KeyError, PortalDataError):
+                record["email"] = None
+
+        record["thread"] = threading.Thread(target=work, name="confirmation-mail", daemon=True)
+        self._confirmation_reads[use["run_id"]] = record
+        record["thread"].start()
+        state["computer_use"] = dict(use, confirmation_poll_at=time.time() + CONFIRMATION_POLL)
+        self._save(state)
+        return False
 
     def _observe_submission(self, state):
         current = self.worker.snapshot()

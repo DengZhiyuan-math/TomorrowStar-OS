@@ -110,3 +110,53 @@ def test_the_context_names_the_job_files_and_records():
     assert context["cover_letter_path"] == "/materials/letter.pdf"
     assert context["confirmed_answers"] == reference["confirmed_answers"]
     assert context["career_facts"] == [] and context["cover_letter_text"] == "Dear team"
+
+
+@pytest.mark.parametrize(
+    ("email", "found"),
+    [
+        (
+            {
+                "from": "Keyrock <no-reply@ashbyhq.com>",
+                "subject": "Thank you for applying to Keyrock",
+                "body_text": "We have received your application.",
+            },
+            True,
+        ),
+        ({"from": "x", "subject": "Keyrock", "body_text": "We've received your application"}, True),
+        # Another company's confirmation, or Keyrock news without a confirmation.
+        ({"from": "x", "subject": "Thank you for applying to Mistral", "body_text": ""}, False),
+        ({"from": "x", "subject": "Keyrock newsletter", "body_text": "Market update"}, False),
+    ],
+)
+def test_a_confirmation_mail_names_the_company_and_confirms(email, found):
+    from career_evidence_graph.application_computer_use import confirmation_email
+
+    assert (confirmation_email([email], "Keyrock") is email) is found
+
+
+def test_confirmations_search_one_company_since_the_fill(tmp_path):
+    from career_evidence_graph.application_computer_use import read_confirmations
+    from career_evidence_graph.application_gmail import validate_recommendation_query
+
+    seen = []
+
+    def reader(directory, *, query, max_results):
+        seen.append((query, max_results))
+        return {"status": "readable", "emails": [{"subject": "ok"}]}
+
+    assert read_confirmations("Keyrock", 1794146430.5, tmp_path, reader=reader) == [
+        {"subject": "ok"}
+    ]
+    assert seen == [('after:1794146430 "Keyrock" (application OR applying)', 5)]
+    assert validate_recommendation_query(seen[0][0]) == seen[0][0]
+    assert (
+        read_confirmations(
+            "Keyrock", 1, tmp_path, reader=lambda *_a, **_k: {"status": "unavailable"}
+        )
+        == []
+    )
+    from career_evidence_graph.career_portal_data import PortalDataError
+
+    with pytest.raises(PortalDataError):
+        validate_recommendation_query('after:1 "Keyrock" (application OR applying) OR from:x')

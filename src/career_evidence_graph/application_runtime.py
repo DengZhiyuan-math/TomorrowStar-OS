@@ -732,9 +732,18 @@ def _assemble(
             # The Pipeline registers its preparation permit before its thread starts.
             # 2026-11-08: the live App fills through Codex Computer Use in the user's
             # everyday Chrome; TOMORROWSTAR_ISOLATED_BROWSER=1 keeps the old Worker path.
+            from .application_computer_use import read_confirmations as _read_confirmations
+
             executable = os.environ.get("TOMORROWSTAR_CODEX_EXECUTABLE")
             computer_use = (
-                {"executable": executable, "root": Path(worker_root) / "computer-use"}
+                {
+                    "executable": executable,
+                    "root": Path(worker_root) / "computer-use",
+                    # The company's confirmation mail records a manual Submit.
+                    "confirmations": partial(
+                        _read_confirmations, root=Path(worker_root) / "confirmation-mail"
+                    ),
+                }
                 if worker_live
                 and worker_root is not None
                 and worker_synthetic_browser_root is None

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -75,6 +76,40 @@ left empty with its reason in unanswered.
 CONTEXT:
 {context}
 """
+
+
+_CONFIRMATION = re.compile(
+    r"thank(?:s| you) for (?:applying|your application|your interest)"
+    r"|we(?:'ve| have) received your application"
+    r"|(?:application|cv|résumé|resume) (?:has been |was )?(?:successfully )?"
+    r"(?:received|submitted)",
+    re.IGNORECASE,
+)
+
+
+def confirmation_email(emails, company):
+    """The first mail that names the company and confirms an application, else None."""
+    name = " ".join(str(company).split()).casefold()
+    for email in emails or []:
+        text = " ".join(
+            str(email.get(key) or "")[:20000] for key in ("from", "subject", "body_text")
+        )
+        if name and name in " ".join(text.split()).casefold() and _CONFIRMATION.search(text):
+            return email
+    return None
+
+
+def read_confirmations(company, since, root, *, reader=None):
+    """Up to five Gmail messages naming the company that ask about an application."""
+    from .application_gmail import confirmation_query, read_recommendation_emails
+
+    root = Path(root)
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    directory = root / f"{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}-{uuid4().hex[:8]}"
+    result = (reader or read_recommendation_emails)(
+        directory, query=confirmation_query(company, since), max_results=5
+    )
+    return result["emails"] if result.get("status") == "readable" else []
 
 
 def fill_context(job, reference, cover_letter_text=""):

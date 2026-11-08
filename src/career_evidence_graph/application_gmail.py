@@ -43,12 +43,31 @@ _PROFILE_OVERRIDES = tuple(value for value in _OVERRIDES if ".tools." not in val
 )
 
 
+# 2026-11-08: a company's own confirmation mail after the user's manual Submit.
+_CONFIRMATION_QUERY = re.compile(
+    r'after:[1-9][0-9]{0,11} "[^"\\]{1,80}" \(application OR applying\)'
+)
+
+
+def confirmation_query(company: str, after: float) -> str:
+    """The bounded search for one company's application confirmation since a time."""
+    name = " ".join(re.sub(r'["\\]', " ", str(company)).split())[:80]
+    if not name or int(after) <= 0:
+        raise PortalDataError("gmail_query_invalid", "确认邮件查询须有公司名和起始时间。")
+    return f'after:{int(after)} "{name}" (application OR applying)'
+
+
 class _EvidenceError(ValueError):
     """A content-free reason why connector evidence cannot be adopted."""
 
 
 def validate_recommendation_query(query: str) -> str:
-    """Keep captures in the fixed recommendation senders and an explicit time range."""
+    """Keep captures in the fixed recommendation senders and an explicit time range.
+
+    A company confirmation search (``confirmation_query``) is the one other shape.
+    """
+    if isinstance(query, str) and _CONFIRMATION_QUERY.fullmatch(query):
+        return query
     senders = RECOMMENDATION_QUERY.partition(" ")[2]
     if isinstance(query, str) and query.endswith(f" {senders}"):
         window = query[: -len(senders) - 1]
