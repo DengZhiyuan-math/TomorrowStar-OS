@@ -742,3 +742,16 @@ def test_plain_colon_quote_names_a_captured_double_brace_colon():
     assert _literal_jd_quote("a 3:1 ratio", jd) == "a 3:1 ratio"
     with pytest.raises(PortalDataError):
         _literal_jd_quote("AI Certification Strategy; Analyze our strategy.", jd)
+
+
+def test_a_one_requirement_group_returned_with_or_branches_reads_as_all(
+    tmp_path, application, output
+):
+    """2026-11-08, UBS: a degree group with one requirement came back as "any" with
+    an out-of-range branch on two attempts, and the whole brief was rejected."""
+    nested_output(application, output, texts=["Bachelor's or master's degree"])
+    output["groups"][0]["alternatives"] = [[0, 1]]
+    value = brief(tmp_path, application, output)
+    group = value["groups"][0]
+    assert group["operator"] == "all" and group["alternatives"] is None
+    assert [row["text"] for row in brief_requirements(value)] == ["Bachelor's or master's degree"]
