@@ -1048,6 +1048,51 @@ os._exit(2)
         service.close()
 
 
+@pytest.mark.parametrize(
+    ("attempt", "outcome"), [("complete", "rejected"), ("needs_recheck", "unknown")]
+)
+def test_an_interrupted_analysis_whose_attempt_completed_can_be_resumed(
+    application, tmp_path, attempt, outcome
+):
+    """2026-11-08: finnova's analysis wrote its result as the App closed."""
+    applications, job = application
+    script = """
+import os, sys, threading
+from pathlib import Path
+from career_evidence_graph.application_flow import ApplicationFlowService
+from career_evidence_graph.career_portal_data import ApplicationStore
+applications = ApplicationStore(Path(sys.argv[1]))
+service = ApplicationFlowService(
+    applications, Path(sys.argv[2]), callbacks={"analysis": lambda task: os._exit(0)}
+)
+task = service.create(sys.argv[3], sys.argv[4])
+service.start(task["id"], task["revision"], "analysis")
+threading.Event().wait(3)
+os._exit(2)
+"""
+    subprocess.run(
+        [sys.executable, "-c", script, str(applications.root), str(tmp_path / "flow"), job["id"]]
+        + [job["revision"]],
+        env=os.environ | {"PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")},
+        capture_output=True,
+        timeout=5,
+        check=True,
+    )
+    service = ApplicationFlowService(applications, tmp_path / "flow", callbacks={})
+
+    class Attempts:
+        def reconcile(self, attempt_id):
+            return {"attempt_id": attempt_id, "status": attempt}
+
+    service.analysis = Attempts()
+    try:
+        task = service.snapshot()["active_task"]
+        assert task["stages"]["analysis"]["error_code"] == "flow_interrupted"
+        assert service.analysis_outcome(task["id"])["status"] == outcome
+    finally:
+        service.close()
+
+
 def test_background_storage_failure_rejects_later_work_instead_of_abandoning_queue(
     application, tmp_path, monkeypatch
 ):

@@ -5009,7 +5009,13 @@ class ApplicationFlowService:
             return False
         try:
             # A recoverable attempt holds a complete saved answer, never an unknown one.
-            return analysis.reconcile(stage["attempt_id"])["status"] in {"failed", "recoverable"}
+            # So does a complete one the App closed before adopting (2026-11-08,
+            # finnova): Continue resumes from it instead of stopping as unknown.
+            return analysis.reconcile(stage["attempt_id"])["status"] in {
+                "failed",
+                "recoverable",
+                "complete",
+            }
         except (PortalDataError, KeyError, TypeError):
             return False
 
