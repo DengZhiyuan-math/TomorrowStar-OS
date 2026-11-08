@@ -54,6 +54,11 @@ def test_a_fill_runs_codex_with_the_users_own_configuration(tmp_path, monkeypatc
     assert "Never click Submit" in prompt and "everyday Google Chrome" in prompt
     # Computer Use is the only route: no shell to script Chrome through osascript.
     assert json.dumps(context) in prompt and "osascript" in prompt
+    # 2026-11-08 (SAEKI): a refused first node_repl call made the fill give up.
+    assert "runs through the node_repl tool" in prompt and "instead of stopping" in prompt
+    # 2026-11-08: a pre-opened page and short paths; no deliberate human pace.
+    assert "page_opened" in prompt and "~/Apply/Name_CV.pdf" in prompt
+    assert "human pace" not in prompt
     disabled = {process.argv[i + 1] for i, arg in enumerate(process.argv) if arg == "--disable"}
     assert disabled == {"shell_tool", "unified_exec"}
     assert json.loads((tmp_path / report["run"].split("/")[-1] / "report-schema.json").read_text())
@@ -160,3 +165,53 @@ def test_confirmations_search_one_company_since_the_fill(tmp_path):
 
     with pytest.raises(PortalDataError):
         validate_recommendation_query('after:1 "Keyrock" (application OR applying) OR from:x')
+
+
+def test_files_are_staged_under_short_clear_names(tmp_path):
+    from career_evidence_graph.application_computer_use import stage_files
+
+    resume, letter = tmp_path / "resume.pdf", tmp_path / "letter.pdf"
+    resume.write_bytes(b"cv")
+    letter.write_bytes(b"letter")
+    folder = tmp_path / "Apply"
+    folder.mkdir()
+    (folder / "Old_Name_CV.pdf").write_bytes(b"previous job")
+    (folder / "notes.txt").write_text("the user's own file")
+    context = {
+        "resume_path": str(resume),
+        "cover_letter_path": str(letter),
+        "confirmed_answers": [{"question": "Full name", "value": "Zhiyuan Deng"}],
+    }
+    staged = stage_files(context, folder)
+    assert sorted(path.name for path in folder.iterdir()) == [
+        "Zhiyuan_Deng_CV.pdf",
+        "Zhiyuan_Deng_Cover_Letter.pdf",
+        "notes.txt",
+    ]
+    assert staged["resume_path"] == str(folder / "Zhiyuan_Deng_CV.pdf")
+    assert (folder / "Zhiyuan_Deng_Cover_Letter.pdf").read_bytes() == b"letter"
+    assert context["resume_path"] == str(resume)
+
+
+def test_a_staged_file_under_home_is_given_as_a_tilde_path(tmp_path, monkeypatch):
+    from career_evidence_graph.application_computer_use import stage_files
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / "r.pdf").write_bytes(b"cv")
+    staged = stage_files(
+        {"resume_path": str(tmp_path / "r.pdf"), "confirmed_answers": []}, tmp_path / "Apply"
+    )
+    assert staged["resume_path"] == "~/Apply/CV.pdf"
+
+
+def test_the_job_page_opens_in_chrome():
+    from types import SimpleNamespace
+
+    from career_evidence_graph.application_computer_use import open_job_page
+
+    calls = []
+    assert open_job_page(
+        "https://jobs.example.invalid/1",
+        run=lambda argv, **_: calls.append(argv) or SimpleNamespace(returncode=0),
+    )
+    assert calls == [["open", "-a", "Google Chrome", "https://jobs.example.invalid/1"]]

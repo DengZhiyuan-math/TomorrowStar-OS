@@ -3,6 +3,7 @@
 import base64
 import time
 from copy import deepcopy
+from pathlib import Path
 
 import pytest
 from test_application_intake import message, page
@@ -1163,6 +1164,97 @@ def test_computer_use_fills_in_chrome_and_the_users_submit_moves_on(
     done = next(row for row in after["items"] if row.get("task_id") == first["active_task_id"])
     assert done["status"] == "completed" and done["submitted_by"] == "user"
     assert after["active_task_id"] != first["active_task_id"] and "computer_use" not in after
+
+
+def test_a_computer_use_fill_gets_the_tasks_ready_cover_letter(
+    current_pipeline, monkeypatch, tmp_path
+):
+    """2026-11-08 (SAEKI): a required cover letter upload stayed empty, because only
+    the page-driven Worker attached letters to a job."""
+    from career_evidence_graph import (
+        application_computer_use,
+        application_cover_letter,
+        application_materials,
+    )
+
+    pipeline, flow, _intake, worker = current_pipeline
+    pipeline.computer_use = {"executable": "/bin/codex", "root": tmp_path / "cu"}
+    worker.store.root = tmp_path / "worker"
+    original = flow.task_snapshot
+    flow.task_snapshot = lambda identifier: (
+        original(identifier) | {"cover_letter": {"status": "ready", "result": {"id": "letter-1"}}}
+    )
+    content = {"paragraphs": [{"text": "First."}, {"text": "Second."}]}
+    built = []
+    monkeypatch.setattr(
+        application_cover_letter, "read_letter_material", lambda result, **_: content
+    )
+    monkeypatch.setattr(application_materials, "read_cover_letter_template", lambda *_: {})
+
+    def export(directory, letter, template, **_):
+        built.append(directory)
+        return {"file_path": str(directory / "letter.pdf")}
+
+    monkeypatch.setattr(application_cover_letter, "export_cover_letter_pdf", export)
+    contexts = []
+
+    def fill(executable, context, root, **options):
+        contexts.append(context)
+        return {"status": "ready_for_review", "summary": "", "filled": [], "unanswered": []}
+
+    monkeypatch.setattr(application_computer_use, "run_fill", fill)
+    monkeypatch.setattr(
+        worker.store, "_native_answer_reference", lambda job: {"confirmed_answers": []}
+    )
+    pipeline.start(request_id="start")
+    drive(pipeline, "ready_for_review")
+    (context,) = contexts
+    assert built == [tmp_path / "worker" / "materials" / "computer-use-letter-1"]
+    assert context["cover_letter_path"] == str(built[0] / "letter.pdf")
+    assert context["cover_letter_text"] == "First.\n\nSecond."
+
+
+def test_a_fill_opens_the_page_once_and_uses_short_file_paths(
+    current_pipeline, monkeypatch, tmp_path
+):
+    """2026-11-08: typing a long URL and file paths took most of each fill."""
+    from career_evidence_graph import application_computer_use
+
+    pipeline, _flow, _intake, worker = current_pipeline
+    opened = []
+    pipeline.computer_use = {
+        "executable": "/bin/codex",
+        "root": tmp_path / "cu",
+        "apply_folder": tmp_path / "Apply",
+        "open_page": lambda url: opened.append(url) or True,
+    }
+    contexts = []
+
+    def fill(executable, context, root, **options):
+        contexts.append(context)
+        return {"status": "needs_user", "summary": "", "filled": [], "unanswered": ["x"]}
+
+    monkeypatch.setattr(application_computer_use, "run_fill", fill)
+    monkeypatch.setattr(
+        worker.store,
+        "_native_answer_reference",
+        lambda job: {"confirmed_answers": [{"question": "Full name", "value": "A B"}]},
+    )
+    original_fill_context = application_computer_use.fill_context
+
+    def with_file(job, reference, text=""):
+        Path(job["file_path"]).parent.mkdir(parents=True, exist_ok=True)
+        Path(job["file_path"]).write_bytes(b"cv")
+        return original_fill_context(job, reference, text)
+
+    monkeypatch.setattr(application_computer_use, "fill_context", with_file)
+    pipeline.start(request_id="start")
+    drive(pipeline, "needs_input")
+    pipeline.continue_current(request_id="retry")
+    drive(pipeline, "needs_input")
+    assert len(contexts) == 2 and len(opened) == 1
+    assert [context["page_opened"] for context in contexts] == [True, False]
+    assert contexts[0]["resume_path"] == str(tmp_path / "Apply" / "A_B_CV.pdf")
 
 
 def test_a_skipped_job_the_user_submitted_is_recorded_as_applied(current_pipeline):

@@ -3221,9 +3221,47 @@ class ApplicationPipeline:
             application["id"], {"target_company": "target"}, application["revision"]
         )
 
+    def _computer_use_letter(self, task, job, text):
+        """The task's ready cover letter for a Computer Use fill, built as one PDF.
+
+        2026-11-08 (SAEKI): a required letter upload stayed empty; only the page-driven
+        Worker attached letters. A failed build still hands over the text.
+        """
+        from .application_cover_letter import (
+            cover_letter_pdf_inspector,
+            export_cover_letter_pdf,
+            read_letter_material,
+        )
+        from .application_materials import read_cover_letter_template
+
+        result = (task.get("cover_letter") or {}).get("result") or {}
+        if (task.get("cover_letter") or {}).get("status") != "ready" or not result.get("id"):
+            return job, text
+        store = self.worker.store
+        try:
+            content = read_letter_material(result, application_id=task["application_id"])
+        except (ValueError, KeyError, TypeError, PortalDataError):
+            return job, text
+        text = text or "\n\n".join(row["text"] for row in content["paragraphs"])
+        try:
+            built = export_cover_letter_pdf(
+                Path(store.root) / "materials" / f"computer-use-{result['id']}",
+                content,
+                read_cover_letter_template(
+                    store, self.flow.applications.get_application(task["application_id"])
+                ),
+                client=getattr(store, "cover_letter_client", None),
+                pdf_inspector=cover_letter_pdf_inspector(store),
+            )
+        except (PortalDataError, OSError, ValueError) as error:
+            print(f"computer_use_letter_pdf_failed: {getattr(error, 'code', error)}", flush=True)
+            return job, text
+        material = {"kind": "cover_letter", "file_path": built["file_path"]}
+        return job | {"materials": [*(job.get("materials") or []), material]}, text
+
     def _start_computer_use(self, state):
         """Fill the current job in the user's everyday Chrome through Codex Computer Use."""
-        from .application_computer_use import fill_context, run_fill
+        from .application_computer_use import fill_context, run_fill, stage_files
 
         task = self._task(state)
         store = self.worker.store
@@ -3252,7 +3290,33 @@ class ApplicationPipeline:
             for paragraph in (letter.get("letter_content") or {}).get("paragraphs", [])
             if isinstance(paragraph.get("text"), str)
         )
+        if not letter:
+            job, text = self._computer_use_letter(task, job, text)
         context = fill_context(job, store._native_answer_reference(job), text)
+        if self.computer_use.get("apply_folder"):
+            try:
+                context = stage_files(context, self.computer_use["apply_folder"])
+            except OSError as error:
+                self._stop(
+                    state, "needs_recheck", f"未能把材料复制到 ~/Apply：{type(error).__name__}"
+                )
+                return
+        # The page opens once per job (2026-11-08: finding it took the agent long);
+        # a retry continues in the tab already open.
+        item = next(
+            (
+                row
+                for row in state["items"]
+                if row.get("recommendation_id") == state.get("current_recommendation_id")
+            ),
+            {},
+        )
+        open_page = self.computer_use.get("open_page")
+        opened = bool(
+            open_page and not item.get("computer_use_page_opened") and open_page(context["job_url"])
+        )
+        item["computer_use_page_opened"] = True
+        context["page_opened"] = opened
         run_id = uuid4().hex
         record = {"process": None, "report": None}
         self._computer_use_runs[run_id] = record
