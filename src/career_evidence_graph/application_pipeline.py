@@ -85,6 +85,16 @@ def _mismatch(eligibility):
 CONFIRMATION_POLL = 300
 
 
+def same_company(listed, company) -> bool:
+    """A listed name matches a company that begins with its words ("Mistral AI")."""
+
+    def words(text):
+        return re.findall(r"[0-9a-z]+", str(text).casefold())
+
+    name, actual = words(listed), words(company)
+    return bool(name) and actual[: len(name)] == name
+
+
 class ApplicationPipeline:
     """A persistent mail queue with one current job and manual final submission."""
 
@@ -2868,7 +2878,9 @@ class ApplicationPipeline:
             state.update(active_task_id=item["task_id"], status="generating_resume")
             self._save(state)
             return
-        application = self.flow.applications.get_application(item["application_id"])
+        application = self._mark_target_company(
+            self.flow.applications.get_application(item["application_id"])
+        )
         if item["task_id"] is None and not item.get("posting_checked"):
             item["posting_checked"] = True
             application = self._check_posting(state, item, application)
@@ -3176,6 +3188,21 @@ class ApplicationPipeline:
         # The new run registers after this call; its first observation records its ID.
         state.update(status="filling", worker_runtime_id=None, last_heartbeat=0)
         self._save(state)
+
+    def _mark_target_company(self, application):
+        """Mark a job of a listed target company (2026-11-08: Mistral) on its record."""
+        path = Path(self.flow.root) / "target-companies.json"
+        try:
+            listed = json.loads(path.read_text(encoding="utf-8")).get("companies", [])
+        except (OSError, ValueError, AttributeError):
+            return application
+        if application.get("target_company") == "target" or not any(
+            same_company(name, application.get("company", "")) for name in listed
+        ):
+            return application
+        return self.flow.applications.update_application(
+            application["id"], {"target_company": "target"}, application["revision"]
+        )
 
     def _start_computer_use(self, state):
         """Fill the current job in the user's everyday Chrome through Codex Computer Use."""

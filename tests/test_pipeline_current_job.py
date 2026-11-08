@@ -1253,3 +1253,32 @@ def test_a_confirmation_mail_records_the_computer_use_submission(
     assert searches and flow.applications.get_application(item["application_id"])["status"] == (
         "applied"
     )
+
+
+@pytest.mark.parametrize(
+    ("listed", "company", "same"),
+    [
+        ("Mistral", "Mistral", True),
+        ("Mistral", "Mistral AI", True),
+        ("mistral", "MISTRAL", True),
+        ("Mistral", "Mistralytics", False),
+        ("Mistral AI", "Mistral", False),
+        ("", "Mistral", False),
+    ],
+)
+def test_a_listed_target_company_matches_its_leading_words(listed, company, same):
+    from career_evidence_graph.application_pipeline import same_company
+
+    assert same_company(listed, company) is same
+
+
+def test_a_listed_target_company_marks_the_job_record(current_pipeline):
+    """2026-11-08: the user named Mistral a target company for all its jobs."""
+    import json
+
+    pipeline, flow, _intake, _worker = current_pipeline
+    (flow.root / "target-companies.json").write_text(json.dumps({"companies": ["Synthetic"]}))
+    pipeline.start(request_id="start")
+    current = drive(pipeline, "filling")
+    item = next(row for row in current["items"] if row.get("task_id") == current["active_task_id"])
+    assert flow.applications.get_application(item["application_id"])["target_company"] == "target"
