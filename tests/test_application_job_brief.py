@@ -755,3 +755,15 @@ def test_a_one_requirement_group_returned_with_or_branches_reads_as_all(
     group = value["groups"][0]
     assert group["operator"] == "all" and group["alternatives"] is None
     assert [row["text"] for row in brief_requirements(value)] == ["Bachelor's or master's degree"]
+
+
+def test_the_prompt_splits_each_required_language_level(tmp_path, application, output):
+    """2026-11-08: finnova's "Deutsch (C1) und Englisch (B2)" stayed one requirement,
+    judged partial with German A2, and passed the eligibility gate."""
+    calls = []
+    create_job_brief(
+        application, tmp_path / "brief", runner=runner_for(output, calls), environment={}
+    )
+    prompt = calls[0][1]
+    assert "each required language level is its own requirement" in prompt
+    assert "German C1 and English B2 are two" in prompt
