@@ -485,8 +485,11 @@ def _validate_native_answers(answers):
             raise ValueError("Unconfirmed native answers cannot disclose values")
 
 
-def validate_assistance_delivery(value, expected_ref):
-    """Validate an already-built JSON handoff before a transport emits it."""
+def validate_assistance_delivery(value, expected_ref, *, materials_only=False):
+    """Validate an already-built JSON handoff before a transport emits it.
+
+    A materials-only projection is never emitted; it carries no answers.
+    """
     native = (
         isinstance(expected_ref, dict) and expected_ref.get("protocol") == CODEX_NATIVE_ASSISTANCE
     )
@@ -529,7 +532,7 @@ def validate_assistance_delivery(value, expected_ref):
         )
     ):
         raise ValueError("Invalid JSON assistance progress")
-    if native:
+    if native and not (materials_only and "answers" not in value):
         _validate_native_answers(value.get("answers"))
     context = value["page_context"]
     if isinstance(context, dict) and context.get("status") == "unavailable":
@@ -2952,7 +2955,9 @@ class WorkerStore:
         try:
             entries = [
                 entry
-                for entry in self.assistance_delivery(expected_ref)["materials"]
+                for entry in self.assistance_delivery(expected_ref, materials_only=True)[
+                    "materials"
+                ]
                 if entry.get("material_ref") == call.get("material_ref")
             ]
         except (PortalDataError, OSError, ValueError, TypeError, KeyError):
@@ -3216,7 +3221,9 @@ class WorkerStore:
                         raise ValueError("Material destination changed")
                     entries = [
                         entry
-                        for entry in self.assistance_delivery(expected_ref)["materials"]
+                        for entry in self.assistance_delivery(
+                            expected_ref, materials_only=True
+                        )["materials"]
                         if entry.get("material_ref") == candidate["material_ref"]
                     ]
                     if (
@@ -3601,8 +3608,13 @@ class WorkerStore:
             )
         return {"confirmed_answers": answers, "career_facts": career}
 
-    def assistance_delivery(self, expected_ref, *, page_context=None):
-        """Project JSON context from the original records; never observe, save or dispatch."""
+    def assistance_delivery(self, expected_ref, *, page_context=None, materials_only=False):
+        """Project JSON context from the original records; never observe, save or dispatch.
+
+        ``materials_only`` skips the answers projection, for a caller that reads only
+        materials (2026-11-08: a CV admission spent 7-9 s rebuilding answers and missed
+        the driver's 15 s host-admission window every time).
+        """
         with self.applications.write_lock():
             state = self.load()
             binding = expected_ref.get("binding") if isinstance(expected_ref, dict) else None
@@ -3889,10 +3901,12 @@ class WorkerStore:
                     "field_id": (blocker["field_hint"] or {}).get("id"),
                 },
             }
-            if expected_ref.get("protocol") == CODEX_NATIVE_ASSISTANCE:
+            if expected_ref.get("protocol") == CODEX_NATIVE_ASSISTANCE and not materials_only:
                 delivery["answers"] = self._native_assistance_answers(job, context)
             try:
-                validate_assistance_delivery(delivery, expected_ref)
+                validate_assistance_delivery(
+                    delivery, expected_ref, materials_only=materials_only
+                )
             except ValueError as error:
                 # The private worker log keeps which check refused; the job keeps the code.
                 print(

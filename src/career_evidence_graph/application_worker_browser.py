@@ -3277,9 +3277,9 @@ class ApplicationRunner:
             # lock (2026-11-05: Harmattan's CV admission waited on it twice).
             entries = [
                 row
-                for row in self.store.assistance_delivery(reference, page_context=context)[
-                    "materials"
-                ]
+                for row in self.store.assistance_delivery(
+                    reference, page_context=context, materials_only=True
+                )["materials"]
                 if row.get("material_ref") == call["material_ref"]
             ]
             if len(entries) == 1 and entries[0].get("kind") == "cover_letter":
