@@ -95,7 +95,11 @@ def _same_upstream_binding(saved, binding):
     ):
         # A pending follow-up repair reuses accepted evaluations only after its
         # recorded planner failure is re-validated.
-        return upstream_same and configuration_same and _known_invalid_followup(saved)
+        return (
+            upstream_same
+            and configuration_same
+            and (_known_invalid_followup(saved) or _recorded_failed_followup(saved))
+        )
     if upstream_same and configuration_same:
         return True
     known_invalid_evaluation = saved.get("phase") == "evaluation" and saved.get(
@@ -118,6 +122,33 @@ def _same_upstream_binding(saved, binding):
         {k: v for k, v in previous["configuration"].items() if k != "context_limits"},
         {k: v for k, v in binding["configuration"].items() if k != "context_limits"},
     )
+
+
+def _recorded_failed_followup(saved):
+    """The pending follow-up planner call ended in a failure this App recorded.
+
+    2026-11-08, Keyrock: a follow-up page timed out; after an App rebuild only
+    provenance differed, yet resumption required a validation-failure marker.
+    """
+    if not (
+        saved.get("phase") == "planning"
+        and saved.get("planner_kind") == "followup"
+        and saved.get("planner_pending") is True
+        and isinstance(saved.get("planner_origin"), str)
+    ):
+        return False
+    pages = sorted(Path(saved["planner_origin"]).glob("page-*"))
+    if not pages:
+        return False
+    try:
+        result = _read_saved(pages[-1] / "result.json")
+    except (PortalDataError, helper.StoreError):
+        return False
+    return result.get("status") == "failed" and result.get("error_type") in {
+        "CodexCLIError",
+        "TimeoutExpired",
+        "OSError",
+    }
 
 
 def _known_invalid_followup(saved):
