@@ -1910,6 +1910,16 @@ class Analysis:
         if not isinstance(checkpoint.get("evaluation_origin"), str):
             raise PortalDataError("match_resume_invalid", "原分析评估引用不能核验。", 409)
         origin = self._safe(Path(checkpoint["evaluation_origin"]))
+        if not any(
+            (origin / name).exists() or (origin / name).is_symlink()
+            for name in ("context-input.json", "match-schema.json", "model-result.json")
+        ):
+            # The prompt is saved before any call; without it the evaluation was
+            # refused before dispatch (2026-11-08: UBS's context-size refusal).
+            return progress | {
+                "status": "failed",
+                "error_code": checkpoint["evaluation_error"],
+            }
         if not (origin / "model-result.json").exists():
             return progress | {
                 "status": "needs_recheck",

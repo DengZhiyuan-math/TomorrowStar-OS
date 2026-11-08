@@ -1146,3 +1146,28 @@ def test_real_paused_pipeline_manual_refresh_has_only_a_bound_revocable_permissi
             flow.analysis_call_allowed(ready, refresh=(payload["request_id"], digest(intent)))
             is False
         )
+
+
+@pytest.mark.parametrize(
+    ("saved", "status"),
+    [
+        # 2026-11-08, UBS: a context-size refusal raised before the prompt was saved.
+        ((), "failed"),
+        # Once the prompt is saved, a call may have gone out: its result stays unknown.
+        (("context-input.json",), "needs_recheck"),
+        (("match-schema.json",), "needs_recheck"),
+    ],
+)
+def test_an_evaluation_refused_before_its_prompt_is_a_known_failure(tmp_path, saved, status):
+    root = tmp_path / "analyses"
+    origin = root / ("a" * 32) / "evaluation-1"
+    origin.mkdir(parents=True)
+    for name in saved:
+        (origin / name).write_text("{}")
+    checked = Analysis(root)._saved_evaluation_progress(
+        {"status": "needs_recheck"},
+        {"evaluation_origin": str(origin), "evaluation_error": "retrieval_execution_incomplete"},
+    )
+    assert checked["status"] == status
+    if status == "failed":
+        assert checked["error_code"] == "retrieval_execution_incomplete"
