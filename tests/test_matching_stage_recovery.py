@@ -474,3 +474,46 @@ def test_reading_retry_then_durable_evaluation_interrupt_adopts_without_more_pro
     assert second_files == {
         path.relative_to(second): path.read_bytes() for path in second.rglob("*") if path.is_file()
     }
+
+
+def test_an_evaluation_refused_on_size_before_its_prompt_is_retried(
+    canonical, tmp_path, monkeypatch
+):
+    """2026-11-08, UBS: the context-size check refused the evaluation before its
+    prompt was saved; the retry must evaluate, not wait on an unknown call."""
+    from career_evidence_graph import application_match
+
+    library, _, _, base, *_ = canonical
+    snapshot = thin(canonical)
+    initial = RecordedPipeline([requirement("Interdisciplinary research")])
+
+    def refuse(*_args, **_kwargs):
+        raise PortalDataError("retrieval_execution_incomplete", "too large", 409)
+
+    real = application_match._prompt_context
+    monkeypatch.setattr(application_match, "_prompt_context", refuse)
+    refused = tmp_path / "refused"
+    with pytest.raises(PortalDataError) as error:
+        analyze_job(
+            APPLICATION,
+            snapshot,
+            refused,
+            runner=initial,
+            source_loader=lambda ids: library.snapshot_for_analysis(base, ids),
+            information_library={"status": "unconfigured"},
+        )
+    assert error.value.code == "retrieval_execution_incomplete"
+    monkeypatch.setattr(application_match, "_prompt_context", real)
+    retry = RecordedPipeline(initial.requirements)
+    result = analyze_job(
+        APPLICATION,
+        snapshot,
+        tmp_path / "retry",
+        runner=retry,
+        source_loader=lambda ids: library.snapshot_for_analysis(base, ids),
+        information_library={"status": "unconfigured"},
+        resume_from=refused,
+    )
+    assert retry.brief_calls == [] and retry.read_calls == []
+    assert retry.phases == ["evaluate"]
+    assert result["job_brief"]["groups"][0]["label"] == "Interdisciplinary research"

@@ -247,10 +247,15 @@ def _resume_evaluation(
                     },
                 )
             return report
-    else:
+    elif any(
+        (original / name).exists() or (original / name).is_symlink()
+        for name in ("context-input.json", "match-schema.json")
+    ):
         raise PortalDataError(
             "match_result_needs_recheck", "原评估调用结果未明，请先核对，未重复模型请求。", 409
         )
+    # No prompt was saved, so no evaluation call went out (2026-11-08: UBS's
+    # context-size refusal); a new call is the first one.
     on_dispatch()
     return _analyze_loaded_job(application, evaluation, destination, runner=runner)
 
