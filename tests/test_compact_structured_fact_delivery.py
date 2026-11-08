@@ -152,7 +152,7 @@ def test_batched_canonical_selection_shares_context_and_keeps_exact_fact_semanti
 def test_context_limits_defaults_and_explicit_budget_bind_match_configuration():
     from career_evidence_graph.application_match import context_limits, match_configuration
 
-    assert context_limits({}) == {"match_context_bytes": 256_000, "material_context_bytes": 200_000}
+    assert context_limits({}) == {"match_context_bytes": 384_000, "material_context_bytes": 200_000}
     environment = {
         "TOMORROWSTAR_MATCH_CONTEXT_BYTES": "384000",
         "TOMORROWSTAR_MATERIAL_CONTEXT_BYTES": "300000",

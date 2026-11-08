@@ -13,7 +13,9 @@ from .career_portal_data import PortalDataError
 
 # One matching call reads the whole grouped library when it fits (2026-10-30: about
 # 160 KB of the 200 KB library budget; a 245 KB prompt answered in 31 seconds).
-MAX_MATCH_CONTEXT_BYTES = 256_000
+# 2026-11-08: UBS's 348 sources built a 220 KB prompt, but the per-row estimate
+# refused them under 256 KB; the grown library needs headroom.
+MAX_MATCH_CONTEXT_BYTES = 384_000
 MAX_MATERIAL_CONTEXT_BYTES = 200_000
 
 

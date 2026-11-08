@@ -30,10 +30,10 @@ def test_shared_budget_is_used_by_match_reading_and_presentation_quotes(monkeypa
     from career_evidence_graph.career_portal_data import PortalDataError
 
     assert matching.context_limits is reading.context_limits is limits.context_limits
-    assert matching.MAX_PROMPT_BYTES == limits.MAX_MATCH_CONTEXT_BYTES == 256_000
+    assert matching.MAX_PROMPT_BYTES == limits.MAX_MATCH_CONTEXT_BYTES == 384_000
     assert reading.MAX_MATERIAL_BYTES == limits.MAX_MATERIAL_CONTEXT_BYTES == 200_000
     assert limits.context_limits({}) == {
-        "match_context_bytes": 256_000,
+        "match_context_bytes": 384_000,
         "material_context_bytes": 200_000,
     }
     text = r"\textbf{Confirmed} source body. " + "context " * 100
@@ -182,7 +182,7 @@ import sys
 sys.path.insert(0, sys.argv[1])
 from career_evidence_graph.application_input_limits import context_limits
 from career_evidence_graph.application_material_sources import model_source
-assert context_limits({})["match_context_bytes"] == 256000
+assert context_limits({})["match_context_bytes"] == 384000
 assert model_source({"source_id": "one", "text": "Known fact."}) == {
     "source_id": "one", "text": "Known fact."
 }
