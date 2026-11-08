@@ -12,7 +12,7 @@ from test_worker_backend_recovery import backend as backend
 from career_evidence_graph.application_intake import ApplicationIntakeService
 from career_evidence_graph.application_pipeline import ApplicationPipeline
 from career_evidence_graph.application_worker import WorkerService
-from career_evidence_graph.career_portal_data import ApplicationStore
+from career_evidence_graph.career_portal_data import ApplicationStore, PortalDataError
 
 
 @pytest.fixture
@@ -1162,3 +1162,38 @@ def test_computer_use_fills_in_chrome_and_the_users_submit_moves_on(
     done = next(row for row in after["items"] if row.get("task_id") == first["active_task_id"])
     assert done["status"] == "completed" and done["submitted_by"] == "user"
     assert after["active_task_id"] != first["active_task_id"] and "computer_use" not in after
+
+
+def test_a_skipped_job_the_user_submitted_is_recorded_as_applied(current_pipeline):
+    """2026-11-08: Harmattan and Overstory were submitted by hand after the queue
+    had left them, yet stayed listed as skipped with their old stop reason."""
+    pipeline, flow, _intake, _worker = current_pipeline
+    pipeline.start(request_id="start")
+    first = drive(pipeline, "filling")
+    pipeline.skip_current(request_id="skip-first")
+    application_id = next(
+        row["application_id"]
+        for row in pipeline.snapshot()["items"]
+        if row.get("task_id") == first["active_task_id"]
+    )
+    after = pipeline.mark_submitted(application_id=application_id, request_id="mark-1")
+    item = next(row for row in after["items"] if row.get("application_id") == application_id)
+    assert item["status"] == "completed" and item["submitted_by"] == "user"
+    assert flow.applications.get_application(application_id)["status"] == "applied"
+    # Repeating it changes nothing; the current job cannot be marked this way.
+    assert (
+        pipeline.mark_submitted(application_id=application_id, request_id="mark-2")["items"]
+        == after["items"]
+    )
+    current = pipeline.snapshot()
+    current_id = next(
+        (
+            row.get("application_id")
+            for row in current["items"]
+            if row.get("recommendation_id") == current.get("current_recommendation_id")
+        ),
+        None,
+    )
+    if current_id:
+        with pytest.raises(PortalDataError):
+            pipeline.mark_submitted(application_id=current_id, request_id="mark-3")

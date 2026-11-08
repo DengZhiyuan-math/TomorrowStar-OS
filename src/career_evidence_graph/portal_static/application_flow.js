@@ -363,6 +363,7 @@
       const [badge, tone, reason] = current ? ["当前岗位", "reviewed", ""]
         : item.status === "analysis_failed" ? ["分析未通过", "rejected", "分析结果未通过校验，已保留记录"]
         : item.reason === "flow_eligibility_required" ? ["岗位不匹配", "rejected", item.mismatch?.length ? `不满足：${item.mismatch.join("；")}` : "JD 的硬性条件与信息库不符"]
+        : item.status === "completed" && item.submitted_by === "user" ? ["已提交", "applied", ""]
         : item.status !== "skipped" ? ["已处理", "applied", ""]
         : item.reason === "posting_closed" ? ["已停招", "withdrawn", "领英显示岗位已停止招聘"]
         : item.reason === "easy_apply_only" ? ["仅领英站内申请", "withdrawn", "只能用领英 Easy Apply，需要时请自己投递"]
@@ -384,7 +385,9 @@
       if (item.status === "skipped") {
         const restore = button("返回此岗位", () => pipelineAction("return", { application_id: item.application_id || item.recommendation_id }, true), "", true);
         restore.dataset.flowStop = "true";
-        row.append(restore);
+        // 2026-11-08: a job submitted by hand after the queue left it.
+        const submitted = button("已提交", () => pipelineAction("mark-submitted", { application_id: item.application_id || item.recommendation_id }), "", true);
+        row.append(restore, submitted);
       } else if (current && pipeline?.active_task_id) {
         row.append(followButton());
       }

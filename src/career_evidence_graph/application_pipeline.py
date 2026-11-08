@@ -564,6 +564,39 @@ class ApplicationPipeline:
         """Restore one skipped job with its original task and page."""
         return self._current("return", {"request_id": request_id, "application_id": application_id})
 
+    def mark_submitted(self, *, application_id, request_id):
+        """The user submitted a skipped job themselves: record it as applied.
+
+        2026-11-08: Harmattan and Overstory were submitted by hand after the queue
+        had left them, yet stayed listed as skipped with their old stop reason.
+        """
+        with self._control() as state:
+            self._request_id(request_id)
+            item = next(
+                (
+                    row
+                    for row in state["items"]
+                    if application_id in {row.get("application_id"), row.get("recommendation_id")}
+                    and row["status"] in {"skipped", "completed"}
+                    and row.get("recommendation_id") != state.get("current_recommendation_id")
+                ),
+                None,
+            )
+            if item is None:
+                raise PortalDataError("pipeline_item_missing", "找不到这条已跳过的岗位。", 409)
+            if item["status"] != "completed":
+                item.update(status="completed", submitted_by="user", submitted_at=time.time())
+                self._save(state)
+            if item.get("application_id"):
+                record = self.flow.applications.get_application(item["application_id"])
+                if record.get("status") != "applied":
+                    self.flow.applications.update_application(
+                        record["id"],
+                        {"status": "applied", "next_action": "已由用户提交。"},
+                        record["revision"],
+                    )
+            return self.snapshot()
+
     def record_submitted(self, *, request_id):
         """The user submitted the Computer Use form in Chrome; record it and move on."""
         return self._current("submitted", {"request_id": request_id})

@@ -76,6 +76,12 @@ _PIPELINE_ROUTES = {
     "return": ("return_to", ({"request_id", "application_id"},), _PIPELINE_CURRENT, 409),
     "observe-result": ("observe_result", ({"request_id"},), _PIPELINE_CURRENT, 409),
     "submitted": ("record_submitted", ({"request_id"},), _PIPELINE_CURRENT, 409),
+    "mark-submitted": (
+        "mark_submitted",
+        ({"request_id", "application_id"},),
+        _PIPELINE_CURRENT,
+        409,
+    ),
     "cancel-current": (
         "cancel_current",
         ({"request_id"}, {"request_id", "task_id", "task_revision"}),
