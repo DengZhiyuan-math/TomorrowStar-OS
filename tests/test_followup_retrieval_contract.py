@@ -217,3 +217,32 @@ def test_followup_repair_reuses_accepted_evaluator_only_with_known_bound_planner
     assert retry.phases == ["followup"]
     assert result["requirements"][0]["judgment"] == "unknown"
     assert before == {p.relative_to(old): p.read_bytes() for p in old.rglob("*") if p.is_file()}
+
+
+def test_a_followup_page_that_never_answers_keeps_the_completed_evaluation(canonical, tmp_path):
+    """2026-11-08: Keyrock's and Mistral's follow-up page never answered, even in
+    360 s, and the whole analysis failed although an evaluation was complete."""
+    from career_evidence_graph.codex_cli import CodexCLIError
+
+    library, _, _, base, *_ = canonical
+    snapshot = thin(canonical)
+    initial = RecordedPipeline([requirement("Scientific collaboration")], select=False)
+
+    def hanging_followup(config, prompt, **kwargs):
+        schema = json.loads(config.output_schema.read_text())
+        if schema.get("title") == "_PageResult":
+            context = json.loads(prompt.split("CONTEXT_JSON\n", 1)[1])
+            if context["unknown_requirement_indexes"] is not None:
+                raise CodexCLIError("Recorded follow-up timeout")
+        return initial(config, prompt, **kwargs)
+
+    result = application_match.analyze_job(
+        APPLICATION,
+        snapshot,
+        tmp_path / "analysis",
+        runner=hanging_followup,
+        source_loader=lambda ids: library.snapshot_for_analysis(base, ids),
+        information_library={"status": "unconfigured"},
+    )
+    assert result["job_brief"]["groups"][0]["label"] == "Scientific collaboration"
+    assert "evaluate" in initial.phases

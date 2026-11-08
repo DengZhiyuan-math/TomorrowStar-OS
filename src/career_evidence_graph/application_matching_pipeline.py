@@ -768,11 +768,20 @@ def analyze_with_retrieval(
         }
         if not candidate_ids - read_candidate_ids:
             break
-        plan = retrieve(
-            "followup",
-            unresolved,
-            career.get("career_library", {}).get("selected_candidate_ids", selected),
-        )
+        try:
+            plan = retrieve(
+                "followup",
+                unresolved,
+                career.get("career_library", {}).get("selected_candidate_ids", selected),
+            )
+        except PortalDataError as error:
+            if error.code != "retrieval_model_failed":
+                raise
+            # A follow-up only seeks more evidence for a completed evaluation. Keyrock
+            # and Mistral (2026-11-08) each had one follow-up page that never answered,
+            # even with 360 s, and the whole analysis failed; keep the last report.
+            checkpoint("evaluated", planner_pending=False, followup_exhausted=True)
+            break
         plans.append(plan)
         checkpoint(
             "evaluated",
