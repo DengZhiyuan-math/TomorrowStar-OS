@@ -471,7 +471,8 @@ def native_click_denial(delivery, calls, call, *, page_reopened=False):
     owner = previous[-1] if previous else {}
     owner_hint = owner.get("field_hint") or {}
     if (
-        owner.get("tool") != "browser_click"
+        # The combobox's own expand click, or (2026-11-08) its typed search text.
+        owner.get("tool") not in {"browser_click", "browser_type"}
         or owner.get("status") != "observed"
         or str(owner_hint.get("role") or "").strip().casefold() != "combobox"
     ):
@@ -4153,8 +4154,13 @@ class ApplicationRunner:
                 # 2026-11-08: a free-text question with no bound confirmed fact is the
                 # agent's to answer from the delivered reference; a bound or recognised
                 # fact (identity, contact) still admits only its confirmed value.
-                free = not values and native_control_free(
-                    delivery, call.get("field_hint") or {}, expected_fact
+                hint = call.get("field_hint") or {}
+                # Text typed into an unbound combobox only searches its options; the
+                # option click that follows carries the answer.
+                free = not values and (
+                    call["tool"] == "browser_type"
+                    and str(hint.get("role") or "").strip().casefold() == "combobox"
+                    or native_control_free(delivery, hint, expected_fact)
                 )
                 if not free and call.get("text_sha256") not in allowed:
                     # A denied write revokes the takeover; the log names the field's fact.
@@ -4963,7 +4969,14 @@ class ApplicationRunner:
             if role(call) == "option" and opened is not None:
                 # An option belongs to the combobox whose observed click precedes it.
                 owners[call["call_id"]] = opened
-            if observed_click and role(call) == "combobox" and opened == name:
+            if (
+                call["tool"] == "browser_type"
+                and call["status"] == "observed"
+                and role(call) == "combobox"
+            ):
+                # 2026-11-08: typing into an editable combobox opens its options too.
+                opened = name
+            elif observed_click and role(call) == "combobox" and opened == name:
                 # r13: a second click right after the same combobox's expand collapses
                 # it; it changes no field value.
                 collapses.add(call["call_id"])

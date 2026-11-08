@@ -595,6 +595,8 @@ def test_native_choice_key_ignores_only_case_whitespace_and_edge_punctuation(opt
             [True, False],
             "submit_like",
         ),
+        # 2026-11-08, Ashby: typed search text opens an unbound combobox's options.
+        ([("typed", "Location"), ("option", "Zurich, Switzerland")], "", False, [True, True], None),
         # 2026-11-07, Ashby: any other named control is the agent's to click.
         ([("button", "No")], "", False, [True], None),
         ([("checkbox", "I agree to the privacy policy")], "", False, [True], None),
@@ -718,6 +720,13 @@ def test_native_click_admits_a_delivered_combobox_and_its_confirmed_option(
                 }
                 if expected:
                     call["expected_target"] = {"value": expected[0]}
+                if role == "typed":
+                    # 2026-11-08: search text typed into an editable combobox.
+                    call.update(
+                        tool="browser_type",
+                        field_hint={"role": "combobox", "name": name},
+                        text_sha256=hashlib.sha256(b"Zur").hexdigest(),
+                    )
                 if role == "refusal":
                     # r7 ledgers the driver's own pre-ledger refusal; it was never sent.
                     call.update(
