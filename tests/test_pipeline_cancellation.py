@@ -376,3 +376,17 @@ def test_redo_needs_a_completed_cancel(cancellable_pipeline, monkeypatch):
     with pytest.raises(PortalDataError) as refused:
         pipeline.redo_current(request_id="redo-partial")
     assert refused.value.code == "pipeline_redo_unavailable"
+
+
+def test_a_pruned_batch_without_a_current_job_has_stopped():
+    """2026-11-08, Mistral: its October batch was gone from history and the current
+    batch had no job for it, so the cancellation stayed partial and redo was refused."""
+    from career_evidence_graph.application_worker import WorkerService
+
+    pruned = {"batch_history": [], "jobs": [{"application_id": "other"}]}
+    progress = WorkerService._archived_cancellation(pruned, "app", "b" * 32, "task")
+    assert progress["status"] == "stopped" and progress["task_id"] == "task"
+    # The application still has a job in the current batch: its binding changed.
+    current = {"batch_history": [], "jobs": [{"application_id": "app"}]}
+    with pytest.raises(PortalDataError):
+        WorkerService._archived_cancellation(current, "app", "b" * 32, "task")

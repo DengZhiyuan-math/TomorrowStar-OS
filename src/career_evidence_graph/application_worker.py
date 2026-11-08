@@ -6427,6 +6427,23 @@ class WorkerService:
             ),
             None,
         )
+        if (
+            job is None
+            and not any(
+                batch.get("batch_id") == batch_id for batch in state.get("batch_history", [])
+            )
+            and not any(row["application_id"] == application_id for row in state["jobs"])
+        ):
+            # 2026-11-08, Mistral: a batch pruned from history, with no job for this
+            # application in the current batch either, has no runtime, run or page
+            # left, so nothing can still execute; its old record cannot be read.
+            return {
+                "application_id": application_id,
+                "batch_id": batch_id,
+                "run_id": None,
+                "task_id": task_id,
+                "status": "stopped",
+            }
         bound = (job or {}).get("single_binding") or {}
         if job is None or task_id is not None and bound.get("task_id") != task_id:
             raise PortalDataError("worker_execution_changed", "执行批次或原运行已改变。", 409)
