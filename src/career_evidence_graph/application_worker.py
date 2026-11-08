@@ -2682,8 +2682,10 @@ class WorkerStore:
         Legacy jobs retain their original answer store. Web payloads never supply
         a store path; the path must agree with a checksummed task in this flow.
         Material/contact freshness remains enforced by check_single before sends.
+        Reads only: the page's screening called this once per job, and a copy of
+        the 3 MB checkpoint each time made /api/state take 17 s (2026-11-08).
         """
-        state = self.load()
+        state = self.read_shared()
         job = application
         if job is None or "workflow" not in job:
             identifier = (

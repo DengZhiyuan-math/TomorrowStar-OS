@@ -283,3 +283,17 @@ def test_old_audit_history_moves_to_the_archive_and_the_newest_rows_stay(tmp_pat
     # A second save moves nothing more.
     service.store.save(service.store.load())
     assert len((service.store.root / RUN_ARCHIVE).read_text().splitlines()) == len(archived)
+
+
+def test_language_screening_reads_the_shared_checkpoint_without_a_copy(tmp_path, monkeypatch):
+    # 2026-11-08: /api/state screened every job and copied the checkpoint each time.
+    service = setup_service(tmp_path, monkeypatch)
+    start_run(service.store)
+    service.store.load()
+    copies = []
+    original = service.store.load
+    monkeypatch.setattr(service.store, "load", lambda: copies.append(True) or original())
+    job = service.store.read_shared()["jobs"][0]
+    service.store.language_levels({"id": job["application_id"]})
+    service.store.language_levels(None)
+    assert copies == []
