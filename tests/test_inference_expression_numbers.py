@@ -51,3 +51,18 @@ def test_only_supported_wording_must_have_cited_numbers(judgment, accepted):
     else:
         with pytest.raises(PortalDataError):
             validate_inference(row, template, brief)
+
+
+@pytest.mark.parametrize(
+    "expression",
+    ["Available from 1 August 2027.", "Available from August 1, 2027.", "Starts 1st Aug 2027."],
+)
+def test_a_written_date_matches_its_cited_iso_date(expression):
+    # 2026-11-08: SAEKI's "1 August 2027" for a cited 2027-08-01 failed every retry.
+    _check_expression(expression, [{"quote": '{"value": "2027-08-01"}'}], None)
+
+
+@pytest.mark.parametrize("expression", ["Available from 2 August 2027.", "Available 1 May 2027."])
+def test_a_written_date_still_needs_that_exact_date_cited(expression):
+    with pytest.raises(PortalDataError):
+        _check_expression(expression, [{"quote": '{"value": "2027-08-01"}'}], None)

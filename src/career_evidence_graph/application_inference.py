@@ -52,6 +52,31 @@ _RELATIONS = {
     "unknown": "unresolved",
 }
 _ISO_DATE = re.compile(r"(?<!\d)\d{4}-\d{2}-\d{2}(?!\d)")
+_MONTHS = (
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december",
+)
+_MONTH = r"(?P<{}>" + "|".join(rf"{name[:3]}(?:{name[3:]})?" for name in _MONTHS) + r"|sept)\.?"
+# "1 August 2027" or "August 1, 2027" (2026-11-08: SAEKI's correct wording of a cited
+# 2027-08-01 was refused); written dates become ISO so the whole date must be cited.
+_WRITTEN_DATE = re.compile(
+    r"(?<![A-Za-z0-9])(?:(?P<d1>\d{1,2})(?:st|nd|rd|th)?\s+"
+    + _MONTH.format("m1")
+    + r",?\s+(?P<y1>\d{4})|"
+    + _MONTH.format("m2")
+    + r"\s+(?P<d2>\d{1,2})(?:st|nd|rd|th)?,?\s+(?P<y2>\d{4}))(?![A-Za-z0-9])",
+    re.I,
+)
 # Digits joined to letters name things (ROS2, EC2, 3D), they do not state a quantity
 # (installed MC-11, 2026-10-31).
 _NUMBER = re.compile(r"(?<![A-Za-z])\d+(?:[.,]\d+)*%?(?![A-Za-z])")
@@ -181,9 +206,22 @@ def _calculate(calculation, atom, facts):
     return {**calculation, "result": result}
 
 
+def _iso_written_date(match):
+    day, month, year = (
+        (match["d1"], match["m1"], match["y1"])
+        if match["d1"]
+        else (match["d2"], match["m2"], match["y2"])
+    )
+    number = next(i for i, name in enumerate(_MONTHS, 1) if name[:3] == month.lower()[:3])
+    try:
+        return date(int(year), number, int(day)).isoformat()
+    except ValueError:
+        return match[0]
+
+
 def _number_tokens(text):
     # Preserve full dates as tokens so a new date cannot be assembled from old digits.
-    text = unicodedata.normalize("NFKC", text)
+    text = _WRITTEN_DATE.sub(_iso_written_date, unicodedata.normalize("NFKC", text))
     dates = set(_ISO_DATE.findall(text))
     return dates | set(_NUMBER.findall(_ISO_DATE.sub("", text)))
 
