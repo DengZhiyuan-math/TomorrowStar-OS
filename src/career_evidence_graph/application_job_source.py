@@ -663,6 +663,26 @@ def _location_text(value):
     return _text(value) if isinstance(value, str) else ""
 
 
+# A job page's structured fields, appended to its text under these labels when the
+# text does not already state them.
+STRUCTURED_FIELDS = (
+    ("qualifications", "Qualifications"),
+    ("responsibilities", "Responsibilities"),
+    ("skills", "Skills"),
+    ("educationRequirements", "Education requirements"),
+    ("experienceRequirements", "Experience requirements"),
+    ("eligibilityToWorkRequirement", "Eligibility to work"),
+    ("employmentType", "Employment type"),
+    ("jobLocation", "Job location"),
+    ("jobLocationType", "Job location type"),
+    ("applicantLocationRequirements", "Applicant location requirements"),
+    ("workHours", "Work hours"),
+    ("baseSalary", "Base salary"),
+    ("datePosted", "Date posted"),
+    ("validThrough", "Valid through"),
+)
+
+
 def _capture_page(capture, body, media_type):
     page = _Page()
     if media_type in {"application/ld+json", "application/json"}:
@@ -749,22 +769,7 @@ def _capture_page(capture, body, media_type):
                 description += f"\n\nJob location\n{location}"
     if location:
         fields["location"] = location
-    for key, label in (
-        ("qualifications", "Qualifications"),
-        ("responsibilities", "Responsibilities"),
-        ("skills", "Skills"),
-        ("educationRequirements", "Education requirements"),
-        ("experienceRequirements", "Experience requirements"),
-        ("eligibilityToWorkRequirement", "Eligibility to work"),
-        ("employmentType", "Employment type"),
-        ("jobLocation", "Job location"),
-        ("jobLocationType", "Job location type"),
-        ("applicantLocationRequirements", "Applicant location requirements"),
-        ("workHours", "Work hours"),
-        ("baseSalary", "Base salary"),
-        ("datePosted", "Date posted"),
-        ("validThrough", "Valid through"),
-    ):
+    for key, label in STRUCTURED_FIELDS:
         if key in posting:
             fields[key] = posting[key]
             text = _field_text(posting[key])

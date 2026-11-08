@@ -1212,3 +1212,45 @@ def test_complete_read_of_a_short_recommendation_email_is_not_a_complete_jd(reco
     with pytest.raises(PortalDataError) as failure:
         store.select(row["id"], row["revision"])
     assert failure.value.code == "recommendation_jd_incomplete"
+
+
+SAVED_JD = (
+    "ABOUT MISTRAL\n\nWe build frontier models.\n\nWhat We Offer\n\n"
+    "For details, please refer to our Benefits page https://example.invalid/benefits."
+)
+REREAD_JD = (
+    "About Mistral\nWe build frontier models.\nWhat We Offer\n"
+    "For details, please refer to our Benefits page.\n\n"
+    "Job location\nZurich\n\nEmployment type\nFULL_TIME\n\nDate posted\n2026-07-10"
+)
+
+
+@pytest.mark.parametrize(
+    ("description", "same"),
+    [
+        # 2026-11-08, Mistral: heading case, a dropped link and the reader's own
+        # appended structured fields are the same posting.
+        (REREAD_JD, True),
+        # A changed, dropped or added word in the description is not.
+        (REREAD_JD.replace("frontier", "small"), False),
+        (REREAD_JD.replace("We build frontier models.\n", ""), False),
+        (REREAD_JD.replace("About Mistral", "About Mistral\nRemote only."), False),
+        # A structured-field label inside the text, not trailing, still counts.
+        ("Job location\nParis\n\n" + REREAD_JD, False),
+    ],
+)
+def test_a_reread_posting_matches_its_saved_note_despite_format(description, same):
+    from career_evidence_graph.application_recommendations import _same_saved_facts
+
+    facts = {
+        "url": "https://jobs.ashbyhq.com/mistral.ai/865fced4-d279-4073-848d-f078c0053155",
+        "company": "Mistral",
+        "role_title": "AI Scientist",
+        "location": "Zurich",
+    }
+    assert (
+        _same_saved_facts(
+            facts | {"job_description": description}, facts | {"job_description": SAVED_JD}
+        )
+        is same
+    )

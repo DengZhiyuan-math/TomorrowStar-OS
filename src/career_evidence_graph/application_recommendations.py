@@ -104,6 +104,27 @@ def normalize_message(raw: dict) -> dict:
     }
 
 
+def _same_job_text(body: str, description: str) -> bool:
+    """A re-read posting states the same JD as a saved note.
+
+    2026-11-08 (Mistral): only heading case, two dropped inline links and the
+    reader's appended structured fields differed. Those, punctuation and whitespace
+    are ignored; every word of the description must still match, in order.
+    """
+    from .application_job_source import STRUCTURED_FIELDS
+
+    labels = {label.casefold() for _key, label in STRUCTURED_FIELDS}
+
+    def words(text):
+        blocks = [block for block in re.split(r"\n\s*\n", text.strip()) if block.strip()]
+        while blocks and blocks[-1].strip().splitlines()[0].strip().casefold() in labels:
+            blocks.pop()
+        text = re.sub(r"https?://\S+", " ", " ".join(blocks))
+        return re.sub(r"[\W_]+", " ", text).casefold().split()
+
+    return bool(words(description)) and words(body) == words(description)
+
+
 def _same_full_text(body: str, description: str) -> bool:
     """The complete captured JD scope cannot be replaced by an extracted substring."""
     return bool(description.strip()) and " ".join(description.split()) == " ".join(body.split())
@@ -175,7 +196,7 @@ def _same_saved_facts(record, application, *, same_source=False) -> bool:
             str(record.get(field, "")).strip() == str(application.get(field, "")).strip()
             for field in ("company", "role_title", "location")
         )
-        and _same_full_text(
+        and _same_job_text(
             record.get("job_description", ""), application.get("job_description", "")
         )
     )
