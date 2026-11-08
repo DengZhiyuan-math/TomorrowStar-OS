@@ -479,10 +479,12 @@ def plan_retrieval(
                     )
                     if on_dispatch is not None:
                         on_dispatch()
+                    # 2026-11-08, Keyrock: one 125 KB retrieval page ran past 180 s with
+                    # no output on two attempts (its first page took 48 s).
                     result = runner(
                         config,
                         prompt,
-                        timeout_seconds=180,
+                        timeout_seconds=360,
                         allow_non_repository=True,
                         environment=environment,
                     )
