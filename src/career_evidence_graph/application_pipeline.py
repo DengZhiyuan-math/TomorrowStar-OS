@@ -85,6 +85,9 @@ def _mismatch(eligibility):
 RESUMABLE_STEPS = frozenset({"matching", "generating_resume"})
 # How often a waiting Computer Use job checks for the company's confirmation mail.
 CONFIRMATION_POLL = 300
+# How often the queue reads recommendation mail while it waits (2026-11-08: every
+# 60 s made about 100 runs an hour, each one or two model calls, for a few mails a day).
+MAIL_POLL = 1800
 
 
 def same_company(listed, company) -> bool:
@@ -2477,8 +2480,8 @@ class ApplicationPipeline:
 
     def _poll_mail(self, state):
         """Capture alone may run while a job waits; source work stays sequential."""
-        # Selection runs right after a capture completes; a real capture outlasts the
-        # 60 s poll, so restarting one here would hold selection behind it indefinitely.
+        # Selection runs right after a capture completes; a capture can outlast a poll
+        # interval, so restarting one here would hold selection behind it indefinitely.
         # A paused step resuming into selection or a source would wait on it too; a
         # stopped mail read is the one wait this capture recovers.
         after_mail = {"selecting_job", "starting_source", "acquiring_source"}
@@ -2492,7 +2495,7 @@ class ApplicationPipeline:
         intake = self.intake.snapshot()
         if intake["status"] == "running":
             return
-        state["mail_poll_at"] = time.time() + 60
+        state["mail_poll_at"] = time.time() + MAIL_POLL
         state["automatic_capture"] = {"status": "dispatching", "at": time.time()}
         self._save(state)
         try:
@@ -2523,7 +2526,7 @@ class ApplicationPipeline:
                 state.update(
                     intake_run_id=result["run_id"],
                     status="reading_email",
-                    mail_poll_at=time.time() + 60,
+                    mail_poll_at=time.time() + MAIL_POLL,
                 )
                 self._save(state)
                 return

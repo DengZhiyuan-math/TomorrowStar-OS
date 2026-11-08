@@ -171,8 +171,11 @@ def test_new_mail_captured_automatically_during_submit_wait_without_changing_pag
     before = deepcopy(worker.state), deepcopy(flow.tasks), deepcopy(flow.calls)
     messages.append(message("new-mail", ["https://www.linkedin.com/jobs/view/99999"]))
     poll_due(pipeline)
+    polled = time.time()
     pipeline._tick()
     assert len(ready(intake)["recommendations"]) == 17
+    # 2026-11-08: the next waiting read is 30 minutes away, not 60 s.
+    assert pipeline._load()["mail_poll_at"] >= polled + 1800
     after = pipeline.snapshot()
     for key in ("items", "active_task_id", "notification", "status", "control", "worker_batch_id"):
         assert after[key] == waiting[key]
