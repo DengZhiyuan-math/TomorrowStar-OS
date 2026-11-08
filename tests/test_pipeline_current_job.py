@@ -1124,3 +1124,41 @@ def test_takeover_receipt_for_another_record_is_not_reported_as_running(
     assert state["status"] == "needs_recheck"
     assert state["takeover_request"]["error_code"] == "assistance_takeover_unavailable"
     assert state["notification"]["message"] == "接管请求没有建立新的操作范围，保留原页。"
+
+
+def test_computer_use_fills_in_chrome_and_the_users_submit_moves_on(
+    current_pipeline, monkeypatch, tmp_path
+):
+    """2026-11-08: the isolated Worker browser is replaced by Codex Computer Use."""
+    from career_evidence_graph import application_computer_use
+
+    pipeline, _flow, _intake, worker = current_pipeline
+    pipeline.computer_use = {"executable": "/bin/codex", "root": tmp_path / "cu"}
+    contexts = []
+
+    def fill(executable, context, root, **options):
+        contexts.append(context)
+        return {
+            "status": "ready_for_review",
+            "summary": "filled",
+            "filled": [],
+            "unanswered": [],
+        }
+
+    monkeypatch.setattr(application_computer_use, "run_fill", fill)
+    monkeypatch.setattr(
+        worker.store, "_native_answer_reference", lambda job: {"confirmed_answers": []}
+    )
+    pipeline.start(request_id="start")
+    first = drive(pipeline, "ready_for_review")
+    (context,) = contexts
+    assert context["job_url"] and context["resume_path"].endswith("synthetic.pdf")
+    # The Worker's own browser never started for this job.
+    assert worker.store.load()["control"] == "paused"
+    assert first["control"] == "paused" and first["computer_use"]["report"]["status"] == (
+        "ready_for_review"
+    )
+    after = pipeline.record_submitted(request_id="submitted-1")
+    done = next(row for row in after["items"] if row.get("task_id") == first["active_task_id"])
+    assert done["status"] == "completed" and done["submitted_by"] == "user"
+    assert after["active_task_id"] != first["active_task_id"] and "computer_use" not in after

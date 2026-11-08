@@ -84,8 +84,21 @@ def _mismatch(eligibility):
 class ApplicationPipeline:
     """A persistent mail queue with one current job and manual final submission."""
 
-    def __init__(self, flow, intake, worker, *, interval=1, takeover_unavailable_reason=None):
+    def __init__(
+        self,
+        flow,
+        intake,
+        worker,
+        *,
+        interval=1,
+        takeover_unavailable_reason=None,
+        computer_use=None,
+    ):
         self.flow, self.intake, self.worker = flow, intake, worker
+        # 2026-11-08: {"executable", "root"} fills through Codex Computer Use in the
+        # user's everyday Chrome instead of the isolated Worker browser.
+        self.computer_use = computer_use
+        self._computer_use_runs = {}
         # Automatic takeover is on but could not be configured at startup (MC-22).
         self.takeover_unavailable_reason = takeover_unavailable_reason
         self.path = Path(flow.root) / "pipeline.json"
@@ -551,6 +564,10 @@ class ApplicationPipeline:
         """Restore one skipped job with its original task and page."""
         return self._current("return", {"request_id": request_id, "application_id": application_id})
 
+    def record_submitted(self, *, request_id):
+        """The user submitted the Computer Use form in Chrome; record it and move on."""
+        return self._current("submitted", {"request_id": request_id})
+
     def observe_result(self, *, request_id):
         """Read the original page's submission result without writing to it."""
         return self._current("observe-result", {"request_id": request_id})
@@ -633,6 +650,12 @@ class ApplicationPipeline:
             if action == "continue":
                 # One Continue consumes the edit stop; its journal path stays unchanged.
                 state.pop("material_edit_gate", None)
+            if action == "submitted" or action == "continue" and state.get("computer_use"):
+                if not state.get("computer_use"):
+                    raise PortalDataError(
+                        "pipeline_request_invalid", "当前岗位不是由 Computer Use 填写。", 409
+                    )
+                return self._computer_use_request(state, action, payload)
             return self._current_request(state, action, payload)
 
     def start(self, *, request_id):
@@ -1842,7 +1865,11 @@ class ApplicationPipeline:
             "cover_letter_resume_status",
             "pending_optional_cover_letter",
             "notification",
+            "computer_use",
         )
+        if state.get("computer_use"):
+            # Stops a Computer Use fill that is still running for this job.
+            self._pause_owned_worker(state)
         item["pipeline_context"] = {key: deepcopy(state.get(key)) for key in keys}
         item["retained_status"] = item["status"]
         if state.get("active_task_id") and hasattr(self.flow, "cancel_cover_letter"):
@@ -2292,6 +2319,11 @@ class ApplicationPipeline:
         return self._task(state)
 
     def _pause_owned_worker(self, state):
+        run = self._computer_use_runs.get((state.get("computer_use") or {}).get("run_id"))
+        if run and run.get("process") is not None and run["process"].poll() is None:
+            run["process"].terminate()
+        if state.get("computer_use"):
+            return
         if not state.get("active_task_id") or not state.get("worker_batch_id"):
             return
         # Control reads remain available while a local journal is between its
@@ -2727,6 +2759,10 @@ class ApplicationPipeline:
         if state["status"] == "starting_worker":
             self._start_worker(state)
             return
+        if state.get("computer_use"):
+            if state["status"] == "filling":
+                self._observe_computer_use(state)
+            return
         if (
             state["status"] in {"filling", "needs_input"}
             or state["status"] == "ready_for_review"
@@ -3057,6 +3093,9 @@ class ApplicationPipeline:
         )
 
     def _start_worker(self, state):
+        if self.computer_use:
+            self._start_computer_use(state)
+            return
         task = self._task(state)
         current = self.worker.snapshot()
         job = next(
@@ -3096,6 +3135,125 @@ class ApplicationPipeline:
         # The new run registers after this call; its first observation records its ID.
         state.update(status="filling", worker_runtime_id=None, last_heartbeat=0)
         self._save(state)
+
+    def _start_computer_use(self, state):
+        """Fill the current job in the user's everyday Chrome through Codex Computer Use."""
+        from .application_computer_use import fill_context, run_fill
+
+        task = self._task(state)
+        store = self.worker.store
+        job = next(
+            (
+                row
+                for row in store.load()["jobs"]
+                if row["application_id"] == task["application_id"]
+            ),
+            None,
+        )
+        state["resume_status"] = "starting_worker"
+        if job is None or not job.get("job_url") or not job.get("file_path"):
+            self._stop(state, "needs_recheck", "填写所需的岗位链接或简历尚未准备好，保留任务。")
+            return
+        letter = next(
+            (
+                row
+                for row in reversed(job.get("materials") or [])
+                if row.get("kind") == "cover_letter"
+            ),
+            {},
+        )
+        text = "\n\n".join(
+            paragraph["text"]
+            for paragraph in (letter.get("letter_content") or {}).get("paragraphs", [])
+            if isinstance(paragraph.get("text"), str)
+        )
+        context = fill_context(job, store._native_answer_reference(job), text)
+        run_id = uuid4().hex
+        record = {"process": None, "report": None}
+        self._computer_use_runs[run_id] = record
+
+        def work():
+            try:
+                record["report"] = run_fill(
+                    self.computer_use["executable"],
+                    context,
+                    self.computer_use["root"],
+                    started=lambda process: record.__setitem__("process", process),
+                )
+            except (OSError, ValueError) as error:
+                record["report"] = {
+                    "status": "failed",
+                    "summary": f"Computer Use 未能启动：{type(error).__name__}",
+                }
+
+        threading.Thread(target=work, name="computer-use-fill", daemon=True).start()
+        state.update(
+            status="filling",
+            control="running",
+            computer_use={"run_id": run_id, "started_at": time.time()},
+            notification=None,
+        )
+        self._save(state)
+
+    def _observe_computer_use(self, state):
+        run = self._computer_use_runs.get(state["computer_use"]["run_id"])
+        state["resume_status"] = "starting_worker"
+        if run is None:
+            self._stop(
+                state,
+                "needs_recheck",
+                "Computer Use 填写已中断（App 曾重启）；请到 Chrome 查看该岗位标签页。",
+            )
+            return
+        report = run.get("report")
+        if report is None:
+            return
+        state["computer_use"] = dict(
+            state["computer_use"],
+            report={key: report.get(key) for key in ("status", "summary", "unanswered", "run")},
+        )
+        summary = str(report.get("summary") or "")[:300]
+        if report["status"] == "ready_for_review":
+            self._stop(
+                state,
+                "ready_for_review",
+                "已在 Chrome 填好申请表。请检查后由你最终提交，再点“我已提交”。",
+            )
+        elif report["status"] == "needs_user":
+            self._stop(state, "needs_input", "需要你在 Chrome 处理：" + summary)
+        else:
+            self._stop(state, "needs_recheck", "Computer Use 未完成：" + summary)
+
+    def _computer_use_request(self, state, action, payload):
+        """Continue refills through Computer Use; Submitted records the user's own send."""
+        if not isinstance(payload, dict) or set(payload) != {"request_id"}:
+            raise PortalDataError("pipeline_request_invalid", "请使用当前岗位操作。", 409)
+        self._request_id(payload["request_id"])
+        requests = state.setdefault("current_requests", [])
+        if any(row["request_id"] == payload["request_id"] for row in requests):
+            return self.snapshot()
+        if state["control"] == "running" and action == "continue":
+            raise PortalDataError("pipeline_running", "当前岗位正在填写。", 409)
+        requests.append(
+            {
+                "request_id": payload["request_id"],
+                "action": action,
+                "status": "complete",
+                "at": time.time(),
+            }
+        )
+        if action == "continue":
+            state.pop("computer_use", None)
+            state.pop("resume_status", None)
+            state.update(control="running", status="starting_worker", notification=None)
+            self._save(state)
+            return self.snapshot()
+        recommendation = state.get("current_recommendation_id")
+        self._leave_current(state, payload["request_id"])
+        item = next(row for row in state["items"] if row.get("recommendation_id") == recommendation)
+        item.update(status="completed", submitted_by="user", submitted_at=time.time())
+        self._save(state)
+        return self.snapshot()
 
     def _observe_submission(self, state):
         current = self.worker.snapshot()

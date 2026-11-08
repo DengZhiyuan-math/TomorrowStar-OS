@@ -730,11 +730,24 @@ def _assemble(
 
         try:
             # The Pipeline registers its preparation permit before its thread starts.
+            # 2026-11-08: the live App fills through Codex Computer Use in the user's
+            # everyday Chrome; TOMORROWSTAR_ISOLATED_BROWSER=1 keeps the old Worker path.
+            executable = os.environ.get("TOMORROWSTAR_CODEX_EXECUTABLE")
+            computer_use = (
+                {"executable": executable, "root": Path(worker_root) / "computer-use"}
+                if worker_live
+                and worker_root is not None
+                and worker_synthetic_browser_root is None
+                and executable
+                and os.environ.get("TOMORROWSTAR_ISOLATED_BROWSER") != "1"
+                else None
+            )
             runtime.pipeline = ApplicationPipeline(
                 flow,
                 runtime.intake,
                 worker,
                 takeover_unavailable_reason=takeover_unavailable_reason,
+                computer_use=computer_use,
             )
         except (PortalDataError, OSError, ValueError, KeyError, TypeError) as error:
             runtime.pipeline_unavailable = (

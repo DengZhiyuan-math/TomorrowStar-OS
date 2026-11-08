@@ -342,6 +342,10 @@
       const skip = button("跳过当前岗位", () => pipelineAction("skip", {}, true), "flow-pipeline-skip", true);
       skip.dataset.flowStop = "true";
       actions.append(skip);
+      // 2026-11-08: a Computer Use fill waits for the user's own Submit in Chrome.
+      if (pipeline.computer_use && pipeline.control !== "running") {
+        actions.append(button("我已提交", () => pipelineAction("submitted", {}, true), "flow-pipeline-submitted", true));
+      }
     }
     automation.append(actions, signInNote);
     if (pipeline?.wait_reason === "codex_resume_required") automation.append(node("p", "flow-muted", "当前岗位等待 Codex 完成分经历写作、程序组装和单一终审；完成后自动继续，其他岗位保持等待。"));
