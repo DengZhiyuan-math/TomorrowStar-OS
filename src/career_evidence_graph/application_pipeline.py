@@ -81,6 +81,8 @@ def _mismatch(eligibility):
     return [row["text"] for row in eligibility["conditions"] if row["status"] == "conflict"][:3]
 
 
+# Steps a program check may stop and one Continue re-enters.
+RESUMABLE_STEPS = frozenset({"matching", "generating_resume"})
 # How often a waiting Computer Use job checks for the company's confirmation mail.
 CONFIRMATION_POLL = 300
 
@@ -1698,6 +1700,15 @@ class ApplicationPipeline:
                         )
                     elif state["status"] in {"matching", "generating_resume"}:
                         state.update(control="running", notification=None)
+                    elif state["status"] == "needs_recheck" and (
+                        state.get("resume_status") in RESUMABLE_STEPS
+                        or not state.get("resume_status")
+                        and self._task(state).get("status") == "materials_ready"
+                    ):
+                        # 2026-11-08, Mistral: a program check stopped the materials
+                        # step; Continue re-enters it instead of restarting the flow.
+                        resume = state.pop("resume_status", None) or "generating_resume"
+                        state.update(control="running", status=resume, notification=None)
                     else:
                         self._save(state)
                         return self.start(request_id=payload["request_id"])
@@ -2449,6 +2460,12 @@ class ApplicationPipeline:
                     "at": time.time(),
                 }
                 self._pause_owned_worker(state)
+                if state["status"] in RESUMABLE_STEPS | {"preparing"}:
+                    # Continue resumes the step a program check stopped (2026-11-08);
+                    # a refused preparation re-enters through the materials step.
+                    state["resume_status"] = (
+                        "generating_resume" if state["status"] == "preparing" else state["status"]
+                    )
                 self._stop(state, "needs_recheck", str(error))
 
     def _poll_mail(self, state):

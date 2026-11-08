@@ -1282,3 +1282,24 @@ def test_a_listed_target_company_marks_the_job_record(current_pipeline):
     current = drive(pipeline, "filling")
     item = next(row for row in current["items"] if row.get("task_id") == current["active_task_id"])
     assert flow.applications.get_application(item["application_id"])["target_company"] == "target"
+
+
+def test_continue_resumes_the_step_a_program_check_stopped(current_pipeline, monkeypatch):
+    """2026-11-08, Mistral: a stale claim refused the worker preparation; after it was
+    released, Continue fell through to a full restart and was refused."""
+    pipeline, flow, _intake, _worker = current_pipeline
+    real = flow.prepare_worker
+    refusals = []
+
+    def refuse_once(*args, **kwargs):
+        if not refusals:
+            refusals.append(True)
+            raise PortalDataError("single_legacy_active", "stale claim", 409)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(flow, "prepare_worker", refuse_once)
+    pipeline.start(request_id="start")
+    stopped = drive(pipeline, "needs_recheck")
+    assert stopped["resume_status"] == "generating_resume" and refusals
+    pipeline.continue_current(request_id="continue-after-release")
+    assert drive(pipeline, "filling")["active_task_id"] == stopped["active_task_id"]
