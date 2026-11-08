@@ -402,6 +402,20 @@ def _read_mailbox_identity(directory: Path, runner) -> str:
         raise _EvidenceError("mailbox_identity_unavailable") from error
 
 
+def _verified_mailbox_identity(directory: Path, runner) -> str:
+    """Read the connector profile, once more if the first call saw no Gmail tool.
+
+    2026-11-08: about a third of Codex calls started before the Gmail connector
+    loaded and answered unavailable; get_profile is read-only, so one retry is safe.
+    """
+    try:
+        return _read_mailbox_identity(directory / "profile", runner)
+    except _EvidenceError as error:
+        if str(error) != "mailbox_identity_unavailable":
+            raise
+    return _read_mailbox_identity(directory / "profile-retry", runner)
+
+
 def read_recommendation_emails(
     directory: Path,
     *,
@@ -517,7 +531,7 @@ def read_recommendation_emails(
     try:
         mailbox_identity = None
         if verify_account:
-            mailbox_identity = _read_mailbox_identity(directory / "profile", runner)
+            mailbox_identity = _verified_mailbox_identity(directory, runner)
             if (
                 expected_mailbox_identity is not None
                 and mailbox_identity != expected_mailbox_identity
@@ -691,7 +705,7 @@ def process_recommendation_email(
     try:
         if (
             expected_mailbox_identity is not None
-            and _read_mailbox_identity(directory / "profile", runner) != expected_mailbox_identity
+            and _verified_mailbox_identity(directory, runner) != expected_mailbox_identity
         ):
             raise _EvidenceError("mailbox_identity_changed")
         response = run_codex_exec(

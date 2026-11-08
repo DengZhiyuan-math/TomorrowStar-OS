@@ -334,7 +334,8 @@ def test_unknown_profile_never_admits_mail_search_even_when_model_claims_readabl
     assert result["status"] == "unavailable"
     assert result["reason"] == "mailbox_identity_unavailable"
     assert result["emails"] == []
-    assert phases == ["profile"]
+    # One read-only profile retry (2026-11-08); no search either way.
+    assert phases == ["profile", "profile-retry"]
 
 
 @pytest.mark.parametrize(
@@ -365,7 +366,7 @@ def test_conflicting_connector_profile_address_fields_do_not_choose_one_account(
                     addresses,
                 )
             ]
-            if kwargs["cwd"].name == "profile"
+            if kwargs["cwd"].name.startswith("profile")
             else _mail_events()
         )
         return _process(events)(argv, **kwargs)
@@ -373,7 +374,35 @@ def test_conflicting_connector_profile_address_fields_do_not_choose_one_account(
     result = read_recommendation_emails(tmp_path / "capture", runner=process, verify_account=True)
     assert result["status"] == "unavailable"
     assert result["reason"] == "mailbox_identity_unavailable"
-    assert phases == ["profile"]
+    assert phases == ["profile", "profile-retry"]
+
+
+def test_a_profile_call_without_the_gmail_tool_is_retried_once(tmp_path):
+    """2026-11-08: about a third of calls started before the Gmail connector loaded."""
+    from career_evidence_graph.application_gmail import read_recommendation_emails
+
+    phases = []
+
+    def process(argv, **kwargs):
+        if argv[-1] == "--version":
+            return _process([])(argv, **kwargs)
+        phases.append(kwargs["cwd"].name)
+        name = kwargs["cwd"].name
+        events = (
+            []
+            if name == "profile"
+            else [
+                _tool("profile-1", "gmail.get_profile", {}, {"email_address": "a@example.invalid"})
+            ]
+            if name == "profile-retry"
+            else _mail_events()
+        )
+        return _process(events)(argv, **kwargs)
+
+    result = read_recommendation_emails(tmp_path / "capture", runner=process, verify_account=True)
+    assert phases[:2] == ["profile", "profile-retry"]
+    assert result["provenance"]["account_identity_status"] == "verified"
+    assert result["status"] == "readable"
 
 
 @pytest.mark.parametrize(
