@@ -1186,6 +1186,9 @@ def test_an_empty_refused_attempt_resumes_what_it_was_resuming(tmp_path, monkeyp
     monkeypatch.setattr(analysis, "_request", lambda attempt_id: requests.get(attempt_id))
     monkeypatch.setattr(analysis, "_checkpoint", lambda attempt_id: None)
     assert analysis._recovery_directory(empty, []) == root / first
+    # One refused before even its request was saved falls back to the candidates.
+    missing = "d" * 32
+    assert analysis._recovery_directory(missing, [missing, empty, first]) == root / first
     # An empty attempt that resumed nothing starts afresh.
     (root / newer).mkdir()
     assert analysis._recovery_directory(newer, []) is None

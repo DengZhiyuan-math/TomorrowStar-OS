@@ -2253,6 +2253,10 @@ class Analysis:
             if self.analyzer is not None and self._adapter_rejection(resume_from) is not None:
                 return directory
             request = self._request(resume_from)
+            if request is None and not directory.exists() and not directory.is_symlink():
+                # Refused before even its request was saved: the job's earlier
+                # attempts, newest first, are the candidates.
+                break
             if (
                 resume_from in seen
                 or request is None
