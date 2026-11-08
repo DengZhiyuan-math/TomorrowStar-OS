@@ -350,12 +350,12 @@ def test_native_mutation_is_recorded_only_after_current_field_and_scope_check(na
         # Data-processing consent saved as "Yes" admits only the checked state.
         ("I consent to the processing of my personal data", "true", True),
         ("I consent to the processing of my personal data", "false", False),
-        # No saved fact: neither state is the user's answer.
-        ("Subscribe to newsletter", "true", False),
-        ("Subscribe to newsletter", "false", False),
+        # 2026-11-08: no saved fact, so the state is the agent's to choose.
+        ("Subscribe to newsletter", "true", True),
+        ("Subscribe to newsletter", "false", True),
     ],
 )
-def test_native_set_value_admits_only_a_confirmed_fact_or_a_checked_state(
+def test_native_set_value_keeps_a_bound_fact_and_frees_an_unbound_one(
     native_page, monkeypatch, field, value, allowed
 ):
     from test_application_information import answer
@@ -451,7 +451,8 @@ CONSENT = "I consent to the processing of my personal data"
         ("No", False, False),
         # Two questions each offer a bound "Yes": the name does not identify one fact.
         ("Yes", True, False),
-        ("Maybe", False, False),
+        # 2026-11-08: an option no delivered field owns is unbound, the agent's choice.
+        ("Maybe", False, True),
     ],
 )
 def test_native_set_value_admits_a_radio_option_through_its_delivered_control(
@@ -556,7 +557,9 @@ def test_native_choice_key_ignores_only_case_whitespace_and_edge_punctuation(opt
     [
         # r6: a combobox whose AX name maps to one delivered confirmed fact may open.
         ([("combobox", "Salutation *")], "", False, [True], None),
-        ([("combobox", "Favourite colour")], "", False, [False], "unbound_fact"),
+        # 2026-11-08: a combobox with no bound fact is the agent's to answer.
+        ([("combobox", "Favourite colour")], "", False, [True], None),
+        ([("combobox", "Favourite colour"), ("option", "Blue")], "", False, [True, True], None),
         # Its option is admitted only after that observed click, by the exact answer.
         ([("combobox", "Salutation"), ("option", " mr. ")], "", False, [True, True], None),
         (
@@ -2042,3 +2045,75 @@ def test_an_admitted_native_call_in_progress_renews_without_a_renderer_read(
     else:
         assert calls == [("busy_renderer_read", None)]
         assert saved["runtime"]["observed_at"] == stale
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "allowed"),
+    [
+        # 2026-11-08: an open question no fact binds is the agent's to answer.
+        ("Why do you want to work here?", "A composed, truthful answer.", True),
+        # Identity and contact facts still admit only their confirmed value.
+        ("Email", "composed@example.invalid", False),
+        ("Phone", "saved@example.invalid", False),
+    ],
+)
+def test_native_typing_composes_open_answers_but_keeps_recorded_facts(
+    native_page, field, value, allowed
+):
+    from test_application_information import answer
+
+    from career_evidence_graph._vendor import job_apply_store as helper
+
+    service, runner, page, ref, _, _ = native_page
+    page.field_value = ""
+    helper.atomic_write_json(
+        service.store.answers.root / "answers.json",
+        {
+            "schemaVersion": 1,
+            "answers": dict([answer("Email", "saved@example.invalid")]),
+            "metadata": {},
+        },
+    )
+    admitted = []
+
+    class Adapter:
+        def start_takeover(self, original, **kwargs):
+            kwargs["before_yield"](
+                {
+                    "application_ref_digest": digest(ref),
+                    "scope": kwargs["native_scope"],
+                    "request_id": kwargs["request_id"],
+                }
+            )
+            kwargs["after_yield"](
+                {"handoff_id": "native-run", "generation": 1, "local_tools_drained": True}
+            )
+            # The whole confirmed library is delivered for reuse in other words.
+            reference = kwargs["delivery"]["answers"]["reference"]
+            assert {"question": "Email", "value": "saved@example.invalid"} in reference[
+                "confirmed_answers"
+            ]
+            call = {
+                "call_id": "native-type",
+                "tool": "browser_type",
+                "arguments_digest": "b" * 64,
+                "status": "awaiting_host",
+                "generation": 1,
+                "sequence": 1,
+                "mutation": True,
+                "semantic_verified": False,
+                "scope": kwargs["native_scope"],
+                "native_ref": "fresh-native-ref",
+                "field_hint": {"role": "textbox", "name": field},
+                "text_sha256": hashlib.sha256(value.encode()).hexdigest(),
+            }
+            admitted.append(kwargs["before_native_call"](call))
+            return SimpleNamespace(run_id="adapter-native-run")
+
+        def progress(self, run_id):
+            return SimpleNamespace(status="ready", tools_revoked=False)
+
+    runner.codex_assist = Adapter()
+    runner._service_assistance_stop = lambda: None
+    runner.start_native_assistance(ref, request_id="native-compose")
+    assert admitted == [allowed]

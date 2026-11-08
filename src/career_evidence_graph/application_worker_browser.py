@@ -281,6 +281,29 @@ def _native_label(text):
     return " ".join(re.sub(r"[✱*]", " ", str(text or "")).split()).casefold()
 
 
+def native_control_free(delivery, field_hint, expected_fact):
+    """A free-text question no confirmed fact binds: the agent answers it (2026-11-08).
+
+    Identity, contact and other recognised facts never are, and neither is a control
+    whose page field a delivered confirmed fact owns (a radio option of a bound question).
+    """
+    if not expected_fact.startswith("question:"):
+        return False
+    label = _native_label
+    name = label(field_hint.get("name"))
+    role = str(field_hint.get("role") or "").strip().casefold()
+    fields = ((delivery.get("page_context") or {}).get("data") or {}).get("fields", [])
+    ids = {
+        field.get("id")
+        for field in fields
+        if label(field.get("label")) == name and _native_control_kind(field) == role
+    } - {None, ""}
+    return not any(
+        fact.get("status") == "confirmed" and ids & set(fact.get("field_ids") or [])
+        for fact in (delivery.get("answers") or {}).get("facts", [])
+    )
+
+
 def native_control_fact_values(delivery, field_hint):
     """Return the one confirmed fact value bound to the AX-named control, else []."""
 
@@ -411,8 +434,9 @@ SUBMIT_LIKE = re.compile(
 def native_click_denial(delivery, calls, call, *, page_reopened=False):
     """Why a click is refused, or None.
 
-    A combobox and its option follow the delivered fact; any other named control is
-    admitted unless its name looks like sending the application.
+    A combobox and its option follow the delivered fact when one is bound; without one
+    (2026-11-08) the agent chooses from the delivered reference, checked after the
+    fact. Any other named control is admitted unless its name looks like sending.
 
     An option row names only the option; its field is the combobox whose observed
     click immediately precedes it in this handoff's ledger (the driver's owner rule).
@@ -423,7 +447,7 @@ def native_click_denial(delivery, calls, call, *, page_reopened=False):
     if role == "combobox":
         value = native_choice_fact_value(delivery, hint)
         if value is None:
-            return "unbound_fact"
+            return None
         return native_combobox_choice_kept(delivery, call, value, page_reopened=page_reopened)
     if role != "option":
         # APP-11 keeps final sending manual. Ashby's Yes/No and Submit buttons share one
@@ -453,7 +477,7 @@ def native_click_denial(delivery, calls, call, *, page_reopened=False):
     ):
         return "option_owner_unproven"
     value = native_choice_fact_value(delivery, owner_hint)
-    if value is None or _native_choice_key(value) != _native_choice_key(hint.get("name")):
+    if value is not None and _native_choice_key(value) != _native_choice_key(hint.get("name")):
         return "option_not_fact"
     return None
 
@@ -4126,7 +4150,13 @@ class ApplicationRunner:
                     ):
                         if words & vocabulary:
                             allowed.add(hashlib.sha256(state.encode()).hexdigest())
-                if call.get("text_sha256") not in allowed:
+                # 2026-11-08: a free-text question with no bound confirmed fact is the
+                # agent's to answer from the delivered reference; a bound or recognised
+                # fact (identity, contact) still admits only its confirmed value.
+                free = not values and native_control_free(
+                    delivery, call.get("field_hint") or {}, expected_fact
+                )
+                if not free and call.get("text_sha256") not in allowed:
                     # A denied write revokes the takeover; the log names the field's fact.
                     _log_typing_denial(call, expected_fact, len(values), "value_not_confirmed")
                     return False

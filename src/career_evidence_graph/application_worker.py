@@ -391,10 +391,35 @@ def native_field_fact(field):
     return fact
 
 
+def _valid_native_reference(reference):
+    """Reference text the takeover may compose from: confirmed answers and career facts."""
+    return (
+        isinstance(reference, dict)
+        and set(reference) == {"confirmed_answers", "career_facts"}
+        and all(isinstance(reference[key], list) for key in reference)
+        and all(
+            isinstance(row, dict)
+            and set(row) == {"question", "value"}
+            and all(isinstance(row[key], str) for key in row)
+            for row in reference["confirmed_answers"]
+        )
+        and all(
+            isinstance(row, dict)
+            and set(row) == {"context", "responsibility", "planned_only", "text"}
+            and isinstance(row["planned_only"], bool)
+            and all(isinstance(row[key], str) for key in ("context", "responsibility", "text"))
+            for row in reference["career_facts"]
+        )
+        and len(json.dumps(reference, ensure_ascii=False).encode()) <= 1_000_000
+    )
+
+
 def _validate_native_answers(answers):
     if (
         not isinstance(answers, dict)
-        or set(answers) != {"library_status", "facts", "revision"}
+        or set(answers) - {"reference"} != {"library_status", "facts", "revision"}
+        or "reference" in answers
+        and not _valid_native_reference(answers["reference"])
         or (
             not isinstance(answers["library_status"], str)
             or answers["library_status"]
@@ -3463,7 +3488,11 @@ class WorkerStore:
         if len(selected) > 64:
             raise PortalDataError("assistance_answer_limit", "当前页面事实范围超过交接上限。", 409)
         if not selected:
-            result = {"library_status": "not_requested", "facts": []}
+            result = {
+                "library_status": "not_requested",
+                "facts": [],
+                "reference": self._native_answer_reference(job),
+            }
             return {**result, "revision": digest(result)}
         library = read_information_library(self.answers_for(job).root)
         context = information_context(job, library, fact_keys=list(selected))
@@ -3508,8 +3537,69 @@ class WorkerStore:
                         ],
                     )
             facts.append(row)
-        result = {"library_status": library["status"], "facts": facts}
+        result = {
+            "library_status": library["status"],
+            "facts": facts,
+            "reference": self._native_answer_reference(job, library),
+        }
         return {**result, "revision": digest(result)}
+
+    def _native_answer_reference(self, job, library=None):
+        """The whole confirmed library and this job's career facts, to compose from.
+
+        The user's rule (2026-11-08): recording an answer for every possible question
+        is impossible, so the takeover may write an open answer itself from these
+        records. Field-bound facts above stay exact; this is reference text only.
+        """
+        from .application_information import information_context, read_information_library
+
+        if library is None:
+            try:
+                library = read_information_library(self.answers_for(job).root)
+            except (OSError, ValueError, PortalDataError):
+                library = {"status": "unavailable", "records": []}
+        answers = []
+        if library.get("status") == "available":
+            for item in information_context(job, library)["facts"]:
+                records = item.get("records") or []
+                if (
+                    item["status"] != "confirmed"
+                    or not isinstance(item.get("value"), str)
+                    or not records
+                    or item["fact"] in {"sponsorship_now_future", "work_authorization_now"}
+                    and job["country"] == "OTHER"
+                ):
+                    continue
+                answers.append({"question": records[0]["question"], "value": item["value"]})
+        career = []
+        try:
+            packet = self.material_inputs(job).get("material_packet") or {}
+        except (PortalDataError, OSError, ValueError, KeyError, TypeError):
+            packet = {}
+        for source in (packet.get("sources") or {}).values():
+            if not isinstance(source, dict) or not (
+                source.get("available") and source.get("match_eligible")
+            ):
+                continue
+            text = " ".join(
+                str(segment.get("text") or "") for segment in source.get("quote_segments") or []
+            ).strip()
+            if not text:
+                continue
+            context = source.get("record_context") or {}
+            career.append(
+                {
+                    "context": " | ".join(
+                        str(context[key])
+                        for key in ("organization", "role", "period")
+                        if context.get(key)
+                    ),
+                    "responsibility": str(source.get("attribution") or "")[:600],
+                    "planned_only": source.get("planned_only") is True,
+                    "text": text,
+                }
+            )
+        return {"confirmed_answers": answers, "career_facts": career}
 
     def assistance_delivery(self, expected_ref, *, page_context=None):
         """Project JSON context from the original records; never observe, save or dispatch."""
