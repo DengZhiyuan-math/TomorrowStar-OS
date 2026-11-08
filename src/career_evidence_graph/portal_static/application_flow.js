@@ -329,15 +329,7 @@
     }, { stopping: true, scope: pipelineScope(), domain: "pipeline" }), "flow-pipeline-pause", true);
     pausePipeline.dataset.flowStop = "true";
     pausePipeline.dataset.blocked = String(pipeline?.control !== "running");
-    // Sign in once in the App's own browser; later job pages open signed in.
-    const signInNote = node("p", "flow-muted", "");
-    signInNote.hidden = true;
-    const signInTo = (site, label, id) => button(label, () => mutate(async () => {
-      await api("/api/browser-sign-in", { method: "POST", body: JSON.stringify({ site }) });
-      signInNote.textContent = `已打开${label.slice(2).trim()}登录窗口：登录后关闭该窗口即可，之后的岗位页会保持登录。`;
-      signInNote.hidden = false;
-    }, { domain: "pipeline" }), id, true);
-    actions.append(startPipeline, pausePipeline, signInTo("linkedin", "登录领英", "flow-sign-in"), signInTo("indeed", "登录 Indeed", "flow-sign-in-indeed"));
+    actions.append(startPipeline, pausePipeline);
     if (pipeline?.current_recommendation_id) {
       const skip = button("跳过当前岗位", () => pipelineAction("skip", {}, true), "flow-pipeline-skip", true);
       skip.dataset.flowStop = "true";
@@ -347,7 +339,7 @@
         actions.append(button("我已提交", () => pipelineAction("submitted", {}, true), "flow-pipeline-submitted", true));
       }
     }
-    automation.append(actions, signInNote);
+    automation.append(actions);
     if (pipeline?.wait_reason === "codex_resume_required") automation.append(node("p", "flow-muted", "当前岗位等待 Codex 完成分经历写作、程序组装和单一终审；完成后自动继续，其他岗位保持等待。"));
     if (pipeline?.wait_reason === "score_approval") automation.append(node("p", "flow-muted", "此岗位匹配分在 55–75 区间，或两个模型分差较大：已完成分析、尚未生成材料。查看匹配概览后，点击“继续当前岗位”即批准生成材料；不投可点跳过。"));
     if (pipeline?.wait_reason === "precision_adjustment") automation.append(node("p", "flow-muted", "此岗位已完成分析、完整简历与已发现的必要附稿。你可以先调整材料，再点击“继续当前岗位”使用当前版本填写。"));

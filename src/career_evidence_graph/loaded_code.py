@@ -64,7 +64,6 @@ _PREPARATION_MODULES = (
     "application_source_reuse",
     "application_match_scoring",
     "application_second_opinion",
-    "browser_sign_in",
     "job_listing_links",
     "indeed_job_source",
     "employer_page_search",
