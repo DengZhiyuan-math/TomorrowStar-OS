@@ -393,6 +393,24 @@ _OTHER_COUNTRIES = (
 )
 
 
+def job_country(record):
+    """The location's explicit country, else the page's own structured country.
+
+    2026-11-08, Mistral: the location said only "Zurich", while the job page's
+    structured field, kept in the JD as "addressCountry: Switzerland", named one.
+    """
+    country = application_country(record.get("location"))
+    if country is not None:
+        return country
+    named = {
+        application_country(value.strip())
+        for value in re.findall(
+            r"addressCountry:\s*([^\n,;]+)", str(record.get("job_description") or "")
+        )
+    }
+    return named.pop() if len(named) == 1 and None not in named else None
+
+
 def application_country(location):
     """Only an explicit unique country in the job location establishes scope."""
     if not isinstance(location, str) or re.search(
@@ -476,7 +494,7 @@ def screen_applications(
         jd = str(record.get("job_description") or "").strip()
         mismatches = []
         language_questions = []
-        country = record.get("country") or application_country(record.get("location"))
+        country = record.get("country") or job_country(record)
         context = record | {"country": country} if country is not None else record
         levels = language_levels(context) if callable(language_levels) else language_levels
         for language, level in (levels or {}).items():

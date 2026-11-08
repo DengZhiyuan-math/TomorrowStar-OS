@@ -26,7 +26,7 @@ from .application_input_binding import job_input_revision
 from .application_match_refresh import match_refresh_running, require_no_other_match_refresh
 from .application_match_scoring import calculate_match_score, combined_score, score_tier
 from .career_portal_data import PortalDataError
-from .job_screening import application_country, application_route, screen_applications
+from .job_screening import application_route, job_country, screen_applications
 from .validation.hashing import record_digest as digest
 
 PROTOCOL = "application-pipeline/v1"
@@ -727,7 +727,7 @@ class ApplicationPipeline:
                     application = self.flow.applications.get_application(task["application_id"])
                     resume = "generating_resume"
                     if (
-                        application_country(application.get("location")) is not None
+                        job_country(application) is not None
                         and job_input_revision(application) != task["job_binding"]
                     ):
                         task = self.flow.update_inputs(
@@ -3051,7 +3051,7 @@ class ApplicationPipeline:
                 return
         item = next(row for row in state["items"] if row.get("task_id") == task["id"])
         application = self.flow.applications.get_application(task["application_id"])
-        country = application_country(application.get("location"))
+        country = job_country(application)
         if country is None:
             state.update(
                 resume_status="generating_resume", wait_reason="application_country_required"

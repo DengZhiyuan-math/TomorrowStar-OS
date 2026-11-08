@@ -5,7 +5,7 @@ from copy import deepcopy
 
 from .application_match_scoring import calculate_match_score, combined_score, fit_in_band
 from .career_portal_data import STATUS_LABELS, PortalDataError
-from .job_screening import application_country
+from .job_screening import job_country
 from .validation.hashing import record_digest as digest
 
 POLICY_VERSION = "preparation-policy/v1.0"
@@ -188,7 +188,7 @@ def qualification_for(task, application, library=None, *, analysis=None, fixed_d
         elif library is not None:
             from .application_information import condition_from_library
 
-            country = application.get("country") or application_country(application.get("location"))
+            country = application.get("country") or job_country(application)
             information = condition_from_library(
                 {"text": condition["text"], "hard_condition": True},
                 application | {"country": country} if country is not None else application,

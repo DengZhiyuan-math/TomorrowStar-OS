@@ -11,8 +11,9 @@ from career_evidence_graph.application_flow import (
     _preparation_progress,
     legacy_analysis_failure,
 )
-from career_evidence_graph.application_pipeline import ApplicationPipeline, application_country
+from career_evidence_graph.application_pipeline import ApplicationPipeline
 from career_evidence_graph.career_portal_data import ApplicationStore, PortalDataError
+from career_evidence_graph.job_screening import application_country
 
 
 class Intake:
@@ -1194,3 +1195,31 @@ def test_score_tiers_lean_toward_the_user_near_each_line(upper, review, tier):
     # Decided 2026-10-31: lines at 20/60/80 with a 5-point margin toward more involvement.
     score = {"lower": upper - 5, "upper": upper, "coverage": 95, "eligibility": "not_specified"}
     assert score_tier(score, needs_review=review) == tier
+
+
+@pytest.mark.parametrize(
+    ("record", "country"),
+    [
+        ({"location": "Zurich, Switzerland", "job_description": ""}, "CHE"),
+        # 2026-11-08, Mistral: only the page's structured field named the country.
+        (
+            {
+                "location": "Zurich",
+                "job_description": "Job location\naddress: addressCountry: Switzerland",
+            },
+            "CHE",
+        ),
+        ({"location": "Zurich", "job_description": "We are based in Zurich."}, None),
+        (
+            {
+                "location": "Zurich",
+                "job_description": "addressCountry: Switzerland\naddressCountry: France",
+            },
+            None,
+        ),
+    ],
+)
+def test_a_job_country_falls_back_to_the_pages_structured_country(record, country):
+    from career_evidence_graph.job_screening import job_country
+
+    assert job_country(record) == country

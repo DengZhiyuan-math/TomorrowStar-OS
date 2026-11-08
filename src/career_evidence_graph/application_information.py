@@ -15,7 +15,7 @@ from uuid import uuid4
 
 from ._vendor import job_apply_store as helper
 from .career_portal_data import PortalDataError, _write_file
-from .job_screening import LEVELS, _language_requirement, application_country
+from .job_screening import LEVELS, _language_requirement, job_country
 from .validation.hashing import record_digest as digest
 
 COUNTRIES = {"CHE", "USA", "GBR", "DEU", "FRA", "CAN", "OTHER"}
@@ -133,7 +133,7 @@ def material_information_context(application: dict) -> dict:
     """Use a named unique job country for material contacts, without guessing from a city."""
     country = application.get("country")
     if not isinstance(country, str) or country not in COUNTRIES:
-        country = application_country(application.get("location")) or "OTHER"
+        country = job_country(application) or "OTHER"
     return {**application, "country": country}
 
 
