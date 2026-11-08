@@ -52,6 +52,10 @@ def test_a_fill_runs_codex_with_the_users_own_configuration(tmp_path, monkeypatc
     assert saved == context
     prompt = process.argv[-1]
     assert "Never click Submit" in prompt and "everyday Google Chrome" in prompt
+    # Computer Use is the only route: no shell to script Chrome through osascript.
+    assert json.dumps(context) in prompt and "osascript" in prompt
+    disabled = {process.argv[i + 1] for i, arg in enumerate(process.argv) if arg == "--disable"}
+    assert disabled == {"shell_tool", "unified_exec"}
     assert json.loads((tmp_path / report["run"].split("/")[-1] / "report-schema.json").read_text())
     assert REPORT_SCHEMA["required"] == ["status", "summary", "filled", "unanswered"]
 
