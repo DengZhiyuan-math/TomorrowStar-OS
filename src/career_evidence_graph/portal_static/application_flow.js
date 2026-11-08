@@ -427,7 +427,9 @@
   }
 
   function followButton() {
-    const open = button("跟随当前岗位与材料", () => { followingPipeline = true; selectedTask = pipeline.active_task_id; refresh(); }, "flow-pipeline-current", true);
+    // The job's panel sits below the whole job list; show it (2026-11-08: the click
+    // changed nothing visible because following is already the default).
+    const open = button("跟随当前岗位与材料", async () => { followingPipeline = true; selectedTask = pipeline.active_task_id; await refresh(); current.scrollIntoView({ behavior: "smooth", block: "start" }); }, "flow-pipeline-current", true);
     delete open.dataset.flowWrite;
     return open;
   }
