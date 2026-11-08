@@ -292,4 +292,29 @@
 .flow-pipeline-item-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 12px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
 .flow-pipeline-item > .button { flex-shrink: 0; }
 .flow-pipeline-item-meta .status-badge { font-size: 11px; }
+/* Match bands (2026-11-08): a coloured edge and score chip per band; target companies stand out. */
+.flow-pipeline-item { border-left: 4px solid transparent; }
+.flow-pipeline-item.tier-high { border-left-color: #3f8a5a; }
+.flow-pipeline-item.tier-good { border-left-color: #3d7fa6; }
+.flow-pipeline-item.tier-fair { border-left-color: #c79a4a; }
+.flow-pipeline-item.tier-low { border-left-color: #c9c3bf; }
+.flow-pipeline-item.is-target { border-left-color: #d49b0b; background: #fffaeb; }
+.flow-score-chip { padding: 1px 8px; border-radius: 10px; background: #f0f2ed; color: var(--muted); font-weight: 600; font-variant-numeric: tabular-nums; }
+.flow-score-chip.tier-high { background: #e2f1e6; color: #2f6e45; }
+.flow-score-chip.tier-good { background: #e3eff7; color: #2d6587; }
+.flow-score-chip.tier-fair { background: #fbf0dc; color: #8f6420; }
+.flow-score-chip.tier-low { background: #f1eeee; color: #8a8380; }
+.flow-target-chip { padding: 1px 8px; border-radius: 10px; background: #fdecb8; color: #7a5600; font-weight: 600; }
+.flow-pipeline-group { margin: 18px 0 0; font-size: 12px; font-weight: 600; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+.flow-pipeline-group::before { content: ""; width: 10px; height: 10px; border-radius: 3px; background: #d7dbd4; }
+.flow-pipeline-group.tier-target::before { background: #d49b0b; }
+.flow-pipeline-group.tier-high::before { background: #3f8a5a; }
+.flow-pipeline-group.tier-good::before { background: #3d7fa6; }
+.flow-pipeline-group.tier-fair::before { background: #c79a4a; }
+.flow-pipeline-group.tier-low::before { background: #c9c3bf; }
+.flow-pipeline-group.tier-mismatch::before { background: #d9a79c; }
+.flow-pipeline-folder { margin-top: 22px; border: 1px dashed #e0c9a3; border-radius: 8px; background: var(--amber-soft); padding: 10px 12px; }
+.flow-pipeline-folder > summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--amber); }
+.flow-pipeline-folder > p { margin: 8px 0 0; }
+.flow-pipeline-folder .flow-pipeline-items { background: var(--white); border-radius: 6px; }
 @media (max-width: 620px) { .flow-pipeline-item { flex-direction: column; align-items: stretch; gap: 10px; } }

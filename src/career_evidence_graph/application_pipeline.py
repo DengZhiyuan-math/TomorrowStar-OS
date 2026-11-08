@@ -267,6 +267,8 @@ class ApplicationPipeline:
                         item.update(
                             company=application["company"], role_title=application["role_title"]
                         )
+                        if application.get("target_company") == "target":
+                            item["target_company"] = True
                 except PortalDataError:
                     pass
             try:
@@ -296,6 +298,11 @@ class ApplicationPipeline:
                 )
                 url = row.get("jd_source_url") or row.get("url") or row.get("mail_url") or ""
                 item["source_host"] = (urlsplit(url).hostname or "") if isinstance(url, str) else ""
+            # The list highlights target companies, also jobs listed before the mark existed.
+            listed = self._target_companies()
+            for item in state["items"]:
+                if any(same_company(name, item.get("company") or "") for name in listed):
+                    item["target_company"] = True
             return state | {
                 "notice": self._notice(state),
                 "enabled": self._owner and not self._closed.is_set() and not self._runtime_error,
@@ -3206,13 +3213,16 @@ class ApplicationPipeline:
         state.update(status="filling", worker_runtime_id=None, last_heartbeat=0)
         self._save(state)
 
-    def _mark_target_company(self, application):
-        """Mark a job of a listed target company (2026-11-08: Mistral) on its record."""
+    def _target_companies(self):
         path = Path(self.flow.root) / "target-companies.json"
         try:
-            listed = json.loads(path.read_text(encoding="utf-8")).get("companies", [])
+            return json.loads(path.read_text(encoding="utf-8")).get("companies", [])
         except (OSError, ValueError, AttributeError):
-            return application
+            return []
+
+    def _mark_target_company(self, application):
+        """Mark a job of a listed target company (2026-11-08: Mistral) on its record."""
+        listed = self._target_companies()
         if application.get("target_company") == "target" or not any(
             same_company(name, application.get("company", "")) for name in listed
         ):

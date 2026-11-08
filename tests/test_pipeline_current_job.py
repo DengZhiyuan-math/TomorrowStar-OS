@@ -1303,3 +1303,17 @@ def test_continue_resumes_the_step_a_program_check_stopped(current_pipeline, mon
     assert stopped["resume_status"] == "generating_resume" and refusals
     pipeline.continue_current(request_id="continue-after-release")
     assert drive(pipeline, "filling")["active_task_id"] == stopped["active_task_id"]
+
+
+def test_the_job_list_flags_listed_target_companies(current_pipeline):
+    """2026-11-08: the list highlights target-company jobs, also ones listed earlier."""
+    import json
+
+    pipeline, flow, _intake, _worker = current_pipeline
+    pipeline.start(request_id="start")
+    drive(pipeline, "filling")
+    assert not any(item.get("target_company") for item in pipeline.snapshot()["items"])
+    (flow.root / "target-companies.json").write_text(json.dumps({"companies": ["Synthetic"]}))
+    current = pipeline.snapshot()
+    item = next(row for row in current["items"] if row.get("task_id") == current["active_task_id"])
+    assert item["target_company"] is True

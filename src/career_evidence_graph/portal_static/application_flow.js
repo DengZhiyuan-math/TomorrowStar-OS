@@ -7,7 +7,7 @@
   const pipelineRequests = new Map();
   const admissionScope = payload => `admission:${payload.application_id ? "application" : "recommendation"}:${payload.application_id || payload.recommendation_id}`;
   let followingPipeline = true;
-  let timer = null, renderedTask = "", renderedSavedJobs = "", renderedPipeline = "", taskDetailsOpen = false;
+  let timer = null, renderedTask = "", renderedSavedJobs = "", renderedPipeline = "", taskDetailsOpen = false, handlingOpen = false;
   const uncertainScopes = new Set();
   const pipelineTask = task => flow?.mode === "application" && (!!pipeline?.id || !!pipeline?.items?.length || pipeline?.active_task_id === task?.id);
   // The backend projects the active task's saved stage activity; the page does not classify stages.
@@ -311,7 +311,7 @@
   function renderPipeline() {
     automation.hidden = flow?.mode === "preparation";
     automation.dataset.taskId = `${pipeline?.id || ""}/${pipelineScope()}/${pipeline?.active_task_id || ""}`;
-    const key = JSON.stringify([flow?.mode, pipeline?.enabled, pipeline?.id, pipeline?.control, pipeline?.status, pipeline?.current_recommendation_id, pipeline?.active_task_id, pipeline?.wait_reason, pipeline?.notice?.message || pipeline?.notice?.title, pipeline?.items?.map(item => [item.application_id, item.recommendation_id, item.company, item.role_title, item.status, item.reason, item.mismatch, item.source_host, item.pipeline_context?.notification?.message, item.score?.lower, item.score?.upper, item.score?.coverage])]);
+    const key = JSON.stringify([flow?.mode, pipeline?.enabled, pipeline?.id, pipeline?.control, pipeline?.status, pipeline?.current_recommendation_id, pipeline?.active_task_id, pipeline?.wait_reason, pipeline?.notice?.message || pipeline?.notice?.title, pipeline?.items?.map(item => [item.application_id, item.recommendation_id, item.company, item.role_title, item.status, item.reason, item.mismatch, item.source_host, item.pipeline_context?.notification?.message, item.pipeline_context?.wait_reason, item.submitted_by, item.target_company, item.score?.lower, item.score?.upper, item.score?.coverage])]);
     if (renderedPipeline === key) return;
     renderedPipeline = key;
     automation.replaceChildren(node("h2", "", "自动申请流程"));
@@ -349,44 +349,81 @@
     // A closed posting is not listed (2026-11-05); older ones stay recorded only.
     const items = (pipeline?.items || []).filter(item => item.reason !== "posting_closed").map((item, index) => ({ item, index, current: item.status !== "skipped" && item.status !== "analysis_failed" && item.recommendation_id === pipeline.current_recommendation_id }));
     items.sort((a, b) => (b.current - a.current) || (b.index - a.index));
-    const list = node("ol", "flow-pipeline-items");
+    // 2026-11-08: jobs stopped by a fault or a site limit go to their own folder;
+    // the rest are grouped by target company, then by match band, each with its colour.
+    const needsHandling = item => item.status === "analysis_failed" || item.status === "skipped" && !["low_match_score", "flow_eligibility_required"].includes(item.reason) && item.pipeline_context?.wait_reason !== "score_approval";
+    const groups = [["target", "目标公司"], ["high", "高匹配 · 75 分以上"], ["good", "较高匹配 · 55–74"], ["fair", "中等匹配 · 40–54"], ["low", "较低匹配 · 40 以下"], ["unscored", "尚无匹配分"], ["mismatch", "硬性条件不满足"]].map(([key, label]) => ({ key, label, rows: [] }));
+    const handling = [];
+    let currentRow = null;
     for (const { item, current } of items) {
-      const score = item.score;
-      const [badge, tone, reason] = current ? ["当前岗位", "reviewed", ""]
-        : item.status === "analysis_failed" ? ["分析未通过", "rejected", "分析结果未通过校验，已保留记录"]
-        : item.reason === "flow_eligibility_required" ? ["岗位不匹配", "rejected", item.mismatch?.length ? `不满足：${item.mismatch.join("；")}` : "JD 的硬性条件与信息库不符"]
-        : item.status === "completed" && item.submitted_by === "user" ? ["已提交", "applied", ""]
-        : item.status !== "skipped" ? ["已处理", "applied", ""]
-        : item.reason === "posting_closed" ? ["已停招", "withdrawn", "领英显示岗位已停止招聘"]
-        : item.reason === "easy_apply_only" ? ["仅领英站内申请", "withdrawn", "只能用领英 Easy Apply，需要时请自己投递"]
-        : item.reason === "indeed_apply_only" ? ["仅 Indeed 站内申请", "withdrawn", "只能用 Indeed Apply，需要时请自己投递"]
-        : item.reason === "low_match_score" ? ["匹配过低", "withdrawn", "匹配分低于 15，已自动跳过"]
-        : ["已跳过", "candidate", item.pipeline_context?.notification?.message ? `跳过时：${item.pipeline_context.notification.message}` : ""];
-      const row = node("li", `flow-pipeline-item${current ? " is-current" : ""}`);
-      const main = node("div", "flow-pipeline-item-main");
-      const title = node("p", "flow-pipeline-item-title");
-      title.append(node("strong", "", item.company || (item.source_host ? `${item.source_host} 推荐` : "未命名岗位")));
-      if (item.role_title) title.append(node("span", "", item.role_title));
-      else if (!item.company) title.append(node("span", "", "未取得岗位信息"));
-      const meta = node("p", "flow-pipeline-item-meta");
-      meta.append(node("span", `status-badge status-${tone}`, badge));
-      if (score && typeof score.lower === "number") meta.append(node("span", "", `匹配 ${Math.round(score.lower) === Math.round(score.upper) ? Math.round(score.upper) : `${Math.round(score.lower)}–${Math.round(score.upper)}`}`));
-      if (reason) meta.append(node("span", "", reason));
-      main.append(title, meta);
-      row.append(main);
-      if (item.status === "skipped") {
-        const restore = button("返回此岗位", () => pipelineAction("return", { application_id: item.application_id || item.recommendation_id }, true), "", true);
-        restore.dataset.flowStop = "true";
-        // 2026-11-08: a job submitted by hand after the queue left it.
-        const submitted = button("已提交", () => pipelineAction("mark-submitted", { application_id: item.application_id || item.recommendation_id }), "", true);
-        row.append(restore, submitted);
-      } else if (current && pipeline?.active_task_id) {
-        row.append(followButton());
+      if (current) currentRow = pipelineRow(item, true);
+      else if (needsHandling(item)) handling.push(pipelineRow(item, false));
+      else {
+        const key = item.target_company ? "target" : item.reason === "flow_eligibility_required" ? "mismatch" : scoreBand(item.score) || "unscored";
+        groups.find(group => group.key === key).rows.push(pipelineRow(item, false));
       }
-      list.append(row);
     }
-    if (items.length) automation.append(node("h3", "", `本次处理的岗位（${items.length}）`), list);
+    if (items.length) automation.append(node("h3", "", `本次处理的岗位（${items.length}）`));
+    if (currentRow) { const list = node("ol", "flow-pipeline-items"); list.append(currentRow); automation.append(list); }
+    for (const group of groups.filter(group => group.rows.length)) {
+      const list = node("ol", "flow-pipeline-items");
+      list.append(...group.rows);
+      automation.append(node("h4", `flow-pipeline-group tier-${group.key}`, `${group.label}（${group.rows.length}）`), list);
+    }
+    if (handling.length) {
+      const folder = node("details", "flow-pipeline-folder");
+      folder.open = handlingOpen;
+      folder.addEventListener("toggle", () => { handlingOpen = folder.open; });
+      const list = node("ol", "flow-pipeline-items");
+      list.append(...handling);
+      folder.append(node("summary", "", `需单独处理 · 故障或限制跳过（${handling.length}）`), node("p", "flow-muted", "未取得完整 JD、原页不能核验、仅站内申请等原因，自动流程未能继续。可逐条返回此岗位、补充来源，或自己投递后点“已提交”。"), list);
+      automation.append(folder);
+    }
     if (pipeline?.active_task_id && !automation.querySelector("#flow-pipeline-current")) automation.append(followButton());
+  }
+
+  function scoreBand(score) {
+    if (typeof score?.upper !== "number") return null;
+    // 55 and 75 are the routing lines of APP-06 (score_tier); 40 splits the autonomous band.
+    const upper = Math.round(score.upper); // the number the row shows
+    return upper >= 75 ? "high" : upper >= 55 ? "good" : upper >= 40 ? "fair" : "low";
+  }
+  function pipelineRow(item, current) {
+    const score = item.score;
+    const [badge, tone, reason] = current ? ["当前岗位", "reviewed", ""]
+      : item.status === "analysis_failed" ? ["分析未通过", "rejected", "分析结果未通过校验，已保留记录"]
+      : item.reason === "flow_eligibility_required" ? ["岗位不匹配", "rejected", item.mismatch?.length ? `不满足：${item.mismatch.join("；")}` : "JD 的硬性条件与信息库不符"]
+      : item.status === "completed" && item.submitted_by === "user" ? ["已提交", "applied", ""]
+      : item.status !== "skipped" ? ["已处理", "applied", ""]
+      : item.reason === "posting_closed" ? ["已停招", "withdrawn", "领英显示岗位已停止招聘"]
+      : item.reason === "easy_apply_only" ? ["仅领英站内申请", "withdrawn", "只能用领英 Easy Apply，需要时请自己投递"]
+      : item.reason === "indeed_apply_only" ? ["仅 Indeed 站内申请", "withdrawn", "只能用 Indeed Apply，需要时请自己投递"]
+      : item.reason === "low_match_score" ? ["匹配过低", "withdrawn", "匹配分低于 15，已自动跳过"]
+      : ["已跳过", "candidate", item.pipeline_context?.notification?.message ? `跳过时：${item.pipeline_context.notification.message}` : ""];
+    const band = item.reason === "flow_eligibility_required" ? null : scoreBand(score);
+    const row = node("li", `flow-pipeline-item${current ? " is-current" : ""}${band ? ` tier-${band}` : ""}${item.target_company ? " is-target" : ""}`);
+    const main = node("div", "flow-pipeline-item-main");
+    const title = node("p", "flow-pipeline-item-title");
+    title.append(node("strong", "", item.company || (item.source_host ? `${item.source_host} 推荐` : "未命名岗位")));
+    if (item.role_title) title.append(node("span", "", item.role_title));
+    else if (!item.company) title.append(node("span", "", "未取得岗位信息"));
+    const meta = node("p", "flow-pipeline-item-meta");
+    if (item.target_company) meta.append(node("span", "flow-target-chip", "★ 目标公司"));
+    meta.append(node("span", `status-badge status-${tone}`, badge));
+    if (score && typeof score.lower === "number") meta.append(node("span", `flow-score-chip${band ? ` tier-${band}` : ""}`, `匹配 ${Math.round(score.lower) === Math.round(score.upper) ? Math.round(score.upper) : `${Math.round(score.lower)}–${Math.round(score.upper)}`}`));
+    if (reason) meta.append(node("span", "", reason));
+    main.append(title, meta);
+    row.append(main);
+    if (item.status === "skipped") {
+      const restore = button("返回此岗位", () => pipelineAction("return", { application_id: item.application_id || item.recommendation_id }, true), "", true);
+      restore.dataset.flowStop = "true";
+      // 2026-11-08: a job submitted by hand after the queue left it.
+      const submitted = button("已提交", () => pipelineAction("mark-submitted", { application_id: item.application_id || item.recommendation_id }), "", true);
+      row.append(restore, submitted);
+    } else if (current && pipeline?.active_task_id) {
+      row.append(followButton());
+    }
+    return row;
   }
 
   function followButton() {
@@ -399,8 +436,21 @@
     return mutate(async () => {
       const key = JSON.stringify([action, payload]);
       if (!pipelineRequests.has(key)) pipelineRequests.set(key, crypto.randomUUID().replaceAll("-", ""));
-      pipeline = await api(`/api/pipeline/${action}`, { method: "POST", body: JSON.stringify({ request_id: pipelineRequests.get(key), ...payload }) });
+      const job = action === "submitted" ? pipeline?.items?.find(item => item.recommendation_id === pipeline.current_recommendation_id)
+        : action === "mark-submitted" ? pipeline?.items?.find(item => [item.application_id, item.recommendation_id].includes(payload.application_id)) : null;
+      const submit = ["submitted", "mark-submitted"].includes(action);
+      try {
+        pipeline = await api(`/api/pipeline/${action}`, { method: "POST", body: JSON.stringify({ request_id: pipelineRequests.get(key), ...payload }) });
+      } catch (error) {
+        // The page notice sits far above the list; the toast shows next to the click.
+        if (submit) toast(`未能记录为已提交：${error.message}`);
+        throw error;
+      }
       pipelineRequests.delete(key);
+      if (submit) {
+        const done = `已记录为已提交：${[job?.company, job?.role_title].filter(Boolean).join(" · ") || "该岗位"}，申请记录已标为已投递。`;
+        message(done); toast(done);
+      }
       followingPipeline = true;
       selectedTask = pipeline.active_task_id || null;
     }, { stopping, scope: pipelineScope(), domain: "pipeline" });
