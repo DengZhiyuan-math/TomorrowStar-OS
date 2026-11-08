@@ -252,3 +252,58 @@ def test_pause_during_scoped_author_stops_new_calls_and_resumes_only_missing_wor
     finally:
         release.set()
         thread.join(5)
+
+
+def test_resume_prompts_keep_job_fit_and_agent_assistance_out_of_the_review():
+    """2026-11-08 (finnova): the review failed a resume on German A2 versus C1, then
+    patched in "agent-assisted" and returned passed with issues."""
+    from career_evidence_graph.application_experience_content import (
+        REVIEW_INSTRUCTIONS,
+        WRITER_INSTRUCTIONS,
+    )
+
+    assert "unmet JD requirement such as a language level" in REVIEW_INSTRUCTIONS
+    assert "languages line are fixed template text" in REVIEW_INSTRUCTIONS
+    assert "passed true means issues is empty" in REVIEW_INSTRUCTIONS
+    for instructions in (REVIEW_INSTRUCTIONS, WRITER_INSTRUCTIONS):
+        assert "coding-agent" in instructions and "internal records" in instructions
+
+
+def test_rewrite_keeps_reviewer(json_flow):
+    """2026-11-08 (finnova): the review after a local rewrite came with a new reviewer id,
+    which the generation refused, and the resume stopped."""
+    case = json_flow
+    task = start_json_writing(case)
+    reviews = []
+
+    written = []
+
+    def runner(config, prompt, **kwargs):
+        request = json.loads(prompt.split("\n", 1)[1])
+        if request["role"].startswith("experience-"):
+            output = scoped_output(request["context"])
+            eid = request["context"]["assignment"]["experience_id"]
+            if eid in written:
+                # A real rewrite changes the wording, so the next review sees a new draft.
+                output["items"][0]["id"] += "-rewritten"
+            written.append(eid)
+            return response({"result": output})
+        if request["role"] != "review":
+            return response(author_output(request))
+        reviews.append(request["context"])
+        if len(reviews) == 1:
+            first = request["context"]["writing_plan"]["assignments"][0]["experience_id"]
+            return response(
+                {
+                    "passed": False,
+                    "issues": ["Rewrite the first experience's scope."],
+                    "content_patch": None,
+                    "rewrite_experience_ids": [first],
+                }
+            )
+        return response(author_output(request))
+
+    identifier = task["experience_handoff"]["id"]
+    result = execute_content_generation(case.store, identifier, runner=runner)
+    assert result["kind"] == "draft"
+    assert len(reviews) == 2

@@ -298,8 +298,14 @@ def _execute_content_generation(
         try:
             if not isinstance(response, dict) or set(response) != set(schema["required"]):
                 raise ValueError("review response fields do not match")
-            # Preserve one reviewer identity through local rewrites and patches.
-            reviewer = state.get("review", {}).get("reviewer_id") or reviewer
+            # Preserve one reviewer identity through local rewrites and patches; the
+            # generation keeps it as final_reviewer_id (2026-11-08: finnova's second review
+            # sent a new id and was refused).
+            reviewer = (
+                state.get("final_reviewer_id")
+                or state.get("review", {}).get("reviewer_id")
+                or reviewer
+            )
             reviewed = generation.review_generation(
                 store,
                 identifier,

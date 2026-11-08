@@ -48,6 +48,8 @@ REVIEW_INSTRUCTIONS = (
     "This is the single semantic review of newly generated wording. Trust fixed facts and "
     "accepted inferences. Check scope, plan focus, duplication, contradictions and clarity. "
     "Do not retrieve libraries, audit self-reports, reinterpret the JD or rescore. "
+    "An unmet JD requirement such as a language level is already scored and is never by "
+    "itself an issue. "
     "Return small located patches or return only affected experiences to their writers."
 )
 
@@ -172,6 +174,8 @@ def _public(state):
             "fixed_inputs_revision",
             "writing_plan",
             "main_writer_id",
+            # The author runner keeps one reviewer through rewrites (2026-11-08).
+            "final_reviewer_id",
         )
         if key in state
     }

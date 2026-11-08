@@ -34,6 +34,8 @@ WRITER_INSTRUCTIONS = (
     "title, organization, role, location and dates, so never repeat them as items. "
     "Put a URL only in an item's links, without repeating its label in the item text. "
     "Leave out long identifiers such as full commit hashes. "
+    "Keep AI, coding-agent and tool assistance out of the wording; it stays in internal "
+    "records. Keep real team and collaborator responsibility. "
     "Do not reinterpret the JD, rescore, retrieve libraries, or change another experience."
 )
 REVIEW_INSTRUCTIONS = (
@@ -44,6 +46,12 @@ REVIEW_INSTRUCTIONS = (
     "Review the headline as job-specific career positioning supported by delivered facts; "
     "it must not invent employment, seniority, qualifications or proficiency. "
     "Keep protected human content, identity, education, references and attribution. "
+    "Review this wording, not whether the applicant meets the job: an unmet JD requirement "
+    "such as a language level is already scored and is never by itself an issue. Education "
+    "and the languages line are fixed template text outside this content; their absence "
+    "here is not an issue. Never add AI, coding-agent or tool-assistance disclosures to the "
+    "resume; they stay in internal records. issues lists only problems that remain after "
+    "your patch: passed true means issues is empty. "
     "Do not retrieve libraries, reinterpret the JD, rescore or write source libraries. "
     "When sibling_cover_letter is present, check factual consistency between the two "
     "new expressions. A relevant detail appearing only in one material is not by itself "
