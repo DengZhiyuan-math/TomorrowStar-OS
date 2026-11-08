@@ -26,7 +26,7 @@ from .application_input_binding import job_input_revision
 from .application_match_refresh import match_refresh_running, require_no_other_match_refresh
 from .application_match_scoring import calculate_match_score, combined_score, score_tier
 from .career_portal_data import PortalDataError
-from .job_screening import application_route, job_country, screen_applications
+from .job_screening import job_country, screen_applications
 from .validation.hashing import record_digest as digest
 
 PROTOCOL = "application-pipeline/v1"
@@ -2919,33 +2919,20 @@ class ApplicationPipeline:
                 for row in screen_applications(
                     self.flow.applications.list_applications(),
                     application_id=application["id"],
-                    language_levels=self.worker.store.language_levels,
+                    # 2026-11-08 (user decision): a language-level gap only lowers the
+                    # match score; it never excludes or stops a job.
+                    language_levels=None,
                     allow_generic=self.worker.generic,
                 )
                 if row["id"] == application["id"]
             )
             route, route_reasons = screening["application_route"], screening["route_reasons"]
-            if screening["language_needs_input"]:
-                # Language uncertainty must not replace an explicit hold or the
-                # saved precision decision; it still stops eligible current work.
-                route, route_reasons = application_route(
-                    application, relevant=screening["target_relevant"]
-                )
             item.update(application_route=route, route_reasons=route_reasons)
             excluded = (
                 screening["category"] in {"recorded", "excluded"}
                 or not screening["worker_supported"]
                 or route in {"hold", "excluded", "recorded"}
             )
-            if screening["language_needs_input"] and not excluded:
-                item.update(
-                    status="needs_input",
-                    reason=screening["reasons"],
-                    reason_code="language_information_required",
-                )
-                state["resume_status"] = "matching"
-                self._stop(state, "needs_input", "当前岗位的适用语言信息需确认，其他岗位保持等待。")
-                return
             if not screening["worker_preparable"] or excluded:
                 item.update(
                     status="excluded",

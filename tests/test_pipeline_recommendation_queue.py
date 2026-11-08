@@ -298,7 +298,8 @@ def test_unknown_acquisition_dispatch_never_repeats_or_moves_to_next(
         reopened.close()
 
 
-def test_current_language_conflict_waits_and_one_continue_resumes_same_job(queue_environment):
+def test_a_language_conflict_does_not_stop_the_current_job(queue_environment):
+    """2026-11-08 (user decision): a language-level gap only lowers the match score."""
     from career_evidence_graph.application_worker import WorkerStore
 
     pipeline, flow, intake, worker, _reads, fetches, _messages = queue_environment
@@ -312,23 +313,9 @@ def test_current_language_conflict_waits_and_one_continue_resumes_same_job(queue
             {"question": question, "value": value, "scope": {}, "state": "confirmed"}
         )
     pipeline.start(request_id="current-language")
-    waiting = drive(pipeline, "needs_input")
-    assert waiting["can_resume_matching"] is True and flow.tasks == {} and len(fetches) == 1
-    application_id = waiting["items"][0]["application_id"]
-    worker.store.answers.put_answer(
-        {
-            "question": "German level",
-            "value": "B2",
-            "scope": {"application_id": application_id},
-            "state": "confirmed",
-        }
-    )
-    # Replaying admission is not Continue.
-    assert pipeline.start(request_id="current-language")["control"] == "paused"
-    pipeline.start(request_id="continue-current-language")
     current = drive(pipeline, "filling")
-    assert current["current_recommendation_id"] == waiting["current_recommendation_id"]
     assert len(fetches) == len(flow.tasks) == 1
+    assert current["items"][0].get("reason_code") != "language_information_required"
 
 
 def test_retained_unknown_source_checkpoint_holds_without_another_fetch(queue_environment):

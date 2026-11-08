@@ -283,7 +283,13 @@ def test_low_route_after_a_skipped_job_advances_in_queue_order(current_pipeline,
     assert current_id not in flow.tasks
 
 
-def test_precision_route_keeps_important_language_conflict_on_current_job(environment):
+@pytest.mark.parametrize(
+    "answers",
+    [[("German level", "B2"), ("German proficiency CEFR", "C1")], [("German level", "A1")]],
+    ids=["conflicting", "below_requirement"],
+)
+def test_a_language_gap_never_stops_the_job_before_analysis(environment, answers):
+    """2026-11-08 (user decision): a language-level gap only lowers the match score."""
     from career_evidence_graph.application_worker import WorkerStore
 
     pipeline, flow, _intake, worker, jobs = environment
@@ -293,16 +299,18 @@ def test_precision_route_keeps_important_language_conflict_on_current_job(enviro
         {"application_strategy": "manual", "job_description": "German B2 required."},
         jobs[0]["revision"],
     )
-    for question, value in [("German level", "B2"), ("German proficiency CEFR", "C1")]:
+    for question, value in answers:
         worker.store.answers.put_answer(
             {"question": question, "value": value, "scope": {}, "state": "confirmed"}
         )
-    pipeline.start(request_id="manual-language-conflict")
-    waiting = advance(pipeline, "needs_input")
-    assert waiting["items"][0]["reason_code"] == "language_information_required"
-    assert waiting["items"][1]["status"] == "pending"
-    assert flow.tasks == {} and worker.snapshot()["jobs"] == []
-    assert waiting["can_resume_matching"] is True
+    pipeline.start(request_id="language-gap")
+    advance(pipeline, "matching")
+    for _ in range(5):
+        pipeline._tick()
+    item = pipeline.snapshot()["items"][0]
+    assert item.get("reason_code") != "language_information_required"
+    assert item["status"] not in {"excluded", "needs_input"}
+    assert ("analysis", jobs[0]["id"]) in flow.calls
 
 
 def test_important_analysis_conflict_stops_current_before_next_analysis(environment):
@@ -363,24 +371,4 @@ def test_precision_route_never_overrides_independent_admission_guard(environment
     state = pipeline.snapshot()
     assert state["items"][0]["status"] == "excluded"
     assert state["items"][0]["reason"]
-    assert flow.calls == [] and worker.snapshot()["jobs"] == []
-
-
-def test_precision_route_never_overrides_confirmed_language_gap(environment):
-    from career_evidence_graph.application_worker import WorkerStore
-
-    pipeline, flow, _intake, worker, jobs = environment
-    worker.store = WorkerStore(flow.applications, flow.root.parent / "language-worker")
-    worker.store.answers.put_answer(
-        {"question": "German level", "value": "A1", "scope": {}, "state": "confirmed"}
-    )
-    flow.applications.update_application(
-        jobs[0]["id"],
-        {"application_strategy": "manual", "job_description": "German B2 required."},
-        jobs[0]["revision"],
-    )
-    pipeline.start(request_id="precision-language-gap")
-    advance(pipeline, "matching")
-    pipeline._tick()
-    assert pipeline.snapshot()["items"][0]["status"] == "excluded"
     assert flow.calls == [] and worker.snapshot()["jobs"] == []

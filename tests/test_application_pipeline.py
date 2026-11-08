@@ -274,26 +274,28 @@ def test_matching_uses_current_job_language_exception(environment, scope_kind):
     assert snapshot["items"][1]["score"] is None
 
 
-def language_wait(environment, position=0):
+def language_wait(environment):
+    """A language wait saved before 2026-11-08, when a language gap still stopped a job.
+
+    New jobs no longer stop on language; a saved wait still resumes with one Continue.
+    """
     from career_evidence_graph.application_worker import WorkerStore
 
     pipeline, flow, intake, worker, jobs = environment
     worker.store = WorkerStore(flow.applications, flow.root.parent / "language-worker")
-    flow.applications.update_application(
-        jobs[position]["id"], {"job_description": "German B2 required."}, jobs[position]["revision"]
-    )
-    if position == 1:
-        flow.applications.update_application(
-            jobs[0]["id"], {"application_strategy": "hold"}, jobs[0]["revision"]
-        )
-    for question, value in [("German level", "B2"), ("German proficiency CEFR", "C1")]:
-        worker.store.answers.put_answer(
-            {"question": question, "value": value, "scope": {}, "state": "confirmed"}
-        )
     pipeline.start(request_id="language-conflict")
     advance(pipeline, "matching")
-    snapshot = advance(pipeline, "needs_input")
-    return pipeline, flow, intake, worker, jobs, snapshot
+    with pipeline._control() as state:
+        item = next(row for row in state["items"] if row["application_id"] == jobs[0]["id"])
+        item.update(
+            status="needs_input",
+            posting_checked=True,
+            reason=["适用语言信息有冲突或缺少明确等级，请核对"],
+            reason_code="language_information_required",
+        )
+        state["resume_status"] = "matching"
+        pipeline._stop(state, "needs_input", "当前岗位的适用语言信息需确认，其他岗位保持等待。")
+    return pipeline, flow, intake, worker, jobs, pipeline.snapshot()
 
 
 @pytest.mark.parametrize(
@@ -344,109 +346,6 @@ def test_independently_excluded_job_does_not_request_language_resolution(
     assert result["active_task_id"] == jobs[1]["id"]
     assert [call for call in flow.calls if call[0] == "analysis"] == [("analysis", jobs[1]["id"])]
     assert jobs[0]["id"] not in flow.tasks and len(intake.calls) == 1
-
-
-@pytest.mark.parametrize("position", [0, 1])
-def test_conflicting_language_facts_pause_current_job_before_analysis(environment, position):
-    pipeline, flow, intake, worker, jobs, snapshot = language_wait(environment, position)
-    assert snapshot["control"] == "paused"
-    assert [row["status"] for row in snapshot["items"]] == (
-        ["needs_input", "pending"] if position == 0 else ["excluded", "needs_input"]
-    )
-    previous_calls, previous_tasks = deepcopy(flow.calls), deepcopy(flow.tasks)
-    assert [call for call in previous_calls if call[0] == "analysis"] == []
-    if position == 1:
-        assert jobs[0]["id"] not in previous_tasks
-    assert snapshot["can_resume_matching"] is True
-    intake.state.update(run_id="c" * 32, status="running")
-    pipeline.start(request_id="language-still-conflicting")
-    pipeline._tick()
-    assert pipeline.snapshot()["status"] == "needs_input"
-    assert flow.calls == previous_calls and flow.tasks == previous_tasks
-
-    worker.store.answers.put_answer(
-        {
-            "question": "German level",
-            "value": "B2",
-            "scope": {"application_id": jobs[position]["id"]},
-            "state": "confirmed",
-        }
-    )
-    resumed = pipeline.start(request_id="language-resolved")
-    assert {
-        key: resumed[key] for key in ("id", "intake_run_id", "authorization", "started_at")
-    } == {key: snapshot[key] for key in ("id", "intake_run_id", "authorization", "started_at")}
-    assert flow.tasks == previous_tasks
-    assert pipeline.start(request_id="language-resolved") == resumed
-    pipeline._tick()
-    assert [call for call in flow.calls[len(previous_calls) :] if call[0] == "analysis"] == [
-        ("analysis", jobs[position]["id"])
-    ]
-    if position == 0:
-        assert pipeline.snapshot()["items"][1]["status"] == "pending"
-    else:
-        assert pipeline.snapshot()["items"][0]["status"] == "excluded"
-        assert jobs[0]["id"] not in flow.tasks
-    assert len(intake.calls) == 1
-
-
-@pytest.mark.parametrize("resolved", [False, True])
-def test_replaying_original_start_keeps_language_wait_until_a_new_continue(environment, resolved):
-    pipeline, flow, intake, worker, jobs, waiting = language_wait(environment)
-    if resolved:
-        worker.store.answers.put_answer(
-            {
-                "question": "German level",
-                "value": "B2",
-                "scope": {"application_id": jobs[0]["id"]},
-                "state": "confirmed",
-            }
-        )
-    before = pipeline.path.read_bytes()
-    previous_tasks, previous_calls = deepcopy(flow.tasks), deepcopy(flow.calls)
-    repeated = pipeline.start(request_id=waiting["request_id"])
-    assert repeated["status"] == "needs_input" and repeated["control"] == "paused"
-    pipeline._tick()
-    assert pipeline.path.read_bytes() == before
-    assert flow.tasks == previous_tasks and flow.calls == previous_calls
-    assert len(intake.calls) == 1 and worker.snapshot()["jobs"] == []
-    if resolved:
-        resumed = pipeline.start(request_id="explicit-language-continue")
-        assert resumed["status"] == "matching" and resumed["control"] == "running"
-        assert pipeline.start(request_id="explicit-language-continue") == resumed
-        pipeline._tick()
-        assert [call for call in flow.calls if call[0] == "analysis"] == [
-            ("analysis", jobs[0]["id"])
-        ]
-
-
-@pytest.mark.parametrize(
-    "change", ["wrong_control", "source_missing", "source_order", "worker", "ordinary_wait"]
-)
-def test_language_continue_does_not_resume_a_different_or_uncertain_stage(environment, change):
-    pipeline, flow, intake, _worker, _jobs, _snapshot = language_wait(environment)
-    state = pipeline._load()
-    if change == "wrong_control":
-        state["control"] = "running"
-    elif change == "source_missing":
-        (intake.root / "runs" / state["intake_run_id"] / "source-chain.json").unlink()
-    elif change == "source_order":
-        path = intake.root / "runs" / state["intake_run_id"] / "source-chain.json"
-        chain = helper.read_json_object(path, "synthetic source chain")
-        chain["sources"].reverse()
-        helper.atomic_write_json(path, chain)
-    elif change == "worker":
-        state["worker_batch_id"] = "synthetic-other-batch"
-    else:
-        state["items"][0]["reason_code"] = "unknown_action_result"
-    pipeline._save(state)
-    before = pipeline.path.read_bytes()
-    assert pipeline.snapshot()["can_resume_matching"] is False
-    with pytest.raises(PortalDataError) as error:
-        pipeline.start(request_id="must-not-resume")
-    assert error.value.code == "pipeline_exists"
-    assert pipeline.path.read_bytes() == before
-    assert flow.calls == [] and len(intake.calls) == 1
 
 
 def test_one_grant_drives_email_matching_resume_and_filling_without_ui(environment):

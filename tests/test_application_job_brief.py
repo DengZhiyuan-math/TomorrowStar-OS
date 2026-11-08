@@ -767,3 +767,6 @@ def test_the_prompt_splits_each_required_language_level(tmp_path, application, o
     prompt = calls[0][1]
     assert "each required language level is its own requirement" in prompt
     assert "German C1 and English B2 are two" in prompt
+    # 2026-11-08 (user decision): a language gap only lowers the score.
+    assert "A language level is never a hard_condition" in prompt
+    assert "mandatory language level" not in prompt
