@@ -343,7 +343,8 @@ def test_long_directory_entry_is_fully_read_and_late_content_is_selected(
     assert plan["selected_candidate_ids"] == ["unfamiliar"]
     fragments = [
         row["discovery_fragment"]
-        for call in calls
+        # Pages run in parallel (2026-11-08); read them back in page order.
+        for call in sorted(calls, key=lambda context: context["page"])
         for row in call["records"]
         if "discovery_fragment" in row
     ]
@@ -454,3 +455,29 @@ def test_a_grown_answer_library_still_fits_retrieval(inputs, tmp_path):
         app, snapshot, tmp_path / "grown", runner=model_runner(relevant, calls)
     )
     assert calls
+
+
+def test_retrieval_pages_run_at_the_same_time(inputs, tmp_path, monkeypatch):
+    """2026-11-08: three independent pages of about 0.7 minutes ran one after another."""
+    import threading
+    import time
+
+    app, snapshot = inputs
+    monkeypatch.setattr(retrieval, "MAX_PAGE_BYTES", 180)
+    active, peak, lock = [0], [0], threading.Lock()
+    inner = model_runner(lambda _: {"requirements": REQUIREMENTS, "selections": []}, [])
+
+    def runner(config, prompt, **kwargs):
+        with lock:
+            active[0] += 1
+            peak[0] = max(peak[0], active[0])
+        time.sleep(0.2)
+        with lock:
+            active[0] -= 1
+        return inner(config, prompt, **kwargs)
+
+    plan = retrieval.plan_retrieval(
+        app, snapshot, tmp_path / "parallel", runner=runner, requirements=REQUIREMENTS
+    )
+    assert plan["coverage"]["page_count"] >= 2
+    assert peak[0] >= 2

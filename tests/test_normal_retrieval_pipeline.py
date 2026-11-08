@@ -410,7 +410,8 @@ def test_selected_candidate_without_a_successful_read_does_not_count_as_exhauste
     assert len(result["retrieval"]["plans"]) == 2
     followup = result["retrieval"]["plans"][-1]
     assert followup["selected_candidate_ids"] == []
-    assert followup["coverage"]["visited_candidate_ids"] == ["unseen-identity"]
+    # The follow-up pages only unselected entries (2026-11-08); nothing was left to offer.
+    assert followup["coverage"]["visited_candidate_ids"] == []
     assert result["requirements"][0]["judgment"] == "unknown"
     assert result["requirements"][0]["evidence_state"] == "searched_evidence_insufficient"
 
@@ -435,3 +436,28 @@ def test_evaluation_sees_short_source_handles_and_the_report_keeps_real_identiti
     assert seen and all(re.fullmatch(r"S\d+", source_id) for source_id in seen)
     cited = result["requirements"][0]["source_ids"]
     assert cited and not any(re.fullmatch(r"S\d+", source_id) for source_id in cited)
+
+
+@pytest.mark.parametrize(
+    ("judgments", "plans", "expected"),
+    [
+        # 2026-11-08: partial is a settled verdict; finnova re-read for 15 per round.
+        (["partial", "supported", "partial"], [{}], []),
+        (["unknown", "partial", "unknown"], [{}], [0, 2]),
+        # The last follow-up resolved none of its unknowns.
+        (["unknown", "partial"], [{}, {"unknown_requirement_indexes": [0]}], []),
+        # It resolved one; the other is still worth one more read.
+        (["unknown", "supported"], [{}, {"unknown_requirement_indexes": [0, 1]}], [0]),
+        # At most two follow-up rounds.
+        (
+            ["unknown"],
+            [{}, {"unknown_requirement_indexes": [0, 1]}, {"unknown_requirement_indexes": [0, 2]}],
+            [],
+        ),
+    ],
+)
+def test_only_unresolved_unknowns_warrant_another_read(judgments, plans, expected):
+    from career_evidence_graph.application_matching_pipeline import followup_unknowns
+
+    requirements = [{"judgment": judgment} for judgment in judgments]
+    assert followup_unknowns(requirements, plans) == expected

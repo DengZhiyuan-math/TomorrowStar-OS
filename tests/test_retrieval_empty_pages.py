@@ -18,7 +18,8 @@ def run_plan(app, snapshot, directory, calls, **kwargs):
         directory,
         runner=model_runner(lambda _: {"requirements": REQUIREMENTS, "selections": []}, calls),
         requirements=REQUIREMENTS,
-        unknown_requirements=[0],
+        # A re-check with fixed requirements still pages the whole index; an unknown
+        # follow-up pages only unread entries (2026-11-08), so it has no empty page.
         selected_candidate_ids=["ordinary"],
         **kwargs,
     )
@@ -100,3 +101,24 @@ def test_initial_requirement_extraction_still_calls_model_on_an_empty_candidate_
     assert calls[0]["requirements"] is None
     assert plan["requirements"] == REQUIREMENTS
     assert plan["coverage"]["visited_candidate_ids"] == ["ordinary", "unfamiliar"]
+
+
+def test_an_unknown_follow_up_pages_only_unread_entries(inputs, tmp_path, monkeypatch):
+    """2026-11-08: finnova re-sent all 75 entries in every follow-up round."""
+    app, snapshot = inputs
+    monkeypatch.setattr(retrieval, "MAX_PAGE_BYTES", 180)
+    calls = []
+    plan = retrieval.plan_retrieval(
+        app,
+        snapshot,
+        tmp_path / "followup",
+        runner=model_runner(lambda _: {"requirements": REQUIREMENTS, "selections": []}, calls),
+        requirements=REQUIREMENTS,
+        unknown_requirements=[0],
+        selected_candidate_ids=["ordinary"],
+    )
+    assert [[row["candidate_id"] for row in context["records"]] for context in calls] == [
+        ["unfamiliar"]
+    ]
+    assert plan["coverage"]["visited_candidate_ids"] == ["unfamiliar"]
+    assert plan["coverage"]["total_records"] == 2

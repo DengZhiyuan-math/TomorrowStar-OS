@@ -6,6 +6,9 @@ import json
 import os
 import re
 import subprocess
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from copy import deepcopy
 from pathlib import Path
 from typing import Literal
@@ -73,6 +76,10 @@ def _requirements(rows):
         ]
     except (KeyError, TypeError, ValidationError) as error:
         raise _invalid("岗位要求格式不能核验。") from error
+
+
+# Retrieval pages called at once; a library index fits in about three pages.
+MAX_PARALLEL_PAGES = 4
 
 
 def _pages(records):
@@ -255,7 +262,13 @@ def plan_retrieval(
     facts = binding_snapshot.get("information_context", {})
     if len(_encoded(job).encode()) > MAX_JD_BYTES or len(_encoded(facts).encode()) > MAX_FACT_BYTES:
         raise PortalDataError("retrieval_too_large", "岗位或已确认信息超出检索范围，未截断。", 409)
-    pages = _pages(records)
+    # An unknown follow-up pages only unread entries (2026-11-08: finnova re-sent all 75
+    # entries every round, read ones merely marked as excluded).
+    pages = _pages(
+        [row for row in records if row["candidate_id"] not in previous]
+        if unknown is not None and previous
+        else records
+    )
     environment = dict(os.environ) if environment is None else dict(environment)
     invocation_input = {
         "policy_version": POLICY_VERSION,
@@ -300,7 +313,14 @@ def plan_retrieval(
     helper.atomic_write_json(invocation / "input.json", invocation_input)
     selections, visited, fragments = [], [], []
     selected_by_id = {}
-    for page_index, page in enumerate(pages):
+    dispatch_lock = threading.Lock()
+
+    def dispatch():
+        if on_dispatch is not None:
+            with dispatch_lock:
+                on_dispatch()
+
+    def run_page(page_index, page, stable):
         page_directory = invocation / f"page-{page_index + 1:04d}"
         page_directory.mkdir(mode=0o700)
         context = {
@@ -477,8 +497,7 @@ def plan_retrieval(
                     helper.atomic_write_json(
                         page_directory / "attempt.json", {"status": "in_flight"}
                     )
-                    if on_dispatch is not None:
-                        on_dispatch()
+                    dispatch()
                     # 2026-11-08, Keyrock: one 125 KB retrieval page ran past 180 s with
                     # no output on two attempts (its first page took 48 s).
                     result = runner(
@@ -509,8 +528,33 @@ def plan_retrieval(
                 if marker is not None:
                     helper.atomic_write_json(page_directory / "validation-failure.json", marker)
                 raise
-        if stable is None:
-            stable = output["requirements"]
+        return output
+
+    outputs = [None] * len(pages)
+    first = 0
+    if stable is None:
+        # Without a job brief the first page defines the requirements the rest reuse.
+        outputs[0] = run_page(0, pages[0], None)
+        stable, first = outputs[0]["requirements"], 1
+    # Pages are independent once requirements are fixed (2026-11-08: three pages of about
+    # 0.7 minutes each ran one after another in every round). Every page keeps its own
+    # receipts; the first failure in page order is raised after all pages finish.
+    errors = []
+    with ThreadPoolExecutor(max_workers=MAX_PARALLEL_PAGES) as pool:
+        futures = [
+            # Each page keeps the caller's context (a manual refresh's admission).
+            (index, pool.submit(copy_context().run, run_page, index, pages[index], stable))
+            for index in range(first, len(pages))
+        ]
+        for index, future in futures:
+            try:
+                outputs[index] = future.result()
+            except Exception as error:
+                errors.append(error)
+    if errors:
+        raise errors[0]
+    for page_index, page in enumerate(pages):
+        output = outputs[page_index]
         page_ids = [row["candidate_id"] for row in page]
         seen = selected_by_id
         for selection in output["selections"]:

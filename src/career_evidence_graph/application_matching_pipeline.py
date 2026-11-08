@@ -189,6 +189,30 @@ def _known_invalid_followup(saved):
     return False
 
 
+# At most two follow-up reads after the first evaluation (2026-11-08).
+MAX_FOLLOWUP_ROUNDS = 2
+
+
+def followup_unknowns(requirements, plans):
+    """Requirement indexes worth another read; an empty list ends the analysis.
+
+    Only missing evidence warrants another read: a partial judgment is a settled verdict
+    on evidence already read (2026-11-08: finnova and SAEKI re-read for 15-17 partial
+    requirements per round and changed 0-2 of them). Reading also stops when the last
+    follow-up resolved none of its unknowns, or after MAX_FOLLOWUP_ROUNDS.
+    """
+    unknown = [index for index, row in enumerate(requirements) if row["judgment"] == "unknown"]
+    followups = [plan for plan in plans if plan.get("unknown_requirement_indexes")]
+    if (
+        not unknown
+        or len(followups) >= MAX_FOLLOWUP_ROUNDS
+        or followups
+        and set(followups[-1]["unknown_requirement_indexes"]) <= set(unknown)
+    ):
+        return []
+    return unknown
+
+
 def _resume_evaluation(
     application,
     evaluation,
@@ -749,11 +773,7 @@ def analyze_with_retrieval(
             evaluation_error=None,
             evaluation_origin=str(attempt),
         )
-        unresolved = [
-            index
-            for index, row in enumerate(report["requirements"])
-            if row["judgment"] in {"unknown", "partial"}
-        ]
+        unresolved = followup_unknowns(report["requirements"], plans)
         if not canonical or not unresolved:
             break
         if saved.get("followup_exhausted"):
