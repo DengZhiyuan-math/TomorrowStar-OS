@@ -129,6 +129,9 @@ def _analysis_outcome(task, *, known_attempt_failure=False):
             "job_brief_invalid",
             # A refused recovery calls nothing; the next attempt re-checks the records.
             "match_resume_invalid",
+            # The answer library changed during a completed analysis (2026-11-08,
+            # Mistral); the check runs after every call has answered.
+            "match_information_changed",
         }
         and isinstance(stage.get("attempt_id"), str)
         and re.fullmatch(r"[a-f0-9]{32}", stage["attempt_id"])
