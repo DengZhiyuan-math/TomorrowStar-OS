@@ -1,6 +1,7 @@
 """Codex Computer Use fills in the user's everyday Chrome (2026-11-08)."""
 
 import json
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -59,8 +60,10 @@ def test_a_fill_runs_codex_with_the_users_own_configuration(tmp_path, monkeypatc
     assert "runs through the node_repl tool" in prompt and "instead of stopping" in prompt
     # 2026-11-08: a pre-opened page and short paths; no deliberate human pace.
     assert "page_opened" in prompt
-    # 2026-11-09: text typed into the macOS open panel arrived as "aaaa".
-    assert "Never type in the" in prompt and "Command-Shift-H" in prompt
+    # 2026-11-09: text typed into the macOS open panel arrived as "aaaa"; files go
+    # through upload(), which sets the Go to field's value instead.
+    assert 'typed text arrives there as "aaaa"' in prompt
+    assert "async function upload(control, path)" in prompt and "PathTextField" in prompt
     assert "human pace" not in prompt
     disabled = {process.argv[i + 1] for i, arg in enumerate(process.argv) if arg == "--disable"}
     assert disabled == {"shell_tool", "unified_exec"}
@@ -243,3 +246,77 @@ def test_the_effort_trial_alternates_and_then_ends(tmp_path):
     assert next_trial_effort(tmp_path) is None
     (tmp_path / "effort-trial.json").write_text(json.dumps({"remaining": 3, "next": "medium"}))
     assert [next_trial_effort(tmp_path) for _ in range(4)] == ["medium", "high", "medium", None]
+
+
+# A fake sky replays accessibility-tree diffs as the real one returned them on
+# 2026-11-09 (file chooser IDs open-panel, PathTextField, OKButton).
+FAKE_SKY = r"""
+const calls = [];
+const pages = {
+  start: 'Window "Apply"\n0 standard window Apply\n10 pop up button Language\n'
+    + '11 button Upload CV\n50 text We work in English and German.',
+  menu: 'The following is a diff from the previous accessibility tree for Window: "Apply"\n'
+    + '+\t80 menu item German\n+\t81 menu item English',
+  chosen: 'The following is a diff from the previous accessibility tree for Window: "Apply"\n'
+    + 'Removed element IDs: 80-81\n~\t10 pop up button Language, Value: English',
+  panel: 'The following is a diff from the previous accessibility tree for Window: "Open"\n'
+    + '+170 sheet Description: open, ID: open-panel\n+\t238 button Open, ID: OKButton',
+  goto: 'The following is a diff from the previous accessibility tree for Window: ""\n'
+    + '+\t172 text field (settable) Value: , ID: PathTextField',
+  closed: 'The following is a diff from the previous accessibility tree for Window: "Apply"\n'
+    + 'Removed element IDs: 170-238\n~\t11 button Upload CV, Value: CV.pdf',
+};
+let page = 'start';
+const sky = {
+  get_app_state: async () => ({ text: pages[page] }),
+  click: async ({ element_index }) => {
+    calls.push('click ' + element_index);
+    page = { 10: 'menu', 81: 'chosen', 11: 'panel', 238: 'closed' }[element_index] || page;
+  },
+  press_key: async ({ key }) => {
+    calls.push('key ' + key);
+    if (key === 'super+shift+g') page = 'goto';
+  },
+  set_value: async ({ element_index, value }) => {
+    calls.push('set ' + element_index + ' ' + value);
+  },
+};
+"""
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="node is not installed")
+def test_the_helpers_pick_new_options_and_attach_through_the_chooser(tmp_path):
+    from career_evidence_graph.application_computer_use import HELPERS
+
+    body = HELPERS.replace("var { sky } = await import('@oai/sky');", FAKE_SKY)
+    body = body.replace(
+        "var pause = (ms) => new Promise((done) => setTimeout(done, ms));",
+        "var pause = async () => {};",
+    )
+    script = tmp_path / "helpers.mjs"
+    script.write_text(
+        "const out = []; const nodeRepl = { homeDir: '/Users/u', write: (v) => out.push(v) };\n"
+        + body
+        + "\nout.push(await pick(10, 'English'));"
+        + "\nout.push('TREE ' + tree.get(10) + ' | ' + tree.has(80));"
+        + "\nout.push(await upload(11, '~/Apply/CV.pdf'));"
+        + "\nconsole.log(JSON.stringify({ out, calls }));\n"
+    )
+    result = json.loads(
+        subprocess.run(["node", script], capture_output=True, text=True, check=True).stdout
+    )
+    out, calls = result["out"], result["calls"]
+    assert "10 pop up button Language" in out[0]
+    # The option that appeared after the click, not the page text naming English.
+    assert out[1].startswith("Clicked 81 menu item English")
+    assert out[2] == "TREE pop up button Language, Value: English | false"
+    assert out[3].startswith("Attached CV.pdf")
+    assert calls == [
+        "click 10",
+        "click 81",
+        "click 11",
+        "key super+shift+g",
+        "set 172 /Users/u/Apply/CV.pdf",
+        "key Return",
+        "click 238",
+    ]
