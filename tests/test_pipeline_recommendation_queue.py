@@ -427,3 +427,32 @@ def test_an_indeed_apply_job_leaves_the_queue_with_its_reason(queue_environment,
     assert [row["reason"] for row in skipped] == ["indeed_apply_only"]
     application = flow.applications.get_application(skipped[0]["application_id"])
     assert application["status"] == "drafting" and "Indeed Apply" in application["next_action"]
+
+
+@pytest.mark.parametrize(("upper", "skipped"), [(40, True), (60, False)])
+def test_a_job_needing_an_account_goes_on_only_from_a_good_match(
+    queue_environment, monkeypatch, upper, skipped
+):
+    """2026-11-09: a sign-in leaves the automatic path; below 55 it is not worth it."""
+    from career_evidence_graph import application_pipeline
+
+    pipeline, flow, _intake, _worker, _reads, _fetches, _messages = queue_environment
+    score = {"lower": upper, "upper": upper, "coverage": 100, "eligibility": "not_specified"}
+    monkeypatch.setattr(application_pipeline, "combined_score", lambda *_: (dict(score), None))
+    monkeypatch.setattr(application_pipeline, "score_tier", lambda *_, **__: "auto")
+    checked = []
+
+    def check(url, directory, learned=()):
+        checked.append(url)
+        return {"status": "account" if len(checked) == 1 else "direct", "by": "page"}
+
+    pipeline.account_check = check
+    pipeline.start(request_id="accounts")
+    current = drive(pipeline, "filling")
+    first = current["items"][0]
+    assert first.get("account_check", {}).get("status") == "account"
+    if skipped:
+        assert first["status"] == "skipped" and first["reason"] == "account_low_match"
+        assert current["active_task_id"] != first["task_id"]
+    else:
+        assert current["active_task_id"] == first["task_id"]

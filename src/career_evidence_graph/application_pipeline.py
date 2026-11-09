@@ -85,6 +85,10 @@ def _mismatch(eligibility):
 RESUMABLE_STEPS = frozenset({"matching", "generating_resume"})
 # How often a waiting Computer Use job checks for the company's confirmation mail.
 CONFIRMATION_POLL = 300
+# A job whose application needs an account goes on only from this match (2026-11-09).
+ACCOUNT_SCORE_FLOOR = 55
+# How long a finished match waits for its account check.
+ACCOUNT_CHECK_WAIT = 120
 # How often the queue reads recommendation mail while it waits (2026-11-08: every
 # 60 s made about 100 runs an hour, each one or two model calls, for a few mails a day).
 MAIL_POLL = 1800
@@ -118,6 +122,9 @@ class ApplicationPipeline:
         # user's everyday Chrome instead of the isolated Worker browser.
         self.computer_use = computer_use
         self._computer_use_runs = {}
+        self._account_checks = {}
+        # The live App's application account check (2026-11-09); None in tests.
+        self.account_check = (computer_use or {}).get("account_check")
         self._confirmation_reads = {}
         # Automatic takeover is on but could not be configured at startup (MC-22).
         self.takeover_unavailable_reason = takeover_unavailable_reason
@@ -1904,6 +1911,56 @@ class ApplicationPipeline:
         self._save(state)
         return self.snapshot()
 
+    def _start_account_check(self, item, application):
+        """Check beside the match whether the application needs an account (2026-11-09)."""
+        check = self.account_check
+        key = item.get("recommendation_id")
+        if (
+            not check
+            or not application.get("url")
+            or item.get("account_check")
+            or (key in self._account_checks)
+        ):
+            return
+        from .application_account_check import learned_hosts
+
+        root = Path(self.flow.root)
+        run = {"result": None, "started": time.time()}
+        self._account_checks[key] = run
+
+        def work():
+            try:
+                run["result"] = check(
+                    application["url"],
+                    root / "account-checks" / digest(key)[:16],
+                    learned=learned_hosts(root / "account-hosts.json"),
+                )
+            except Exception as error:  # The fill still finds a sign-in wall.
+                run["result"] = {"status": "unclear", "by": "error", "error": type(error).__name__}
+
+        threading.Thread(target=work, name="account-check", daemon=True).start()
+
+    def _account_check_result(self, item):
+        """The job's saved check; None while a running check may still answer."""
+        if item.get("account_check"):
+            return item["account_check"]
+        run = self._account_checks.get(item.get("recommendation_id"))
+        if run is None:
+            return {"status": "unclear", "by": "not_checked"}
+        if run["result"] is None and time.time() - run["started"] < ACCOUNT_CHECK_WAIT:
+            return None
+        item["account_check"] = run["result"] or {"status": "unclear", "by": "timeout"}
+        return item["account_check"]
+
+    def _target_job(self, item):
+        try:
+            application = self.flow.applications.get_application(item["application_id"])
+        except (PortalDataError, KeyError, TypeError):
+            return False
+        return application.get("target_company") == "target" or any(
+            same_company(name, application.get("company", "")) for name in self._target_companies()
+        )
+
     def _leave_current(self, state, request_id):
         item = next(
             (
@@ -2880,6 +2937,20 @@ class ApplicationPipeline:
             # Four score tiers (decided 2026-10-31); a decision binds to its analysis.
             tier = item.get("score_tier", "auto")
             decided = item.get("score_decision") == item.get("score_analysis_id")
+            account = self._account_check_result(item)
+            if account is None:
+                return
+            if (
+                account.get("status") == "account"
+                and not decided
+                and (item.get("score") or {}).get("upper", 0) < ACCOUNT_SCORE_FLOOR
+                and not self._target_job(item)
+            ):
+                item["reason"] = "account_low_match"
+                state["active_task_id"] = item["task_id"]
+                self._leave_current(state, "account-low-match:" + item["task_id"])
+                self._save(state)
+                return
             if tier == "skip" and not decided:
                 item["reason"] = "low_match_score"
                 if state.get("queue_mode") and state.get("current_recommendation_id"):
@@ -2948,6 +3019,7 @@ class ApplicationPipeline:
                 **({"fresh_job_brief": True} if item.pop("fresh_job_brief", False) else {}),
             )
             item["task_id"] = task["id"]
+            self._start_account_check(item, application)
             item["status"] = "matching"
             self._save(state)
         task = self.flow.task_snapshot(item["task_id"])
@@ -3343,6 +3415,7 @@ class ApplicationPipeline:
                 "run_id": run_id,
                 "started_at": time.time(),
                 "company": job.get("company", ""),
+                "job_url": job.get("job_url", ""),
             },
             notification=None,
         )
@@ -3372,6 +3445,23 @@ class ApplicationPipeline:
                 "ready_for_review",
                 "已在 Chrome 填好申请表。请检查后由你最终提交，再点“我已提交”。",
             )
+        elif report["status"] == "account_required":
+            # 2026-11-09: a sign-in wall leaves the automatic path; park the job, keep
+            # its page open in Chrome, remember the site, and go on with the next job.
+            from .application_account_check import learn_host
+
+            learn_host(
+                Path(self.flow.root) / "account-hosts.json", state["computer_use"].get("job_url")
+            )
+            item = next(
+                row
+                for row in state["items"]
+                if row.get("recommendation_id") == state.get("current_recommendation_id")
+            )
+            item.update(
+                reason="account_required", account_check={"status": "account", "by": "fill"}
+            )
+            self._leave_current(state, "account-required:" + state["computer_use"]["run_id"])
         elif report["status"] == "needs_user":
             self._stop(state, "needs_input", "需要你在 Chrome 处理：" + summary)
         else:

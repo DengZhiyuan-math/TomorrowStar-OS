@@ -732,6 +732,7 @@ def _assemble(
             # The Pipeline registers its preparation permit before its thread starts.
             # 2026-11-08: the live App fills through Codex Computer Use in the user's
             # everyday Chrome; TOMORROWSTAR_ISOLATED_BROWSER=1 keeps the old Worker path.
+            from .application_account_check import check_account
             from .application_computer_use import APPLY_FOLDER, open_job_page
             from .application_computer_use import read_confirmations as _read_confirmations
 
@@ -743,6 +744,8 @@ def _assemble(
                     # Short file paths and a pre-opened page (2026-11-08).
                     "apply_folder": APPLY_FOLDER,
                     "open_page": open_job_page,
+                    # Whether the application needs an account, beside the match (2026-11-09).
+                    "account_check": check_account,
                     # The company's confirmation mail records a manual Submit.
                     "confirmations": partial(
                         _read_confirmations, root=Path(worker_root) / "confirmation-mail"

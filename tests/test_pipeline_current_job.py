@@ -4,6 +4,7 @@ import base64
 import time
 from copy import deepcopy
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pytest
 from test_application_intake import message, page
@@ -1255,6 +1256,38 @@ def test_a_fill_opens_the_page_once_and_uses_short_file_paths(
     assert len(contexts) == 2 and len(opened) == 1
     assert [context["page_opened"] for context in contexts] == [True, False]
     assert contexts[0]["resume_path"] == str(tmp_path / "Apply" / "A_B_CV.pdf")
+
+
+def test_a_sign_in_wall_parks_the_job_and_the_queue_moves_on(
+    current_pipeline, monkeypatch, tmp_path
+):
+    """2026-11-09: Hero's application needed an account; the queue waited on it."""
+    from career_evidence_graph import application_computer_use
+
+    pipeline, flow, _intake, worker = current_pipeline
+    pipeline.computer_use = {"executable": "/bin/codex", "root": tmp_path / "cu"}
+    reports = [
+        {"status": "account_required", "summary": "Sign-in first", "filled": [], "unanswered": []},
+        {"status": "ready_for_review", "summary": "", "filled": [], "unanswered": []},
+    ]
+    contexts = []
+
+    def fill(executable, context, root, **options):
+        contexts.append(context)
+        return reports.pop(0)
+
+    monkeypatch.setattr(application_computer_use, "run_fill", fill)
+    monkeypatch.setattr(
+        worker.store, "_native_answer_reference", lambda job: {"confirmed_answers": []}
+    )
+    pipeline.start(request_id="start")
+    current = drive(pipeline, "ready_for_review")
+    parked = next(row for row in current["items"] if row.get("reason") == "account_required")
+    assert parked["status"] == "skipped"
+    assert current["active_task_id"] != parked["task_id"] and len(contexts) == 2
+    # A known form site (this fixture's Lever) is never learned as needing an account.
+    assert urlsplit(contexts[0]["job_url"]).hostname == "jobs.lever.co"
+    assert not (Path(flow.root) / "account-hosts.json").exists()
 
 
 def test_a_skipped_job_the_user_submitted_is_recorded_as_applied(current_pipeline):

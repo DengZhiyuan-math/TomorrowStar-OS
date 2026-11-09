@@ -26,7 +26,10 @@ REPORT_SCHEMA = {
     "additionalProperties": False,
     "required": ["status", "summary", "filled", "unanswered"],
     "properties": {
-        "status": {"type": "string", "enum": ["ready_for_review", "needs_user", "failed"]},
+        "status": {
+            "type": "string",
+            "enum": ["ready_for_review", "needs_user", "account_required", "failed"],
+        },
         "summary": {"type": "string", "maxLength": 2000},
         "filled": {"type": "array", "maxItems": 200, "items": {"type": "string", "maxLength": 300}},
         "unanswered": {
@@ -70,12 +73,14 @@ Fill every field of the application form, across its steps:
 - Skip any "autofill from resume" helper.
 
 Never click Submit, Apply, Send or any button that sends the application, and never
-press Return inside a form field. Do not sign in, create an account, or solve a
-CAPTCHA or verification: if one blocks the form, stop and report needs_user.
+press Return inside a form field. Do not sign in or create an account: if the
+application asks for one, stop and report account_required. Do not solve a CAPTCHA
+or verification: if one blocks the form, stop and report needs_user.
 Do not change account settings or other sites.
 
 When every field you can answer is filled, leave the tab open on the form and stop.
 Report status ready_for_review (all required fields filled and files attached),
+account_required (a sign-in or account creation comes before the form),
 needs_user (something only the user can do, or a required question with no
 truthful answer), or failed. List filled field labels in filled, and every field
 left empty with its reason in unanswered.
