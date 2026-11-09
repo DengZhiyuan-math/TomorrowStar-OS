@@ -66,10 +66,12 @@ Fill every field of the application form, across its steps:
 - Leave optional consents, marketing opt-ins and demographic questions empty
   unless a confirmed answer covers them.
 - Upload resume_path to the resume or CV field, and cover_letter_path to a cover
-  letter upload field if there is one, through the file chooser (in the macOS
-  open panel, Command-Shift-G, type the short path exactly as given, such as
-  ~/Apply/Name_CV.pdf, Return, then Open). If there is no upload field but a
-  cover-letter text box, paste cover_letter_text.
+  letter upload field if there is one, through the file chooser. Never type in the
+  file chooser: typed text arrives there as "aaaa". It usually opens on the Apply
+  folder already: click the file named in the path, then Open. Otherwise press
+  Command-Shift-H for the home folder, double-click Apply, click the file, then
+  Open. If there is no upload field but a cover-letter text box, paste
+  cover_letter_text.
 - Skip any "autofill from resume" helper.
 
 Never click Submit, Apply, Send or any button that sends the application, and never
@@ -179,7 +181,38 @@ def open_job_page(url, *, run=subprocess.run):
         return False
 
 
-def run_fill(executable, context, root, *, timeout=2400, popen=subprocess.Popen, started=None):
+EFFORT_TRIAL = "effort-trial.json"
+
+
+def next_trial_effort(root):
+    """The reasoning effort for the next fill of a running trial, else None.
+
+    2026-11-09: the user asked to alternate medium and high over the next 10 fills to
+    compare speed and quality; each run records its effort in settings.json.
+    """
+    path = Path(root) / EFFORT_TRIAL
+    try:
+        trial = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    effort, remaining = trial.get("next"), trial.get("remaining")
+    if effort not in {"medium", "high"} or type(remaining) is not int or remaining <= 0:
+        return None
+    trial.update(next="high" if effort == "medium" else "medium", remaining=remaining - 1)
+    path.write_text(json.dumps(trial), encoding="utf-8")
+    return effort
+
+
+def run_fill(
+    executable,
+    context,
+    root,
+    *,
+    timeout=2400,
+    popen=subprocess.Popen,
+    started=None,
+    reasoning_effort=None,
+):
     """Run one Codex Computer Use fill and return its validated report.
 
     ``started`` receives the process, so a pause can stop it.
@@ -191,6 +224,9 @@ def run_fill(executable, context, root, *, timeout=2400, popen=subprocess.Popen,
     schema_path = run / "report-schema.json"
     schema_path.write_text(json.dumps(REPORT_SCHEMA), encoding="utf-8")
     report_path = run / "report.json"
+    (run / "settings.json").write_text(
+        json.dumps({"reasoning_effort": reasoning_effort or "default"}), encoding="utf-8"
+    )
     argv = [
         executable,
         "exec",
@@ -209,6 +245,7 @@ def run_fill(executable, context, root, *, timeout=2400, popen=subprocess.Popen,
         "shell_tool",
         "--disable",
         "unified_exec",
+        *(["--config", f'model_reasoning_effort="{reasoning_effort}"'] if reasoning_effort else []),
         PROMPT.format(context=json.dumps(context, ensure_ascii=False)),
     ]
     environment = {key: value for key, value in os.environ.items() if key != "CODEX_HOME"}

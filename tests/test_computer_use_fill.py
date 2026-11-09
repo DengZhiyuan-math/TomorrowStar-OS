@@ -2,6 +2,7 @@
 
 import json
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -57,7 +58,9 @@ def test_a_fill_runs_codex_with_the_users_own_configuration(tmp_path, monkeypatc
     # 2026-11-08 (SAEKI): a refused first node_repl call made the fill give up.
     assert "runs through the node_repl tool" in prompt and "instead of stopping" in prompt
     # 2026-11-08: a pre-opened page and short paths; no deliberate human pace.
-    assert "page_opened" in prompt and "~/Apply/Name_CV.pdf" in prompt
+    assert "page_opened" in prompt
+    # 2026-11-09: text typed into the macOS open panel arrived as "aaaa".
+    assert "Never type in the" in prompt and "Command-Shift-H" in prompt
     assert "human pace" not in prompt
     disabled = {process.argv[i + 1] for i, arg in enumerate(process.argv) if arg == "--disable"}
     assert disabled == {"shell_tool", "unified_exec"}
@@ -215,3 +218,28 @@ def test_the_job_page_opens_in_chrome():
         run=lambda argv, **_: calls.append(argv) or SimpleNamespace(returncode=0),
     )
     assert calls == [["open", "-a", "Google Chrome", "https://jobs.example.invalid/1"]]
+
+
+def test_a_fill_runs_at_the_requested_reasoning_effort(tmp_path):
+    seen = []
+
+    def popen(argv, **options):
+        process = Process(argv, report=REPORT, **options)
+        seen.append(process)
+        return process
+
+    context = {"job_url": "https://jobs.example.invalid/1", "resume_path": "/r.pdf"}
+    report = run_fill("/bin/codex", context, tmp_path, popen=popen, reasoning_effort="medium")
+    (process,) = seen
+    assert 'model_reasoning_effort="medium"' in process.argv
+    settings = json.loads((Path(report["run"]) / "settings.json").read_text())
+    assert settings == {"reasoning_effort": "medium"}
+
+
+def test_the_effort_trial_alternates_and_then_ends(tmp_path):
+    """2026-11-09: the user asked to alternate medium and high over ten fills."""
+    from career_evidence_graph.application_computer_use import next_trial_effort
+
+    assert next_trial_effort(tmp_path) is None
+    (tmp_path / "effort-trial.json").write_text(json.dumps({"remaining": 3, "next": "medium"}))
+    assert [next_trial_effort(tmp_path) for _ in range(4)] == ["medium", "high", "medium", None]

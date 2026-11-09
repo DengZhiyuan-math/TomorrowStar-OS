@@ -3333,7 +3333,12 @@ class ApplicationPipeline:
 
     def _start_computer_use(self, state):
         """Fill the current job in the user's everyday Chrome through Codex Computer Use."""
-        from .application_computer_use import fill_context, run_fill, stage_files
+        from .application_computer_use import (
+            fill_context,
+            next_trial_effort,
+            run_fill,
+            stage_files,
+        )
 
         task = self._task(state)
         store = self.worker.store
@@ -3389,6 +3394,7 @@ class ApplicationPipeline:
         )
         item["computer_use_page_opened"] = True
         context["page_opened"] = opened
+        effort = next_trial_effort(self.computer_use["root"])
         run_id = uuid4().hex
         record = {"process": None, "report": None}
         self._computer_use_runs[run_id] = record
@@ -3400,6 +3406,7 @@ class ApplicationPipeline:
                     context,
                     self.computer_use["root"],
                     started=lambda process: record.__setitem__("process", process),
+                    reasoning_effort=effort,
                 )
             except (OSError, ValueError) as error:
                 record["report"] = {
@@ -3416,6 +3423,7 @@ class ApplicationPipeline:
                 "started_at": time.time(),
                 "company": job.get("company", ""),
                 "job_url": job.get("job_url", ""),
+                "reasoning_effort": effort,
             },
             notification=None,
         )
