@@ -6,6 +6,7 @@ import fcntl
 import hashlib
 import queue
 import re
+import shutil
 import threading
 import time
 from contextlib import contextmanager, nullcontext
@@ -517,6 +518,9 @@ class ApplicationFlowService:
             raise PortalDataError("flow_root_conflict", "任务目录与投递记录目录须独立。", 409)
         self.path = self.root / "flow.json"
         self._shared = None
+        # Task files whose digest this process verified or wrote, by file identity.
+        self._verified_tasks = set()
+        self._stored_format = None
         self.callbacks = dict(callbacks or {})
         self.input_provider = input_provider
         self.information_provider = information_provider
@@ -593,7 +597,14 @@ class ApplicationFlowService:
         if self.path.is_symlink():
             raise PortalDataError("flow_invalid", "任务快照不能使用符号链接。", 409)
         try:
-            state = helper.read_json_object(self.path, "application flow")
+            from .application_flow_store import assemble, is_index
+
+            stored = helper.read_json_object(self.path, "application flow")
+            self._stored_format = "index" if is_index(stored) else "inline"
+            state = assemble(self.root, stored, read=self._read_task_file)
+            # Task files are verified once per file identity (_read_task_file); an
+            # inline record written before 2026-11-09 is verified task by task below.
+            verified = {task["id"] for task in state["tasks"]} if is_index(stored) else set()
             valid = (
                 state["schemaVersion"] == 1
                 and state["applications_root"] == str(self.applications.root)
@@ -679,8 +690,11 @@ class ApplicationFlowService:
                     )
                     and isinstance(task["materials_confirmed"], bool)
                     and self.valid_material_acceptance(task)
-                    and task["revision"]
-                    == digest({k: v for k, v in task.items() if k != "revision"})
+                    and (
+                        task["id"] in verified
+                        or task["revision"]
+                        == digest({k: v for k, v in task.items() if k != "revision"})
+                    )
                     for task in state["tasks"]
                 )
             )
@@ -696,6 +710,20 @@ class ApplicationFlowService:
         if self.material_batch:
             self.material_batch.validate(state)
         return state
+
+    def _file_identity(self, path):
+        info = path.stat()
+        return (str(path), info.st_ino, info.st_mtime_ns, info.st_size)
+
+    def _read_task_file(self, path):
+        """One task revision file, its digest checked once per file identity."""
+        task = helper.read_json_object(path, "application flow task")
+        key = self._file_identity(path)
+        if key not in self._verified_tasks:
+            if task.get("revision") != digest({k: v for k, v in task.items() if k != "revision"}):
+                raise ValueError("task file differs from its revision")
+            self._verified_tasks.add(key)
+        return task
 
     def adopted_artifact(self, stage, identifier, *, kind=None):
         """Read an isolated historical result without projecting current inputs."""
@@ -740,9 +768,21 @@ class ApplicationFlowService:
                 raise PortalDataError("flow_invalid", "历史任务快照不能使用符号链接。", 409)
             if not path.exists():
                 helper.atomic_write_json(path, task)
-            elif helper.read_json_object(path, "historical application flow") != task:
+                self._verified_tasks.add(self._file_identity(path))
+            elif (
+                self._file_identity(path) not in self._verified_tasks
+                and helper.read_json_object(path, "historical application flow") != task
+            ):
                 raise PortalDataError("flow_invalid", "历史任务快照不能核验，请保留原件。", 409)
-        helper.atomic_write_json(self.path, state)
+        # 2026-11-09: flow.json names the task revision files instead of repeating them.
+        from .application_flow_store import index_for
+
+        backup = self.root / "flow-v1-backup.json"
+        if self._stored_format == "inline" and self.path.exists() and not backup.exists():
+            # The first indexed write keeps the last whole record once, for rollback.
+            shutil.copy2(self.path, backup)
+        helper.atomic_write_json(self.path, index_for(state))
+        self._stored_format = "index"
 
     def _recover(self, reason="flow_interrupted"):
         state = self._load()
@@ -5021,8 +5061,10 @@ class ApplicationFlowService:
 
     def analysis_outcome(self, task_id):
         """Deliver saved analysis certainty; never project, refresh or retry work."""
+        # Reads only: the queue asks every tick, and a full parse of the 170 MB record
+        # held the shared lock 1.4 s each time (2026-11-09: a submit waited 30-60 s).
         with self.applications.write_lock():
-            task = self._task(self._load(), task_id)
+            task = self._task(self._load_shared(), task_id)
             return _analysis_outcome(task, known_attempt_failure=self._known_attempt_failure(task))
 
     def progress(self, task_id):
@@ -5972,13 +6014,14 @@ class ApplicationFlowService:
     def material_outcomes(self, task_ids):
         """Read queue safety statuses once, without projecting all historical pages."""
         wanted = set(task_ids)
+        # Reads only, every tick: the cached parse, not 1.4 s per call (2026-11-09).
         with self.applications.write_lock():
             return {
                 task["id"]: {
                     key: (task.get(key) or {}).get("status", "not_started")
                     for key in ("cover_letter", "material_consistency")
                 }
-                for task in self._load()["tasks"]
+                for task in self._load_shared()["tasks"]
                 if task["id"] in wanted
             }
 

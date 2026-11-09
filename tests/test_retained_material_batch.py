@@ -9,6 +9,7 @@ from test_existing_latex import existing_latex as existing_latex
 from test_flow_review_snapshot_adoption import recoverable as recoverable
 
 from career_evidence_graph.application_flow import ApplicationFlowService
+from career_evidence_graph.application_flow_store import read_flow_state
 from career_evidence_graph.application_worker import digest
 from career_evidence_graph.career_portal_data import PortalDataError
 
@@ -256,7 +257,7 @@ def test_retained_receipt_tampering_fails_even_when_outer_task_revision_is_resea
     flow, _store, _client, _previous, payload = accepted_candidate
     flow.request("record-retained-material-acceptance", payload)
     original = flow.path.read_bytes()
-    state = json.loads(flow.path.read_bytes())
+    state = read_flow_state(flow.path.parent)
     task = state["tasks"][0]
     task["material_acceptance"]["approval_record"]["statement"] = "Altered decision"
     task["revision"] = digest({key: value for key, value in task.items() if key != "revision"})

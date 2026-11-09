@@ -2712,7 +2712,11 @@ class WorkerStore:
                 and state["single_context"] != self.single_context()
             ):
                 raise ValueError("changed flow context")
-            flow = _read(self.single_flow_root / "flow.json")
+            from .application_flow_store import assemble
+
+            flow = assemble(
+                self.single_flow_root, _read(self.single_flow_root / "flow.json"), read=_read
+            )
             if flow.get("schemaVersion") != 1 or flow.get("applications_root") != str(
                 self.applications.root
             ):

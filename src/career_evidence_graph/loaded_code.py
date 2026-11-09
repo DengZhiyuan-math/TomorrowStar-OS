@@ -19,6 +19,7 @@ _PREPARATION_MODULES = (
     "application_runtime",
     "career_portal_data",
     "application_flow",
+    "application_flow_store",
     "application_input_binding",
     "application_eligibility",
     "application_bound_materials",
@@ -149,6 +150,7 @@ _RUNTIME_MODULES = {
         "_vendor.job_apply_store",
         # MC-15: modules the worker process executes through the role modules above.
         "application_flow",
+        "application_flow_store",
         "application_draft",
         "application_full_latex",
         "application_information",

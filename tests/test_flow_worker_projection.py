@@ -6,13 +6,14 @@ from copy import deepcopy
 import pytest
 from test_worker_backend_recovery import backend as backend
 
+from career_evidence_graph.application_flow_store import assemble, read_flow_state
 from career_evidence_graph.application_worker import digest
 
 
 def test_reopen_ignores_legacy_page_copy_without_revising_completed_flow(backend):
     owner, reopen, runner, page = backend
     flow = owner.application_flow_service
-    state = json.loads(flow.path.read_text())
+    state = read_flow_state(flow.path.parent)
     task = state["tasks"][0]
     task.update(status="filling")
     task["worker_ref"].update(status="filling", reason="stale copied reason")
@@ -35,7 +36,7 @@ def test_reopen_ignores_legacy_page_copy_without_revising_completed_flow(backend
 def test_worker_reads_and_explicit_pause_do_not_write_page_copies_to_flow(backend):
     owner, _reopen, runner, page = backend
     flow, worker = owner.application_flow_service, owner.worker_service
-    persisted = json.loads(flow.path.read_text())["tasks"][0]
+    persisted = read_flow_state(flow.path.parent)["tasks"][0]
     assert persisted["status"] == "materials_ready"
     assert persisted["worker_ref"] == {
         "batch_id": worker.store.load()["batch_id"],
@@ -73,7 +74,7 @@ def test_http_observation_tracks_worker_without_writing_flow(backend):
     owner, _reopen, runner, page = backend
     flow, worker = owner.application_flow_service, owner.worker_service
     before = flow.path.read_bytes()
-    task = json.loads(before)["tasks"][0]
+    task = assemble(flow.root, json.loads(before))["tasks"][0]
     state = worker.store.load()
     state["jobs"][0].update(status="ready_for_review", reason="final_submit_manual")
     worker.store.save(state)
@@ -100,7 +101,7 @@ def test_http_observation_tracks_worker_without_writing_flow(backend):
 def test_worker_ready_does_not_hide_material_update_needing_recheck(backend, copied_status):
     owner, _reopen, _runner, _page = backend
     flow, worker = owner.application_flow_service, owner.worker_service
-    state = json.loads(flow.path.read_text())
+    state = read_flow_state(flow.path.parent)
     task = state["tasks"][0]
     task.update(
         status=copied_status,
@@ -128,7 +129,7 @@ def test_incomplete_worker_reference_is_read_only_and_unavailable(backend, missi
 
     owner, _reopen, runner, _page = backend
     flow, worker = owner.application_flow_service, owner.worker_service
-    state = json.loads(flow.path.read_text())
+    state = read_flow_state(flow.path.parent)
     task = state["tasks"][0]
     if missing == "both":
         task["worker_ref"] = {"status": "filling"}

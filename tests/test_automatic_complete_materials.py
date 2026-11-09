@@ -8,6 +8,7 @@ from test_application_resume import task_resume as task_resume
 from test_full_latex_generation import full_latex as full_latex
 from test_full_latex_generation import generate
 
+from career_evidence_graph.application_flow_store import read_flow_state
 from career_evidence_graph.application_input_binding import configuration_revision
 from career_evidence_graph.career_portal_data import PortalDataError
 
@@ -597,7 +598,7 @@ def test_full_automatic_materials_reach_real_worker_binding(
         if mutation is not None and mutation.startswith("legacy-adoption"):
             # 2026-11-03: an older adoption recorded `used_source_ids` as [] and a
             # pre-cfg2 draft configuration revision; both are re-derived on read.
-            saved_flow = json.loads(flow.path.read_text())
+            saved_flow = read_flow_state(flow.path.parent)
             saved_task = saved_flow["tasks"][0]
             for row in saved_task["artifacts"]:
                 if row["stage"] in {"resume", "export"} and row.get("adopted") is True:
@@ -627,7 +628,7 @@ def test_full_automatic_materials_reach_real_worker_binding(
             elif mutation == "unknown-export":
                 (root / "resumes" / task["resume_id"] / "export.json").unlink()
             else:
-                saved_flow = json.loads(flow.path.read_text())
+                saved_flow = read_flow_state(flow.path.parent)
                 saved_task = saved_flow["tasks"][0]
                 if mutation == "material-binding":
                     saved_task["material_binding"]["human_reviewed"] = True

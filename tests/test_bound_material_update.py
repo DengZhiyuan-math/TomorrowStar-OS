@@ -7,6 +7,7 @@ from test_application_resume import task_resume as task_resume
 from test_automatic_material_reuse_edit import complete_portal as complete_portal
 from test_full_latex_generation import full_latex as full_latex
 
+from career_evidence_graph.application_flow_store import read_flow_state
 from career_evidence_graph.application_information import put_information_answer
 
 ORIGINAL_LINE = "Analyzed strategy; built 6 Python services."
@@ -430,7 +431,7 @@ def test_bound_material_commit_keeps_identity_only_and_retains_original_receipts
         )
         worker.store.save(current)
         pipeline._tick()
-        persisted = json.loads(flow.path.read_text())["tasks"][0]
+        persisted = read_flow_state(flow.path.parent)["tasks"][0]
         assert persisted["material_update"]["status"] == "bound", pipeline.snapshot()
         assert persisted["worker_ref"] == {
             "batch_id": current["batch_id"],
@@ -449,14 +450,14 @@ def test_bound_material_commit_keeps_identity_only_and_retains_original_receipts
                 {key: value for key, value in journal.items() if key != "revision"}
             )
             journal_path.write_text(json.dumps(journal))
-            local = json.loads(flow.path.read_text())
+            local = read_flow_state(flow.path.parent)
             local["tasks"][0]["material_update"]["status"] = "committing"
             local["tasks"][0]["revision"] = digest(
                 {key: value for key, value in local["tasks"][0].items() if key != "revision"}
             )
             flow.path.write_text(json.dumps(local))
             pipeline._tick()
-            persisted = json.loads(flow.path.read_text())["tasks"][0]
+            persisted = read_flow_state(flow.path.parent)["tasks"][0]
             assert persisted["material_update"]["status"] == "bound"
             assert persisted["worker_ref"] == {
                 "batch_id": current["batch_id"],
@@ -478,7 +479,7 @@ def test_bound_material_commit_keeps_identity_only_and_retains_original_receipts
         current["jobs"][0]["material_update"]["status"] = "complete"
         worker.store.save(current)
         pipeline._tick()
-        completed = json.loads(flow.path.read_text())["tasks"][0]
+        completed = read_flow_state(flow.path.parent)["tasks"][0]
         assert completed["material_update"]["status"] == "complete"
         assert completed["status"] == "materials_ready"
         assert completed["worker_ref"] == persisted["worker_ref"]

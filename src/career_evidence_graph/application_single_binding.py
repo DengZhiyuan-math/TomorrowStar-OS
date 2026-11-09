@@ -11,6 +11,7 @@ from copy import deepcopy
 from pathlib import Path
 
 from .application_automation import validate_application_target
+from .application_flow_store import assemble
 from .application_input_binding import bound_revision, same_revision, task_configuration_current
 from .career_portal_data import CareerCatalog, PortalDataError
 
@@ -466,7 +467,9 @@ def verify_material_lineage(
                 or reused.get("pdf_sha256") != pdf_sha256
             ):
                 raise ValueError("reused PDF not adopted")
-            verify_reuse(store, task, reused, _read(root / "flow.json")["tasks"])
+            verify_reuse(
+                store, task, reused, assemble(root, _read(root / "flow.json"), read=_read)["tasks"]
+            )
             return reused
         if task.get("automatic_materials") is True:
             from .application_resume import ApplicationResumeStore
@@ -680,7 +683,7 @@ def check_single_binding(
             or _job_identity(binding.get("job_url"), allow_generic=True)[1] != job["job_url"]
         ):
             raise ValueError("invalid binding")
-        state = _read(root / "flow.json")
+        state = assemble(root, _read(root / "flow.json"), read=_read)
         if state.get("schemaVersion") != 1 or state.get("applications_root") != str(
             applications.root
         ):
@@ -830,7 +833,7 @@ def read_delivered_material_inputs(applications, flow_root, job, *, delivery_rea
     try:
         root = Path(flow_root)
         binding = job["single_binding"]
-        flow = _read(root / "flow.json")
+        flow = assemble(root, _read(root / "flow.json"), read=_read)
         if flow.get("schemaVersion") != 1 or flow.get("applications_root") != str(
             applications.root
         ):

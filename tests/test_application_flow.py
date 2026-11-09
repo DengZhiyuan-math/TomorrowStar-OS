@@ -1273,3 +1273,23 @@ def test_only_the_latest_normal_recheck_keeps_its_full_result():
     }
     compact_match_rechecks(task)
     assert [row.get("result") for row in task["match_rechecks"]] == [None, {"r": 2}, {"r": 3}]
+
+
+def test_queue_status_reads_reuse_the_parsed_record(application, tmp_path, monkeypatch):
+    """2026-11-09: two per-tick reads re-parsed the 170 MB record, 1.4 s each under the
+    shared lock, and a user's submit waited behind them for 30-60 s."""
+    applications, job = application
+    service = ApplicationFlowService(
+        applications, tmp_path / "flow", callbacks={"analysis": lambda task: {"id": "result"}}
+    )
+    try:
+        task = service.create(job["id"], job["revision"])
+        service._load_shared()
+        parses = []
+        original = service._load
+        monkeypatch.setattr(service, "_load", lambda: parses.append(1) or original())
+        service.analysis_outcome(task["id"])
+        service.material_outcomes([task["id"]])
+        assert parses == []
+    finally:
+        service.close()

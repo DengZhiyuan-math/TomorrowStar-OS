@@ -11,6 +11,7 @@ from test_application_handoff import SHA, act, handoff, ready  # noqa: F401
 
 from career_evidence_graph import application_flow
 from career_evidence_graph.application_flow import ApplicationFlowService
+from career_evidence_graph.application_flow_store import assemble
 from career_evidence_graph.career_portal_data import PortalDataError
 
 
@@ -74,7 +75,11 @@ def test_parent_commit_failure_reopens_and_recovers_one_child(
     failures = []
 
     def failing_write(path, value):
-        if path == flow.path and value["tasks"][0].get("codex_handoff_attempt") and not failures:
+        if (
+            path == flow.path
+            and assemble(flow.root, value)["tasks"][0].get("codex_handoff_attempt")
+            and not failures
+        ):
             failures.append(True)
             if write_then_lose_response:
                 write(path, value)
@@ -312,7 +317,11 @@ def test_second_fresh_page_commit_failure_reuses_latest_observed_values_once(lin
     failures = []
 
     def failing_write(path, value):
-        task = value.get("tasks", [{}])[0] if isinstance(value, dict) else {}
+        task = (
+            assemble(flow.root, value).get("tasks", [{}])[0]
+            if path == flow.path and isinstance(value, dict)
+            else {}
+        )
         if (
             path == flow.path
             and task.get("codex_handoff_attempt", {}).get("task_id")

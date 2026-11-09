@@ -16,6 +16,7 @@ from test_installed_preparation_mode import (
 )
 
 from career_evidence_graph._vendor import job_apply_store as helper
+from career_evidence_graph.application_flow_store import read_flow_state
 from career_evidence_graph.application_worker import digest
 from career_evidence_graph.career_portal_data import ApplicationStore
 
@@ -52,7 +53,7 @@ def restore_saved_pre_json_task(root, task):
     assert task["material_contract"] == "content-writing/v1"
     path = root / "runtime/material-preparation/flow.json"
     with ApplicationStore(root / "applications").write_lock():
-        state = helper.read_json_object(path, "synthetic historical task")
+        state = read_flow_state(path.parent)
         saved = next(row for row in state["tasks"] if row["id"] == task["id"])
         assert saved["revision"] == task["revision"]
         assert all(stage["status"] == "pending" for stage in saved["stages"].values())

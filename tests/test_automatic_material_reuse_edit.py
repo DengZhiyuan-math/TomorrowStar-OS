@@ -13,6 +13,7 @@ from test_resume_export import PDF_SAMPLE
 
 from career_evidence_graph import application_match
 from career_evidence_graph.application_flow import job_input_revision
+from career_evidence_graph.application_flow_store import read_flow_state
 from career_evidence_graph.career_portal import create_server
 
 
@@ -257,7 +258,7 @@ def test_default_system_valid_full_pdf_reuses_without_fabricating_acceptance(
         if legacy_page_status:
             from career_evidence_graph.application_worker import digest
 
-            saved = json.loads(flow.path.read_text())
+            saved = read_flow_state(flow.path.parent)
             retained = next(row for row in saved["tasks"] if row["id"] == source["id"])
             retained["status"] = (
                 "needs_recheck" if legacy_page_status == "flow_restarted" else legacy_page_status
@@ -269,7 +270,7 @@ def test_default_system_valid_full_pdf_reuses_without_fabricating_acceptance(
                 {key: value for key, value in retained.items() if key != "revision"}
             )
             flow.path.write_text(json.dumps(saved))
-            before_legacy = json.loads(flow.path.read_text())["tasks"][0]
+            before_legacy = read_flow_state(flow.path.parent)["tasks"][0]
         assert flow.snapshot(source["id"])["active_task"]["status"] == "needs_recheck"
     semantic, prompts = semantic_reuse(store, source, monkeypatch)
     task = target_task(server, store)
@@ -289,7 +290,7 @@ def test_default_system_valid_full_pdf_reuses_without_fabricating_acceptance(
     worker.store.check_single(current["jobs"][0], current)
     assert worker.process is None
     if legacy_page_status:
-        assert json.loads(flow.path.read_text())["tasks"][0] == before_legacy
+        assert read_flow_state(flow.path.parent)["tasks"][0] == before_legacy
 
 
 @pytest.mark.parametrize(
@@ -571,7 +572,7 @@ def test_pending_bound_materials_cannot_supply_an_automatic_base(complete_portal
     if legacy_page_copy:
         from career_evidence_graph.application_worker import digest
 
-        saved = json.loads(flow.path.read_text())
+        saved = read_flow_state(flow.path.parent)
         retained = saved["tasks"][0]
         retained["reason"] = "flow_restarted"
         retained["worker_ref"]["status"] = "filling"

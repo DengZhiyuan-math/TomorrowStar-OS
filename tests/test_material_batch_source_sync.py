@@ -10,6 +10,7 @@ from test_job_explanations import requirement
 from test_material_batch import batch_until
 
 from career_evidence_graph.application_flow import ApplicationFlowService
+from career_evidence_graph.application_flow_store import read_flow_state
 from career_evidence_graph.application_prism import digest, source_snapshot
 from career_evidence_graph.career_portal_data import PortalDataError
 
@@ -154,7 +155,7 @@ def test_recovery_rejects_wrong_binding_or_unknown_group_read_without_writes(syn
     identity["inputs"] = {"sources_revision": "B"}
     flow.update_inputs(failed["id"], failed["revision"], job["revision"])
     flow.close()
-    saved = json.loads(flow.path.read_text())
+    saved = read_flow_state(flow.path.parent)
     task = saved["tasks"][-1]
     if invalid == "other-job":
         other = flow.applications.create_application(
@@ -186,7 +187,7 @@ def test_legacy_synced_stale_survives_reopen_until_explicit_recovery(synced_job,
     synced = flow.update_inputs(failed["id"], failed["revision"], job["revision"])
     flow.close()
     # Replay the previous installed format; this is a synthetic migration fixture.
-    saved = json.loads(flow.path.read_text())
+    saved = read_flow_state(flow.path.parent)
     task = saved["tasks"][-1]
     task["status"] = "stale"
     task["revision"] = digest({key: value for key, value in task.items() if key != "revision"})

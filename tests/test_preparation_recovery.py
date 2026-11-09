@@ -8,6 +8,7 @@ from test_application_flow import wait_for
 from test_pdf_export_flow import reviewed_draft as reviewed_draft
 
 from career_evidence_graph.application_flow import ApplicationFlowService
+from career_evidence_graph.application_flow_store import assemble, read_flow_state
 from career_evidence_graph.career_portal_data import PortalDataError
 
 
@@ -299,7 +300,8 @@ def test_recovery_metadata_with_a_matching_task_digest_must_still_have_valid_bin
         flow.close()
     original = flow.path.read_bytes()
     try:
-        state = json.loads(original)
+        # flow.json is an index of task files (2026-11-09); an inline record still loads.
+        state = read_flow_state(flow.root)
         task = state["tasks"][0]
         task["recovery_history"][0]["inputs_revision"] = "unverifiable-inputs"
         task["revision"] = digest({key: value for key, value in task.items() if key != "revision"})
@@ -331,7 +333,9 @@ def test_close_racing_with_an_adopted_checkpoint_preserves_the_complete_result(
     write = helper.atomic_write_json
 
     def checkpoint(path, payload):
-        if path == flow.path and payload["tasks"][0]["status"] == "analysis_ready":
+        if path == flow.path and assemble(flow.root, payload)["tasks"][0]["status"] == (
+            "analysis_ready"
+        ):
             entered.set()
             assert release.wait(3)
         return write(path, payload)

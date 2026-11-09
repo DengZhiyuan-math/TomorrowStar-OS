@@ -567,7 +567,10 @@ def inspect_runner(runner, state, job, page, command):
         automated_owner(runner.store.root, state["batch_id"], job["application_id"]),
         "automated",
     )
-    saved = _read(runner.store.single_flow_root / "flow.json")
+    from .application_flow_store import assemble
+
+    root = runner.store.single_flow_root
+    saved = assemble(root, _read(root / "flow.json"), read=_read)
     task = next(row for row in saved["tasks"] if row["id"] == job["single_binding"]["task_id"])
     transaction = task.get("material_update") or {}
     if (

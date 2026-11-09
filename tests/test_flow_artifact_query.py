@@ -13,6 +13,7 @@ from test_pdf_export_http import SyntheticLatexClient, create_authorized_latex, 
 from test_preparation_entry import post
 
 from career_evidence_graph.application_flow import ApplicationFlowService
+from career_evidence_graph.application_flow_store import assemble
 from career_evidence_graph.career_portal_data import ApplicationStore, PortalDataError
 
 
@@ -85,7 +86,7 @@ def test_artifact_query_keeps_persisted_state_validation(application, tmp_path, 
     try:
         service.create(job["id"], job["revision"])
         original = service.path.read_bytes()
-        state = json.loads(original)
+        state = assemble(service.path.parent, json.loads(original))
         if damage == "task_revision":
             state["tasks"][0]["revision"] = "0" * 64
         elif damage == "root":

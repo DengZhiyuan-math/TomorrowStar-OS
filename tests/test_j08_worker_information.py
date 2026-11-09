@@ -17,6 +17,7 @@ from test_j08_material_binding import (
 )
 
 from career_evidence_graph._vendor import job_apply_store as helper
+from career_evidence_graph.application_flow_store import read_flow_state
 from career_evidence_graph.application_information import (
     put_information_answer,
     read_information_history,
@@ -116,7 +117,7 @@ def test_unverified_information_pointer_is_rejected(json_material, mutation, tmp
         job["single_binding"]["inputs"]["information_library_root"] = str(tmp_path / "arbitrary")
     elif mutation == "local-task":
         path = worker.store.single_flow_root / "flow.json"
-        document = json.loads(path.read_text())
+        document = read_flow_state(path.parent)
         document["tasks"][0]["inputs"]["information_library_root"] = str(tmp_path / "arbitrary")
         path.write_text(json.dumps(document))
     else:
