@@ -440,9 +440,15 @@ _FIT_SCORE_RULES = (
     "production; 50-60 the same kind of work "
     "where the user's own share is limited, or most but not all of the stated scope; 40-45 "
     "closely adjacent work that would transfer with little ramp-up; 30-35 only a loosely "
-    "related part. Unknown: 10-15 adjacent work makes it plausible; 0-5 nothing in the "
-    "supplied facts relates. Score every requirement by the same standard from the supplied "
-    "facts only; the program keeps the score inside its band and rounds it to 5. "
+    "related part. Unknown: 10-15 work in the requirement's own domain makes it plausible "
+    "but its scale, depth or the user's own share is not established; 5 such work touches "
+    "only a minor part of it; 0 the closest recorded work is in a different domain, even "
+    "when it shares a tool or buzzword (for example an AI tutoring web app for GPU-cluster "
+    "scheduling or inference load balancing). General abilities that recorded work directly "
+    "shows, such as interdisciplinary collaboration, communication, or state-machine and "
+    "workflow design, are judged partial or supported by semantic inference, not unknown, "
+    "even when no record names them. Score every requirement by the same standard from the "
+    "supplied facts only; the program keeps the score inside its band and rounds it to 5. "
 )
 
 
@@ -451,6 +457,11 @@ _DEGREE_IN_PROGRESS = (
     "The user applies for roles that start after an in-progress degree is completed, so "
     "a degree in progress with an expected completion date supports a requirement to "
     "hold that degree (for example 'Hold a PhD'); state the expected completion. "
+    "A requirement to complete a degree or graduate by a date, or within a period, "
+    "concerns the degree still in progress, not an earlier awarded one: compare its "
+    "expected completion with that date or period. When the role starts before that "
+    "expected completion, this is an explicit mismatch, and the in-progress degree does "
+    "not satisfy a requirement to hold it at the start either. "
 )
 
 
