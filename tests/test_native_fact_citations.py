@@ -67,7 +67,7 @@ def native_case(tmp_path):
     return build_native_case(tmp_path)
 
 
-def build_native_case(tmp_path, *, education=False):
+def build_native_case(tmp_path, *, education=False, texts=("Validate risk",)):
     application = {
         "id": "synthetic-native",
         "revision": "r1",
@@ -96,7 +96,9 @@ def build_native_case(tmp_path, *, education=False):
                         "hard_condition": False,
                         "weight": 100,
                         "weight_reason": "The stated output",
-                        "requirements": [{"text": "Validate risk", "jd_quote": "Validate risk"}],
+                        "requirements": [
+                            {"text": text, "jd_quote": "Validate risk"} for text in texts
+                        ],
                     }
                 ],
             }
@@ -213,6 +215,146 @@ def test_native_source_ids_produce_full_literal_citations_and_keep_raw_response(
     assert json.loads((directory / "model-result.json").read_text())["structured_result"] == output
 
 
+def compact(output, prepared):
+    """The answer without the fixed rows' echoed text, flags and role understanding."""
+    rows = [
+        {
+            key: value
+            for key, value in row.items()
+            if key not in {"text", "importance", "hard_condition", "source_ids"}
+        }
+        | {"requirement_id": template["scoring_framework"]["requirement_id"]}
+        # A fixture may answer fewer rows than the brief holds.
+        for row, template in zip(
+            output["requirements"], prepared["match_requirements"], strict=False
+        )
+    ]
+    return {key: value for key, value in output.items() if key != "role_understanding"} | {
+        "requirements": rows
+    }
+
+
+def test_compact_answer_is_bound_to_the_fixed_requirements(native_case, tmp_path):
+    from career_evidence_graph.career_portal_data import PortalDataError
+
+    application, prepared, output = native_case
+    full = analyze_job(application, prepared, tmp_path / "full", runner=model_runner(output, []))
+    directory = tmp_path / "compact"
+    result = analyze_job(
+        application, prepared, directory, runner=model_runner(compact(output, prepared), [])
+    )
+    assert result["requirements"] == full["requirements"]
+    assert result["role_understanding"] == full["role_understanding"]
+    assert result["score"] == full["score"]
+    schema = json.loads((directory / "match-schema.json").read_text())
+    assert "role_understanding" not in schema["properties"]
+    row = schema["$defs"]["_CompactRequirement"]["properties"]
+    assert not {"text", "importance", "hard_condition", "source_ids"} & row.keys()
+    assert row["requirement_id"]["enum"] == [
+        template["scoring_framework"]["requirement_id"]
+        for template in prepared["match_requirements"]
+    ]
+    prompt = json.loads((directory / "context-input.json").read_text())["prompt"]
+    assert "do not repeat its text, importance or hard_condition" in prompt
+    assert "keep its exact text" not in prompt
+
+    shifted = compact(output, prepared)
+    shifted["requirements"][0]["requirement_id"] = "req-other"
+    with pytest.raises(PortalDataError) as caught:
+        analyze_job(application, prepared, tmp_path / "shifted", runner=model_runner(shifted, []))
+    assert caught.value.code == "match_model_invalid"
+
+
+def test_each_followup_rescores_only_the_requirements_still_unknown(tmp_path, monkeypatch):
+    from career_evidence_graph import application_match
+    from career_evidence_graph.application_match import settled_assessment
+    from career_evidence_graph.career_portal_data import PortalDataError
+
+    application, prepared, output = build_native_case(
+        tmp_path, texts=("Validate risk", "Report risk", "Price risk")
+    )
+    known = compact(output, prepared)["requirements"][0]
+    ids = [row["scoring_framework"]["requirement_id"] for row in prepared["match_requirements"]]
+
+    def open_row(identifier):
+        return known | {
+            "requirement_id": identifier,
+            "judgment": "unknown",
+            "explanation": "No recorded fact covers this yet.",
+            "citations": [],
+            "fit_score": 10,
+            "inference": known["inference"]
+            | {"type": "direct", "basis": "Not established.", "expression_scope": ""},
+        }
+
+    partial = open_row(ids[1]) | {
+        "judgment": "partial",
+        "explanation": "The recorded validation partly covers reporting.",
+        "citations": [{"source_id": "source-0"}],
+        "fit_score": 50,
+        "inference": known["inference"] | {"type": "semantic", "basis": "Validation work."},
+    }
+    calls = []
+
+    def scorer(prompt, schema, directory):
+        # Each second-opinion row names the call that answered it.
+        calls.append(directory.name)
+        enum = schema["$defs"]["_CompactRequirement"]["properties"]["requirement_id"]["enum"]
+        rows = [
+            {"judgment": "partial", "fit_score": 50, "explanation": directory.name} for _ in enum
+        ]
+        return {"model": "claude-opus-5-5", "status": "complete", "output": {"requirements": rows}}
+
+    monkeypatch.setattr(application_match, "SECOND_OPINION", scorer)
+    answers = compact(output, prepared)
+
+    def evaluate(name, snapshot, rows):
+        return analyze_job(
+            application,
+            snapshot,
+            tmp_path / name,
+            runner=model_runner(answers | {"requirements": rows}, []),
+        )
+
+    def followup(name, report):
+        settled = settled_assessment(tmp_path / name, digest(report))
+        snapshot = deepcopy(prepared) | {"settled_assessment": settled}
+        snapshot.pop("revision")
+        snapshot["revision"] = digest(snapshot)
+        return settled, snapshot
+
+    one = evaluate("round-1", prepared, [known, open_row(ids[1]), open_row(ids[2])])
+    assert [row["judgment"] for row in one["requirements"]] == ["supported", "unknown", "unknown"]
+    assert settled_assessment(tmp_path / "round-1", "other-revision") is None
+
+    settled, later = followup("round-1", one)
+    assert [row["requirement_id"] for row in settled["rows"]] == [ids[0]]
+    two = evaluate("round-2", later, [partial, open_row(ids[2])])
+    assert two["requirements"][0] == one["requirements"][0]
+    assert [row["judgment"] for row in two["requirements"]] == ["supported", "partial", "unknown"]
+    schema = json.loads((tmp_path / "round-2/match-schema.json").read_text())
+    enum = schema["$defs"]["_CompactRequirement"]["properties"]["requirement_id"]["enum"]
+    assert enum == ids[1:]
+    prompt = json.loads((tmp_path / "round-2/context-input.json").read_text())["prompt"]
+    shown = json.loads(prompt.rsplit("\n", 1)[1])["settled_assessments"]
+    assert [row["requirement_id"] for row in shown] == [ids[0]]
+
+    # The second follow-up keeps both earlier verdicts, though round 2 answered one of them.
+    settled, last = followup("round-2", two)
+    assert [row["requirement_id"] for row in settled["rows"]] == ids[:2]
+    three = evaluate("round-3", last, [open_row(ids[2])])
+    assert three["requirements"][:2] == two["requirements"][:2]
+    assert [row["explanation"] for row in three["second_opinion"]["requirements"]] == [
+        "round-1",
+        "round-2",
+        "round-3",
+    ]
+
+    with pytest.raises(PortalDataError) as caught:
+        evaluate("rewritten", last, [known, partial, open_row(ids[2])])
+    assert caught.value.code == "match_model_invalid"
+
+
 def test_native_request_schema_only_allows_supplied_source_ids_and_no_quote(native_case, tmp_path):
     application, prepared, output = native_case
     directory = tmp_path / "schema"
@@ -231,10 +373,8 @@ def test_native_request_schema_only_allows_supplied_source_ids_and_no_quote(nati
         "source-0",
         "confirmed-language",
     }
-    assert allowed_ids(schema, requirement["properties"]["source_ids"]["items"]) == {
-        "source-0",
-        "confirmed-language",
-    }
+    # Compact rows cite only through citations; the program derives source_ids.
+    assert "source_ids" not in requirement["properties"]
     prompt = json.loads((directory / "context-input.json").read_text())["prompt"]
     instructions = prompt.rsplit("\n", 1)[0]
     assert "only source_id" in instructions

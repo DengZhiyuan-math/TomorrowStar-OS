@@ -177,6 +177,51 @@ class _NativeControlledOutput(_ControlledOutput):
     requirements: list[_NativeControlledRequirement]
 
 
+class _CompactRequirement(BaseModel):
+    """One row per fixed match_requirement; the program binds its text and flags.
+
+    2026-11-09: echoed text, flags, role understanding and duplicate source_ids were
+    about a fifth of each ~7k-token evaluation answer, and output length set its time.
+    """
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    requirement_id: str = Field(min_length=1)
+    judgment: Literal["supported", "partial", "gap", "unknown"]
+    explanation: str = Field(min_length=1, max_length=4000)
+    citations: list[_NativeCitation]
+    claim_scope: Literal[
+        "documentary", "personal_completed", "personal_design", "team", "other", "unknown"
+    ]
+    fit_score: int | None = None
+    inference: _NativeInference
+
+
+class _CompactOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    requirements: list[_CompactRequirement]
+    selected_source_ids: list[str]
+    selection_rationale: list[_SelectionRationale]
+    extracted_fields: _ExtractedFields
+    limitations: list[str]
+
+
+def _expand_compact(output, expected, brief):
+    """Bind each compact row to its fixed requirement, as the full schema echoed it."""
+    if [row["requirement_id"] for row in output["requirements"]] != [
+        row["scoring_framework"]["requirement_id"] for row in expected
+    ]:
+        raise PortalDataError("match_model_invalid", "评估不能替换已提取的岗位要求。", 409)
+    return output | {
+        "role_understanding": deepcopy(brief["role_understanding"]),
+        "requirements": [
+            {key: template[key] for key in ("text", "importance", "hard_condition")}
+            | {key: value for key, value in row.items() if key != "requirement_id"}
+            | {"source_ids": [citation["source_id"] for citation in row["citations"]]}
+            for row, template in zip(output["requirements"], expected, strict=True)
+        ],
+    }
+
+
 def _native_fact_source_ids(snapshot, sources):
     if snapshot.get("job_brief") is None or snapshot.get("material_packet") is None:
         return set()
@@ -233,9 +278,11 @@ def _real_source_ids(value, real):
     return result
 
 
-def _native_output_schema(sources, native_ids):
+def _native_output_schema(sources, native_ids, requirement_ids=None):
     """Encode each supplied identity once, shared by all model reference fields."""
-    schema = _NativeControlledOutput.model_json_schema()
+    schema = (
+        _NativeControlledOutput if requirement_ids is None else _CompactOutput
+    ).model_json_schema()
     schema["title"] = "_ControlledOutput"
     definitions = schema["$defs"]
     resume_ids = _resume_source_ids(sources, native_ids)
@@ -296,6 +343,11 @@ def _native_output_schema(sources, native_ids):
         }
     for name in ("requirement_id", "relation"):
         definitions["_NativeInference"]["properties"].pop(name)
+    if requirement_ids is not None:
+        definitions["_CompactRequirement"]["properties"]["requirement_id"] = {
+            "type": "string",
+            "enum": list(dict.fromkeys(requirement_ids)),
+        }
     return schema
 
 
@@ -463,6 +515,82 @@ _DEGREE_IN_PROGRESS = (
     "expected completion, this is an explicit mismatch, and the in-progress degree does "
     "not satisfy a requirement to hold it at the start either. "
 )
+
+
+_COMPACT_ROWS = (
+    "When match_requirements is supplied, return one row per requirement in the same order, "
+    "each with its exact scoring_framework.requirement_id; do not repeat its text, importance "
+    "or hard_condition, which the program binds. "
+)
+
+
+def settled_assessment(previous: Path, revision: str):
+    """The last round's decided rows, kept while a follow-up re-scores only unknown ones.
+
+    2026-11-09: a follow-up read seeks evidence only for unknown requirements, yet each
+    round rewrote every row (about 2.5 min); partial and supported rows are settled
+    verdicts (see followup_unknowns). None keeps the full re-score.
+    """
+    try:
+        report = json.loads((previous / "analysis.json").read_text())
+        result = json.loads((previous / "model-result.json").read_text())["structured_result"]
+        aliases = json.loads((previous / "context-coverage.json").read_text())["source_aliases"]
+        snapshot = json.loads((previous / "source-snapshot.json").read_text())
+        real = {alias: source_id for source_id, alias in aliases.items()}
+        fresh = [
+            _CompactRequirement.model_validate(_real_source_ids(row, real)).model_dump()
+            for row in result["requirements"]
+        ]
+        # A follow-up answered only its unknown rows; the rows it kept complete the set.
+        kept = {
+            row["requirement_id"]: row
+            for row in (snapshot.get("settled_assessment") or {}).get("rows", [])
+        }
+        answered = iter(fresh)
+        rows = [
+            kept[identifier] if identifier in kept else next(answered)
+            for identifier in (_compact_requirement_ids(snapshot) or [])
+        ]
+        final = report["requirements"]
+        decided = [index for index, row in enumerate(final) if row["judgment"] != "unknown"]
+        if (
+            "role_understanding" in result
+            or next(answered, None) is not None
+            or len(rows) != len(final)
+            or digest(report) != revision
+        ):
+            return None
+        second = report.get("second_opinion") or {}
+        others = second.get("requirements") if second.get("status") == "complete" else None
+        return {
+            "rows": [rows[index] for index in decided],
+            "second_opinion": [others[index] for index in decided]
+            if isinstance(others, list) and len(others) == len(final)
+            else None,
+        }
+    except (OSError, ValueError, KeyError, TypeError, IndexError, StopIteration, ValidationError):
+        return None
+
+
+def _settled(snapshot):
+    """Settled rows by requirement ID and the IDs still to assess, or None."""
+    settled, ids = snapshot.get("settled_assessment"), _compact_requirement_ids(snapshot)
+    if not settled or ids is None:
+        return None
+    rows = {row["requirement_id"]: row for row in settled["rows"]}
+    remaining = [identifier for identifier in ids if identifier not in rows]
+    if not remaining or not rows.keys() <= set(ids):
+        return None
+    return rows, remaining
+
+
+def _compact_requirement_ids(snapshot):
+    """The fixed requirement IDs when every row has one, else None (full echo schema)."""
+    expected = snapshot.get("match_requirements")
+    if snapshot.get("job_brief") is None or not expected:
+        return None
+    ids = [(row.get("scoring_framework") or {}).get("requirement_id") for row in expected]
+    return ids if all(isinstance(item, str) and item for item in ids) else None
 
 
 def _prompt_context(job, sources, snapshot):
@@ -677,6 +805,39 @@ def _prompt_context(job, sources, snapshot):
             "interpretation. Resume source selection never changes background judgments.\n"
         )
 
+    if native_citations and _compact_requirement_ids(snapshot) is not None:
+        # The program binds the fixed rows; the model returns only its assessment of each.
+        for echoed, compact in (
+            (
+                "Echo its role_understanding exactly. ",
+                "Do not return role_understanding; the program keeps the job_brief one. ",
+            ),
+            (
+                "When match_requirements is supplied, return exactly those requirements in the "
+                "same order, with identical text, importance and hard_condition. ",
+                _COMPACT_ROWS,
+            ),
+            (
+                "When match_requirements is provided, keep its exact text, order, importance and "
+                "hard_condition flags. ",
+                _COMPACT_ROWS,
+            ),
+            (
+                "the program binds requirement_id to the fixed row and derives relation from "
+                "judgment. Do not return those two fields. ",
+                "the program derives relation from judgment; inference has no requirement_id "
+                "or relation. ",
+            ),
+        ):
+            instructions = instructions.replace(echoed, compact)
+        if _settled(snapshot) is not None:
+            instructions += (
+                "settled_assessments are final judgments from the previous reading. Do not "
+                "return or revise them. Return rows only for the other match_requirements, in "
+                "their order; more facts were read for them. Choose selected_source_ids and "
+                "selection_rationale across all requirements, settled ones included.\n"
+            )
+
     def encode(value):
         return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
@@ -731,6 +892,14 @@ def _prompt_context(job, sources, snapshot):
             "experience, never the applicant's own activity; a fact's note number refers to "
             "that experience's notes, which state its recorded boundaries.\n"
         )
+    settled = _settled(snapshot) if native_citations else None
+    if settled is not None:
+        # Citations become this call's handles once the sources are numbered below.
+        context["settled_assessments"] = [
+            {key: row[key] for key in ("requirement_id", "judgment", "fit_score", "explanation")}
+            | {"citations": [item["source_id"] for item in row["citations"]]}
+            for row in settled[0].values()
+        ]
     remaining = context_limit - len((instructions + encode(context)).encode()) - 2048
     included, omitted, truncated = {}, [], []
     included_size = len(encode(_matching_view([])).encode())
@@ -836,6 +1005,8 @@ def _prompt_context(job, sources, snapshot):
         "complete_jd": True,
         "context_limit_bytes": context_limit,
     }
+    for row in context.get("settled_assessments", []):
+        row["citations"] = [aliases.get(item, item) for item in row["citations"]]
     prompt = instructions + encode(
         {
             **context,
@@ -1206,7 +1377,11 @@ def _analyze_loaded_job(
         ) from error
     native_citations = _native_fact_source_ids(snapshot, sources)
     prompt, sources, coverage = _prompt_context(job, sources, snapshot)
+    compact_ids = _compact_requirement_ids(snapshot) if native_citations else None
     native_citations &= sources.keys()
+    if not native_citations:
+        compact_ids = None
+    settled = _settled(snapshot) if compact_ids is not None else None
     aliases = coverage["source_aliases"]
     output_model = (
         _NativeControlledOutput
@@ -1219,6 +1394,7 @@ def _analyze_loaded_job(
         _native_output_schema(
             {aliases[source_id]: source for source_id, source in sources.items()},
             {aliases[source_id] for source_id in native_citations},
+            compact_ids if settled is None else settled[1],
         )
         if native_citations
         else output_model.model_json_schema()
@@ -1269,10 +1445,28 @@ def _analyze_loaded_job(
             503,
         ) from error
     try:
-        output = output_model.model_validate(result.structured_result).model_dump()
+        # A full-echo answer still validates: one sent before this change may resume.
+        compact = compact_ids is not None and "role_understanding" not in (
+            result.structured_result or {}
+        )
+        output = (
+            (_CompactOutput if compact else output_model)
+            .model_validate(result.structured_result)
+            .model_dump()
+        )
     except ValidationError as error:
         raise PortalDataError("match_model_invalid", "岗位分析结果格式不能核验。", 409) from error
     output = _real_source_ids(output, {alias: source_id for source_id, alias in aliases.items()})
+    if compact and settled is not None:
+        if [row["requirement_id"] for row in output["requirements"]] != settled[1]:
+            raise PortalDataError("match_model_invalid", "评估不能替换已提取的岗位要求。", 409)
+        fresh = iter(output["requirements"])
+        output["requirements"] = [
+            deepcopy(settled[0][identifier]) if identifier in settled[0] else next(fresh)
+            for identifier in compact_ids
+        ]
+    if compact:
+        output = _expand_compact(output, snapshot["match_requirements"], snapshot["job_brief"])
     requirements = normalize_requirements(output["requirements"])
     expected = snapshot.get("match_requirements")
     if snapshot.get("match_requirements") is not None and [
@@ -1505,7 +1699,21 @@ def _analyze_loaded_job(
     if second is not None:
         from .application_second_opinion import summarize
 
-        report["second_opinion"] = summarize(second.result(), requirements)
+        record = second.result()
+        rows = (record.get("output") or {}).get("requirements")
+        if compact and settled is not None and isinstance(rows, list):
+            # The second model also answered only the unsettled rows; keep its earlier ones.
+            earlier = snapshot["settled_assessment"].get("second_opinion")
+            if earlier is None or len(rows) != len(settled[1]):
+                rows = None
+            else:
+                kept, fresh = iter(earlier), iter(rows)
+                rows = [
+                    next(kept) if identifier in settled[0] else next(fresh)
+                    for identifier in compact_ids
+                ]
+            record = record | {"output": {"requirements": rows}}
+        report["second_opinion"] = summarize(record, requirements)
     helper.atomic_write_json(directory / "analysis.json", report)
     return report
 

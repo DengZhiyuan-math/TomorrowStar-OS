@@ -356,7 +356,7 @@ def analyze_with_retrieval(
     job_brief=None,
     resume_from=None,
 ):
-    from .application_match import _analyze_loaded_job, match_configuration
+    from .application_match import _analyze_loaded_job, match_configuration, settled_assessment
 
     directory = Path(directory).expanduser()
     try:
@@ -572,6 +572,14 @@ def analyze_with_retrieval(
             evaluation["match_requirements"] = stable
         if brief is not None:
             evaluation["job_brief"] = brief
+        if not restored and evaluations:
+            # A follow-up re-scores only the rows it read more for (2026-11-09).
+            last = evaluations[-1]
+            settled = settled_assessment(
+                Path(last["analysis_directory"]) / last["directory"], last["revision"]
+            )
+            if settled is not None:
+                evaluation["settled_assessment"] = settled
         evaluation["retrieval_coverage"] = {
             "index_candidates": len(binding_snapshot.get("career_library", {}).get("records", [])),
             "selected_candidate_ids": selected,
