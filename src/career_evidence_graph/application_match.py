@@ -1249,10 +1249,6 @@ def _analyze_loaded_job(
             allow_non_repository=True,
             environment=environment,
         )
-    except model_call.UnknownCall as error:
-        raise PortalDataError(
-            "match_result_needs_recheck", "原评估调用结果未明，请先核对，未重复模型请求。", 409
-        ) from error
     except model_call.DamagedRecord as error:
         raise PortalDataError("match_resume_invalid", "原模型响应不能核验。", 409) from error
     except (CodexCLIError, OSError, subprocess.TimeoutExpired) as error:
@@ -1752,6 +1748,10 @@ class Analysis:
                         result = checked
             return result
         return progress
+
+    def ended_without_answer(self, attempt_id):
+        """The ended attempt stopped on a sent model call that produced no answer."""
+        return model_call.ended_without_answer(self._directory(attempt_id))
 
     def _dispatch_stop(self, attempt_id):
         directory = self._directory(attempt_id)

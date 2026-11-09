@@ -92,6 +92,10 @@ ACCOUNT_CHECK_WAIT = 120
 # How often the queue reads recommendation mail while it waits (2026-11-08: every
 # 60 s made about 100 runs an hour, each one or two model calls, for a few mails a day).
 MAIL_POLL = 1800
+# A model call that produced no answer is Continued automatically after a wait, up to
+# this many times; then the job stops for the user (decided 2026-11-09).
+MODEL_RESENDS = 3
+MODEL_RESEND_WAIT = 30
 
 
 def same_company(listed, company) -> bool:
@@ -1603,53 +1607,9 @@ class ApplicationPipeline:
                         "analysis_input_required",
                         "analysis_result_unknown",
                     }:
-                        outcome = self.flow.analysis_outcome(state["active_task_id"])
-                        # A known rejected output left nothing behind; this Continue is
-                        # the user's explicit retry. Unknown results still never replay.
-                        if outcome["status"] == "rejected" and not outcome["legacy_skippable"]:
-                            task = self._task(state)
-                            application = self.flow.applications.get_application(
-                                task["application_id"]
-                            )
-                            # An App update changes the analysis configuration; the
-                            # retry rebinds current inputs, archiving the rejection.
-                            task = self.flow.update_inputs(
-                                task["id"], task["revision"], application["revision"]
-                            )
-                            if task["stages"]["analysis"]["status"] == "failed":
-                                self.flow.start(
-                                    task["id"],
-                                    task["revision"],
-                                    "analysis",
-                                    retry=True,
-                                    _continuation_request_id=payload["request_id"],
-                                )
-                            else:
-                                self.flow.prepare(
-                                    task["id"],
-                                    task["revision"],
-                                    request_id=payload["request_id"],
-                                    analysis_only=True,
-                                )
-                            outcome = self.flow.analysis_outcome(task["id"])
-                        if outcome["status"] in {"ready", "running"}:
-                            state.pop("wait_reason", None)
-                            state.pop("resume_status", None)
-                            state.update(control="running", status="matching", notification=None)
-                        else:
-                            state["wait_reason"] = (
-                                "analysis_result_unknown"
-                                if outcome["status"] == "unknown"
-                                else "analysis_input_required"
-                            )
-                            self._stop(
-                                state,
-                                "needs_recheck"
-                                if outcome["status"] == "unknown"
-                                else "needs_input",
-                                "当前岗位分析仍需处理或核验，保留原任务；不会自动重放。",
-                            )
-                        self._save(state)
+                        # The user's own Continue starts a fresh run of automatic resends.
+                        state.pop("model_resend", None)
+                        self._retry_analysis(state, payload["request_id"])
                         return self.snapshot()
                     if state.get("wait_reason") == "precision_adjustment":
                         task = self._task(state)
@@ -2353,6 +2313,88 @@ class ApplicationPipeline:
             "at": time.time(),
         }
 
+    def _retry_analysis(self, state, request_id):
+        """Continue a stopped analysis: retry a known failure, keep an unknown one."""
+        outcome = self.flow.analysis_outcome(state["active_task_id"])
+        # A known rejected output, or a call that produced no answer, left nothing to
+        # adopt; this Continue retries it. Other unknown results never replay.
+        if outcome["status"] == "rejected" and not outcome["legacy_skippable"]:
+            task = self._task(state)
+            application = self.flow.applications.get_application(task["application_id"])
+            # An App update changes the analysis configuration; the
+            # retry rebinds current inputs, archiving the rejection.
+            task = self.flow.update_inputs(task["id"], task["revision"], application["revision"])
+            if task["stages"]["analysis"]["status"] == "failed":
+                self.flow.start(
+                    task["id"],
+                    task["revision"],
+                    "analysis",
+                    retry=True,
+                    _continuation_request_id=request_id,
+                )
+            else:
+                self.flow.prepare(
+                    task["id"],
+                    task["revision"],
+                    request_id=request_id,
+                    analysis_only=True,
+                )
+            outcome = self.flow.analysis_outcome(task["id"])
+        if outcome["status"] in {"ready", "running"}:
+            state.pop("wait_reason", None)
+            state.pop("resume_status", None)
+            state.update(control="running", status="matching", notification=None)
+        else:
+            state["wait_reason"] = (
+                "analysis_result_unknown"
+                if outcome["status"] == "unknown"
+                else "analysis_input_required"
+            )
+            self._stop(
+                state,
+                "needs_recheck" if outcome["status"] == "unknown" else "needs_input",
+                "当前岗位分析仍需处理或核验，保留原任务；不会自动重放。",
+            )
+        self._save(state)
+
+    def _schedule_resend(self, state, outcome):
+        """Plan the next automatic Continue of a call without an answer, or None."""
+        resend = state.get("model_resend") or {}
+        if not outcome.get("resendable"):
+            state.pop("model_resend", None)
+            return None
+        count = resend.get("count", 0) if resend.get("task_id") == outcome["task_id"] else 0
+        if count >= MODEL_RESENDS:
+            return None
+        state["model_resend"] = {
+            "task_id": outcome["task_id"],
+            "count": count,
+            "due": time.time() + MODEL_RESEND_WAIT,
+        }
+        return f"模型调用失败，{MODEL_RESEND_WAIT} 秒后第 {count + 1} 次重试。"
+
+    def _resend_when_due(self, state):
+        """Continue a stopped analysis whose resend wait has passed."""
+        resend = state.get("model_resend")
+        if (
+            not resend
+            or resend.get("due") is None
+            or time.time() < resend["due"]
+            or state["control"] != "paused"
+            or state.get("wait_reason") != "analysis_input_required"
+            or state.get("active_task_id") != resend["task_id"]
+        ):
+            return False
+        # The count is saved before the retry, so a restart cannot repeat it unseen.
+        resend.update(count=resend["count"] + 1, due=None)
+        self._save(state)
+        try:
+            self._retry_analysis(state, uuid4().hex)
+        except PortalDataError as error:
+            state["last_stop_error"] = {"code": error.code, "location": None, "at": time.time()}
+            self._stop(state, "needs_recheck", str(error))
+        return True
+
     def _stop(self, state, status, message):
         if not state.get("resume_status"):
             self._queue_assertion("stop_without_resume_status", state, ["resume_status"])
@@ -2514,6 +2556,8 @@ class ApplicationPipeline:
             ):
                 self._observe_submission(state)
             if self._watch_confirmation(state):
+                return
+            if self._resend_when_due(state):
                 return
             if state["control"] != "running":
                 return
@@ -3037,6 +3081,7 @@ class ApplicationPipeline:
         if analysis_status == "pending":
             self.flow.prepare(task["id"], task["revision"], analysis_only=True)
         elif analysis_status == "ready":
+            state.pop("model_resend", None)
             analysis = adopted_analysis(task)
             score, models = combined_score(
                 calculate_match_score(analysis["requirements"]), analysis, analysis["requirements"]
@@ -3081,7 +3126,8 @@ class ApplicationPipeline:
             self._stop(
                 state,
                 "needs_input",
-                "当前岗位分析未通过校验，请处理已保存的失败原因；其他岗位保持等待。",
+                self._schedule_resend(state, outcome)
+                or "当前岗位分析未通过校验，请处理已保存的失败原因；其他岗位保持等待。",
             )
         elif outcome is None and _known_analysis_failure(task):
             item.update(

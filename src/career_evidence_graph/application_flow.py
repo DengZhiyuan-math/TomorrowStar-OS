@@ -105,8 +105,12 @@ def legacy_analysis_failure(task):
     )
 
 
-def _analysis_outcome(task, *, known_attempt_failure=False):
-    """Interpret Flow-owned attempt metadata without authorizing a new attempt."""
+def _analysis_outcome(task, *, known_attempt_failure=False, resendable=False):
+    """Interpret Flow-owned attempt metadata without authorizing a new attempt.
+
+    ``resendable`` means the ended attempt stopped on a model call that produced no
+    answer (Model Call Record); the queue may then Continue it automatically.
+    """
     stage = task.get("stages", {}).get("analysis", {})
     legacy_skippable = legacy_analysis_failure(task)
     # The legacy skip policy keeps its original code and exact field set.
@@ -205,6 +209,7 @@ def _analysis_outcome(task, *, known_attempt_failure=False):
         "attempt_id": stage.get("attempt_id"),
         "recovery": recovery,
         "legacy_skippable": legacy_skippable,
+        "resendable": status == "rejected" and resendable,
     }
 
 
@@ -5043,10 +5048,23 @@ class ApplicationFlowService:
             "created_at": time.time(),
         }
 
+    def _ended_without_answer(self, task):
+        """The failed attempt stopped on a sent model call that produced no answer."""
+        stage, analysis = task["stages"]["analysis"], getattr(self, "analysis", None)
+        if stage.get("status") != "failed" or analysis is None:
+            return False
+        try:
+            return analysis.ended_without_answer(stage["attempt_id"])
+        except (PortalDataError, KeyError, TypeError, OSError):
+            return False
+
     def _known_attempt_failure(self, task):
         stage, analysis = task["stages"]["analysis"], getattr(self, "analysis", None)
         if stage.get("status") != "failed" or analysis is None:
             return False
+        if self._ended_without_answer(task):
+            # A call without an answer is sent again on retry (Model Call Record).
+            return True
         try:
             # A recoverable attempt holds a complete saved answer, never an unknown one.
             # So does a complete one the App closed before adopting (2026-11-08,
@@ -5065,7 +5083,11 @@ class ApplicationFlowService:
         # held the shared lock 1.4 s each time (2026-11-09: a submit waited 30-60 s).
         with self.applications.write_lock():
             task = self._task(self._load_shared(), task_id)
-            return _analysis_outcome(task, known_attempt_failure=self._known_attempt_failure(task))
+            return _analysis_outcome(
+                task,
+                known_attempt_failure=self._known_attempt_failure(task),
+                resendable=self._ended_without_answer(task),
+            )
 
     def progress(self, task_id):
         """Read preparation progress without dispatching or inspecting execution."""
@@ -5073,7 +5095,11 @@ class ApplicationFlowService:
             task = deepcopy(self._task(self._load_shared(), task_id))
             return _preparation_progress(
                 task,
-                _analysis_outcome(task, known_attempt_failure=self._known_attempt_failure(task)),
+                _analysis_outcome(
+                    task,
+                    known_attempt_failure=self._known_attempt_failure(task),
+                    resendable=self._ended_without_answer(task),
+                ),
             )
 
     def prepare(self, task_id, task_revision, *, request_id=None, analysis_only=False):

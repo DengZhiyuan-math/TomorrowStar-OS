@@ -1084,6 +1084,9 @@ os._exit(2)
         def reconcile(self, attempt_id):
             return {"attempt_id": attempt_id, "status": attempt}
 
+        def ended_without_answer(self, attempt_id):
+            return False
+
     service.analysis = Attempts()
     try:
         task = service.snapshot()["active_task"]

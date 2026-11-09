@@ -411,10 +411,6 @@ def plan_retrieval(
                     result = model_call.recorded_answer(
                         previous_page, model_call.PAGE, prompt, config
                     )
-                except model_call.UnknownCall as error:
-                    raise PortalDataError(
-                        "match_result_needs_recheck", "原检索页结果未知，须先核对原调用。", 409
-                    ) from error
                 except model_call.DamagedRecord as error:
                     raise _invalid("原检索页结果不能核验。") from error
         if skip_empty and result is None:

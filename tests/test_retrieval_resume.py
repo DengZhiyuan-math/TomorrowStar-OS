@@ -79,7 +79,7 @@ def test_known_failed_page_retries_once_without_repeating_successful_pages(
     assert dispatched == [True]
 
 
-def test_interrupted_page_is_not_redispatched_after_prior_pages_are_replayed(
+def test_interrupted_page_is_sent_again_after_prior_pages_are_replayed(
     inputs, tmp_path, monkeypatch
 ):
     app, snapshot = inputs
@@ -97,18 +97,18 @@ def test_interrupted_page_is_not_redispatched_after_prior_pages_are_replayed(
             app, snapshot, tmp_path / "old", runner=interrupt_second, invocation_id="b" * 32
         )
     dispatched = []
-    with pytest.raises(PortalDataError) as error:
-        plan_retrieval(
-            app,
-            snapshot,
-            tmp_path / "new",
-            runner=run,
-            resume_from=tmp_path / "old" / ("b" * 32),
-            on_dispatch=lambda: dispatched.append(True),
-        )
-    assert error.value.code == "match_result_needs_recheck"
-    assert len(calls) == 1
-    assert dispatched == []
+    sent = len(calls)
+    plan_retrieval(
+        app,
+        snapshot,
+        tmp_path / "new",
+        runner=run,
+        resume_from=tmp_path / "old" / ("b" * 32),
+        on_dispatch=lambda: dispatched.append(True),
+    )
+    # Page 1 is replayed; only the unknown page 2 is sent again.
+    assert [call["page"] for call in calls[sent:]] == [2]
+    assert dispatched == [True]
 
 
 @pytest.mark.parametrize("artifact", ["prompt.json", "schema.json", "hash", "plan.json"])

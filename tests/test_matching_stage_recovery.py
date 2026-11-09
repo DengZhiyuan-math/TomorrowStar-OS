@@ -76,7 +76,21 @@ def test_failed_evaluation_retries_without_repeating_brief_selection_or_reading(
     }
 
 
-def test_unknown_evaluation_is_not_replayed_by_repeated_explicit_retries(canonical, tmp_path):
+def sent_schemas(runner):
+    """Wrap a runner to list the schema file of every call it actually sends."""
+    names = []
+
+    def run(config, prompt, **kwargs):
+        names.append(config.output_schema.name)
+        return runner(config, prompt, **kwargs)
+
+    run.names = names
+    return run
+
+
+def test_an_unknown_evaluation_is_sent_again_on_retry(canonical, tmp_path):
+    # An unknown model result has no outside effect; the retry sends only that call
+    # again and replays the earlier stages (Model Call Record, decided 2026-11-09).
     library, _, _, base, *_ = canonical
     snapshot = thin(canonical)
     initial = RecordedPipeline([requirement("Interdisciplinary research")])
@@ -96,22 +110,18 @@ def test_unknown_evaluation_is_not_replayed_by_repeated_explicit_retries(canonic
             source_loader=lambda ids: library.snapshot_for_analysis(base, ids),
             information_library={"status": "unconfigured"},
         )
-    retry = RecordedPipeline(initial.requirements)
-    for name in ("retry-one", "retry-two"):
-        destination = tmp_path / name
-        with pytest.raises(PortalDataError) as error:
-            analyze_job(
-                APPLICATION,
-                snapshot,
-                destination,
-                runner=retry,
-                source_loader=lambda ids: library.snapshot_for_analysis(base, ids),
-                information_library={"status": "unconfigured"},
-                resume_from=previous,
-            )
-        assert error.value.code == "match_result_needs_recheck"
-        previous = destination
-    assert retry.calls == []
+    retry = sent_schemas(RecordedPipeline(initial.requirements))
+    report = analyze_job(
+        APPLICATION,
+        snapshot,
+        tmp_path / "retry",
+        runner=retry,
+        source_loader=lambda ids: library.snapshot_for_analysis(base, ids),
+        information_library={"status": "unconfigured"},
+        resume_from=previous,
+    )
+    assert report["requirements"]
+    assert retry.names == ["match-schema.json"]
 
 
 @pytest.mark.parametrize("receipt_name", ["model-result.json", "analysis.json"])
@@ -154,7 +164,7 @@ def test_saved_evaluator_response_is_adopted_after_backend_interrupt(
     assert result["retrieval"]["status"] == "retrieved"
 
 
-def test_retry_interruption_does_not_reuse_the_earlier_known_failure(canonical, tmp_path):
+def test_a_retry_interrupted_during_its_evaluation_sends_it_again(canonical, tmp_path):
     library, _, _, base, *_ = canonical
     snapshot = thin(canonical)
     first = RecordedPipeline([requirement("Interdisciplinary research")])
@@ -189,19 +199,19 @@ def test_retry_interruption_does_not_reuse_the_earlier_known_failure(canonical, 
             information_library={"status": "unconfigured"},
             resume_from=original,
         )
-    final = RecordedPipeline(first.requirements)
-    with pytest.raises(PortalDataError) as error:
-        analyze_job(
-            APPLICATION,
-            snapshot,
-            tmp_path / "guarded-retry",
-            runner=final,
-            source_loader=lambda ids: library.snapshot_for_analysis(base, ids),
-            information_library={"status": "unconfigured"},
-            resume_from=unknown,
-        )
-    assert error.value.code == "match_result_needs_recheck"
-    assert final.calls == []
+    final = sent_schemas(RecordedPipeline(first.requirements))
+    report = analyze_job(
+        APPLICATION,
+        snapshot,
+        tmp_path / "second-retry",
+        runner=final,
+        source_loader=lambda ids: library.snapshot_for_analysis(base, ids),
+        information_library={"status": "unconfigured"},
+        resume_from=unknown,
+    )
+    # The interrupted retry's evaluation is sent again; nothing earlier is repeated.
+    assert report["requirements"]
+    assert final.names == ["match-schema.json"]
 
 
 def test_known_jd_failure_can_retry_only_the_unfinished_stage(canonical, tmp_path):
@@ -283,7 +293,7 @@ def test_second_round_failure_preserves_first_round_evidence_location(canonical,
 
 
 @pytest.mark.parametrize("followup", [False, True])
-def test_unknown_planner_call_is_not_repeated(canonical, tmp_path, followup):
+def test_an_unknown_planner_call_is_sent_again(canonical, tmp_path, followup):
     import json
 
     library, _, _, base, *_ = canonical
@@ -307,22 +317,20 @@ def test_unknown_planner_call_is_not_repeated(canonical, tmp_path, followup):
             source_loader=lambda ids: library.snapshot_for_analysis(base, ids),
             information_library={"status": "unconfigured"},
         )
-    retry = RecordedPipeline(first.requirements)
-    for name in ("plan-retry-one", "plan-retry-two"):
-        destination = tmp_path / name
-        with pytest.raises(PortalDataError) as error:
-            analyze_job(
-                APPLICATION,
-                snapshot,
-                destination,
-                runner=retry,
-                source_loader=lambda ids: library.snapshot_for_analysis(base, ids),
-                information_library={"status": "unconfigured"},
-                resume_from=origin,
-            )
-        assert error.value.code == "match_result_needs_recheck"
-        origin = destination
-    assert retry.calls == []
+    retry = sent_schemas(RecordedPipeline(first.requirements))
+    report = analyze_job(
+        APPLICATION,
+        snapshot,
+        tmp_path / "plan-retry",
+        runner=retry,
+        source_loader=lambda ids: library.snapshot_for_analysis(base, ids),
+        information_library={"status": "unconfigured"},
+        resume_from=origin,
+    )
+    # The unknown planner page is sent again; the job brief is replayed.
+    assert report["requirements"]
+    assert "job-brief-schema.json" not in retry.names
+    assert "schema.json" in retry.names
 
 
 def test_saved_empty_followup_is_not_repeated_after_publication_interrupt(

@@ -425,10 +425,6 @@ def create_job_brief(
         # damaged record is copied into it.
         try:
             model_call.earlier_answer(previous, model_call.JOB_BRIEF)
-        except model_call.UnknownCall as error:
-            raise PortalDataError(
-                "match_result_needs_recheck", "原岗位解读结果未知，须先核对原调用。", 409
-            ) from error
         except model_call.DamagedRecord as error:
             raise _invalid("原岗位解读调用记录不能核验。") from error
     if (directory / "job-brief-result.json").exists():
@@ -500,10 +496,6 @@ def create_job_brief(
             allow_non_repository=True,
             environment=dict(os.environ) if environment is None else environment,
         )
-    except model_call.UnknownCall as error:
-        raise PortalDataError(
-            "match_result_needs_recheck", "原岗位解读结果未明，未重复模型请求。", 409
-        ) from error
     except model_call.DamagedRecord as error:
         raise _invalid("原岗位解读调用记录不能核验。") from error
     except (CodexCLIError, OSError, subprocess.TimeoutExpired) as error:

@@ -258,10 +258,6 @@ def _resume_evaluation(
     # damaged record is copied into it.
     try:
         earlier = model_call.earlier_answer(original, model_call.EVALUATION)
-    except model_call.UnknownCall as error:
-        raise PortalDataError(
-            "match_result_needs_recheck", "原评估调用结果未明，请先核对，未重复模型请求。", 409
-        ) from error
     except model_call.DamagedRecord as error:
         raise PortalDataError("match_resume_invalid", "原模型响应不能核验。", 409) from error
     # An answer to the identical question is replayed without a call; a rejected

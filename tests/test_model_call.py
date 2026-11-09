@@ -232,9 +232,39 @@ def test_a_damaged_record_is_never_replayed_or_resent(tmp_path, damage):
         resend(tmp_path, old)
 
 
-def test_an_unknown_earlier_call_is_never_resent_silently(tmp_path):
+def test_an_unknown_earlier_call_is_sent_again(tmp_path):
+    # A model call has no effect outside the App, so an unknown one is resent.
     old = tmp_path / "old"
     asked(old, "p")  # prompt saved, result never arrived
 
-    with pytest.raises(model_call.UnknownCall):
-        resend(tmp_path, old)
+    result, calls, sent = resend(tmp_path, old)
+
+    assert result.structured_result == {"x": 2}
+    assert len(calls) == 1 and sent == [True]
+
+
+@pytest.mark.parametrize(
+    ("outcome", "expected"),
+    [("unknown", True), ("known_failure", True), ("refused", False), ("answered", False)],
+)
+def test_an_attempt_ended_without_answer_only_after_a_sent_call_failed(tmp_path, outcome, expected):
+    page = tmp_path / "attempt" / "retrieval" / "page-0001"
+    asked(page, "p")
+    if outcome == "known_failure":
+        error = CodexCLIError("boom", raw_stdout_jsonl=STARTED)
+        with pytest.raises(CodexCLIError):
+            model_call.send(page, PAGE, raising(error), None, "p")
+    elif outcome == "refused":
+        (page / PAGE.prompt).unlink()
+        (page / PAGE.schema).unlink()
+    elif outcome == "answered":
+        model_call.send(
+            page,
+            PAGE,
+            model_runner({"x": 1}, []),
+            asked(page, "p"),
+            "p",
+            allow_non_repository=True,
+        )
+
+    assert model_call.ended_without_answer(tmp_path / "attempt") is expected

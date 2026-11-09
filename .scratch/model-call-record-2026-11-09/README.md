@@ -111,20 +111,58 @@ across 4 modules (ee1af146, 54341431, e1545fed, b262937d, 02d150b6, 5019d594,
   and the legacy follow-up test now expects both pages to be asked again.
   757 of 762 targeted tests pass; the same 5 fail on the base commit.
 
+**Step 3 — automatic resend, done (uncommitted).**
+
+- `earlier_answer` no longer raises for an unknown outcome. Resuming an ended
+  attempt sends an unknown call again, exactly like a known failure.
+  `UnknownCall` is gone.
+- `model_call.ended_without_answer(directory)`: a sent call under an ended
+  attempt produced no answer (known failure or unknown). A refusal before
+  sending (size, admission) does not count.
+- Flow: `_known_attempt_failure` treats such an attempt as known, so Continue
+  retries it. `analysis_outcome` gains `resendable`.
+- Pipeline:
+  - A rejected analysis with `resendable` stops with "模型调用失败，30 秒后第 n
+    次重试。", the existing page notice line.
+  - `_resend_when_due` runs the same retry as Continue (`_retry_analysis`, now
+    shared) after `MODEL_RESEND_WAIT` = 30 s, up to `MODEL_RESENDS` = 3 times.
+    After that the usual stop message shows.
+  - A manual Continue starts a fresh round of three.
+- **Deviation from decision 8:** the resend count lives in the Pipeline's saved
+  state (`model_resend`: task, count, due), not in each call directory. It still
+  survives an App restart, and the count is saved before each retry. The resend
+  is a job-level Continue, so the Pipeline is the one place that needs the count.
+  Keeping it there also stops the Pipeline from reading call files.
+- Login or missing-CLI failures are also calls without an answer, so they get
+  the three resends too (about 1.5 minutes) before the stop.
+- Not covered yet:
+  - Material-packet reading unknowns (`pending_call`, `_unreceipted_reading`)
+    still stop the job.
+  - An App closed mid-call whose Flow stage is not yet `failed` follows the
+    existing restart handling.
+- Tests:
+  - `test_model_call` covers the resend and `ended_without_answer` cases.
+  - Two new Pipeline tests cover the notice and wait, and 3 automatic resends
+    followed by a fresh round after a manual Continue.
+  - 11 tests that pinned "unknown never resends" were rewritten to assert a
+    single resend of only that call (job brief, retrieval page, empty page,
+    evaluation, retry-interrupted evaluation, planner ×2, analysis interface ×4).
+  - The outcome tests gained `resendable`.
+  - 982 of 987 targeted, Flow and Pipeline tests pass; the same 5 fail on the
+    base commit.
+
 **Still to do**, in order:
 
 1. Finish replay: the material-packet source reuse (`_reusable`,
    `_recover_native_reading`) and the analysis-level `_same_upstream_binding`
-   still carry their own identity rules.
-2. Automatic resend: 30 s × 3 for unknown results and for failures without an
-   answer. The count is stored in the call record and advanced by the Pipeline
-   tick. Add the UI line in the current-job panel.
-3. Flow: replace the `_analysis_outcome` code table and `_known_attempt_failure`
+   still carry their own identity rules. Material-packet unknowns should resend
+   too.
+2. Flow: replace the `_analysis_outcome` code table and `_known_attempt_failure`
    with the recorded verdict kind.
-4. Migrate the remaining callers: résumé, cover letter, full_latex, jd_extract,
+3. Migrate the remaining callers: résumé, cover letter, full_latex, jd_extract,
    gmail, proofread, and others. Add the Claude second opinion as an adapter with
    resend off.
-5. Delete the private-helper tests; run the full suite once; do one real job
+4. Delete the private-helper tests; run the full suite once; do one real job
    analysis in the App.
 
 ## Follow-up enabled

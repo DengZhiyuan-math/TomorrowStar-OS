@@ -54,9 +54,9 @@ def test_known_failed_brief_can_start_one_new_provider_attempt(tmp_path, applica
     assert (tmp_path / "retry/job-brief.json").exists()
 
 
-def test_interrupted_brief_waits_for_result_recheck_without_a_second_call(
-    tmp_path, application, output
-):
+def test_interrupted_brief_is_sent_again_once(tmp_path, application, output):
+    # An unknown model result has no outside effect; the retry sends it again
+    # (Model Call Record, decided 2026-11-09).
     old = tmp_path / "old"
 
     def interrupted(*args, **kwargs):
@@ -64,13 +64,14 @@ def test_interrupted_brief_waits_for_result_recheck_without_a_second_call(
 
     with pytest.raises(KeyboardInterrupt):
         create_job_brief(application, old, runner=interrupted)
+    before = {path.name: path.read_bytes() for path in old.iterdir()}
     calls = []
-    with pytest.raises(PortalDataError) as error:
-        create_job_brief(
-            application, tmp_path / "new", runner=runner_for(output, calls), resume_from=old
-        )
-    assert error.value.code == "match_result_needs_recheck"
-    assert calls == []
+    result = create_job_brief(
+        application, tmp_path / "new", runner=runner_for(output, calls), resume_from=old
+    )
+    assert result["business_object"] == "Pricing and risk decisions"
+    assert len(calls) == 1
+    assert {path.name: path.read_bytes() for path in old.iterdir()} == before
 
 
 def test_saved_success_is_validated_locally_if_final_brief_was_not_published(

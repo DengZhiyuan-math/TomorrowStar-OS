@@ -54,6 +54,7 @@ def test_modern_failed_analysis_delivers_certainty_without_retry(
             "attempt_id": task["stages"]["analysis"]["attempt_id"],
             "recovery": "needs_input" if certainty == "rejected" else "needs_recheck",
             "legacy_skippable": False,
+            "resendable": False,
         }
         outcome["status"] = "mutated"
         assert flow.analysis_outcome(task["id"])["status"] == certainty
@@ -80,6 +81,9 @@ def test_a_saved_size_refusal_is_rejected_only_when_its_attempt_proves_it(
     class Attempts:
         def reconcile(self, attempt_id):
             return {"attempt_id": attempt_id, "status": attempt_status}
+
+        def ended_without_answer(self, attempt_id):
+            return False
 
     flow = ApplicationFlowService(applications, tmp_path / "flow", callbacks={"analysis": analyze})
     try:

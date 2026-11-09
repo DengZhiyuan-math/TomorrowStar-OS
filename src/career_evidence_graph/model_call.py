@@ -26,10 +26,6 @@ from .validation.hashing import sha256_digest
 REJECTION = "validation-failure.json"
 
 
-class UnknownCall(Exception):
-    """The earlier call may have been answered, but its result was never saved."""
-
-
 class DamagedRecord(Exception):
     """The earlier call's saved files do not agree with each other."""
 
@@ -100,8 +96,8 @@ def recorded_answer(previous: Path, files: Files, prompt: str, config):
     """The earlier call's answer when it was asked this identical question.
 
     Identical means the same prompt, output schema and model. Returns None when a
-    new call is due: nothing was sent, the failure is known, the answer was
-    rejected, or the question differs. Raises as ``earlier_answer`` does.
+    new call is due: no answer was recorded, the answer was rejected, or the
+    question differs. Raises as ``earlier_answer`` does.
     """
     answer = earlier_answer(previous, files)
     if answer is None:
@@ -120,16 +116,16 @@ def recorded_answer(previous: Path, files: Files, prompt: str, config):
 def earlier_answer(previous: Path, files: Files):
     """The earlier call's checked answer, or None when it has none to offer.
 
-    None means nothing was sent, the failure is known or the answer was rejected.
-    Raises UnknownCall when the outcome is unknown, and DamagedRecord when the
+    None means no answer was recorded (not sent, a known failure, or an unknown
+    outcome) or the answer was rejected; the call is then sent again. An unknown
+    outcome is resent because a model call has no effect outside the App, and an
+    earlier attempt is only resumed after it ended. Raises DamagedRecord when the
     saved answer, prompt, schema or rejection do not agree. Stages call this
-    before saving a new attempt, so neither problem is copied into it.
+    before saving a new attempt, so a damaged record is never copied into it.
     """
     previous = Path(previous)
     state = verdict(previous, files)
-    if state is Verdict.UNKNOWN:
-        raise UnknownCall(str(previous))
-    if state in {Verdict.NOT_SENT, Verdict.KNOWN_FAILURE}:
+    if state in {Verdict.NOT_SENT, Verdict.KNOWN_FAILURE, Verdict.UNKNOWN}:
         return None
     try:
         saved = helper.read_json_object(previous / files.result, "model call result")
@@ -147,6 +143,21 @@ def earlier_answer(previous: Path, files: Files):
     except (OSError, KeyError, TypeError, ValueError, CodexCLIError, helper.StoreError) as error:
         raise DamagedRecord(str(previous)) from error
     return answer
+
+
+def ended_without_answer(directory: Path) -> bool:
+    """A saved call under ``directory`` was sent and produced no answer.
+
+    That is a known failure or an unknown outcome; a refusal before sending is
+    not. Only meaningful once the attempt holding ``directory`` has ended.
+    """
+    directory = Path(directory)
+    return any(
+        verdict(prompt.parent, files) in {Verdict.KNOWN_FAILURE, Verdict.UNKNOWN}
+        for files in (PAGE, JOB_BRIEF, EVALUATION)
+        for prompt in directory.rglob(files.prompt)
+        if not prompt.is_symlink()
+    )
 
 
 def failure_receipt(error) -> dict:

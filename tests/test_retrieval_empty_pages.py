@@ -53,7 +53,6 @@ def test_empty_fixed_page_skips_model_and_retains_full_coverage(inputs, tmp_path
         "prompt",
         "schema",
         "receipt",
-        "unknown",
         "malformed",
         "missing_context",
         "contradictory_result",
@@ -66,10 +65,7 @@ def test_empty_page_cannot_hide_changed_receipts_or_an_unknown_call(
     monkeypatch.setattr(retrieval, "MAX_PAGE_BYTES", 180)
     plan = run_plan(app, snapshot, tmp_path / "old", [])
     first = Path(plan["directory"]) / "page-0001"
-    if damage == "unknown":
-        (first / "skipped.json").unlink()
-        (first / "attempt.json").write_text('{"status":"in_flight"}')
-    elif damage == "malformed":
+    if damage == "malformed":
         (first / "skipped.json").write_text("{")
     elif damage == "missing_context":
         (first / "context.json").unlink()
@@ -81,6 +77,20 @@ def test_empty_page_cannot_hide_changed_receipts_or_an_unknown_call(
     calls = []
     with pytest.raises(PortalDataError):
         run_plan(app, snapshot, tmp_path / "rejected", calls, resume_from=Path(plan["directory"]))
+    assert calls == []
+
+
+def test_an_empty_page_whose_call_is_unknown_is_skipped_again(inputs, tmp_path, monkeypatch):
+    # An unknown earlier call is sent again (Model Call Record); an empty page sends
+    # nothing, so it is simply skipped again.
+    app, snapshot = inputs
+    monkeypatch.setattr(retrieval, "MAX_PAGE_BYTES", 180)
+    plan = run_plan(app, snapshot, tmp_path / "old", [])
+    first = Path(plan["directory"]) / "page-0001"
+    (first / "skipped.json").unlink()
+    (first / "attempt.json").write_text('{"status":"in_flight"}')
+    calls = []
+    run_plan(app, snapshot, tmp_path / "again", calls, resume_from=Path(plan["directory"]))
     assert calls == []
 
 

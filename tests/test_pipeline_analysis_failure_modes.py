@@ -292,3 +292,116 @@ def test_continue_retries_rejected_analysis_after_an_app_update_changed_its_conf
         pipeline.close()
         flow.close()
         intake.close()
+
+
+class _AnswerlessAttempts:
+    """An analysis whose every attempt stopped on a model call without an answer."""
+
+    def reconcile(self, attempt_id):
+        return {"attempt_id": attempt_id, "status": "needs_recheck"}
+
+    def ended_without_answer(self, attempt_id):
+        return True
+
+    def progress(self, attempt_id):
+        return {"attempt_id": attempt_id, "status": "failed"}
+
+
+def _answerless_queue(tmp_path):
+    (tmp_path / "applications").mkdir()
+    applications = ApplicationStore(tmp_path / "applications")
+    analysis_calls = []
+
+    def reader(_directory, **_options):
+        return {
+            "status": "readable",
+            "emails": [message("first", ["https://www.linkedin.com/jobs/view/10000"])],
+            "provenance": {},
+        }
+
+    def fetcher(url):
+        return page(url) | {
+            "job_fields": {
+                "title": "Systems Engineer",
+                "company": "Synthetic Employer",
+                "location": "Zurich, Switzerland",
+            }
+        }
+
+    def analyze(task):
+        analysis_calls.append(task["id"])
+        raise PortalDataError("match_model_timeout", "Synthetic model timeout", 503)
+
+    intake = ApplicationIntakeService(
+        applications, tmp_path / "intake", reader=reader, fetcher=fetcher
+    )
+    flow = ApplicationFlowService(applications, tmp_path / "flow", callbacks={"analysis": analyze})
+    flow.analysis = _AnswerlessAttempts()
+    pipeline = ApplicationPipeline(flow, intake, Worker(), interval=0.01)
+    return pipeline, flow, intake, analysis_calls
+
+
+def _until(pipeline, done, seconds=5):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        state = pipeline.snapshot()
+        if done(state):
+            return state
+        threading.Event().wait(0.01)
+    pytest.fail(f"Pipeline did not reach the expected state: {pipeline.snapshot()}")
+
+
+def test_a_call_without_an_answer_waits_before_its_automatic_resend(tmp_path, monkeypatch):
+    from career_evidence_graph import application_pipeline
+
+    monkeypatch.setattr(application_pipeline, "MODEL_RESEND_WAIT", 3600)
+    pipeline, flow, intake, analysis_calls = _answerless_queue(tmp_path)
+    try:
+        pipeline.start(request_id="answerless-wait")
+        state = _until(pipeline, lambda s: s["control"] == "paused")
+        assert state["status"] == "needs_input"
+        assert state["wait_reason"] == "analysis_input_required"
+        assert state["notification"]["message"] == "模型调用失败，3600 秒后第 1 次重试。"
+        threading.Event().wait(0.1)
+        assert analysis_calls and len(analysis_calls) == 1
+        task = flow.snapshot()["active_task"]
+        assert flow.analysis_outcome(task["id"])["resendable"] is True
+    finally:
+        pipeline.close()
+        flow.close()
+        intake.close()
+
+
+def test_a_call_without_an_answer_is_continued_three_times_then_waits(tmp_path, monkeypatch):
+    from career_evidence_graph import application_pipeline
+
+    monkeypatch.setattr(application_pipeline, "MODEL_RESEND_WAIT", 0)
+    pipeline, flow, intake, analysis_calls = _answerless_queue(tmp_path)
+    try:
+        pipeline.start(request_id="answerless-resends")
+        # The first attempt and three automatic resends, then the job waits.
+        state = _until(
+            pipeline,
+            lambda s: (
+                len(analysis_calls) == 4
+                and s["control"] == "paused"
+                and not s["notification"]["message"].startswith("模型调用失败")
+            ),
+        )
+        assert state["status"] == "needs_input"
+        threading.Event().wait(0.1)
+        assert len(analysis_calls) == 4
+        # The user's own Continue starts a fresh run of automatic resends.
+        pipeline.continue_current(request_id="answerless-manual-continue")
+        _until(
+            pipeline,
+            lambda s: (
+                len(analysis_calls) == 8
+                and s["control"] == "paused"
+                and not s["notification"]["message"].startswith("模型调用失败")
+            ),
+        )
+    finally:
+        pipeline.close()
+        flow.close()
+        intake.close()
