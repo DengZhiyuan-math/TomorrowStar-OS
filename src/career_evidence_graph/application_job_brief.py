@@ -142,8 +142,43 @@ def _literal_jd_quote(quote, jd):
             if "\n" not in jd[spans[0][0] : spans[-1][1]]:
                 span = (spans[0][0], spans[-1][1])
     if span is None:
+        shortened = _shortened_jd_line(quote, jd)
+        if shortened is not None:
+            return shortened
         raise _invalid("岗位引用必须来自岗位全文。")
     return jd[span[0] : span[1]]
+
+
+def _shortened_jd_line(quote, jd):
+    """The one JD line or sentence a quote shortens by dropping a few of its words.
+
+    2026-11-09, UniDistance: "Experience with continuous integration (CI) ..." for the
+    JD's "Experience in working with continuous integration (CI) ..." rejected the whole
+    brief. The quote's words must occur in order and cover at least 80% of the passage;
+    a changed word or more than one such passage keeps the quote rejected.
+    """
+
+    def words(text):
+        return [word.strip(".,;:").casefold() for word in text.split() if word.strip(".,;:")]
+
+    def in_order(needle, haystack):
+        remaining = iter(haystack)
+        return all(word in remaining for word in needle)
+
+    wanted = words(quote)
+    if len(wanted) < 3:
+        return None
+    passages = set()
+    for line in jd.splitlines():
+        for passage in {line.strip(), *re.split(r"(?<=[.!?;])\s+", line.strip())}:
+            have = words(passage)
+            if have and len(wanted) >= 0.8 * len(have) and in_order(wanted, have):
+                passages.add(passage)
+    # A sentence and its own line can both match; the sentence is the passage named.
+    shortest = min(passages, key=len, default=None)
+    if shortest is None or not all(shortest in passage for passage in passages):
+        return None
+    return shortest
 
 
 def _literal_group_quote(quote, jd):

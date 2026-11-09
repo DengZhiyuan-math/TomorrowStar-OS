@@ -731,6 +731,41 @@ def test_elided_jd_quote_becomes_its_literal_passage(quote, literal):
         assert _literal_jd_quote(quote, jd) == literal
 
 
+@pytest.mark.parametrize(
+    ("quote", "literal"),
+    [
+        # 2026-11-09, UniDistance: two dropped words rejected the whole brief.
+        (
+            "Experience with continuous integration (CI) and testing methodologies",
+            "Experience in working with continuous integration (CI) and testing methodologies",
+        ),
+        # A sentence inside a longer line is the passage named, not the whole line.
+        ("You will build tools for students.", "You will build learning tools for students."),
+        # A changed word, a reordering or a quote matching two lines stays rejected.
+        ("Experience with React and testing methodologies", None),
+        ("Experience in working with testing methodologies and continuous integration", None),
+        ("Experience with Python tooling", None),
+        # Too short to tell which passage is meant.
+        ("Experience CI", None),
+    ],
+)
+def test_a_quote_that_only_drops_words_becomes_its_literal_line(quote, literal):
+    from career_evidence_graph.application_job_brief import _literal_jd_quote
+
+    jd = (
+        "Experience in working with continuous integration (CI) and testing methodologies\n"
+        "Experience with at least one game engine, e.g. Unreal or Godot\n"
+        "Experience with modern Python tooling\n"
+        "Experience with legacy Python tooling\n"
+        "We teach online. You will build learning tools for students. Apply now."
+    )
+    if literal is None:
+        with pytest.raises(PortalDataError):
+            _literal_jd_quote(quote, jd)
+    else:
+        assert _literal_jd_quote(quote, jd) == literal
+
+
 def test_plain_colon_quote_names_a_captured_double_brace_colon():
     # 2026-11-04: a LinkedIn capture renders "Label: duty" bullets as "Label{{:}} duty".
     from career_evidence_graph.application_job_brief import _literal_jd_quote
