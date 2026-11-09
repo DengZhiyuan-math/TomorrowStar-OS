@@ -35,7 +35,7 @@ def test_followup_schema_requires_a_requested_requirement_or_no_selection(inputs
     assert indexes["minItems"] == 1
 
 
-def test_legacy_followup_replays_completed_pages_and_replaces_only_invalid_page(
+def test_pages_answered_under_the_legacy_followup_schema_are_asked_again(
     inputs, tmp_path, monkeypatch
 ):
     app, snapshot = inputs
@@ -86,7 +86,9 @@ def test_legacy_followup_replays_completed_pages_and_replaces_only_invalid_page(
         unknown_requirements=[0],
         resume_from=old,
     )
-    assert [call["page"] for call in calls] == [2]
+    # Only an identical question is replayed (Model Call Record): the legacy schema
+    # lacked minItems, so its completed page 1 is asked again with page 2.
+    assert sorted(call["page"] for call in calls) == [1, 2]
     assert plan["selected_candidate_ids"] == []
     assert before == {p.relative_to(old): p.read_bytes() for p in old.rglob("*.json")}
     replay_calls = []

@@ -22,7 +22,7 @@ from .application_information import _read_document as _read_bounded_document
 from .application_input_limits import MAX_MATCH_CONTEXT_BYTES
 from .application_storage import private_root
 from .career_portal_data import PortalDataError
-from .codex_cli import CodexCLIError, run_codex_exec, validate_recorded_result
+from .codex_cli import CodexCLIError, run_codex_exec
 from .codex_cli import output_validation_marker as _output_validation_marker
 from .validation.hashing import record_digest as digest
 from .validation.hashing import sha256_digest
@@ -149,18 +149,6 @@ def _page_schema(page, previous, requirements, unknown):
     elif indexes is not None:
         schema["properties"]["selections"]["maxItems"] = 0
     return schema
-
-
-def _compatible_page_schema(saved, current, unknown):
-    if saved == current:
-        return True
-    if unknown is None:
-        return False
-    # Earlier follow-up schemas omitted this existing semantic restriction.
-    # Completed responses still undergo the current selection validation.
-    legacy = deepcopy(current)
-    legacy["$defs"]["_Selection"]["properties"]["requirement_indexes"].pop("minItems")
-    return saved == legacy
 
 
 def _validated_page_output(result, stable, page, previous, unknown, job_brief):
@@ -416,80 +404,19 @@ def plan_retrieval(
                     if isinstance(error, PortalDataError):
                         raise
                     raise _invalid("原空检索页记录不能核验。") from error
-            elif previous_result.exists() or previous_result.is_symlink():
+            else:
+                # An earlier answer to this identical question is adopted without a call;
+                # a known failure, a rejection or a changed question asks again.
                 try:
-                    saved = json.loads(_read_bounded_document(previous_result).raw)
-                    if not isinstance(saved, dict):
-                        raise _invalid("原检索页结果格式不能核验。")
-                    if saved.get("status") == "failed":
-                        if (
-                            model_call.verdict(previous_page, model_call.PAGE)
-                            is model_call.Verdict.UNKNOWN
-                        ):
-                            raise PortalDataError(
-                                "match_result_needs_recheck",
-                                "原检索调用结果未明，未重复模型请求。",
-                                409,
-                            )
-                        if (
-                            json.loads(_read_bounded_document(previous_page / "context.json").raw)
-                            != context
-                            or json.loads(_read_bounded_document(previous_page / "prompt.json").raw)
-                            != {"prompt": prompt, "sha256": digest(prompt)}
-                            or not _compatible_page_schema(
-                                json.loads(
-                                    _read_bounded_document(previous_page / "schema.json").raw
-                                ),
-                                _page_schema(page, previous, stable, unknown),
-                                unknown,
-                            )
-                        ):
-                            raise _invalid("原已终止检索调用与当前输入不符。")
-                    if saved.get("status") != "failed":
-                        previous_schema_path = previous_page / "schema.json"
-                        previous_schema = json.loads(
-                            _read_bounded_document(previous_schema_path).raw
-                        )
-                        result = validate_recorded_result(
-                            saved, prompt=prompt, output_schema=previous_schema_path
-                        )
-                        if (
-                            json.loads(_read_bounded_document(previous_page / "context.json").raw)
-                            != context
-                            or json.loads(_read_bounded_document(previous_page / "prompt.json").raw)
-                            != {"prompt": prompt, "sha256": digest(prompt)}
-                            or not _compatible_page_schema(
-                                previous_schema,
-                                _page_schema(page, previous, stable, unknown),
-                                unknown,
-                            )
-                        ):
-                            raise _invalid("原检索页与当前协议不一致。")
-                        failure_path = previous_page / "validation-failure.json"
-                        if failure_path.exists() or failure_path.is_symlink():
-                            marker = _output_validation_marker(
-                                result, prompt, previous_schema_path, "retrieval_invalid"
-                            )
-                            if (
-                                marker is None
-                                or json.loads(_read_bounded_document(failure_path).raw) != marker
-                            ):
-                                raise _invalid("原检索校验失败记录不能核验。")
-                            result = None
-                        else:
-                            helper.atomic_write_json(schema_path, previous_schema)
-                            if result.output_schema_hash != sha256_digest(schema_path.read_bytes()):
-                                raise _invalid("原检索页的结构记录不能无损保留。")
-                except (OSError, ValueError, TypeError, ValidationError, CodexCLIError) as error:
-                    if isinstance(error, PortalDataError):
-                        raise
+                    result = model_call.recorded_answer(
+                        previous_page, model_call.PAGE, prompt, config
+                    )
+                except model_call.UnknownCall as error:
+                    raise PortalDataError(
+                        "match_result_needs_recheck", "原检索页结果未知，须先核对原调用。", 409
+                    ) from error
+                except model_call.DamagedRecord as error:
                     raise _invalid("原检索页结果不能核验。") from error
-            elif (previous_page / "attempt.json").exists() or (
-                previous_page / "prompt.json"
-            ).exists():
-                raise PortalDataError(
-                    "match_result_needs_recheck", "原检索页结果未知，须先核对原调用。", 409
-                )
         if skip_empty and result is None:
             helper.atomic_write_json(page_directory / "skipped.json", skipped_receipt)
             output = {"requirements": stable, "selections": []}

@@ -12,6 +12,8 @@ from test_matching_stage_recovery import terminal_model_failure
 
 from career_evidence_graph.application_job_brief import create_job_brief
 from career_evidence_graph.career_portal_data import PortalDataError
+from career_evidence_graph.codex_cli import output_validation_marker
+from career_evidence_graph.validation.hashing import sha256_digest
 
 
 def test_complete_brief_is_adopted_into_a_new_attempt_without_calling_again(
@@ -153,7 +155,16 @@ def test_brief_rejected_under_an_earlier_prompt_is_asked_again(tmp_path, applica
     bad["groups"][0]["jd_quote"] = "Unrecorded duty"
     with pytest.raises(PortalDataError):
         create_job_brief(application, old, runner=model_runner(bad, calls))
-    (old / "job-brief-prompt.json").write_text(json.dumps({"prompt": "an earlier prompt"}))
+    # A consistent record of that earlier prompt: its answer and rejection bind to it.
+    earlier = "an earlier prompt"
+    (old / "job-brief-prompt.json").write_text(json.dumps({"prompt": earlier}))
+    saved = json.loads((old / "job-brief-result.json").read_text())
+    saved["prompt_hash"] = sha256_digest(earlier.encode())
+    (old / "job-brief-result.json").write_text(json.dumps(saved))
+    marker = output_validation_marker(
+        saved, earlier, old / "job-brief-schema.json", "job_brief_invalid"
+    )
+    (old / "validation-failure.json").write_text(json.dumps(marker))
     result = create_job_brief(
         application, tmp_path / "retry", runner=model_runner(output, calls), resume_from=old
     )

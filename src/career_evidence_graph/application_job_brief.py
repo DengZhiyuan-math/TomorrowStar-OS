@@ -27,7 +27,7 @@ from .application_match_scoring import (
 )
 from .application_storage import private_root
 from .career_portal_data import PortalDataError
-from .codex_cli import CodexCLIError, run_codex_exec, validate_recorded_result
+from .codex_cli import CodexCLIError, run_codex_exec
 from .codex_cli import output_validation_marker as _output_validation_marker
 from .validation.hashing import record_digest as digest
 from .validation.models import CodexCLIConfig
@@ -421,10 +421,16 @@ def create_job_brief(
                 if isinstance(error, PortalDataError):
                     raise
                 raise _invalid() from error
-            if not (previous / "job-brief-result.json").exists():
-                raise PortalDataError(
-                    "match_result_needs_recheck", "原岗位解读结果未知，须先核对原调用。", 409
-                )
+        # Checked before this attempt saves anything, so neither an unknown call nor a
+        # damaged record is copied into it.
+        try:
+            model_call.earlier_answer(previous, model_call.JOB_BRIEF)
+        except model_call.UnknownCall as error:
+            raise PortalDataError(
+                "match_result_needs_recheck", "原岗位解读结果未知，须先核对原调用。", 409
+            ) from error
+        except model_call.DamagedRecord as error:
+            raise _invalid("原岗位解读调用记录不能核验。") from error
     if (directory / "job-brief-result.json").exists():
         raise PortalDataError(
             "job_brief_attempt_exists", "此目录已有岗位解读结果，请使用新版本目录。", 409
@@ -480,91 +486,32 @@ def create_job_brief(
         output_schema=schema_path,
         drift_limitation_reason="Unpinned comparison alias; raw response and uncertainty retained.",
     )
-    result = None
-    if resume_from is not None:
-        result_path = Path(resume_from).expanduser() / "job-brief-result.json"
-        if result_path.exists() or result_path.is_symlink():
-            try:
-                saved = json.loads(_read_bounded_document(result_path).raw)
-                if not isinstance(saved, dict):
-                    raise _invalid()
-                previous = result_path.parent
-                if json.loads(_read_bounded_document(previous / "job-brief-input.json").raw) != {
-                    "schema_version": PROTOCOL,
-                    "job": job,
-                }:
-                    raise _invalid("原岗位解读输入已变化。")
-                if (
-                    saved.get("status") == "failed"
-                    and model_call.verdict(previous, model_call.JOB_BRIEF)
-                    is model_call.Verdict.UNKNOWN
-                ):
-                    raise PortalDataError(
-                        "match_result_needs_recheck",
-                        "原岗位解读结果未明，未重复模型请求。",
-                        409,
-                    )
-                same_call = (
-                    json.loads(_read_bounded_document(previous / "job-brief-prompt.json").raw)
-                    == {"prompt": prompt}
-                    and json.loads(_read_bounded_document(previous / "job-brief-schema.json").raw)
-                    == _Output.model_json_schema()
-                )
-                failure_path = previous / "validation-failure.json"
-                rejected = failure_path.exists() or failure_path.is_symlink()
-                if saved.get("status") != "failed" and not same_call and rejected:
-                    # A brief rejected under an earlier prompt or schema is never
-                    # adopted; this attempt asks again (2026-11-04: an updated prompt
-                    # made every retry of a rejected brief fail before any model call).
-                    result = None
-                elif saved.get("status") != "failed":
-                    result = validate_recorded_result(
-                        saved, prompt=prompt, output_schema=schema_path
-                    )
-                    if not same_call:
-                        raise _invalid("原岗位解读调用与当前协议不一致。")
-                    if rejected:
-                        marker = _output_validation_marker(
-                            result, prompt, schema_path, "job_brief_invalid"
-                        )
-                        if (
-                            marker is None
-                            or json.loads(_read_bounded_document(failure_path).raw) != marker
-                        ):
-                            raise _invalid("原岗位解读校验失败记录不能核验。")
-                        result = None
-            except (OSError, ValueError, TypeError, ValidationError, CodexCLIError) as error:
-                if isinstance(error, PortalDataError):
-                    raise
-                raise _invalid() from error
-        elif (result_path.parent / "job-brief-prompt.json").exists():
-            raise PortalDataError(
-                "match_result_needs_recheck", "原岗位解读结果未明，未重复模型请求。", 409
-            )
-    if result is None:
-        try:
-            result = model_call.send(
-                directory,
-                model_call.JOB_BRIEF,
-                runner,
-                config,
-                prompt,
-                before_send=on_dispatch,
-                timeout_seconds=180,
-                allow_non_repository=True,
-                environment=dict(os.environ) if environment is None else environment,
-            )
-        except (CodexCLIError, OSError, subprocess.TimeoutExpired) as error:
-            raise PortalDataError(
-                model_call.failure_code(error, "job_brief_unavailable"),
-                "岗位解读未完成，请检查模型服务后创建新版本。",
-                503,
-            ) from error
-    else:
-        # The adopted earlier answer is recorded in this attempt too.
-        helper.atomic_write_json(
-            directory / "job-brief-result.json", result.model_dump(mode="json")
+    try:
+        # An earlier attempt's answer to this identical question is adopted without a call.
+        result = model_call.send(
+            directory,
+            model_call.JOB_BRIEF,
+            runner,
+            config,
+            prompt,
+            previous=None if resume_from is None else Path(resume_from).expanduser(),
+            before_send=on_dispatch,
+            timeout_seconds=180,
+            allow_non_repository=True,
+            environment=dict(os.environ) if environment is None else environment,
         )
+    except model_call.UnknownCall as error:
+        raise PortalDataError(
+            "match_result_needs_recheck", "原岗位解读结果未明，未重复模型请求。", 409
+        ) from error
+    except model_call.DamagedRecord as error:
+        raise _invalid("原岗位解读调用记录不能核验。") from error
+    except (CodexCLIError, OSError, subprocess.TimeoutExpired) as error:
+        raise PortalDataError(
+            model_call.failure_code(error, "job_brief_unavailable"),
+            "岗位解读未完成，请检查模型服务后创建新版本。",
+            503,
+        ) from error
     try:
         output = _Output.model_validate(result.structured_result).model_dump()
         for group in output["groups"]:

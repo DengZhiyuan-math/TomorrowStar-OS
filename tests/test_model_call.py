@@ -5,11 +5,13 @@ import subprocess
 from types import SimpleNamespace
 
 import pytest
+from test_application_match import model_runner
 
 from career_evidence_graph import model_call
 from career_evidence_graph.career_portal_data import PortalDataError
-from career_evidence_graph.codex_cli import CodexCLIError
+from career_evidence_graph.codex_cli import CodexCLIError, output_validation_marker
 from career_evidence_graph.model_call import PAGE, Verdict
+from career_evidence_graph.validation.models import CodexCLIConfig
 
 STARTED = "\n".join(
     json.dumps(event)
@@ -136,3 +138,103 @@ def test_raw_timeout_output_is_kept_as_text(call_dir):
 )
 def test_failure_codes_are_shared(error, code):
     assert model_call.failure_code(error, "job_brief_unavailable") == code
+
+
+# Replay: only an identical question reuses an earlier answer.
+
+
+def asked(directory, prompt, model="gpt-5.6-luna"):
+    """Save a call's prompt and schema as a stage does, and return its config."""
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / PAGE.prompt).write_text(json.dumps({"prompt": prompt}))
+    (directory / PAGE.schema).write_text(json.dumps({"type": "object"}))
+    return CodexCLIConfig(
+        schema_version="codex-cli-config/v1",
+        requested_model=model,
+        workspace=directory,
+        output_schema=directory / PAGE.schema,
+        drift_limitation_reason="Synthetic replay scenario.",
+    )
+
+
+def first_answer(tmp_path, prompt="p"):
+    old = tmp_path / "old"
+    model_call.send(
+        old,
+        PAGE,
+        model_runner({"x": 1}, []),
+        asked(old, prompt),
+        prompt,
+        allow_non_repository=True,
+    )
+    return old
+
+
+def resend(tmp_path, old, prompt="p", model="gpt-5.6-luna"):
+    calls, sent = [], []
+    new = tmp_path / "new"
+    result = model_call.send(
+        new,
+        PAGE,
+        model_runner({"x": 2}, calls),
+        asked(new, prompt, model),
+        prompt,
+        previous=old,
+        before_send=lambda: sent.append(True),
+        allow_non_repository=True,
+    )
+    return result, [call for call in calls if call[-1] != "--version"], sent
+
+
+def test_an_identical_question_replays_the_earlier_answer(tmp_path):
+    old = first_answer(tmp_path)
+    result, calls, sent = resend(tmp_path, old)
+
+    assert result.structured_result == {"x": 1}
+    assert calls == [] and sent == []
+    assert json.loads((tmp_path / "new" / PAGE.result).read_text()) == json.loads(
+        (old / PAGE.result).read_text()
+    )
+
+
+@pytest.mark.parametrize("change", ["prompt", "model"])
+def test_a_changed_question_is_asked_again(tmp_path, change):
+    old = first_answer(tmp_path)
+    if change == "prompt":
+        result, calls, sent = resend(tmp_path, old, prompt="p2")
+    else:
+        result, calls, sent = resend(tmp_path, old, model="gpt-6.1-sol")
+
+    assert result.structured_result == {"x": 2}
+    assert len(calls) == 1 and sent == [True]
+
+
+def test_a_rejected_answer_is_asked_again(tmp_path):
+    old = first_answer(tmp_path)
+    answer = json.loads((old / PAGE.result).read_text())
+    marker = output_validation_marker(answer, "p", old / PAGE.schema, "retrieval_invalid")
+    (old / model_call.REJECTION).write_text(json.dumps(marker))
+
+    result, calls, _ = resend(tmp_path, old)
+
+    assert result.structured_result == {"x": 2} and len(calls) == 1
+
+
+@pytest.mark.parametrize("damage", ["prompt", "rejection"])
+def test_a_damaged_record_is_never_replayed_or_resent(tmp_path, damage):
+    old = first_answer(tmp_path)
+    if damage == "prompt":
+        (old / PAGE.prompt).write_text(json.dumps({"prompt": "edited"}))
+    else:
+        (old / model_call.REJECTION).write_text("{}")
+
+    with pytest.raises(model_call.DamagedRecord):
+        resend(tmp_path, old)
+
+
+def test_an_unknown_earlier_call_is_never_resent_silently(tmp_path):
+    old = tmp_path / "old"
+    asked(old, "p")  # prompt saved, result never arrived
+
+    with pytest.raises(model_call.UnknownCall):
+        resend(tmp_path, old)

@@ -4,7 +4,8 @@ Each call lives in its own directory. The calling stage saves the prompt and
 schema files first; ``send`` then calls the runner and always leaves a result
 file, whether the runner answered or raised. ``verdict`` reads those files back
 as one of five outcomes, so no stage guesses a call's fate from missing files.
-See CONTEXT.md, "Model Call Record".
+Given an earlier call's directory, ``send`` reuses its answer when the question
+is identical and asks again otherwise. See CONTEXT.md, "Model Call Record".
 """
 
 from __future__ import annotations
@@ -18,9 +19,19 @@ from pathlib import Path
 
 from ._vendor import job_apply_store as helper
 from .career_portal_data import PortalDataError
+from .codex_cli import CodexCLIError, output_validation_marker, validate_recorded_result
 from .validation.hashing import record_digest as digest
+from .validation.hashing import sha256_digest
 
 REJECTION = "validation-failure.json"
+
+
+class UnknownCall(Exception):
+    """The earlier call may have been answered, but its result was never saved."""
+
+
+class DamagedRecord(Exception):
+    """The earlier call's saved files do not agree with each other."""
 
 
 class Verdict(StrEnum):
@@ -46,16 +57,32 @@ PAGE = Files("prompt.json", "schema.json", "result.json")
 
 
 def send(
-    directory: Path, files: Files, runner, config, prompt: str, *, before_send=None, **options
+    directory: Path,
+    files: Files,
+    runner,
+    config,
+    prompt: str,
+    *,
+    previous: Path | None = None,
+    before_send=None,
+    **options,
 ):
     """Call the runner once and record its answer or failure in ``files.result``.
 
+    With ``previous``, an earlier call's answer to the identical question is
+    recorded here instead, without calling or running ``before_send``; see
+    ``recorded_answer`` for when that applies and what it raises.
     ``before_send`` runs immediately before the call. An admission refusal it
     raises is recorded like a runner error, so the record shows nothing was sent.
     A runner error is recorded and re-raised unchanged for the stage to report.
-    A local refusal (``PortalDataError``, e.g. a recorded answer that no longer
-    matches its input) is not a call outcome and leaves no result file.
+    A local refusal (``PortalDataError``) is not a call outcome and leaves no
+    result file.
     """
+    if previous is not None:
+        answer = recorded_answer(previous, files, prompt, config)
+        if answer is not None:
+            helper.atomic_write_json(Path(directory) / files.result, answer.model_dump(mode="json"))
+            return answer
     try:
         if before_send is not None:
             before_send()
@@ -67,6 +94,59 @@ def send(
         raise
     helper.atomic_write_json(Path(directory) / files.result, result.model_dump(mode="json"))
     return result
+
+
+def recorded_answer(previous: Path, files: Files, prompt: str, config):
+    """The earlier call's answer when it was asked this identical question.
+
+    Identical means the same prompt, output schema and model. Returns None when a
+    new call is due: nothing was sent, the failure is known, the answer was
+    rejected, or the question differs. Raises as ``earlier_answer`` does.
+    """
+    answer = earlier_answer(previous, files)
+    if answer is None:
+        return None
+    try:
+        same_question = (
+            answer.prompt_hash == sha256_digest(prompt.encode())
+            and answer.output_schema_hash == sha256_digest(Path(config.output_schema).read_bytes())
+            and answer.requested_configuration.get("model") == config.requested_model
+        )
+    except OSError as error:
+        raise DamagedRecord(str(previous)) from error
+    return answer if same_question else None
+
+
+def earlier_answer(previous: Path, files: Files):
+    """The earlier call's checked answer, or None when it has none to offer.
+
+    None means nothing was sent, the failure is known or the answer was rejected.
+    Raises UnknownCall when the outcome is unknown, and DamagedRecord when the
+    saved answer, prompt, schema or rejection do not agree. Stages call this
+    before saving a new attempt, so neither problem is copied into it.
+    """
+    previous = Path(previous)
+    state = verdict(previous, files)
+    if state is Verdict.UNKNOWN:
+        raise UnknownCall(str(previous))
+    if state in {Verdict.NOT_SENT, Verdict.KNOWN_FAILURE}:
+        return None
+    try:
+        saved = helper.read_json_object(previous / files.result, "model call result")
+        asked = helper.read_json_object(previous / files.prompt, "model call prompt")["prompt"]
+        answer = validate_recorded_result(
+            saved, prompt=asked, output_schema=previous / files.schema
+        )
+        if state is Verdict.REJECTED:
+            marker = helper.read_json_object(previous / REJECTION, "model call rejection")
+            if marker != output_validation_marker(
+                answer, asked, previous / files.schema, marker.get("error_code")
+            ):
+                raise DamagedRecord(str(previous))
+            return None
+    except (OSError, KeyError, TypeError, ValueError, CodexCLIError, helper.StoreError) as error:
+        raise DamagedRecord(str(previous)) from error
+    return answer
 
 
 def failure_receipt(error) -> dict:

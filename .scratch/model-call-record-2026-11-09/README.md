@@ -89,12 +89,33 @@ across 4 modules (ee1af146, 54341431, e1545fed, b262937d, 02d150b6, 5019d594,
   ratchet drift in job_source/worker_browser, the adoption-write test and two
   pipeline route tests.
 
+**Step 2 — replay, mostly done (uncommitted).**
+
+- `model_call.earlier_answer` checks an earlier call before a new attempt saves
+  anything. It returns the checked answer, or None when nothing was sent, the
+  failure is known or the answer was rejected. It raises `UnknownCall` for an
+  unknown outcome and `DamagedRecord` when the saved answer, prompt, schema or
+  rejection marker disagree.
+- `model_call.recorded_answer` / `send(previous=...)` replay only when the prompt
+  hash, schema hash and model all match. Any other difference means a new call.
+- Job brief, retrieval pages and evaluation (`_resume_evaluation`) use this. Their
+  own prompt/schema/context comparisons are gone, as is
+  `_compatible_page_schema`.
+- Behaviour change (decision 6): a changed question now gets a new call
+  instead of stopping with `job_brief_invalid` / `retrieval_invalid` /
+  `match_resume_invalid`. Pages answered under the pre-minItems follow-up schema
+  are asked again. Damaged records still stop the job, and unknown calls still
+  wait (until step 3).
+- Tests: 7 replay scenarios in `test_model_call.py`. Two tests were updated:
+  the rejected-under-earlier-prompt test now builds a consistent earlier record,
+  and the legacy follow-up test now expects both pages to be asked again.
+  757 of 762 targeted tests pass; the same 5 fail on the base commit.
+
 **Still to do**, in order:
 
-1. Replay by identical input digest inside `model_call`. Retire stage identity
-   checks (`_same_upstream_binding`, the prompt/schema comparisons in job brief and
-   retrieval). Retrieval's `_compatible_page_schema` legacy allowance has to be
-   decided first.
+1. Finish replay: the material-packet source reuse (`_reusable`,
+   `_recover_native_reading`) and the analysis-level `_same_upstream_binding`
+   still carry their own identity rules.
 2. Automatic resend: 30 s × 3 for unknown results and for failures without an
    answer. The count is stored in the call record and advanced by the Pipeline
    tick. Add the UI line in the current-job panel.

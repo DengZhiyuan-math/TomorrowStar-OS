@@ -227,8 +227,6 @@ def _resume_evaluation(
     """Adopt saved output first; an unacknowledged model call is never replayed."""
     from . import model_call
     from .application_match import _analyze_loaded_job, reuse_analysis
-    from .codex_cli import CodexCLIError, validate_recorded_result
-    from .validation.models import CodexCLIResult
 
     if (original / "analysis.json").exists():
         report = _read_saved(original / "analysis.json")
@@ -243,9 +241,7 @@ def _resume_evaluation(
             return reused
         if not revalidate_recorded or _read_saved(original / "source-snapshot.json") != evaluation:
             raise PortalDataError("match_resume_invalid", "已完成评估输入不能核验。", 409)
-    result_path = original / "model-result.json"
-    if result_path.exists():
-        result = _read_saved(result_path)
+    if (original / "model-result.json").exists():
         inputs = _read_saved(original / "input.json")
         if (
             inputs.get("application_id") != application["id"]
@@ -258,62 +254,42 @@ def _resume_evaluation(
             or inputs.get("source_snapshot_revision") != evaluation.get("revision")
         ):
             raise PortalDataError("match_resume_invalid", "原评估调用输入不能核验。", 409)
-        if result.get("status") == "failed":
-            if model_call.verdict(original, model_call.EVALUATION) is model_call.Verdict.UNKNOWN:
-                raise PortalDataError(
-                    "match_result_needs_recheck",
-                    "原评估调用结果未明，请先核对，未重复模型请求。",
-                    409,
-                )
-        else:
-            try:
-                saved = validate_recorded_result(
-                    CodexCLIResult.model_validate(result),
-                    prompt=_read_saved(original / "context-input.json")["prompt"],
-                    output_schema=original / "match-schema.json",
-                )
-            except (ValueError, CodexCLIError) as error:
-                raise PortalDataError(
-                    "match_resume_invalid", "原模型响应不能核验。", 409
-                ) from error
-
-            if known_failure:
-                on_dispatch()
-                return _analyze_loaded_job(application, evaluation, destination, runner=runner)
-
-            def recorded(config, prompt, **kwargs):
-                try:
-                    return validate_recorded_result(
-                        saved, prompt=prompt, output_schema=config.output_schema
-                    )
-                except CodexCLIError as error:
-                    raise PortalDataError(
-                        "match_resume_invalid", "原模型响应与输入不符。", 409
-                    ) from error
-
-            report = _analyze_loaded_job(application, evaluation, destination, runner=recorded)
-            if revalidate_recorded:
-                helper.atomic_write_json(
-                    destination / "recorded-response-revalidation.json",
-                    {
-                        "schema_version": "recorded-evaluation-revalidation/v1",
-                        "original_directory": str(original),
-                        "result_revision": digest(saved.model_dump(mode="json")),
-                        "model_called": False,
-                    },
-                )
-            return report
-    elif any(
-        (original / name).exists() or (original / name).is_symlink()
-        for name in ("context-input.json", "match-schema.json")
-    ):
+    # Checked before this attempt saves anything, so neither an unknown call nor a
+    # damaged record is copied into it.
+    try:
+        earlier = model_call.earlier_answer(original, model_call.EVALUATION)
+    except model_call.UnknownCall as error:
         raise PortalDataError(
             "match_result_needs_recheck", "原评估调用结果未明，请先核对，未重复模型请求。", 409
+        ) from error
+    except model_call.DamagedRecord as error:
+        raise PortalDataError("match_resume_invalid", "原模型响应不能核验。", 409) from error
+    # An answer to the identical question is replayed without a call; a rejected
+    # evaluation (known_failure), a known failure or a changed question asks again.
+    report = _analyze_loaded_job(
+        application,
+        evaluation,
+        destination,
+        runner=runner,
+        previous=None if known_failure else original,
+        before_send=on_dispatch,
+    )
+    replayed = (
+        earlier is not None
+        and not known_failure
+        and _read_saved(destination / "model-result.json") == earlier.model_dump(mode="json")
+    )
+    if revalidate_recorded and replayed:
+        helper.atomic_write_json(
+            destination / "recorded-response-revalidation.json",
+            {
+                "schema_version": "recorded-evaluation-revalidation/v1",
+                "original_directory": str(original),
+                "result_revision": digest(earlier.model_dump(mode="json")),
+                "model_called": False,
+            },
         )
-    # No prompt was saved, so no evaluation call went out (2026-11-08: UBS's
-    # context-size refusal); a new call is the first one.
-    on_dispatch()
-    return _analyze_loaded_job(application, evaluation, destination, runner=runner)
+    return report
 
 
 def _required(rows):
