@@ -452,6 +452,15 @@ A retained record of one application's progress, input references and observed o
 It can remain after its employer page or execution process no longer exists.
 _Avoid_: Live page, employer-saved draft
 
+**Model Call Record (模型调用记录)**:
+The retained account of one model call: its prompt, output schema, admission and result,
+and one verdict: not sent, known failure, unknown, answer recorded or answer rejected.
+A recorded answer is reused only for an identical prompt, schema and model configuration.
+An unknown result, or a failure that produced no answer, is settled by sending the same call
+again after a short wait, up to three times; only then does the current job stop. A rejected
+answer is not resent this way.
+_Avoid_: Application Checkpoint, analysis attempt, guessing a call's fate from missing files
+
 **Application Runtime Observation (申请运行观察)**:
 A time-bound observation of the current application execution or employer page.
 It is separate from a retained Application Checkpoint and does not establish submission.

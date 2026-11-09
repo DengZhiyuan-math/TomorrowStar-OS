@@ -11,6 +11,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from . import model_call
 from ._vendor import job_apply_store as helper
 from .application_input_limits import MAX_MATCH_CONTEXT_BYTES, context_limits
 from .application_input_limits import MAX_MATCH_CONTEXT_BYTES as MAX_READING_PROMPT_BYTES
@@ -651,12 +652,11 @@ def prepare_material_packet(
             saved_path = origin / "material-packet.json"
             if saved_path.exists():
                 previous = helper.read_json_object(saved_path, "previous material packet")
-                from .application_match import _known_failed_model_result
-
                 for result_path in origin.glob("source-*/result.json"):
-                    saved_result = helper.read_json_object(result_path, "prior source reading")
-                    if saved_result.get("status") != "failed" or _known_failed_model_result(
-                        result_path.parent, saved_result
+                    helper.read_json_object(result_path, "prior source reading")
+                    if (
+                        model_call.verdict(result_path.parent, model_call.PAGE)
+                        is not model_call.Verdict.UNKNOWN
                     ):
                         continue
                     # Preserve the existing, separately proved OS argv-capacity recovery.
@@ -901,34 +901,20 @@ def prepare_material_packet(
             if on_dispatch is not None:
                 on_dispatch()
             try:
-                result = runner(
+                result = model_call.send(
+                    page_directory,
+                    model_call.PAGE,
+                    runner,
                     config,
                     prompt,
                     timeout_seconds=180,
                     allow_non_repository=True,
                     environment=dict(os.environ),
                 )
-            except (
-                CodexCLIError,
-                OSError,
-                subprocess.TimeoutExpired,
-                ValidationError,
-                ValueError,
-                TypeError,
-                KeyError,
-            ) as error:
-                helper.atomic_write_json(
-                    page_directory / "result.json",
-                    {
-                        "status": "failed",
-                        "error_type": type(error).__name__,
-                        "raw_stdout_jsonl": str(getattr(error, "raw_stdout_jsonl", "") or ""),
-                        "redacted_stderr": str(getattr(error, "redacted_stderr", "") or ""),
-                    },
-                )
-                packet.pop("pending_call", None)
+            except Exception:
+                if (page_directory / "result.json").exists():
+                    packet.pop("pending_call", None)
                 raise
-            helper.atomic_write_json(page_directory / "result.json", result.model_dump(mode="json"))
             packet["pending_call"]["result_saved"] = True
             output = reading_model.model_validate(result.structured_result).model_dump()
             grouped = {row["source_id"]: [] for row in batch}

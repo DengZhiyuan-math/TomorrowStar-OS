@@ -225,7 +225,8 @@ def _resume_evaluation(
     revalidate_recorded=False,
 ):
     """Adopt saved output first; an unacknowledged model call is never replayed."""
-    from .application_match import _analyze_loaded_job, _known_failed_model_result, reuse_analysis
+    from . import model_call
+    from .application_match import _analyze_loaded_job, reuse_analysis
     from .codex_cli import CodexCLIError, validate_recorded_result
     from .validation.models import CodexCLIResult
 
@@ -258,7 +259,7 @@ def _resume_evaluation(
         ):
             raise PortalDataError("match_resume_invalid", "原评估调用输入不能核验。", 409)
         if result.get("status") == "failed":
-            if not _known_failed_model_result(original, result):
+            if model_call.verdict(original, model_call.EVALUATION) is model_call.Verdict.UNKNOWN:
                 raise PortalDataError(
                     "match_result_needs_recheck",
                     "原评估调用结果未明，请先核对，未重复模型请求。",

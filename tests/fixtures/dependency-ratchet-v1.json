@@ -8,7 +8,6 @@
     "career_evidence_graph.application_full_latex <-> career_evidence_graph.application_group_review",
     "career_evidence_graph.application_full_latex <-> career_evidence_graph.application_source_reuse",
     "career_evidence_graph.application_full_latex <-> career_evidence_graph.application_writing",
-    "career_evidence_graph.application_job_brief <-> career_evidence_graph.application_match",
     "career_evidence_graph.application_job_brief <-> career_evidence_graph.application_match_scoring",
     "career_evidence_graph.application_match <-> career_evidence_graph.application_matching_pipeline",
     "career_evidence_graph.application_match_refresh <-> career_evidence_graph.application_material_packet",
@@ -46,8 +45,6 @@
     "career_evidence_graph.application_information imports career_evidence_graph.job_screening._language_requirement",
     "career_evidence_graph.application_intake imports career_evidence_graph.application_job_source._url",
     "career_evidence_graph.application_job_brief imports career_evidence_graph.application_information._read_document",
-    "career_evidence_graph.application_job_brief imports career_evidence_graph.application_match._known_failed_model_result",
-    "career_evidence_graph.application_job_brief imports career_evidence_graph.application_match._model_failure_code",
     "career_evidence_graph.application_match imports career_evidence_graph.application_matching_pipeline._bind_information",
     "career_evidence_graph.application_match_recheck imports career_evidence_graph.application_information._read_document",
     "career_evidence_graph.application_match_refresh imports career_evidence_graph.application_career_library._read",
@@ -57,8 +54,6 @@
     "career_evidence_graph.application_match_refresh imports career_evidence_graph.application_material_packet._unreceipted_reading",
     "career_evidence_graph.application_match_refresh imports career_evidence_graph.codex_cli._parse_jsonl",
     "career_evidence_graph.application_matching_pipeline imports career_evidence_graph.application_match._analyze_loaded_job",
-    "career_evidence_graph.application_matching_pipeline imports career_evidence_graph.application_match._known_failed_model_result",
-    "career_evidence_graph.application_material_packet imports career_evidence_graph.application_match._known_failed_model_result",
     "career_evidence_graph.application_material_packet imports career_evidence_graph.application_match_refresh._undispatched_argv_page",
     "career_evidence_graph.application_preparation_fixtures imports career_evidence_graph.application_prism_review._read",
     "career_evidence_graph.application_prism_review imports career_evidence_graph.application_prism._source_versions",
@@ -73,7 +68,6 @@
     "career_evidence_graph.application_resume imports career_evidence_graph.career_portal_data._identifier",
     "career_evidence_graph.application_resume_versions imports career_evidence_graph.application_writing._retained_structure_scopes",
     "career_evidence_graph.application_retrieval imports career_evidence_graph.application_information._read_document",
-    "career_evidence_graph.application_retrieval imports career_evidence_graph.application_match._known_failed_model_result",
     "career_evidence_graph.application_runtime imports career_evidence_graph.application_pdf_reuse._acceptance",
     "career_evidence_graph.application_single_binding imports career_evidence_graph.application_automation._job_identity",
     "career_evidence_graph.application_source_reuse imports career_evidence_graph.application_full_latex._body",
@@ -109,7 +103,8 @@
     "MC-19 review P2-2 (2026-10-28) decreased private_attribute_uses: tests/test_flow_match_execution_admission.py 12 -> 0 (entry removed) and tests/test_p06_flow_edit.py 18 -> 14; read-only assertion and baseline reads now use flow.witness, task_snapshot and snapshot()[\"tasks\"]. Worker-interface and installed-readiness reads used receivers the count does not track, so their counts are unchanged.",
     "Batch 1-A (2026-11-02) removed: application_flow <-> application_resume, application_flow <-> application_explanations, application_flow <-> application_match_refresh and application_flow <-> application_match_recheck mutual pairs. job_input_revision, analysis_input_binding, retained_configuration_inputs and latest_preparation_task moved to application_input_binding (imports only validation.hashing); qualification_status and task_eligibility moved to application_eligibility. application_flow keeps re-exports for existing callers.",
     "2026-11-02 flow-closure batch 1/2 merge: removed private import application_single_binding -> application_experience_latex._fixed_inputs_revision (input binding Module owns the revision rule); tests/test_worker_operation_scope.py private uses 3 -> 0 (takeover record Module); tests/test_pipeline_queue_assertions.py recorded at 8 (batch 1-D read-only assertions live inside Pipeline._stop/_save and have no public entry until C4 lands); tests/test_automatic_material_reuse_edit.py 6 -> 10 recorded as pre-existing drift from b5da8b57 (2026-11-01), which changed the test without updating this baseline.",
-    "2026-11-02 flow-closure merge: removed the application_recommendations <-> job_listing_links mutual import introduced by a900d2aa (2026-10-31) without a baseline update; recommendation_key moved to application_automation beside application_key and is re-exported by application_recommendations."
+    "2026-11-02 flow-closure merge: removed the application_recommendations <-> job_listing_links mutual import introduced by a900d2aa (2026-10-31) without a baseline update; recommendation_key moved to application_automation beside application_key and is re-exported by application_recommendations.",
+    "2026-11-09 model-call-record step 1: removed five private imports of application_match._known_failed_model_result / _model_failure_code (job_brief, matching_pipeline, material_packet, retrieval); the Model Call Record module (model_call) owns the failure rules; the application_job_brief <-> application_match mutual import is gone."
   ],
   "private_attribute_uses": {
     "src/career_evidence_graph/application_bound_materials.py": 2,

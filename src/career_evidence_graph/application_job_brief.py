@@ -16,6 +16,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from . import model_call
 from ._vendor import job_apply_store as helper
 from .application_information import _read_document as _read_bounded_document
 from .application_match_scoring import (
@@ -493,15 +494,16 @@ def create_job_brief(
                     "job": job,
                 }:
                     raise _invalid("原岗位解读输入已变化。")
-                if saved.get("status") == "failed":
-                    from .application_match import _known_failed_model_result
-
-                    if not _known_failed_model_result(previous, saved):
-                        raise PortalDataError(
-                            "match_result_needs_recheck",
-                            "原岗位解读结果未明，未重复模型请求。",
-                            409,
-                        )
+                if (
+                    saved.get("status") == "failed"
+                    and model_call.verdict(previous, model_call.JOB_BRIEF)
+                    is model_call.Verdict.UNKNOWN
+                ):
+                    raise PortalDataError(
+                        "match_result_needs_recheck",
+                        "原岗位解读结果未明，未重复模型请求。",
+                        409,
+                    )
                 same_call = (
                     json.loads(_read_bounded_document(previous / "job-brief-prompt.json").raw)
                     == {"prompt": prompt}
@@ -539,35 +541,30 @@ def create_job_brief(
             raise PortalDataError(
                 "match_result_needs_recheck", "原岗位解读结果未明，未重复模型请求。", 409
             )
-    try:
-        if result is None:
-            if on_dispatch is not None:
-                on_dispatch()
-            result = runner(
+    if result is None:
+        try:
+            result = model_call.send(
+                directory,
+                model_call.JOB_BRIEF,
+                runner,
                 config,
                 prompt,
+                before_send=on_dispatch,
                 timeout_seconds=180,
                 allow_non_repository=True,
                 environment=dict(os.environ) if environment is None else environment,
             )
-    except (CodexCLIError, OSError, subprocess.TimeoutExpired) as error:
-        from .application_match import _model_failure_code
-
+        except (CodexCLIError, OSError, subprocess.TimeoutExpired) as error:
+            raise PortalDataError(
+                model_call.failure_code(error, "job_brief_unavailable"),
+                "岗位解读未完成，请检查模型服务后创建新版本。",
+                503,
+            ) from error
+    else:
+        # The adopted earlier answer is recorded in this attempt too.
         helper.atomic_write_json(
-            directory / "job-brief-result.json",
-            {
-                "status": "failed",
-                "error_type": type(error).__name__,
-                "raw_stdout_jsonl": _error_text(error, "raw_stdout_jsonl", "output"),
-                "redacted_stderr": _error_text(error, "redacted_stderr", "stderr"),
-            },
+            directory / "job-brief-result.json", result.model_dump(mode="json")
         )
-        raise PortalDataError(
-            _model_failure_code(error, "job_brief_unavailable"),
-            "岗位解读未完成，请检查模型服务后创建新版本。",
-            503,
-        ) from error
-    helper.atomic_write_json(directory / "job-brief-result.json", result.model_dump(mode="json"))
     try:
         output = _Output.model_validate(result.structured_result).model_dump()
         for group in output["groups"]:
@@ -600,11 +597,6 @@ def create_job_brief(
         raise _invalid() from error
     helper.atomic_write_json(brief_path, brief)
     return brief
-
-
-def _error_text(error, primary, fallback):
-    value = getattr(error, primary, getattr(error, fallback, "")) or ""
-    return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else value
 
 
 def brief_requirements(brief):

@@ -17,6 +17,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
 
+from . import model_call
 from ._vendor import job_apply_store as helper
 from .application_inference import Inference, validate_inference
 from .application_input_binding import (
@@ -39,6 +40,8 @@ from .application_storage import PUBLIC_ROOT as _public_root
 from .application_storage import private_root
 from .career_portal_data import PortalDataError
 from .codex_cli import CodexCLIError, run_codex_exec
+from .model_call import EVALUATION, failure_code, is_known_failure
+from .model_call import send as send_model_call
 from .validation.hashing import record_digest as digest
 from .validation.models import CodexCLIConfig
 
@@ -76,110 +79,17 @@ class _CallNotAdmitted(CodexCLIError):
     """The local owner refused dispatch; an earlier model response is unaffected."""
 
 
-def _known_failed_model_result(directory, receipt):
-    """A catch-all failed shell does not prove that the model turn terminated."""
-    if (
-        set(receipt) != {"status", "error_type", "raw_stdout_jsonl", "redacted_stderr"}
-        or not all(isinstance(value, str) for value in receipt.values())
-        or receipt.get("status") != "failed"
-    ):
-        return False
-    if receipt["error_type"] == "_CallNotAdmitted":
-        schema = next(
-            (
-                path
-                for name in ("match-schema.json", "job-brief-schema.json", "schema.json")
-                if (path := directory / name).is_file()
-            ),
-            None,
-        )
-        if schema is None or receipt["raw_stdout_jsonl"] != "" or receipt["redacted_stderr"] != "":
-            return False
-        for root in (directory, *list(directory.parents)[:3]):
-            stopped_path = root / "dispatch-stopped.json"
-            if not stopped_path.is_file() or stopped_path.is_symlink():
-                continue
-            try:
-                stopped = helper.read_json_object(stopped_path, "stop")
-                if root.name == "analysis":
-                    request_revision = digest(
-                        helper.read_json_object(root.parent / "intent.json", "intent")
-                    )
-                else:
-                    requests = list((root.parent / "requests").glob(f"*/{root.name}.json"))
-                    if len(requests) != 1:
-                        return False
-                    request = helper.read_json_object(requests[0], "analysis request")
-                    request_revision = digest(
-                        {key: value for key, value in request.items() if key != "revision"}
-                    )
-                    if request.get("revision") != request_revision:
-                        return False
-            except (OSError, ValueError, helper.StoreError):
-                return False
-            return (
-                stopped.get("schema_version") == "analysis-dispatch-stopped/v1"
-                and stopped.get("new_call_dispatched") is False
-                and stopped.get("undispatched_schema") == str(schema.relative_to(root))
-                and stopped.get("request_revision") == request_revision
-                and stopped.get("revision")
-                == digest({key: value for key, value in stopped.items() if key != "revision"})
-            )
-        return False
-    if receipt["error_type"] not in {"CodexCLIError", "TimeoutExpired"}:
-        return False
-    try:
-        events = [
-            json.loads(line) for line in receipt["raw_stdout_jsonl"].splitlines() if line.strip()
-        ]
-    except ValueError:
-        return False
-    if all(isinstance(event, dict) for event in events) and {
-        event.get("type") for event in events
-    } <= {"thread.started", "turn.started"}:
-        # A read-only analysis call that ended without any output has nothing to adopt;
-        # the user's Continue may run it again (approved 2026-10-31).
-        return True
-    if receipt["error_type"] != "CodexCLIError":
-        return False
-    if len(events) != 4 or not all(isinstance(event, dict) for event in events):
-        return False
-    message = events[2].get("message")
-    return (
-        set(events[0]) == {"type", "thread_id"}
-        and events[0].get("type") == "thread.started"
-        and isinstance(events[0].get("thread_id"), str)
-        and bool(events[0]["thread_id"].strip())
-        and events[1] == {"type": "turn.started"}
-        and isinstance(message, str)
-        and bool(message.strip())
-        and events[2] == {"type": "error", "message": message}
-        and events[3] == {"type": "turn.failed", "error": {"message": message}}
-    )
-
-
-_CALL_RECEIPTS = {
-    "prompt.json": "result.json",
-    "job-brief-prompt.json": "job-brief-result.json",
-}
-
-
 def _ended_on_known_failure(directory):
     """Every saved call has its result, and the attempt stopped on a known failed call."""
     failed = False
-    for prompt_name, result_name in _CALL_RECEIPTS.items():
-        for prompt in directory.rglob(prompt_name):
-            path = prompt.with_name(result_name)
-            if prompt.is_symlink() or path.is_symlink() or not path.is_file():
+    for files in (model_call.PAGE, model_call.JOB_BRIEF):
+        for prompt in directory.rglob(files.prompt):
+            if prompt.is_symlink() or (prompt.parent / files.result).is_symlink():
                 return False
-            try:
-                receipt = helper.read_json_object(path, "analysis call receipt")
-            except (OSError, ValueError, helper.StoreError):
+            state = model_call.verdict(prompt.parent, files)
+            if state is model_call.Verdict.UNKNOWN:
                 return False
-            if receipt.get("status") == "failed":
-                if not _known_failed_model_result(prompt.parent, receipt):
-                    return False
-                failed = True
+            failed |= state in {model_call.Verdict.KNOWN_FAILURE, model_call.Verdict.NOT_SENT}
     return failed
 
 
@@ -1230,22 +1140,6 @@ def reuse_analysis(
     return result
 
 
-def _model_failure_code(error, default="match_model_unavailable"):
-    """Keep shared analysis capability failures visible across model stages."""
-    if isinstance(
-        error, FileNotFoundError
-    ) or "configured Codex CLI executable is unavailable" in str(error):
-        return "match_cli_missing"
-    if isinstance(error, subprocess.TimeoutExpired) or "timed out" in str(error).casefold():
-        return "match_model_timeout"
-    stderr = getattr(error, "redacted_stderr", getattr(error, "stderr", "")) or ""
-    if isinstance(stderr, bytes):
-        stderr = stderr.decode("utf-8", errors="replace")
-    if re.search(r"not logged in|login required|not authenticated|unauthorized", stderr, re.I):
-        return "match_cli_auth_required"
-    return default
-
-
 def _analyze_loaded_job(
     application: dict, snapshot: dict, directory: Path, *, runner=run_codex_exec
 ) -> dict:
@@ -1337,31 +1231,22 @@ def _analyze_loaded_job(
         pool.shutdown(wait=False)
     try:
         # sol took up to 150 s on a 39-requirement JD in the 2026-10-31 comparison.
-        result = runner(
-            config, prompt, timeout_seconds=300, allow_non_repository=True, environment=environment
+        result = send_model_call(
+            directory,
+            EVALUATION,
+            runner,
+            config,
+            prompt,
+            timeout_seconds=300,
+            allow_non_repository=True,
+            environment=environment,
         )
     except (CodexCLIError, OSError, subprocess.TimeoutExpired) as error:
-        raw = getattr(error, "raw_stdout_jsonl", getattr(error, "output", "")) or ""
-        stderr = getattr(error, "redacted_stderr", getattr(error, "stderr", "")) or ""
-        if isinstance(raw, bytes):
-            raw = raw.decode("utf-8", errors="replace")
-        if isinstance(stderr, bytes):
-            stderr = stderr.decode("utf-8", errors="replace")
-        helper.atomic_write_json(
-            directory / "model-result.json",
-            {
-                "status": "failed",
-                "error_type": type(error).__name__,
-                "raw_stdout_jsonl": raw,
-                "redacted_stderr": stderr,
-            },
-        )
         raise PortalDataError(
-            _model_failure_code(error),
+            failure_code(error),
             "Codex 岗位分析未完成，请检查模型服务或登录状态后重试。",
             503,
         ) from error
-    helper.atomic_write_json(directory / "model-result.json", result.model_dump(mode="json"))
     try:
         output = output_model.model_validate(result.structured_result).model_dump()
     except ValidationError as error:
@@ -1952,7 +1837,7 @@ class Analysis:
                     "redacted_stderr",
                 } or not all(isinstance(v, str) for v in saved.values()):
                     raise ValueError("Invalid failed evaluation receipt")
-                known = _known_failed_model_result(origin, saved)
+                known = is_known_failure(origin, saved)
                 return progress | {
                     "status": "failed" if known else "needs_recheck",
                     "error_code": checkpoint.get("evaluation_error")

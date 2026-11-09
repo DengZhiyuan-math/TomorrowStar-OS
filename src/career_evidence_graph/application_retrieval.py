@@ -16,6 +16,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from . import model_call
 from ._vendor import job_apply_store as helper
 from .application_information import _read_document as _read_bounded_document
 from .application_input_limits import MAX_MATCH_CONTEXT_BYTES
@@ -421,9 +422,10 @@ def plan_retrieval(
                     if not isinstance(saved, dict):
                         raise _invalid("原检索页结果格式不能核验。")
                     if saved.get("status") == "failed":
-                        from .application_match import _known_failed_model_result
-
-                        if not _known_failed_model_result(previous_page, saved):
+                        if (
+                            model_call.verdict(previous_page, model_call.PAGE)
+                            is model_call.Verdict.UNKNOWN
+                        ):
                             raise PortalDataError(
                                 "match_result_needs_recheck",
                                 "原检索调用结果未明，未重复模型请求。",
@@ -492,35 +494,32 @@ def plan_retrieval(
             helper.atomic_write_json(page_directory / "skipped.json", skipped_receipt)
             output = {"requirements": stable, "selections": []}
         else:
-            try:
-                if result is None:
-                    helper.atomic_write_json(
-                        page_directory / "attempt.json", {"status": "in_flight"}
-                    )
-                    dispatch()
+            if result is None:
+                helper.atomic_write_json(page_directory / "attempt.json", {"status": "in_flight"})
+                try:
                     # 2026-11-08, Keyrock: one 125 KB retrieval page ran past 180 s with
                     # no output on two attempts (its first page took 48 s).
-                    result = runner(
+                    result = model_call.send(
+                        page_directory,
+                        model_call.PAGE,
+                        runner,
                         config,
                         prompt,
+                        before_send=dispatch,
                         timeout_seconds=360,
                         allow_non_repository=True,
                         environment=environment,
                     )
-            except (CodexCLIError, OSError, subprocess.TimeoutExpired) as error:
+                except (CodexCLIError, OSError, subprocess.TimeoutExpired) as error:
+                    raise PortalDataError(
+                        "retrieval_model_failed",
+                        "经历检索未完成，已保留调用记录，未自动重试。",
+                        503,
+                    ) from error
+            else:
                 helper.atomic_write_json(
-                    page_directory / "result.json",
-                    {
-                        "status": "failed",
-                        "error_type": type(error).__name__,
-                        "raw_stdout_jsonl": str(getattr(error, "raw_stdout_jsonl", "") or ""),
-                        "redacted_stderr": str(getattr(error, "redacted_stderr", "") or ""),
-                    },
+                    page_directory / "result.json", result.model_dump(mode="json")
                 )
-                raise PortalDataError(
-                    "retrieval_model_failed", "经历检索未完成，已保留调用记录，未自动重试。", 503
-                ) from error
-            helper.atomic_write_json(page_directory / "result.json", result.model_dump(mode="json"))
             try:
                 output = _validated_page_output(result, stable, page, previous, unknown, job_brief)
             except PortalDataError:
