@@ -73,6 +73,23 @@ def test_rejects_foreign_or_unassigned_item_references():
         validate_fragment(payload, assignment())
 
 
+def test_an_experience_has_at_most_three_items():
+    import pytest
+
+    from career_evidence_graph.application_resume_content import assignment_schema
+
+    # 2026-11-10: six long bullets on one research experience read as padding; the user
+    # set the cap at three.
+    schema = assignment_schema(assignment())
+    assert schema["$defs"]["ExperienceFragment"]["properties"]["items"]["maxItems"] == 3
+    item = fragment()["items"][0]
+    three = fragment() | {"items": [item | {"id": f"item-demo-{n}"} for n in range(3)]}
+    assert len(validate_fragment(three, assignment())["items"]) == 3
+    four = fragment() | {"items": [item | {"id": f"item-demo-{n}"} for n in range(4)]}
+    with pytest.raises(ValueError):
+        validate_fragment(four, assignment())
+
+
 def test_rejects_corrupt_assignment_scope_even_when_writer_echoes_allowlist():
     import pytest
 

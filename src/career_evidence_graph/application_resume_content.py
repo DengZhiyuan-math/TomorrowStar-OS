@@ -283,13 +283,18 @@ def assignment_schema(assignment):
     return schema
 
 
+# 2026-11-10: a research experience came back with six long bullets; the user asked for
+# a cap of three. Writers choose the strongest points for the job and merge related ones.
+MAX_EXPERIENCE_ITEMS = 3
+
+
 class ExperienceFragment(Contract):
     schema_version: Literal["experience-writing/v1"]
     assignment_revision: Text
     experience_id: Text
     candidate_id: Text
     status: Literal["complete"]
-    items: list[ContentItem] = Field(min_length=1)
+    items: list[ContentItem] = Field(min_length=1, max_length=MAX_EXPERIENCE_ITEMS)
 
 
 class MaterialRequest(Contract):

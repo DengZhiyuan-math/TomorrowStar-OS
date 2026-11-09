@@ -14,6 +14,7 @@ from copy import deepcopy
 from ._vendor import job_apply_store as helper
 from .application_full_latex import _invalid
 from .application_resume_content import (
+    MAX_EXPERIENCE_ITEMS,
     apply_content_patch,
     assemble_content,
     assignment_schema,
@@ -32,6 +33,10 @@ WRITER_INSTRUCTIONS = (
     "Use needs_material with located requests for missing facts. "
     "Items are the bullets under this experience's heading; the program already prints its "
     "title, organization, role, location and dates, so never repeat them as items. "
+    f"Write at most {MAX_EXPERIENCE_ITEMS} items: choose the facts that matter most for this "
+    "job, merge related ones, and keep each item to one or two lines. Leave internal "
+    "evidence caveats out of the wording; when a fact's limits do not support a claim, omit "
+    "the claim instead of qualifying it. "
     "Put a URL only in an item's links, without repeating its label in the item text. "
     "Leave out long identifiers such as full commit hashes. "
     "Keep AI, coding-agent and tool assistance out of the wording; it stays in internal "
