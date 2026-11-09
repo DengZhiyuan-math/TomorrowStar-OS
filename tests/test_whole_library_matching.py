@@ -92,14 +92,13 @@ def test_matching_view_states_each_experience_once_and_keeps_background_apart():
                 {
                     "source_id": "S1",
                     "responsibility": "team",
-                    "status": "completed",
                     "text": "Led delivery.",
                 }
             ],
+            # Completed is the default status and is not repeated to the model.
             "context": [
                 {
                     "source_id": "S2",
-                    "status": "completed",
                     "text": "Website describes FastAPI.",
                     "note": 1,
                 }

@@ -135,6 +135,14 @@ def test_notes_must_belong_to_the_saved_facts(library):
         )
 
 
+def test_labels_are_optional_and_default_to_the_users_completed_work():
+    upgraded, _ = upgrade_experience_facts(content())
+    del upgraded["facts"][0]["responsibility"]
+    del upgraded["facts"][0]["status"]
+    row = experience_facts_v1(upgraded)["facts"][0]
+    assert (row["responsibility"], row["status"]) == ("user", "completed")
+
+
 @pytest.mark.parametrize("field", ["responsibility", "status"])
 def test_v2_rejects_values_outside_the_unified_vocabulary(field):
     upgraded, _ = upgrade_experience_facts(content())

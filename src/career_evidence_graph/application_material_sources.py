@@ -299,6 +299,11 @@ def model_sources(sources):
             for key in fact_keys - ({"fact_id", "source_refs"} if trusted else set())
             if key in context and key != "scope"
         }
+        # The user's own completed work is the default; only exceptions reach the model.
+        if compact.get("responsibility") == "user":
+            del compact["responsibility"]
+        if compact.get("status") in {"completed", "unknown"}:
+            del compact["status"]
         compact["experience_context_ref"] = name
         if "scope" in context:
             scope = context["scope"]
@@ -361,9 +366,11 @@ def matching_view(sources):
             continue
         experience = experiences[name]
         entry = {key: value for key, value in row.items() if key != "text"}
-        if context.get("responsibility") != "third_party":
-            entry["responsibility"] = context.get("responsibility")
-        entry |= {"status": context.get("status"), "text": row["text"]}
+        if context.get("responsibility") not in {None, "third_party"}:
+            entry["responsibility"] = context["responsibility"]
+        if "status" in context:
+            entry["status"] = context["status"]
+        entry["text"] = row["text"]
         note = projected["scope_contexts"].get(context.get("scope_ref"))
         if note and note not in _DEFAULT_NOTES:
             if note not in experience["notes"]:

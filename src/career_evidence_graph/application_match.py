@@ -888,7 +888,8 @@ def _prompt_context(job, sources, snapshot):
     if compact_models:
         instructions += (
             "experiences lists each experience once with its header. Its facts carry their own "
-            "source_id, responsibility and status; its context entries are background about the "
+            "source_id; a fact without responsibility is the applicant's own work and a fact "
+            "without status is completed. Its context entries are background about the "
             "experience, never the applicant's own activity; a fact's note number refers to "
             "that experience's notes, which state its recorded boundaries.\n"
         )

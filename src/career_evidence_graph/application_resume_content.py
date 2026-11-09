@@ -63,8 +63,10 @@ class ExperienceFactV2(Contract):
     text: Text
     # agent_assisted remains only until the per-experience review separates agent
     # work (agent) from assisted user or team work.
-    responsibility: Literal["user", "team", "other_person", "agent", "agent_assisted"]
-    status: Literal["planned", "in_progress", "completed", "unknown"]
+    # Both labels are optional: left out means the user's own completed work. Record
+    # them only for exceptions (team/other/agent work, planned or in-progress status).
+    responsibility: Literal["user", "team", "other_person", "agent", "agent_assisted"] | None = None
+    status: Literal["planned", "in_progress", "completed", "unknown"] | None = None
     source_refs: list[Text] = Field(min_length=1)
 
 
@@ -142,7 +144,12 @@ def experience_facts_v1(content, notes=()):
     scope = {note["fact_id"]: note["text"] for note in notes if note["status"] == "pending"}
     statuses = {note["fact_id"]: note.get("context_status", "unknown") for note in notes}
     rows = [
-        fact | {"scope": scope.get(fact["id"], "Recorded experience fact.")}
+        fact
+        | {
+            "responsibility": fact["responsibility"] or "user",
+            "status": fact["status"] or "completed",
+            "scope": scope.get(fact["id"], "Recorded experience fact."),
+        }
         for fact in content["facts"]
     ] + [
         item

@@ -196,7 +196,8 @@ def _derive(payload: dict[str, object]) -> dict[str, object]:
         content = experience_facts_v1(content, payload.get("notes", ()))
         texts = [content[key] for key in ("title", "role", "organization") if content[key]]
         for fact in content["facts"]:
-            texts.extend(fact[key] for key in ("text", "scope", "status", "responsibility"))
+            # Responsibility and status labels are not retrieval terms.
+            texts.extend(fact[key] for key in ("text", "scope"))
         substantive = " ".join(fact["text"] for fact in content["facts"])
     else:
         texts = [payload["body"]]

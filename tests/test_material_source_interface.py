@@ -72,7 +72,11 @@ def test_source_projection_keeps_order_and_omits_receipt_only_fields():
 
 
 def test_trusted_projection_sends_evidence_and_boundaries_without_admission_flags():
-    from career_evidence_graph.application_material_sources import model_source, model_sources
+    from career_evidence_graph.application_material_sources import (
+        matching_view,
+        model_source,
+        model_sources,
+    )
 
     flags = {
         "application_trusted": True,
@@ -148,9 +152,8 @@ def test_trusted_projection_sends_evidence_and_boundaries_without_admission_flag
             "source_id": "fact",
             "text": "Built the parser.",
             "resume_eligible": True,
+            # The user's own completed work is the default and carries no labels.
             "record_context": {
-                "responsibility": "user",
-                "status": "completed",
                 "experience_context_ref": "experience-1",
                 "scope_ref": "scope-1",
             },
@@ -160,6 +163,19 @@ def test_trusted_projection_sends_evidence_and_boundaries_without_admission_flag
         "experience-1": {"candidate_id": "exp-1", "organization": "Example"}
     }
     assert projected["scope_contexts"] == {"scope-1": "Bounded self-report."}
+    team = deepcopy(fact)
+    team["record_context"] |= {"responsibility": "team", "status": "planned"}
+    assert model_sources([team])["sources"][0]["record_context"] == {
+        "responsibility": "team",
+        "status": "planned",
+        "experience_context_ref": "experience-1",
+        "scope_ref": "scope-1",
+    }
+    view = matching_view([fact, team | {"source_id": "team"}])
+    assert [
+        {key: value for key, value in entry.items() if key in {"responsibility", "status"}}
+        for entry in view["experiences"][0]["facts"]
+    ] == [{}, {"responsibility": "team", "status": "planned"}]
 
 
 def test_historical_source_imports_are_direct_aliases_of_the_shared_interface():
