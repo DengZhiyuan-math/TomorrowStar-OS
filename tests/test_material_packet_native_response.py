@@ -179,7 +179,12 @@ def test_saved_final_long_source_page_reuses_all_published_ranges(tmp_path, monk
         "symlink",
     ],
 )
-def test_unverified_native_results_remain_stopped(tmp_path, monkeypatch, mutation):
+def test_an_unadopted_native_result_is_replayed_sent_again_or_stopped(
+    tmp_path, monkeypatch, mutation
+):
+    """Model Call Record (decided 2026-11-09): an identical, intact answer is replayed;
+    a missing one or a changed question is sent again; a damaged record or a rejected
+    answer stops without a call, and the rejection lets the next attempt ask again."""
     original, first = stopped_attempt(tmp_path, monkeypatch)
     result_path = next(first.glob("source-*/result.json"))
     if mutation == "missing":
@@ -230,8 +235,9 @@ def test_unverified_native_results_remain_stopped(tmp_path, monkeypatch, mutatio
             )
         result_path.write_text(json.dumps(value))
     calls = []
-    with pytest.raises(PortalDataError) as caught:
-        material.prepare_material_packet(
+
+    def resume():
+        return material.prepare_material_packet(
             APPLICATION,
             original,
             tmp_path / "resumed",
@@ -239,5 +245,19 @@ def test_unverified_native_results_remain_stopped(tmp_path, monkeypatch, mutatio
             requirements=original.get("match_requirements", REQUIREMENTS),
             resume_from=first,
         )
-    assert caught.value.code == "match_result_needs_recheck"
+
+    replayed = {"context", "duplicate"}
+    if mutation in {"missing", "symlink", "source", "source_metadata", "scope"} | replayed:
+        _, packet = resume()
+        assert packet["status"] == "complete"
+        # An edited context.json leaves the question unchanged, and a repeated selection
+        # passes the same checks as a fresh answer, so both replay without a call.
+        assert bool(calls) is (mutation not in replayed)
+        return
+    with pytest.raises(PortalDataError) as caught:
+        resume()
+    assert caught.value.code == "retrieval_execution_incomplete"
     assert calls == []
+    rejected = mutation in {"selection", "requirement", "business"}
+    page = next((tmp_path / "resumed").glob("source-*"))
+    assert (page / "validation-failure.json").is_file() is rejected

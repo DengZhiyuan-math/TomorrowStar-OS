@@ -119,7 +119,7 @@ def test_pages_answered_under_the_legacy_followup_schema_are_asked_again(
         "native_content",
     ],
 )
-def test_followup_repair_reuses_accepted_evaluator_only_with_known_bound_planner_failure(
+def test_followup_repair_resumes_unless_a_record_is_damaged_or_the_model_changed(
     canonical, tmp_path, monkeypatch, alteration
 ):
     library, _, _, base, *_ = canonical
@@ -205,15 +205,22 @@ def test_followup_repair_reuses_accepted_evaluator_only_with_known_bound_planner
             resume_from=old,
         )
 
-    # Engine and component hashes are provenance: like the retrieval repair itself,
-    # an App rebuild alone must not discard the accepted evaluator (batch 1-A).
-    if alteration not in {"retrieval", "engine", "fact_reader"}:
+    # A damaged record stops without a call.
+    if alteration in {"marker", "schema", "result", "native_content"}:
         with pytest.raises(PortalDataError):
             resume()
         assert retry.calls == []
         assert before == {p.relative_to(old): p.read_bytes() for p in old.rglob("*") if p.is_file()}
         return
     result = resume()
+    assert before == {p.relative_to(old): p.read_bytes() for p in old.rglob("*") if p.is_file()}
+    if alteration in {"model", "budget"}:
+        # A changed model or context budget analyses the job from the start.
+        assert retry.brief_calls
+        return
+    # Engine and component hashes are provenance: like the retrieval repair itself,
+    # an App rebuild alone must not discard the accepted evaluator (batch 1-A). An
+    # unknown follow-up page is simply sent again (Model Call Record, 2026-11-09).
     assert retry.brief_calls == []
     assert retry.read_calls == []
     assert retry.phases == ["followup"]

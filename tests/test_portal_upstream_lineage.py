@@ -13,7 +13,7 @@ from career_evidence_graph.career_portal_data import ApplicationStore, PortalDat
 
 
 @pytest.mark.parametrize("changed_budget", [False, True])
-def test_newer_unknown_evaluation_cannot_fall_back_to_older_reading(
+def test_a_newer_unknown_evaluation_is_sent_again_by_the_next_retry(
     canonical, portal, tmp_path, monkeypatch, changed_budget
 ):
     monkeypatch.setenv("TOMORROWSTAR_MATCH_CONTEXT_BYTES", "128000")
@@ -102,13 +102,10 @@ def test_newer_unknown_evaluation_cannot_fall_back_to_older_reading(
         ]
         persist_attempt(current)
         active["name"] = "retry"
-        with pytest.raises(PortalDataError) as caught:
-            flow.callbacks["analysis"](current)
-        assert caught.value.code == (
-            "match_resume_invalid" if changed_budget else "match_result_needs_recheck"
-        )
-        assert runners["retry"].calls == []
-        assert runners["retry"].phases == []
+        # The newer attempt's unknown evaluation is sent again (Model Call Record,
+        # decided 2026-11-09); a changed context budget analyses the job from the start.
+        flow.callbacks["analysis"](current)
+        assert "evaluate" in runners["retry"].phases
         assert all(path.read_bytes() == raw for path, raw in preserved.items())
     finally:
         server.server_close()

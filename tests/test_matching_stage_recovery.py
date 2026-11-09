@@ -532,9 +532,9 @@ def test_an_evaluation_refused_on_size_before_its_prompt_is_retried(
     [
         ({"status": "failed", "error_type": "CodexCLIError"}, True),
         ({"status": "failed", "error_type": "TimeoutExpired"}, True),
-        # No recorded end: the call may still have answered.
-        (None, False),
-        ({"status": "ok"}, False),
+        # No recorded end: the call is sent again (Model Call Record, 2026-11-09).
+        (None, True),
+        ({"status": "ok"}, True),
     ],
 )
 def test_a_recorded_failed_followup_resumes_after_an_app_rebuild(tmp_path, result, resumable):

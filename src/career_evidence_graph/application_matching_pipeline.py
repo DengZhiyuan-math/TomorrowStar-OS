@@ -53,18 +53,6 @@ def known_reading_failure(directory, saved):
     )
 
 
-def _answered_evaluation(saved):
-    """The saved evaluation call returned a complete answer, accepted or rejected."""
-    origin = saved.get("evaluation_origin")
-    if saved.get("phase") not in {"evaluation", "evaluated"} or not isinstance(origin, str):
-        return False
-    try:
-        result = _read_saved(Path(origin) / "model-result.json")
-    except (PortalDataError, helper.StoreError):
-        return False
-    return result.get("status") != "failed" and result.get("exit_code") == 0
-
-
 def _same_upstream_binding(saved, binding):
     previous = saved.get("binding")
     if previous == binding:
@@ -79,27 +67,8 @@ def _same_upstream_binding(saved, binding):
     configuration_same = same_configuration(
         previous.get("configuration"), binding.get("configuration")
     )
-    if (
-        saved.get("phase") == "brief"
-        and not saved.get("brief")
-        and isinstance(saved.get("brief_origin"), str)
-        and (Path(saved["brief_origin"]) / "validation-failure.json").is_file()
-    ):
-        # A rejected JD reading reuses nothing; its next call runs under the current
-        # configuration, and the brief itself re-checks the recorded rejection.
-        return upstream_same
-    if (
-        saved.get("phase") == "planning"
-        and saved.get("planner_kind") == "followup"
-        and saved.get("planner_pending") is True
-    ):
-        # A pending follow-up repair reuses accepted evaluations only after its
-        # recorded planner failure is re-validated.
-        return (
-            upstream_same
-            and configuration_same
-            and (_known_invalid_followup(saved) or _recorded_failed_followup(saved))
-        )
+    # A pending call, answered or not, is resumed through its Model Call Record: an
+    # identical answer replays and a call without one is sent again.
     if upstream_same and configuration_same:
         return True
     known_invalid_evaluation = saved.get("phase") == "evaluation" and saved.get(
@@ -122,33 +91,6 @@ def _same_upstream_binding(saved, binding):
         {k: v for k, v in previous["configuration"].items() if k != "context_limits"},
         {k: v for k, v in binding["configuration"].items() if k != "context_limits"},
     )
-
-
-def _recorded_failed_followup(saved):
-    """The pending follow-up planner call ended in a failure this App recorded.
-
-    2026-11-08, Keyrock: a follow-up page timed out; after an App rebuild only
-    provenance differed, yet resumption required a validation-failure marker.
-    """
-    if not (
-        saved.get("phase") == "planning"
-        and saved.get("planner_kind") == "followup"
-        and saved.get("planner_pending") is True
-        and isinstance(saved.get("planner_origin"), str)
-    ):
-        return False
-    pages = sorted(Path(saved["planner_origin"]).glob("page-*"))
-    if not pages:
-        return False
-    try:
-        result = _read_saved(pages[-1] / "result.json")
-    except (PortalDataError, helper.StoreError):
-        return False
-    return result.get("status") == "failed" and result.get("error_type") in {
-        "CodexCLIError",
-        "TimeoutExpired",
-        "OSError",
-    }
 
 
 def _known_invalid_followup(saved):
@@ -470,12 +412,9 @@ def analyze_with_retrieval(
             or saved.get("revision") != digest({k: v for k, v in saved.items() if k != "revision"})
             or not _same_upstream_binding(saved, binding)
         ):
-            if not (
-                _answered_evaluation(saved) or known_reading_failure(previous_directory, saved)
-            ):
-                raise PortalDataError("match_resume_invalid", "原分析与本轮输入不符，未复用。", 409)
-            # A proven size refusal or a complete saved answer hides no result; changed
-            # inputs or an App update are analysed from the start (installed MC-11).
+            # Changed inputs or an App update are analysed from the start. An earlier
+            # call without an answer needs no guard: a model call has no effect outside
+            # the App (Model Call Record, decided 2026-11-09).
             previous_directory, saved = None, {}
             binding["job_brief_revision"] = (job_brief or {}).get("revision")
         revalidate_recorded = bool(saved) and (

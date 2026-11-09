@@ -231,6 +231,21 @@ def test_a_damaged_record_is_never_replayed_or_resent(tmp_path, damage):
     with pytest.raises(model_call.DamagedRecord):
         resend(tmp_path, old)
 
+    # The refused attempt records that nothing was sent, so it is not resent either.
+    assert model_call.verdict(tmp_path / "new", PAGE) is Verdict.NOT_SENT
+    assert model_call.ended_without_answer(tmp_path / "new") is False
+
+
+def test_a_result_that_is_a_symlink_is_never_adopted(tmp_path):
+    old = first_answer(tmp_path)
+    moved = tmp_path / "elsewhere.json"
+    (old / PAGE.result).rename(moved)
+    (old / PAGE.result).symlink_to(moved)
+
+    assert model_call.verdict(old, PAGE) is Verdict.UNKNOWN
+    result, calls, _ = resend(tmp_path, old)
+    assert result.structured_result == {"x": 2} and len(calls) == 1
+
 
 def test_an_unknown_earlier_call_is_sent_again(tmp_path):
     # A model call has no effect outside the App, so an unknown one is resent.

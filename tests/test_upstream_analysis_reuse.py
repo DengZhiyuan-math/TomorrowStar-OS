@@ -65,7 +65,7 @@ def test_saved_explicit_brief_and_plan_resume_without_reading_them_again(
     assert before == {p.relative_to(old): p.read_bytes() for p in old.rglob("*") if p.is_file()}
 
 
-def test_model_change_cannot_claim_same_upstream_configuration(canonical, tmp_path, monkeypatch):
+def test_a_model_change_analyses_the_job_from_the_start(canonical, tmp_path, monkeypatch):
     library, _, _, base, *_ = canonical
     snapshot = thin(canonical)
     initial = RecordedPipeline([requirement("Scientific collaboration")])
@@ -90,18 +90,21 @@ def test_model_change_cannot_claim_same_upstream_configuration(canonical, tmp_pa
 
     monkeypatch.setattr(application_match, "match_configuration", changed)
     retry = RecordedPipeline(initial.requirements)
-    with pytest.raises(PortalDataError) as caught:
-        application_match.analyze_job(
-            APPLICATION,
-            snapshot,
-            tmp_path / "rejected",
-            runner=retry,
-            source_loader=lambda ids: library.snapshot_for_analysis(base, ids),
-            information_library={"status": "unconfigured"},
-            resume_from=old,
-        )
-    assert caught.value.code == "match_resume_invalid"
-    assert retry.calls == []
+    before = {p.relative_to(old): p.read_bytes() for p in old.rglob("*") if p.is_file()}
+    # The changed model cannot reuse the earlier phases; nothing earlier needs guarding,
+    # so the job is analysed again instead of stopping (Model Call Record, 2026-11-09).
+    result = application_match.analyze_job(
+        APPLICATION,
+        snapshot,
+        tmp_path / "fresh",
+        runner=retry,
+        source_loader=lambda ids: library.snapshot_for_analysis(base, ids),
+        information_library={"status": "unconfigured"},
+        resume_from=old,
+    )
+    assert result["requirements"]
+    assert len(retry.brief_calls) == 1
+    assert before == {p.relative_to(old): p.read_bytes() for p in old.rglob("*") if p.is_file()}
 
 
 # An unusable citation now only withholds that requirement (test_native_fact_citations).
@@ -213,10 +216,9 @@ def test_rejected_job_brief_is_read_again_after_an_app_or_codex_update(
     assert result["job_brief"]["groups"][0]["jd_quote"] != "Unrecorded duty"
 
 
-def test_retry_after_a_refused_recovery_reads_the_rejected_job_brief_again(
+def test_retry_after_a_configuration_change_reads_the_rejected_job_brief_again(
     canonical, tmp_path, monkeypatch
 ):
-    from career_evidence_graph import application_matching_pipeline
 
     library, _, _, base, *_ = canonical
     snapshot = thin(canonical)
@@ -242,18 +244,9 @@ def test_retry_after_a_refused_recovery_reads_the_rejected_job_brief_again(
         "match_configuration",
         lambda environment=None: original(environment) | {"engine_sha256": "updated"},
     )
-    refused = RecordedPipeline(initial.requirements)
-    # The installed App before this fix refused the changed configuration once.
-    with monkeypatch.context() as patch, pytest.raises(PortalDataError) as error:
-        patch.setattr(application_matching_pipeline, "_same_upstream_binding", lambda *_: False)
-        application_match.Analysis(root, runner=refused, **options).prepare(
-            APPLICATION, snapshot, request_id="2" * 32, recovery_candidates=["1" * 32]
-        )
-    assert error.value.code == "match_resume_invalid"
-    assert refused.calls == []
     retry = RecordedPipeline(initial.requirements)
     progress = application_match.Analysis(root, runner=retry, **options).prepare(
-        APPLICATION, snapshot, request_id="3" * 32, recovery_candidates=["2" * 32, "1" * 32]
+        APPLICATION, snapshot, request_id="3" * 32, recovery_candidates=["1" * 32]
     )
     assert progress["status"] == "complete"
     assert len(retry.brief_calls) == 1
@@ -338,22 +331,3 @@ def test_a_rejected_evaluation_with_changed_inputs_is_analysed_again_from_the_st
     )
     assert len(retry.brief_calls) == 1
     assert result["material_packet"]["status"] == "complete"
-
-
-@pytest.mark.parametrize(
-    ("receipt", "answered"),
-    [({"exit_code": 0}, True), ({"status": "failed", "exit_code": 1}, False), (None, False)],
-)
-def test_only_a_complete_saved_answer_allows_a_fresh_start(tmp_path, receipt, answered):
-    import json
-
-    from career_evidence_graph.application_matching_pipeline import _answered_evaluation
-
-    origin = tmp_path / "evaluation-1"
-    origin.mkdir()
-    if receipt is not None:
-        (origin / "model-result.json").write_text(json.dumps(receipt))
-    # Installed MC-11: a crash after a complete answer, followed by an App update,
-    # left that answer neither resumable nor replaceable.
-    saved = {"phase": "evaluation", "evaluation_origin": str(origin)}
-    assert _answered_evaluation(saved) is answered

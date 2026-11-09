@@ -24,6 +24,7 @@ from .validation.hashing import record_digest as digest
 from .validation.hashing import sha256_digest
 
 REJECTION = "validation-failure.json"
+NOT_SENT_RECEIPT = {"status": "not_sent", "reason": "damaged_earlier_record"}
 
 
 class DamagedRecord(Exception):
@@ -75,7 +76,12 @@ def send(
     result file.
     """
     if previous is not None:
-        answer = recorded_answer(previous, files, prompt, config)
+        try:
+            answer = recorded_answer(previous, files, prompt, config)
+        except DamagedRecord:
+            # Refused before sending: the record says so, so it never reads as unknown.
+            helper.atomic_write_json(Path(directory) / files.result, NOT_SENT_RECEIPT)
+            raise
         if answer is not None:
             helper.atomic_write_json(Path(directory) / files.result, answer.model_dump(mode="json"))
             return answer
@@ -128,6 +134,8 @@ def earlier_answer(previous: Path, files: Files):
     if state in {Verdict.NOT_SENT, Verdict.KNOWN_FAILURE, Verdict.UNKNOWN}:
         return None
     try:
+        if any((previous / name).is_symlink() for name in (files.prompt, files.schema)):
+            raise DamagedRecord(str(previous))
         saved = helper.read_json_object(previous / files.result, "model call result")
         asked = helper.read_json_object(previous / files.prompt, "model call prompt")["prompt"]
         answer = validate_recorded_result(
@@ -192,11 +200,16 @@ def verdict(directory: Path, files: Files) -> Verdict:
     """Read one call directory's outcome from its saved files."""
     directory = Path(directory)
     result = directory / files.result
-    if result.exists() or result.is_symlink():
+    if result.is_symlink():
+        # A result that is not this directory's own file is never adopted.
+        return Verdict.UNKNOWN
+    if result.exists():
         try:
             receipt = helper.read_json_object(result, "model call result")
         except (OSError, ValueError, helper.StoreError):
             return Verdict.UNKNOWN
+        if receipt == NOT_SENT_RECEIPT:
+            return Verdict.NOT_SENT
         if receipt.get("status") == "failed":
             if not is_known_failure(directory, receipt):
                 return Verdict.UNKNOWN

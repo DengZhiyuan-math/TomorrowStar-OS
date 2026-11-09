@@ -66,7 +66,9 @@ def test_prepare_returns_progress_then_verified_delivery_and_repeated_reads_are_
     }
 
 
-def test_new_request_cannot_bypass_an_unacknowledged_call(match_inputs, tmp_path):
+def test_a_new_request_resumes_past_an_unanswered_call_only_when_admitted(match_inputs, tmp_path):
+    # The ended attempt's unanswered call is sent again (Model Call Record); here the
+    # admission check refuses, so the new request stops before sending anything.
     application, snapshot = match_inputs
     calls = []
 
@@ -86,7 +88,7 @@ def test_new_request_cannot_bypass_an_unacknowledged_call(match_inputs, tmp_path
     )
     with pytest.raises(PortalDataError) as error:
         analysis.prepare(application, snapshot, request_id="d" * 32, admit_call=lambda: False)
-    assert error.value.code == "match_result_needs_recheck"
+    assert error.value.code == "flow_preparation_stopped"
     assert calls == ["dispatched"]
 
 
@@ -525,7 +527,7 @@ def test_information_changed_during_analysis_is_not_delivered_as_current(canonic
     assert error.value.code == "match_information_changed"
 
 
-def test_older_recovery_candidate_cannot_bypass_a_newer_unknown_attempt(canonical, tmp_path):
+def test_a_newer_unknown_attempt_is_resumed_and_its_evaluation_sent_again(canonical, tmp_path):
     library, _, _, base, *_ = canonical
     root = tmp_path / "analyses"
     snapshot = thin(canonical)
@@ -547,13 +549,12 @@ def test_older_recovery_candidate_cannot_bypass_a_newer_unknown_attempt(canonica
         Analysis(root, runner=interrupted, **options).prepare(
             APPLICATION, snapshot, request_id="2" * 32, resume_from="1" * 32
         )
-    retry = RecordedPipeline(recorded.requirements)
-    with pytest.raises(PortalDataError) as error:
-        Analysis(root, runner=retry, **options).prepare(
-            APPLICATION, snapshot, request_id="3" * 32, recovery_candidates=["1" * 32, "2" * 32]
-        )
-    assert error.value.code == "match_result_needs_recheck"
-    assert retry.calls == []
+    retry = sent_schemas(RecordedPipeline(recorded.requirements))
+    progress = Analysis(root, runner=retry, **options).prepare(
+        APPLICATION, snapshot, request_id="3" * 32, recovery_candidates=["1" * 32, "2" * 32]
+    )
+    assert progress["status"] == "complete"
+    assert retry.names == ["match-schema.json"]
 
 
 def test_sources_delivery_distinguishes_bound_directory_and_selected_facts(canonical, tmp_path):
@@ -851,16 +852,8 @@ def test_upstream_failure_requires_a_terminal_turn_or_stays_unknown(
             ]
             == "complete"
         )
-    elif phase == "reading":
-        # Material-packet reading keeps its own unknown-call guard for now.
-        assert module.progress("1" * 32)["status"] == "needs_recheck"
-        for identifier, recovery in (("2" * 32, {}), ("3" * 32, {"resume_from": "1" * 32})):
-            with pytest.raises(PortalDataError) as error:
-                module.prepare(APPLICATION, snapshot, request_id=identifier, **recovery)
-            assert error.value.code == "match_result_needs_recheck"
-        assert retry.calls == []
     else:
-        # An unknown brief or planner call is sent again by an explicit retry.
+        # An unknown brief, planner or reading call is sent again by an explicit retry.
         assert module.ended_without_answer("1" * 32) is True
         assert (
             module.prepare(APPLICATION, snapshot, request_id="3" * 32, resume_from="1" * 32)[

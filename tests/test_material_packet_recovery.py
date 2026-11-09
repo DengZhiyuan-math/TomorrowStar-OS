@@ -1,4 +1,4 @@
-"""Unknown reading calls remain stopped; known failures retain completed source reads."""
+"""Unknown reading calls are sent again; known failures retain completed source reads."""
 
 import json
 
@@ -19,7 +19,7 @@ class InterruptedRead(BaseException):
     pass
 
 
-def test_first_unknown_reading_call_is_checkpointed_and_never_replayed(tmp_path):
+def test_first_unknown_reading_call_is_checkpointed_and_sent_again(tmp_path):
     original = many_small_sources()
     calls = []
 
@@ -38,32 +38,21 @@ def test_first_unknown_reading_call_is_checkpointed_and_never_replayed(tmp_path)
     saved = json.loads((tmp_path / "first/material-packet.json").read_text())
     assert saved["status"] == "reading"
     assert saved["pending_call"]["source_ids"]
+    # A model call has no effect outside the App, so the unknown page is read again
+    # (Model Call Record, decided 2026-11-09).
     retry_calls = []
-    with pytest.raises(PortalDataError) as caught:
-        material.prepare_material_packet(
-            APPLICATION,
-            original,
-            tmp_path / "retry",
-            runner=batch_reader(retry_calls),
-            requirements=REQUIREMENTS,
-            previous=saved,
-        )
-    assert caught.value.code == "match_result_needs_recheck"
-    assert retry_calls == []
-    stopped = json.loads((tmp_path / "retry/material-packet.json").read_text())
-    assert stopped["status"] == "needs_recheck"
-    with pytest.raises(PortalDataError) as repeated:
-        material.prepare_material_packet(
-            APPLICATION,
-            original,
-            tmp_path / "retry-again",
-            runner=batch_reader(retry_calls),
-            requirements=REQUIREMENTS,
-            previous=stopped,
-        )
-    assert repeated.value.code == "match_result_needs_recheck"
+    _, packet = material.prepare_material_packet(
+        APPLICATION,
+        original,
+        tmp_path / "retry",
+        runner=batch_reader(retry_calls),
+        requirements=REQUIREMENTS,
+        previous=saved,
+    )
+    assert packet["status"] == "complete"
+    assert "pending_call" not in packet
     assert calls == ["dispatched"]
-    assert retry_calls == []
+    assert retry_calls
 
 
 def test_checkpoint_between_completed_batch_and_next_dispatch_is_resumable(tmp_path, monkeypatch):
@@ -115,7 +104,7 @@ def test_checkpoint_between_completed_batch_and_next_dispatch_is_resumable(tmp_p
 
 
 @pytest.mark.parametrize("old_shape", ["no_packet", "no_pending_marker"])
-def test_older_unknown_dispatch_without_native_receipt_stays_stopped(tmp_path, old_shape):
+def test_older_unknown_dispatch_without_native_receipt_is_sent_again(tmp_path, old_shape):
     from career_evidence_graph.application_worker import digest
 
     original = many_small_sources()
@@ -142,17 +131,16 @@ def test_older_unknown_dispatch_without_native_receipt_stays_stopped(tmp_path, o
         saved["revision"] = digest(saved)
         path.write_text(json.dumps(saved))
     calls = []
-    with pytest.raises(PortalDataError) as caught:
-        material.prepare_material_packet(
-            APPLICATION,
-            original,
-            tmp_path / "retry",
-            runner=batch_reader(calls),
-            requirements=REQUIREMENTS,
-            resume_from=first,
-        )
-    assert caught.value.code == "match_result_needs_recheck"
-    assert calls == []
+    _, packet = material.prepare_material_packet(
+        APPLICATION,
+        original,
+        tmp_path / "retry",
+        runner=batch_reader(calls),
+        requirements=REQUIREMENTS,
+        resume_from=first,
+    )
+    assert packet["status"] == "complete"
+    assert calls
 
 
 def test_known_failed_reading_retries_only_unfinished_sources_and_marks_dispatch(

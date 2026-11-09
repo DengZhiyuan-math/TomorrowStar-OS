@@ -2213,9 +2213,15 @@ class Analysis:
                 # The retrieval pipeline saves its progress before each model call and
                 # before a new attempt's job brief, so a resumed attempt that began its
                 # job brief without saved progress called none either (2026-11-04).
-                if not (ended.exists() and any(ended.iterdir())) or (
-                    (ended / "job-brief").is_dir()
-                    and not (ended / "analysis-progress.json").exists()
+                # One that ended on a call without an answer is resumed, and that call
+                # is sent again (Model Call Record, decided 2026-11-09).
+                if (
+                    not (ended.exists() and any(ended.iterdir()))
+                    or (
+                        (ended / "job-brief").is_dir()
+                        and not (ended / "analysis-progress.json").exists()
+                    )
+                    or self.ended_without_answer(latest["attempt_id"])
                 ):
                     outcome = "failed"
             if (

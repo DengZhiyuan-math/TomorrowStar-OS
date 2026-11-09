@@ -151,18 +151,79 @@ across 4 modules (ee1af146, 54341431, e1545fed, b262937d, 02d150b6, 5019d594,
   - 982 of 987 targeted, Flow and Pipeline tests pass; the same 5 fail on the
     base commit.
 
+**Step 4 — material-packet reading, done (uncommitted).**
+
+- Each reading page is sent with `send(previous=<earlier attempt>/<same page>)`.
+  An identical, intact answer is replayed; a page with no answer (unknown or
+  failed) is sent again; a changed question gets a new call.
+- `_reusable` stays. It reuses a fully read source by its content, even when
+  page folder numbering shifts, which per-call replay cannot do.
+- Deleted from the material packet: `_recover_native_reading` (~180 lines), the
+  `pending_call` / `_unreceipted_reading` "stop for recheck" guards, and its use
+  of `_undispatched_argv_page`. `_unreceipted_reading` and
+  `_undispatched_argv_page` remain for `application_match_refresh`'s own proofs.
+  `known_budget_failure` is unchanged: an unknown call next to a size failure is
+  already resendable through `ended_without_answer`.
+- New: a reading answer the stage rejects writes `validation-failure.json`, like
+  retrieval does. Without it, a retry would replay the same bad answer forever.
+- `model_call`:
+  - When `send` refuses because the earlier record is damaged, it leaves a
+    `{"status": "not_sent"}` receipt, so the attempt is not mistaken for
+    unknown and resent three times.
+  - A result file that is a symlink is never adopted (verdict *unknown*, so it
+    is sent again). A symlinked prompt or schema is a damaged record.
+- Observation: the old recovery rejected a duplicated selection, but a fresh
+  answer with one was always accepted. A replayed answer now goes through
+  exactly the fresh-answer checks.
+- Ratchet: the private import and the `application_match_refresh` ↔
+  `application_material_packet` mutual import are gone.
+- Tests:
+  - The 13 tamper variants now assert the per-case outcome: replayed (context,
+    duplicate), sent again (missing, symlink, source, source_metadata,
+    requirements), damaged stop (prompt, schema, raw), rejected stop with a
+    marker (selection, requirement, business).
+  - Unknown reading calls (3 tests and the analysis-interface reading branch)
+    are now sent again.
+  - New module tests cover the not-sent receipt and the symlinked result.
+  - 1000 of 1005 targeted, Flow and Pipeline tests pass; the same 5 fail on the
+    base commit.
+
+**Step 5 — analysis-level resume, done (uncommitted).**
+
+- `analyze_with_retrieval`:
+  - If the saved progress cannot be reused as it is, the job is analysed from
+    the start. Before, it stopped with `match_resume_invalid` unless a complete
+    evaluation answer or a proven size refusal "hid no result". That guard
+    existed only to protect unknown calls, which are now simply resent.
+  - `_same_upstream_binding` lost its rejected-brief and pending-follow-up
+    cases. A pending follow-up search resumes whenever inputs and model
+    configuration match (provenance is ignored as before), and its unknown page
+    is resent.
+  - The context-budget-only reuse case stays.
+  - `_recorded_failed_followup` and `_answered_evaluation` are deleted.
+- `Analysis.prepare`: under the scope's execution lock the latest attempt has
+  ended, so one that ended on a call without an answer counts as failed and is
+  resumed, instead of `match_result_needs_recheck` refusing every new request.
+  Without this, the App's auto-resend could stop after its first try.
+- Tests:
+  - 11 tests that pinned the refusals now assert a fresh analysis (model or
+    budget change), a resume with that call resent (unknown follow-up page,
+    newer unknown evaluation, lineage), or an admission stop (new request with
+    `admit_call` refusing).
+  - The private `_answered_evaluation` test is deleted.
+  - The private `_same_upstream_binding` test now expects every pending
+    follow-up to resume.
+  - 997 of 1002 targeted, Flow and Pipeline tests pass; the same 5 fail on the
+    base commit.
+
 **Still to do**, in order:
 
-1. Finish replay: the material-packet source reuse (`_reusable`,
-   `_recover_native_reading`) and the analysis-level `_same_upstream_binding`
-   still carry their own identity rules. Material-packet unknowns should resend
-   too.
-2. Flow: replace the `_analysis_outcome` code table and `_known_attempt_failure`
+1. Flow: replace the `_analysis_outcome` code table and `_known_attempt_failure`
    with the recorded verdict kind.
-3. Migrate the remaining callers: résumé, cover letter, full_latex, jd_extract,
+2. Migrate the remaining callers: résumé, cover letter, full_latex, jd_extract,
    gmail, proofread, and others. Add the Claude second opinion as an adapter with
    resend off.
-4. Delete the private-helper tests; run the full suite once; do one real job
+3. Delete the private-helper tests; run the full suite once; do one real job
    analysis in the App.
 
 ## Follow-up enabled

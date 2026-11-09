@@ -24,7 +24,7 @@ from .application_material_sources import source_records as _sources
 from .application_material_sources import structured_fact as _structured_fact
 from .application_storage import private_root
 from .career_portal_data import PortalDataError
-from .codex_cli import CodexCLIError, run_codex_exec
+from .codex_cli import CodexCLIError, output_validation_marker, run_codex_exec
 from .validation.hashing import record_digest as digest
 from .validation.models import CodexCLIConfig
 
@@ -317,190 +317,6 @@ def known_budget_failure(origin):
         return False
 
 
-def _recover_native_reading(origin, previous, sources, scope, job_brief, business_scope):
-    """Adopt a fully saved native result; uncertain receipts never permit another call."""
-    from .codex_cli import validate_recorded_result
-
-    try:
-        pending = previous["pending_call"]
-        name = pending.get("directory", "")
-        if not re.fullmatch(r"source-\d{4,}-page-\d{4,}", name):
-            return None
-        page = origin / name
-
-        def read(path):
-            if path.is_symlink() or path.parent.is_symlink() or not path.is_file():
-                raise ValueError("Native reading receipt is unavailable")
-            return helper.read_json_object(path, "native reading receipt")
-
-        if read(origin / "material-packet.json") != previous:
-            return None
-        if read(origin / "input.json") != scope | {"sources": sources}:
-            return None
-        if previous.get("scope_revision") != digest(scope):
-            return None
-        context = read(page / "context.json")
-        prompt = read(page / "prompt.json")["prompt"]
-        schema_path = page / "schema.json"
-        schema = read(schema_path)
-        result = validate_recorded_result(
-            read(page / "result.json"), prompt=prompt, output_schema=schema_path
-        )
-        if (
-            json.loads(prompt.split("CONTEXT_JSON\n", 1)[1]) != context
-            or any(context.get(key) != value for key, value in scope.items())
-            or context.get("job_brief") != job_brief
-        ):
-            return None
-        supplied = context.get("source_ranges", [context])
-        source_ids = [row["source"]["source_id"] for row in supplied]
-        if (
-            not source_ids
-            or len(source_ids) != len(set(source_ids))
-            or source_ids != pending["source_ids"]
-            or any(key not in sources for key in source_ids)
-        ):
-            return None
-        projection = _model_sources(sources[key] for key in source_ids)
-        compact = "experience_contexts" in context
-        if compact and any(
-            context.get(key) != value for key, value in projection.items() if key != "sources"
-        ):
-            return None
-        if "already_selected" in context and context["already_selected"] != _model_sources(
-            previous.get("sources", {}).values()
-        ):
-            return None
-        complete_sources = all(_complete_source(sources[key]) for key in source_ids)
-        if not complete_sources and len(supplied) != 1:
-            return None
-        spans_by_source = {}
-        chunks_by_source = {}
-        for row, projected in zip(supplied, projection["sources"], strict=True):
-            source_id = row["source"]["source_id"]
-            source = sources[source_id]
-            expected = projected if compact else _model_source(source)
-            if row["source"] != {key: value for key, value in expected.items() if key != "text"}:
-                return None
-            chunks = (
-                [{"start": 0, "end": len(source["text"]), "digest": digest(source["text"])}]
-                if _structured_fact(source)
-                else list(_chunks(source["text"]))
-            )
-            chunk = row["range"]
-            if chunk not in chunks:
-                return None
-            spans = _reading_spans(source, chunk, paragraphs=not complete_sources)
-            if complete_sources:
-                if row.get("text") != source["text"][chunk["start"] : chunk["end"]]:
-                    return None
-            elif row.get("spans") != spans:
-                return None
-            if row.get("field_ranges", []) != [
-                {key: part[key] for key in ("start", "end", "document_locator")}
-                for part in source.get("quote_segments", [])
-            ]:
-                return None
-            spans_by_source[source_id] = {span["span_id"]: span for span in spans}
-            chunks_by_source[source_id] = chunks
-        reading_model = _SourceReading if complete_sources else _Reading
-        expected_schema = reading_model.model_json_schema()
-        fields = expected_schema["$defs"][
-            "_SourceSelection" if complete_sources else "_SpanSelection"
-        ]["properties"]
-        fields["source_id" if complete_sources else "span_id"]["enum"] = (
-            source_ids if complete_sources else list(spans_by_source[source_ids[0]])
-        )
-        fields["requirement_indexes"]["items"]["enum"] = list(range(len(scope["requirements"])))
-        if schema != expected_schema:
-            return None
-        selections = reading_model.model_validate(result.structured_result).model_dump()[
-            "selections"
-        ]
-        grouped = {key: [] for key in source_ids}
-        selected = set()
-        for selection in selections:
-            identity = selection["source_id" if complete_sources else "span_id"]
-            source_id = identity if complete_sources else source_ids[0]
-            if (
-                identity in selected
-                or source_id not in grouped
-                or (not complete_sources and identity not in spans_by_source[source_id])
-            ):
-                return None
-            selected.add(identity)
-            spans = (
-                spans_by_source[source_id].values()
-                if complete_sources
-                else [spans_by_source[source_id][identity]]
-            )
-            grouped[source_id].extend(
-                {
-                    "source_id": source_id,
-                    "quote": span["text"],
-                    "start": span["start"],
-                    "end": span["end"],
-                    "requirement_indexes": selection["requirement_indexes"],
-                    "business_relevance": selection["business_relevance"],
-                }
-                for span in spans
-            )
-        recovered = deepcopy(previous)
-        for row in supplied:
-            source_id = row["source"]["source_id"]
-            source, chunk = sources[source_id], row["range"]
-            excerpts = _check_excerpts(
-                grouped[source_id], source, chunk, len(scope["requirements"]), business_scope
-            )
-            reading = recovered["source_reads"][source_id]
-            if (
-                reading.get("source_revision") != source.get("source_revision")
-                or reading.get("input_revision") != digest(_model_source(source))
-                or reading.get("text_revision") != digest(source["text"])
-                or reading.get("original_chars") != len(source["text"])
-                or len(reading["ranges"]) + 1 != len(chunks_by_source[source_id])
-            ):
-                return None
-            reading["ranges"].append(chunk | {"method": "excerpt_read", "excerpts": excerpts})
-            reading["status"] = "complete"
-            recovered.pop("pending_call", None)
-            recovered.pop("revision", None)
-            recovered["revision"] = digest(recovered)
-            if (
-                _reusable(
-                    recovered,
-                    source,
-                    chunks_by_source[source_id],
-                    digest(scope),
-                    len(scope["requirements"]),
-                    business_scope,
-                )
-                is None
-            ):
-                return None
-            prepared = _prepared(
-                source, [item for part in reading["ranges"] for item in part["excerpts"]]
-            )
-            if prepared is not None:
-                recovered["sources"][source_id] = prepared
-        recovered.pop("failure", None)
-        recovered.pop("revision", None)
-        recovered["revision"] = digest(recovered)
-        return recovered
-    except (
-        OSError,
-        ValueError,
-        TypeError,
-        AttributeError,
-        KeyError,
-        IndexError,
-        CodexCLIError,
-        PortalDataError,
-        helper.StoreError,
-    ):
-        return None
-
-
 def _reading_prompt(context, *, complete_sources=False):
     task = (
         "Select relevant complete sources by source_id and relevance only. "
@@ -565,7 +381,8 @@ def prepare_material_packet(
 
     The supplied directory claims one attempt. Failed attempts need an explicit new
     directory; successful source reads can be reused through ``previous``.
-    ``resume_from`` inspects the original dispatch receipts; unknown calls stop.
+    ``resume_from`` names the earlier attempt: its fully read sources are reused and
+    each other page is replayed or sent again through the Model Call Record.
     ``on_dispatch`` records the actual new attempt before each provider request.
     """
     limits = context_limits()
@@ -645,6 +462,7 @@ def prepare_material_packet(
             snapshot_revision=snapshot.get("revision"),
         )
         helper.atomic_write_json(directory / "input.json", scope | {"sources": sources})
+        origin = None
         if resume_from is not None:
             origin = Path(resume_from).expanduser()
             if ".." in origin.parts or any(part.is_symlink() for part in (origin, *origin.parents)):
@@ -652,63 +470,9 @@ def prepare_material_packet(
             saved_path = origin / "material-packet.json"
             if saved_path.exists():
                 previous = helper.read_json_object(saved_path, "previous material packet")
-                for result_path in origin.glob("source-*/result.json"):
-                    helper.read_json_object(result_path, "prior source reading")
-                    if (
-                        model_call.verdict(result_path.parent, model_call.PAGE)
-                        is not model_call.Verdict.UNKNOWN
-                    ):
-                        continue
-                    # Preserve the existing, separately proved OS argv-capacity recovery.
-                    from .application_match_refresh import _undispatched_argv_page
-
-                    try:
-                        _undispatched_argv_page(result_path.parent)
-                    except (OSError, ValueError, PortalDataError):
-                        packet.update(deepcopy(previous))
-                        raise PortalDataError(
-                            "match_result_needs_recheck",
-                            "原资料读取结果未明，未重复模型请求。",
-                            409,
-                        ) from None
-            elif origin.exists() and _unreceipted_reading(origin, {}):
-                packet["pending_call"] = {"origin": str(origin), "source_ids": []}
-                raise PortalDataError(
-                    "match_result_needs_recheck",
-                    "原资料读取调用结果未明，请先核对，未重复请求。",
-                    409,
-                )
-        if isinstance(previous, dict) and (
-            previous.get("pending_call") and previous.get("status") in {"reading", "needs_recheck"}
-        ):
-            if previous.get("revision") != digest(
-                {key: value for key, value in previous.items() if key != "revision"}
-            ):
-                raise ValueError("Previous reading dispatch receipt cannot be verified")
-            recovered = (
-                _recover_native_reading(origin, previous, sources, scope, job_brief, business_scope)
-                if resume_from is not None
-                else None
-            )
-            if recovered is None:
-                packet.update(deepcopy(previous))
-                raise PortalDataError(
-                    "match_result_needs_recheck",
-                    "原资料读取调用结果未明，请先核对，未重复请求。",
-                    409,
-                )
-            previous = recovered
-        if (
-            resume_from is not None
-            and isinstance(previous, dict)
-            and previous.get("status") == "reading"
-            and _unreceipted_reading(origin, previous)
-        ):
-            packet.update(deepcopy(previous))
-            packet["pending_call"] = {"origin": str(origin), "source_ids": []}
-            raise PortalDataError(
-                "match_result_needs_recheck", "原资料读取调用结果未明，请先核对，未重复请求。", 409
-            )
+        # Fully read sources are reused from the earlier packet below. Each other page is
+        # asked again: an identical earlier answer is replayed and a call that produced
+        # no answer is sent again (Model Call Record), so no reading call stops the job.
         confirmed = {
             key: row
             for key, row in sources.items()
@@ -898,8 +662,6 @@ def prepare_material_packet(
                 "source_ids": [row["source_id"] for row in batch],
             }
             publish("reading")
-            if on_dispatch is not None:
-                on_dispatch()
             try:
                 result = model_call.send(
                     page_directory,
@@ -907,49 +669,68 @@ def prepare_material_packet(
                     runner,
                     config,
                     prompt,
+                    previous=None if origin is None else origin / page_directory.name,
+                    before_send=on_dispatch,
                     timeout_seconds=180,
                     allow_non_repository=True,
                     environment=dict(os.environ),
                 )
+            except model_call.DamagedRecord as error:
+                packet.pop("pending_call", None)
+                raise PortalDataError(
+                    "match_resume_invalid", "原资料读取调用记录不能核验。", 409
+                ) from error
             except Exception:
                 if (page_directory / "result.json").exists():
                     packet.pop("pending_call", None)
                 raise
             packet["pending_call"]["result_saved"] = True
-            output = reading_model.model_validate(result.structured_result).model_dump()
-            grouped = {row["source_id"]: [] for row in batch}
-            for selection in output["selections"]:
-                source_id = selection["source_id"] if complete_sources else batch[0]["source_id"]
-                if source_id not in grouped or (
-                    not complete_sources and selection["span_id"] not in batch[0]["native_spans"]
-                ):
-                    raise ValueError("Reading selection names an unsupplied source or span")
-                grouped[source_id].append(selection)
-            checked = []
-            for row in batch:
-                source = sources[row["source_id"]]
-                chunk = row["context"]["range"]
-                excerpts = []
-                for selection in grouped[row["source_id"]]:
-                    spans = (
-                        row["native_spans"].values()
-                        if complete_sources
-                        else [row["native_spans"][selection["span_id"]]]
+            try:
+                output = reading_model.model_validate(result.structured_result).model_dump()
+                grouped = {row["source_id"]: [] for row in batch}
+                for selection in output["selections"]:
+                    source_id = (
+                        selection["source_id"] if complete_sources else batch[0]["source_id"]
                     )
-                    excerpts.extend(
-                        {
-                            "source_id": source["source_id"],
-                            "quote": span["text"],
-                            "start": span["start"],
-                            "end": span["end"],
-                            "requirement_indexes": selection["requirement_indexes"],
-                            "business_relevance": selection["business_relevance"],
-                        }
-                        for span in spans
+                    if source_id not in grouped or (
+                        not complete_sources
+                        and selection["span_id"] not in batch[0]["native_spans"]
+                    ):
+                        raise ValueError("Reading selection names an unsupplied source or span")
+                    grouped[source_id].append(selection)
+                checked = []
+                for row in batch:
+                    source = sources[row["source_id"]]
+                    chunk = row["context"]["range"]
+                    excerpts = []
+                    for selection in grouped[row["source_id"]]:
+                        spans = (
+                            row["native_spans"].values()
+                            if complete_sources
+                            else [row["native_spans"][selection["span_id"]]]
+                        )
+                        excerpts.extend(
+                            {
+                                "source_id": source["source_id"],
+                                "quote": span["text"],
+                                "start": span["start"],
+                                "end": span["end"],
+                                "requirement_indexes": selection["requirement_indexes"],
+                                "business_relevance": selection["business_relevance"],
+                            }
+                            for span in spans
+                        )
+                    checked.append(
+                        _check_excerpts(excerpts, source, chunk, len(requirements), business_scope)
                     )
-                checked.append(
-                    _check_excerpts(excerpts, source, chunk, len(requirements), business_scope)
+            except (ValidationError, ValueError, TypeError, KeyError):
+                # A rejected answer is never replayed: the next attempt asks again.
+                marker = output_validation_marker(
+                    result, prompt, schema_path, "material_reading_invalid"
                 )
+                if marker is not None:
+                    helper.atomic_write_json(page_directory / model_call.REJECTION, marker)
+                raise
             for row, excerpts in zip(batch, checked, strict=True):
                 source_id = row["source_id"]
                 reading = packet["source_reads"][source_id]
