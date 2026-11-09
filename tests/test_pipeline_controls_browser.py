@@ -246,6 +246,8 @@ def test_current_pipeline_uses_one_continue_skip_and_direct_return(portal, brows
     page.locator("#flow-pipeline-start").click()
     expect(page.locator("#flow-pipeline-skip")).to_be_enabled()
     page.locator("#flow-pipeline-skip").click()
+    # A skipped job sits in the collapsed 需单独处理 folder (2026-11-08 list redesign).
+    page.locator(".flow-pipeline-folder > summary").click()
     page.get_by_role("button", name="返回此岗位", exact=True).click()
     expect(page.locator("#flow-pipeline-start")).to_be_enabled()
     assert [action for action, _ in actions] == ["continue", "skip", "return"]
@@ -347,6 +349,8 @@ def test_unknown_old_job_does_not_lock_next_job_after_explicit_skip(portal, brow
     expect(page.locator("#flow-pipeline-start")).to_be_disabled()
     page.locator("#flow-pipeline-skip").click()
     expect(page.locator("#flow-pipeline-start")).to_be_enabled()
+    # A skipped job sits in the collapsed 需单独处理 folder (2026-11-08 list redesign).
+    page.locator(".flow-pipeline-folder > summary").click()
     page.get_by_role("button", name="返回此岗位", exact=True).click()
     expect(page.locator("#flow-pipeline-start")).to_be_disabled()
     assert continues == ["rec-one"]

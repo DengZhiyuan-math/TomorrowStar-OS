@@ -2137,7 +2137,17 @@
     catch (error) {
       if (!error.status || error.status >= 500) uncertainScopes.add(scope);
       message(`${error.message}${uncertainScopes.has(scope) ? " 操作结果尚未核验。请读取最新状态，核对已保存记录后再继续。" : " 输入已保留，请核对最新状态。"}`, true);
-    } finally { if (!stopping) busy = false; await loadState({ silent: true }); await refresh(); lock(); saveNextAnswer(); }
+    } finally {
+      if (!stopping) busy = false;
+      if (domain === "pipeline") {
+        // 2026-11-09: after "我已提交" the panel waited ~10 s on /api/state (all jobs
+        // re-screened) before redrawing. Show the pipeline the action returned at once;
+        // the full application data reloads in the background.
+        render(); lock();
+        await refresh(); lock(); saveNextAnswer();
+        loadState({ silent: true });
+      } else { await loadState({ silent: true }); await refresh(); lock(); saveNextAnswer(); }
+    }
   }
   async function admit(payload) {
     const key = JSON.stringify(payload);
