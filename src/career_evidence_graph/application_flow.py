@@ -5869,7 +5869,11 @@ class ApplicationFlowService:
                 result = candidate
             except Exception as error:
                 error_code = getattr(error, "code", "letter_generation_needs_recheck")
-                known_failure = error_code == "letter_generation_failed"
+                # A call without an answer is resent on retry (Model Call Record).
+                known_failure = error_code in {
+                    "letter_generation_failed",
+                    "letter_generation_no_answer",
+                }
             with self.applications.write_lock():
                 state = self._load()
                 task = self._task(state, task_id)

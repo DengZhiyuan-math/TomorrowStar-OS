@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import subprocess
 from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,6 +12,7 @@ import pytest
 from career_evidence_graph.application_cover_letter import (
     BEGIN_BODY,
     END_BODY,
+    REVIEW_INSTRUCTIONS,
     ROLE_TITLE_SLOT,
     bind_letter_template,
     edit_cover_letter,
@@ -22,6 +24,7 @@ from career_evidence_graph.application_cover_letter import (
     validate_letter,
 )
 from career_evidence_graph.career_portal_data import PortalDataError
+from career_evidence_graph.codex_cli import run_codex_exec
 from career_evidence_graph.validation.hashing import record_digest as digest
 
 TEMPLATE = (
@@ -87,6 +90,24 @@ def output():
     }
 
 
+def phase(prompt):
+    """The letter call's role, read from its instructions (calls share one schema name)."""
+    return "review-schema.json" if prompt.startswith(REVIEW_INSTRUCTIONS) else "schema.json"
+
+
+def native(config, prompt, value):
+    def process(argv, **kwargs):
+        if argv[-1] == "--version":
+            return subprocess.CompletedProcess(argv, 0, "synthetic-cli 1.0", "")
+        event = {
+            "type": "item.completed",
+            "item": {"type": "agent_message", "text": json.dumps(value)},
+        }
+        return subprocess.CompletedProcess(argv, 0, json.dumps(event) + "\n", "")
+
+    return run_codex_exec(config, prompt, runner=process, environment={})
+
+
 def result(value):
     return SimpleNamespace(
         structured_result=value, model_dump=lambda **_: {"structured_result": value}
@@ -95,10 +116,10 @@ def result(value):
 
 def writer(calls):
     def run(config, prompt, **_):
-        calls.append((config.output_schema.name, prompt))
+        calls.append((phase(prompt), prompt))
         return result(
             {"supported": True, "reason": "Supported expression."}
-            if config.output_schema.name == "review-schema.json"
+            if phase(prompt) == "review-schema.json"
             else output()
         )
 
@@ -150,29 +171,47 @@ def test_successfully_delivered_source_scope_is_validated_before_review(tmp_path
 
 
 @pytest.mark.parametrize("lost_stage", ["schema.json", "review-schema.json"])
-def test_unknown_author_or_review_is_retained_and_never_replayed(tmp_path, lost_stage):
+def test_a_letter_call_without_answer_is_resent_alone(tmp_path, lost_stage):
+    """Model Call Record: a retry resends only the call that produced no answer."""
     app, fixed, sources = inputs()
     calls = []
 
-    def lost(config, prompt, **kwargs):
-        calls.append(config.output_schema.name)
-        if config.output_schema.name == lost_stage:
-            raise TimeoutError("Synthetic unknown result")
-        return writer([])(config, prompt, **kwargs)
+    def answer(config, prompt, **kwargs):
+        calls.append(phase(prompt))
+        if phase(prompt) == lost_stage and calls.count(lost_stage) == 1:
+            raise TimeoutError("Synthetic call without answer")
+        review = {"supported": True, "reason": "Supported expression."}
+        return native(config, prompt, review if phase(prompt) == "review-schema.json" else output())
 
     with pytest.raises(PortalDataError) as caught:
-        generate_cover_letter(tmp_path / "unknown", app, fixed, sources=sources, runner=lost)
-    assert caught.value.code == "letter_generation_needs_recheck"
-    assert (tmp_path / "unknown/draft.json").exists() == (lost_stage == "review-schema.json")
+        generate_cover_letter(tmp_path / "first", app, fixed, sources=sources, runner=answer)
+    assert caught.value.code == "letter_generation_no_answer"
+    assert json.loads((tmp_path / "first/failure.json").read_text())["status"] == "failed"
+    assert (tmp_path / "first/draft.json").exists() == (lost_stage == "review-schema.json")
+    # The attempt itself is never run twice; Flow retries in a successor attempt.
     with pytest.raises(PortalDataError, match="不能重放"):
         generate_cover_letter(
-            tmp_path / "unknown",
+            tmp_path / "first",
             app,
             fixed,
             sources=sources,
             runner=lambda *_: pytest.fail("No replay"),
         )
-    assert calls.count(lost_stage) == 1
+    before = list(calls)
+    letter = generate_cover_letter(
+        tmp_path / "second",
+        app,
+        fixed,
+        sources=sources,
+        runner=answer,
+        resume_from_directory=tmp_path / "first",
+    )
+    assert letter["status"] == "ready"
+    resent = calls[len(before) :]
+    assert resent[0] == lost_stage
+    assert resent == (
+        ["schema.json", "review-schema.json"] if lost_stage == "schema.json" else [lost_stage]
+    )
 
 
 def test_failed_review_preserves_body_and_has_known_failure(tmp_path):
@@ -181,7 +220,7 @@ def test_failed_review_preserves_body_and_has_known_failure(tmp_path):
     def rejected(config, prompt, **kwargs):
         return (
             result({"supported": False, "reason": "Revise motivation only."})
-            if config.output_schema.name == "review-schema.json"
+            if phase(prompt) == "review-schema.json"
             else writer([])(config, prompt, **kwargs)
         )
 
@@ -430,9 +469,9 @@ def test_explicit_malformed_review_retry_reuses_original_body_and_never_writer(t
     original = tmp_path / "rejected-review"
 
     def reject(config, prompt, **kwargs):
-        if config.output_schema.name == "review-schema.json":
-            return result({"supported": True, "reason": 123})
-        return writer([])(config, prompt, **kwargs)
+        if phase(prompt) == "review-schema.json":
+            return native(config, prompt, {"supported": True, "reason": 123})
+        return native(config, prompt, output())
 
     with pytest.raises(PortalDataError):
         generate_cover_letter(original, app, fixed, sources=sources, runner=reject)
@@ -440,9 +479,9 @@ def test_explicit_malformed_review_retry_reuses_original_body_and_never_writer(t
     calls = []
 
     def only_review(config, prompt, **_):
-        calls.append(config.output_schema.name)
-        assert config.output_schema.name == "review-schema.json"
-        return result({"supported": True, "reason": "Checked saved expression."})
+        calls.append(phase(prompt))
+        assert phase(prompt) == "review-schema.json"
+        return native(config, prompt, {"supported": True, "reason": "Checked saved expression."})
 
     resumed = generate_cover_letter(
         tmp_path / "review-successor",
@@ -455,29 +494,6 @@ def test_explicit_malformed_review_retry_reuses_original_body_and_never_writer(t
     assert calls == ["review-schema.json"]
     assert resumed["content"] == json.loads((original / "draft.json").read_text())
     assert before == {path.name: path.read_bytes() for path in original.iterdir()}
-
-
-def test_unknown_review_cannot_be_reissued_through_successor_directory(tmp_path):
-    app, fixed, sources = inputs()
-    original = tmp_path / "unknown-review"
-
-    def lost(config, prompt, **kwargs):
-        if config.output_schema.name == "review-schema.json":
-            raise TimeoutError("Synthetic unknown review result")
-        return writer([])(config, prompt, **kwargs)
-
-    with pytest.raises(PortalDataError):
-        generate_cover_letter(original, app, fixed, sources=sources, runner=lost)
-    with pytest.raises(PortalDataError) as caught:
-        generate_cover_letter(
-            tmp_path / "blocked-review",
-            app,
-            fixed,
-            sources=sources,
-            resume_from_directory=original,
-            runner=lambda *_: pytest.fail("Unknown review replay"),
-        )
-    assert caught.value.code == "letter_generation_needs_recheck"
 
 
 def test_prebuild_prism_capability_failure_is_known_and_keeps_body(tmp_path):
@@ -558,7 +574,7 @@ def test_semantic_rejection_retry_supplies_local_feedback_and_rewrites_only_lett
     original = tmp_path / "semantic-rejection"
 
     def reject(config, prompt, **kwargs):
-        if config.output_schema.name == "review-schema.json":
+        if phase(prompt) == "review-schema.json":
             return result({"supported": False, "reason": "Make prospective motivation concrete."})
         return writer([])(config, prompt, **kwargs)
 
@@ -568,8 +584,8 @@ def test_semantic_rejection_retry_supplies_local_feedback_and_rewrites_only_lett
     calls = []
 
     def revise(config, prompt, **kwargs):
-        calls.append(config.output_schema.name)
-        if config.output_schema.name == "schema.json":
+        calls.append(phase(prompt))
+        if phase(prompt) == "schema.json":
             assert '"local_rewrite"' in prompt
             assert "Make prospective motivation concrete." in prompt
             revised = output()
@@ -595,8 +611,8 @@ def test_semantic_reviewer_can_apply_located_wording_patch_without_new_writer(tm
     calls = []
 
     def patch(config, prompt, **kwargs):
-        calls.append(config.output_schema.name)
-        if config.output_schema.name == "review-schema.json":
+        calls.append(phase(prompt))
+        if phase(prompt) == "review-schema.json":
             return result(
                 {
                     "supported": True,
@@ -643,7 +659,7 @@ def test_letter_review_captures_exact_ready_resume_revision_without_waiting(tmp_
     calls = []
 
     def checked(config, prompt, **kwargs):
-        if config.output_schema.name == "review-schema.json":
+        if phase(prompt) == "review-schema.json":
             assert '"sibling_resume_content"' in prompt and resume["revision"] in prompt
         return writer(calls)(config, prompt, **kwargs)
 

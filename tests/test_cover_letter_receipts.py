@@ -2,11 +2,10 @@
 
 import hashlib
 import json
-import subprocess
 from copy import deepcopy
 
 import pytest
-from test_cover_letter_content import TEMPLATE, Compiler, inputs, output, ready
+from test_cover_letter_content import TEMPLATE, Compiler, inputs, native, output, phase, ready
 from test_material_consistency import pair as pair
 
 from career_evidence_graph import application_cover_letter as letters
@@ -15,26 +14,12 @@ from career_evidence_graph.application_material_consistency import (
     read_material_consistency,
 )
 from career_evidence_graph.career_portal_data import PortalDataError
-from career_evidence_graph.codex_cli import run_codex_exec
-
-
-def native(config, prompt, value):
-    def process(argv, **kwargs):
-        if argv[-1] == "--version":
-            return subprocess.CompletedProcess(argv, 0, "synthetic-cli 1.0", "")
-        event = {
-            "type": "item.completed",
-            "item": {"type": "agent_message", "text": json.dumps(value)},
-        }
-        return subprocess.CompletedProcess(argv, 0, json.dumps(event) + "\n", "")
-
-    return run_codex_exec(config, prompt, runner=process, environment={})
 
 
 def native_letter(config, prompt, **kwargs):
     value = (
         {"supported": True, "reason": "Exact source scope."}
-        if config.output_schema.name == "review-schema.json"
+        if phase(prompt) == "review-schema.json"
         else output()
     )
     return native(config, prompt, value)
@@ -95,7 +80,7 @@ def test_cancel_after_writer_preserves_body_and_never_starts_reviewer(tmp_path):
 
     def writer(config, prompt, **kwargs):
         nonlocal allowed
-        calls.append(config.output_schema.name)
+        calls.append(phase(prompt))
         allowed = False
         return native_letter(config, prompt)
 

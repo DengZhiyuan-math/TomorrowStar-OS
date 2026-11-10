@@ -13,6 +13,7 @@ from test_application_information import answer, tree_bytes, write_library
 from test_application_resume import task_resume as task_resume
 from test_automatic_material_reuse_edit import complete_portal as complete_portal
 from test_canonical_career_sources import canonical as canonical
+from test_cover_letter_content import phase
 from test_full_latex_generation import full_latex as full_latex
 from test_normal_retrieval_pipeline import RecordedPipeline, requirement
 from test_p08_combination import SavedPrism
@@ -125,7 +126,7 @@ def json_flow(canonical, tmp_path, monkeypatch, request):
             if "material-consistency" in config.workspace.parts:
                 output = {"consistent": True, "issues": []}
             elif "cover-letters" in config.workspace.parts:
-                if config.output_schema.name == "review-schema.json":
+                if phase(prompt) == "review-schema.json":
                     output = {"supported": True, "reason": "Bound synthetic facts."}
                 else:
                     context = json.loads(prompt[prompt.index("\n{") + 1 :])

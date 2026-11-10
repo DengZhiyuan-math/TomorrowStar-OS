@@ -274,3 +274,54 @@ Once the analysis chain no longer opens journal files, `application_match` and
 `application_matching_pipeline` stop importing each other's private names, and
 merging them becomes a cheap follow-up (review candidate, deletion test currently
 fails both ways).
+
+## Unified material lifecycle (agreed 2026-11-10)
+
+The résumé and the cover letter take the same inputs and each produce one PDF, so
+they share one design and one state mechanism ("material", kind `resume` or
+`cover_letter`):
+
+1. State: both live in `task["stages"]` with the same shape (`resume`/`export`,
+   `letter`/`letter_export`), status values, failure-code meaning, startup
+   recovery, cancel, retry and recheck. Old `task["cover_letter"]` records stay
+   read-only; no migration.
+2. Writing: both use the same writing call on Model Call Record. The résumé is
+   plan → one writer per experience → review; the letter is one writer → review.
+   Rejected / no answer / paused / material required mean the same for both.
+3. Export: both render, compile and check their PDF once in Flow's export stage.
+   The Worker uploads the finished letter PDF like the résumé (user default:
+   once, not per upload field; field size limits are checked at upload).
+4. Per kind only: content schema and validator, writer/review prompts, render
+   template, PDF check (letter: one page).
+5. Pipeline/UI: one material list for progress, waits, Continue and automatic
+   resend; one materials panel.
+6. Order: résumé first, then letter, in one queue (user default), which removes
+   the mutual sibling waits.
+
+Steps: (1) letter writing through the shared call, codes aligned; (2) letter
+state into `task["stages"]`, delete the `task["cover_letter"]` handling; (3) letter
+PDF in Flow's export stage, delete Worker/Pipeline letter PDF builds; (4) UI,
+old tests, full suite, real App run.
+
+**Material step 1 — letter writing on the shared call, done (uncommitted).**
+
+- New `material_author.py` holds `author_call` (moved from the résumé author's
+  `_call`), `record_rejection` and the legacy-record reader. The résumé author is a
+  thin wrapper; the letter's writer and review are two more callers.
+- Letter calls live in `cover-letters/authors/`, beside the attempts, so a retry
+  attempt reuses every answered call and resends only the one without an answer.
+  A malformed writer or review answer is marked rejected and asked again with the
+  reason; an unsupported review verdict is an answer and triggers the local
+  rewrite as before. Each attempt still keeps copies of its calls' prompt, schema
+  and answer so `read_cover_letter_result` is unchanged until step 2.
+- Codes: no answer → `letter_generation_no_answer` (Flow: known failure);
+  admission refused → `letter_generation_failed` with stage `cancelled`; damaged
+  record → `letter_generation_needs_recheck`.
+- `material_author` is registered in both loaded-code roles. A module-level
+  `threading.Lock` broke loaded identity (unserialisable), so the letter passes
+  `nullcontext()`: Flow runs one letter per task.
+- Tests: letter fakes read the call role from the prompt (`phase(prompt)`), as
+  every call now uses `schema.json`; retry tests use realistic native answers
+  (`native`), since reuse verifies the recorded invocation. The obsolete "unknown
+  review never reissued" test is replaced by one asserting only the lost call is
+  resent. Same failures as the base commit (6 known + 2 role-coverage).

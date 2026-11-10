@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 from test_application_flow import wait_for
 from test_canonical_career_sources import canonical as canonical
+from test_cover_letter_content import phase
 from test_j08_flow_combination import json_flow as json_flow
 from test_j08_flow_combination import start_json_writing
 
@@ -80,7 +81,7 @@ def test_actual_scoped_resume_writer_overlaps_whole_letter_writer(json_flow):
             return response(author_output(request))
         if "material-consistency" in config.workspace.parts:
             return response({"consistent": True, "issues": []})
-        if config.output_schema.name == "review-schema.json":
+        if phase(prompt) == "review-schema.json":
             calls.append("letter-review")
             return response({"supported": True, "reason": "Synthetic sources preserved."})
         calls.append("letter-author")

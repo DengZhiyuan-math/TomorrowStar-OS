@@ -22,8 +22,8 @@ from ._vendor import job_apply_store as helper
 from .application_resume_content import Contract, Text
 from .application_resume_render import _ESCAPES, _text, symbol_escapes
 from .career_portal_data import PortalDataError
+from .material_author import AUTHOR, author_call, record_rejection
 from .validation.hashing import record_digest as digest
-from .validation.models import CodexCLIConfig
 
 BEGIN_BODY = "% BEGIN LETTER BODY"
 END_BODY = "% END LETTER BODY"
@@ -781,6 +781,23 @@ def read_cover_letter_result(
         ) from error
 
 
+LETTER_CODES = {
+    "recheck": "letter_generation_needs_recheck",
+    "paused": "letter_generation_failed",
+    "no_answer": "letter_generation_no_answer",
+}
+
+
+def _keep_call(call, directory, phase, schema_name, record_name):
+    """Copy one call's prompt, schema and answer into the attempt that adopted it."""
+    call = Path(call)
+    (directory / (phase + "-prompt.txt")).write_text(
+        json.loads((call / AUTHOR.prompt).read_text())["prompt"], encoding="utf-8"
+    )
+    (directory / schema_name).write_bytes((call / AUTHOR.schema).read_bytes())
+    (directory / record_name).write_bytes((call / AUTHOR.result).read_bytes())
+
+
 def generate_cover_letter(
     directory,
     application,
@@ -840,92 +857,54 @@ def generate_cover_letter(
             fixed_inputs_revision=inputs_revision,
         )
     helper.atomic_write_json(directory / "intent.json", intent)
-    config = CodexCLIConfig(
-        schema_version="codex-cli-config/v1",
-        workspace=directory,
-        output_schema=directory / "schema.json",
-        drift_limitation_reason=(
-            "Cover-letter model alias is configuration-bound; retain raw results."
-        ),
-    )
-    helper.atomic_write_json(config.output_schema, _writer_schema())
     runner = runner or run_codex_exec
+
+    def letter_runner(config, prompt, **options):
+        with model_context():
+            return runner(config, prompt, **options)
+
+    # Calls live beside the attempts, so a retry reuses every answered call.
+    calls = dict(
+        base=directory.parent / "authors",
+        # Flow runs one letter per task, and each task's calls bind its own application.
+        lock=nullcontext(),
+        runner=letter_runner,
+        admit_call=admit_call,
+        timeout_seconds=180,
+        codes=LETTER_CODES,
+    )
     stage = "writer_call"
     try:
-        content = None
         previous_expression = None
         if resume_from_directory is not None:
             previous = Path(resume_from_directory)
-            previous_intent = json.loads((previous / "intent.json").read_text())
-            failure = json.loads((previous / "failure.json").read_text())
-            if (
-                failure.get("stage") not in {"writer_validation", "review_validation"}
-                or failure.get("status") != "failed"
-                or any(
-                    previous_intent.get(key) != intent[key]
-                    for key in ("application", "fixed_inputs_revision", "sources_revision")
-                )
-            ):
-                raise PortalDataError(
-                    "letter_generation_needs_recheck",
-                    "原正文或审查状态不能核验，不能重复调用。",
-                    409,
-                )
-            if failure["stage"] == "review_validation":
-                content = validate_letter(
-                    json.loads((previous / "draft.json").read_text()),
-                    sources=eligible,
-                    application=application,
-                    inputs_revision=inputs_revision,
-                )
+            # A draft the previous review found unsupported is rewritten locally.
+            if (previous / "review.json").exists() and (previous / "draft.json").exists():
                 prior_review = json.loads((previous / "review.json").read_text()).get(
                     "structured_result"
                 )
                 if isinstance(prior_review, dict) and prior_review.get("supported") is False:
-                    previous_expression = {"content": content, "review": prior_review}
-                    content = None
-                else:
-                    helper.atomic_write_json(directory / "draft.json", content)
-                    helper.atomic_write_json(
-                        directory / "generation.json",
-                        json.loads((previous / "generation.json").read_text()),
-                    )
-                    if (previous / "writer-prompt.txt").exists():
-                        (directory / "writer-prompt.txt").write_bytes(
-                            (previous / "writer-prompt.txt").read_bytes()
-                        )
-        if content is None:
-            if admit_call is not None and not admit_call():
-                stage = "cancelled"
-                raise PortalDataError(
-                    "letter_generation_failed", "求职信已停止，原稿和调用记录保留。", 409
-                )
-            writer_prompt = (
-                WRITER_INSTRUCTIONS
-                + "\n"
-                + json.dumps(
-                    {
-                        "application": application_binding(application),
-                        **material_review_inputs(fixed_inputs, eligible),
-                        **({"local_rewrite": previous_expression} if previous_expression else {}),
-                    },
-                    ensure_ascii=False,
-                )
-            )
-            (directory / "writer-prompt.txt").write_text(writer_prompt, encoding="utf-8")
-            with model_context():
-                result = runner(
-                    config,
-                    writer_prompt,
-                    timeout_seconds=180,
-                    allow_non_repository=True,
-                )
-            helper.atomic_write_json(directory / "generation.json", result.model_dump(mode="json"))
-            _validate_model_receipt(
-                result.model_dump(mode="json"), directory, "writer", "schema.json"
-            )
-            stage = "writer_validation"
-            output = result.structured_result
+                    previous_expression = {
+                        "content": json.loads((previous / "draft.json").read_text()),
+                        "review": prior_review,
+                    }
+        output, _, call = author_call(
+            role="letter-writer",
+            context={
+                "application": application_binding(application),
+                **material_review_inputs(fixed_inputs, eligible),
+                **({"local_rewrite": previous_expression} if previous_expression else {}),
+            },
+            schema=_writer_schema(),
+            instructions=WRITER_INSTRUCTIONS,
+            **calls,
+        )
+        _keep_call(call, directory, "writer", "schema.json", "generation.json")
+        _validate_model_receipt(
+            _read_letter_file(directory, "generation.json"), directory, "writer", "schema.json"
+        )
+        stage = "writer_validation"
+        try:
             if (
                 not isinstance(output, dict)
                 or set(output) != {"language", "paragraphs"}
@@ -956,7 +935,10 @@ def generate_cover_letter(
             content = validate_letter(
                 content, sources=eligible, application=application, inputs_revision=inputs_revision
             )
-            helper.atomic_write_json(directory / "draft.json", content)
+        except (ValueError, TypeError, KeyError, PortalDataError) as error:
+            record_rejection(call, error)
+            raise
+        helper.atomic_write_json(directory / "draft.json", content)
         review_schema = {
             "type": "object",
             "additionalProperties": False,
@@ -978,8 +960,6 @@ def generate_cover_letter(
             },
             "required": ["supported", "reason"],
         }
-        config = config.model_copy(update={"output_schema": directory / "review-schema.json"})
-        helper.atomic_write_json(config.output_schema, review_schema)
         stage = "sibling_inputs"
         sibling = sibling_content_provider() if sibling_content_provider is not None else None
         if sibling is not None:
@@ -996,39 +976,31 @@ def generate_cover_letter(
             },
         )
         stage = "review_call"
-        if admit_call is not None and not admit_call():
-            stage = "cancelled"
-            raise PortalDataError(
-                "letter_generation_failed", "求职信已停止，原稿和调用记录保留。", 409
-            )
-        review_prompt = (
-            REVIEW_INSTRUCTIONS
-            + "\n"
-            + json.dumps(
-                {
-                    "content": content,
-                    # The reviewer checks the letter against the same facts the writer saw.
-                    **material_review_inputs(fixed_inputs, eligible),
-                    "application": application_binding(application),
-                    **({"sibling_resume_content": sibling} if sibling is not None else {}),
-                },
-                ensure_ascii=False,
-            )
+        checked, _, call = author_call(
+            role="letter-review",
+            context={
+                "content": content,
+                # The reviewer checks the letter against the same facts the writer saw.
+                **material_review_inputs(fixed_inputs, eligible),
+                "application": application_binding(application),
+                **({"sibling_resume_content": sibling} if sibling is not None else {}),
+            },
+            schema=review_schema,
+            instructions=REVIEW_INSTRUCTIONS,
+            **calls,
         )
-        (directory / "review-prompt.txt").write_text(review_prompt, encoding="utf-8")
-        with model_context():
-            review = runner(
-                config,
-                review_prompt,
-                timeout_seconds=180,
-                allow_non_repository=True,
-            )
-        helper.atomic_write_json(directory / "review.json", review.model_dump(mode="json"))
+        _keep_call(call, directory, "review", "review-schema.json", "review.json")
         _validate_model_receipt(
-            review.model_dump(mode="json"), directory, "review", "review-schema.json"
+            _read_letter_file(directory, "review.json"), directory, "review", "review-schema.json"
         )
         stage = "review_validation"
-        checked = review.structured_result
+        if not (isinstance(checked, dict) and checked.get("supported") is False):
+            try:
+                _reviewed_letter(content, checked, application, eligible, inputs_revision)
+            except (ValueError, TypeError, KeyError, PortalDataError) as error:
+                # A malformed review is asked again; an unsupported verdict is an answer.
+                record_rejection(call, error)
+                raise
         content = _reviewed_letter(content, checked, application, eligible, inputs_revision)
         patches = checked.get("patches", [])
         stage = "publication"
@@ -1048,8 +1020,14 @@ def generate_cover_letter(
         helper.atomic_write_json(directory / "material.json", material)
         return material
     except Exception as error:
-        known = stage in {"writer_validation", "review_validation", "cancelled"}
-        code = "letter_generation_failed" if known else "letter_generation_needs_recheck"
+        if stage.endswith("_call") and getattr(error, "code", None) == LETTER_CODES["paused"]:
+            stage = "cancelled"
+        # A call without an answer is resent on retry (Model Call Record), so it is known.
+        known = stage in {"writer_validation", "review_validation", "cancelled"} or (
+            getattr(error, "code", None) in {"letter_generation_failed", LETTER_CODES["no_answer"]}
+        )
+        code = getattr(error, "code", None) if known and stage.endswith("_call") else None
+        code = code or ("letter_generation_failed" if known else "letter_generation_needs_recheck")
         helper.atomic_write_json(
             directory / "failure.json",
             {
