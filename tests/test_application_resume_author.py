@@ -367,3 +367,50 @@ def test_the_planner_context_omits_each_requirements_source_texts(json_flow):
     context = generation.generation_context(case.store, task["experience_handoff"]["id"])
     assert context["requirements"]
     assert all("sources" not in row for row in context["requirements"])
+    # Each delivered experience comes with the requirements its sources support.
+    assert set(context["experience_support"]) == {
+        row["experience_id"] for row in context["content_plan"]["assignments"]
+    }
+
+
+def test_experience_support_lists_supported_requirements_and_empty_for_none():
+    """2026-11-10 (Harmattan AI): an experience that supported no requirement led."""
+    from career_evidence_graph.application_experience_latex import experience_support
+
+    payload = {
+        "content_plan": {
+            "assignments": [
+                {"experience_id": "a", "experience": {"candidate_id": "exp-a"}},
+                {"experience_id": "b", "candidate_id": "exp-b", "experience": {}},
+            ]
+        },
+        "requirements": [
+            {
+                "importance": "required",
+                "fit_score": 90,
+                "citations": [{"source_id": "s-a"}],
+                # Retrieved for this requirement but not cited by the match.
+                "sources": [
+                    {"source_id": "s-a", "candidate_id": "exp-a"},
+                    {"source_id": "s-b", "candidate_id": "exp-b"},
+                ],
+            },
+            {
+                "importance": "preferred",
+                "fit_score": 5,
+                "citations": [{"source_id": "s-x"}],
+                "sources": [{"source_id": "s-x", "candidate_id": "exp-x"}],
+            },
+        ],
+    }
+    assert experience_support(payload) == {
+        "a": [{"requirement": 0, "importance": "required", "fit_score": 90}],
+        "b": [],
+    }
+
+
+def test_the_planner_keeps_at_most_five_experiences():
+    from career_evidence_graph.application_resume_author import _plan_choices_schema
+
+    schema = _plan_choices_schema({"properties": {}})
+    assert schema["properties"]["assignments"]["maxItems"] == 5

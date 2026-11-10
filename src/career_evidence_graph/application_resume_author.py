@@ -46,6 +46,8 @@ def _plan_choices_schema(full):
             },
             "assignments": {
                 "type": "array",
+                # 2026-11-10: a résumé keeps 3 to 5 experiences (the prompt says which).
+                "maxItems": 5,
                 "items": {
                     "type": "object",
                     "additionalProperties": False,

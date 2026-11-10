@@ -303,6 +303,35 @@ def prepare_generation(store, identifier, revision, **request):
     return _save(directory, state)
 
 
+def experience_support(payload):
+    """Per delivered experience, the requirements whose matching cites its facts.
+
+    Only cited sources count: a requirement also carries retrieved sources the match
+    did not use (Harmattan AI, 2026-11-10).
+    """
+    support = {
+        row["experience_id"]: (row.get("candidate_id") or row["experience"]["candidate_id"], [])
+        for row in payload["content_plan"]["assignments"]
+    }
+    for index, requirement in enumerate(payload["requirements"]):
+        quoted = {row.get("source_id") for row in requirement.get("citations") or []}
+        cited = {
+            source.get("candidate_id")
+            for source in requirement.get("sources") or []
+            if source.get("source_id") in quoted
+        }
+        for candidate, rows in support.values():
+            if candidate in cited:
+                rows.append(
+                    {
+                        "requirement": index,
+                        "importance": requirement.get("importance"),
+                        "fit_score": requirement.get("fit_score"),
+                    }
+                )
+    return {experience: rows for experience, (_, rows) in support.items()}
+
+
 def generation_context(store, identifier):
     """Main Codex's layout context, fixed retrieved facts and source locators."""
     _, state = _load(store, identifier)
@@ -324,6 +353,7 @@ def generation_context(store, identifier):
                 for row in payload["requirements"]
             ],
             "content_plan": deepcopy(payload["content_plan"]),
+            "experience_support": experience_support(payload),
             "headline_required": payload.get("headline_required", False),
             "retained_content": deepcopy(payload.get("retained_content")),
             "retained_source_ids": deepcopy(payload.get("retained_source_ids", [])),
@@ -334,6 +364,16 @@ def generation_context(store, identifier):
             ),
             "instructions": MAIN_INSTRUCTIONS
             + " Select and order delivered assignments; write global content as JSON only."
+            # 2026-11-10 (Harmattan AI): all 8 delivered experiences were kept, one that
+            # supported no requirement first and the strongest last.
+            + " experience_support lists, per experience_id, the requirements (index into"
+            + " requirements) its facts support, with importance and fit_score. Keep 3 to 5"
+            + " experiences: those that most strongly support the most important requirements."
+            + " Omit an experience whose support is only weak, peripheral or already shown by a"
+            + " kept experience, and one that supports no requirement, unless retained_content"
+            + " or retained_protected_scopes keeps it. Keep fewer than 3 only when fewer have"
+            + " real support. Order kept experiences by that support, strongest first, not by"
+            + " date or the delivered order."
             # 2026-11-04: a planner cited a dropped experience's fact, then a mis-copied ID.
             + " headline, summary and skills may cite only the allowed_fact_refs and"
             + " allowed_inference_refs of the assignments you keep; copy each ID exactly."
