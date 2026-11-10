@@ -196,7 +196,7 @@ def create_server(
         resume_model_mode=resume_model_mode,
         flow_automatic_latex_base=flow_automatic_latex_base,
     )
-    applications, evidence, graph = runtime.applications, runtime.evidence, runtime.graph
+    applications, evidence = runtime.applications, runtime.evidence
     career_library, handoff, review = runtime.career_library, runtime.handoff, runtime.review
     worker, worker_unavailable = runtime.worker, runtime.worker_unavailable
     flow, flow_resumes, resumes = runtime.flow, runtime.flow_resumes, runtime.resumes
@@ -339,8 +339,6 @@ def create_server(
                     ),
                     "/static/resume_review.css": ("resume_review.css", "text/css; charset=utf-8"),
                     "/static/style.css": ("style.css", "text/css; charset=utf-8"),
-                    "/static/graph.js": ("graph.js", "text/javascript; charset=utf-8"),
-                    "/static/graph.css": ("graph.css", "text/css; charset=utf-8"),
                     "/static/worker.js": ("worker.js", "text/javascript; charset=utf-8"),
                     "/static/worker.css": ("worker.css", "text/css; charset=utf-8"),
                     "/static/handoff.js": ("handoff.js", "text/javascript; charset=utf-8"),
@@ -486,8 +484,6 @@ def create_server(
                 elif path.startswith("/api/resumes/") and path.endswith("/pdf") and resumes:
                     identifier = path.removeprefix("/api/resumes/").removesuffix("/pdf")
                     self._send(200, resumes.pdf(identifier), "application/pdf")
-                elif path == "/api/graph":
-                    self._json(graph.snapshot())
                 elif path == "/api/public-site":
                     try:
                         self._json(
@@ -508,10 +504,21 @@ def create_server(
                         }
                     )
                 elif path == "/api/state":
+
+                    def experience_count():
+                        # Sidebar count for the experience table; the table loads lazily.
+                        if career_library is None:
+                            return None
+                        try:
+                            return len(career_library.index()["records"])
+                        except (OSError, ValueError, PortalDataError):
+                            return None
+
                     self._json(
                         {
                             "applications": screened_applications(),
                             "evidence": evidence.list_evidence(),
+                            "experience_count": experience_count(),
                             "statuses": [
                                 {"value": value, "label": label}
                                 for value, label in STATUS_LABELS.items()

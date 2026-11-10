@@ -88,7 +88,6 @@
     "career_evidence_graph.career_experience_import imports career_evidence_graph.career_experiences._json_bytes",
     "career_evidence_graph.career_experiences imports career_evidence_graph.career_portal_data._check_root",
     "career_evidence_graph.career_experiences imports career_evidence_graph.career_portal_data._write_file",
-    "career_evidence_graph.career_portal_graph imports career_evidence_graph.career_portal_data._read_document",
     "career_evidence_graph.hosted_ats imports career_evidence_graph.application_automation._job_identity",
     "career_evidence_graph.job_screening imports career_evidence_graph.application_automation._job_identity"
   ],

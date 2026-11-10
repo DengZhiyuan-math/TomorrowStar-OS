@@ -20,11 +20,13 @@ let detailRequest = 0;
 let evidenceRequest = 0;
 const evidenceDrafts = new Map();
 let toastTimer;
-let evidenceView = "graph";
-let graphData = null;
-let graphController = null;
-let graphLoading = false;
-let graphRequest = 0;
+let evidenceView = "table";
+let libraryData = null;
+let libraryLoading = false;
+let libraryRequest = 0;
+const closedGroups = new Set();
+const categoryLabels = { internship: "实习", project: "项目", open_source: "开源贡献", research: "研究", publication: "论文", teaching: "教学", education: "学历", related: "其他" };
+const categoryOrder = Object.keys(categoryLabels);
 let interviewLayer = 0;
 let checkedInterview = null;
 let interviewRequest = 0;
@@ -170,8 +172,8 @@ async function loadState({ silent = false } = {}) {
     populateFilters();
     render();
     window.dispatchEvent?.(new Event("portal-state"));
-    resetCareerGraph();
-    if (view === "evidence" && evidenceView === "graph") loadCareerGraph();
+    resetExperienceTable();
+    if (view === "evidence" && evidenceView === "table") loadExperienceTable();
     if (view === "website") loadPublicSite();
     if (view === "resume-review" && typeof loadPrismReview === "function") loadPrismReview();
     if (!silent) toast("工作台已刷新");
@@ -202,7 +204,7 @@ function populateFilters() {
 }
 function render() {
   $("nav-application-count").textContent = data.applications.length;
-  $("nav-evidence-count").textContent = data.evidence.length;
+  $("nav-evidence-count").textContent = libraryData ? libraryData.length : (Number.isInteger(data.experience_count) ? data.experience_count : "—");
   renderOverview(); renderApplications(); renderEvidence(); renderInterview();
 }
 function setView() {
@@ -213,7 +215,7 @@ function setView() {
   }
   $("current-view-label").textContent = viewLabels[view];
   document.title = `${viewLabels[view]} · TomorrowStar`;
-  if (view === "evidence" && stateReady && evidenceView === "graph") loadCareerGraph();
+  if (view === "evidence" && stateReady && evidenceView === "table") loadExperienceTable();
   if (view === "website" && stateReady) loadPublicSite();
   if (view === "resume-review" && stateReady && typeof loadPrismReview === "function") loadPrismReview();
 }
@@ -237,55 +239,91 @@ async function loadPublicSite() {
   }
 }
 
-function resetCareerGraph() {
-  ++graphRequest;
-  graphController?.destroy();
-  graphController = null;
-  graphData = null;
-  graphLoading = false;
+function resetExperienceTable() {
+  ++libraryRequest;
+  libraryData = null;
+  libraryLoading = false;
 }
 
-async function loadCareerGraph() {
-  if (graphController || graphLoading || !stateReady) return;
-  const container = $("career-graph");
-  if (!graphData) {
-    const request = ++graphRequest;
-    graphLoading = true;
-    const loading = node("p", "graph-loading-message", "正在整理文档中的关联…");
+async function loadExperienceTable() {
+  if (libraryLoading || !stateReady) return;
+  const container = $("experience-table");
+  if (!libraryData) {
+    const request = ++libraryRequest;
+    libraryLoading = true;
+    const loading = node("p", "experience-table-message", "正在载入经历库…");
     loading.setAttribute("role", "status");
     container.replaceChildren(loading);
     try {
-      const next = await api("/api/graph");
-      if (request !== graphRequest) return;
-      if (!Array.isArray(next.nodes) || !Array.isArray(next.edges)) throw new Error("关系数据不完整，请刷新后重试。");
-      graphData = next;
+      const next = await api("/api/career-library");
+      if (request !== libraryRequest) return;
+      if (!Array.isArray(next.records)) throw new Error("经历库数据不完整，请刷新后重试。");
+      libraryData = next.records;
+      $("nav-evidence-count").textContent = libraryData.length;
     } catch (error) {
-      if (request !== graphRequest) return;
-      const message = node("p", "graph-loading-message", error.message);
+      if (request !== libraryRequest) return;
+      const message = node("p", "experience-table-message", error.message);
       message.setAttribute("role", "alert");
-      const retry = node("button", "button button-secondary", "重新载入关系图");
+      const retry = node("button", "button button-secondary", "重新载入经历库");
       retry.type = "button";
-      retry.addEventListener("click", loadCareerGraph);
+      retry.addEventListener("click", loadExperienceTable);
       container.replaceChildren(message, retry);
-    } finally { if (request === graphRequest) graphLoading = false; }
+      return;
+    } finally { if (request === libraryRequest) libraryLoading = false; }
   }
-  if (!graphData || view !== "evidence" || evidenceView !== "graph") return;
-  graphController = window.CareerGraph.mount(container, graphData, {
-    onOpenEvidence(id) {
-      const evidence = data.evidence.find((item) => item.id === id);
-      if (evidence) openEvidence(evidence);
-      else toast("材料目录已变更，请刷新工作台。");
-    },
-  });
+  renderExperienceTable();
+}
+
+function renderExperienceTable() {
+  if (!libraryData) return;
+  const container = clear($("experience-table"));
+  const query = $("experience-search").value.trim().toLocaleLowerCase();
+  const rows = libraryData.filter((item) => !query || [item.title, item.summary, item.institution, ...(Array.isArray(item.retrieval_terms) ? item.retrieval_terms : [])].some((value) => string(value).toLocaleLowerCase().includes(query)));
+  const groups = new Map();
+  for (const item of rows) {
+    const key = item.category || "related";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(item);
+  }
+  const rank = (key) => (categoryOrder.includes(key) ? categoryOrder.indexOf(key) : categoryOrder.length);
+  const keys = [...groups.keys()].sort((a, b) => rank(a) - rank(b));
+  $("experience-result-count").textContent = `${rows.length} 段经历`;
+  if (!keys.length) { empty(container, "没有找到匹配的经历", "尝试其他关键词。"); return; }
+  for (const key of keys) {
+    const section = node("details", "experience-group");
+    section.open = !closedGroups.has(key);
+    section.addEventListener("toggle", () => { if (section.open) closedGroups.delete(key); else closedGroups.add(key); });
+    const summary = node("summary");
+    summary.append(node("strong", "", categoryLabels[key] || key), node("span", "nav-count", groups.get(key).length));
+    const table = node("table", "experience-table");
+    const headRow = node("tr");
+    for (const label of ["经历", "简介"]) headRow.append(node("th", "", label));
+    const head = node("thead"); head.append(headRow);
+    const body = node("tbody");
+    for (const item of groups.get(key)) {
+      const row = node("tr");
+      const name = node("td", "experience-name", item.title);
+      const meta = [item.institution, item.dates].map(string).filter(Boolean).join(" · ");
+      if (meta) name.append(node("div", "experience-meta", meta));
+      const text = node("td", "experience-summary");
+      text.append(node("div", "experience-summary-text", item.summary || "—"));
+      text.title = item.summary || "";
+      row.append(name, text);
+      body.append(row);
+    }
+    table.append(head, body);
+    section.append(summary, table);
+    container.append(section);
+  }
 }
 
 function setEvidenceView(mode) {
   evidenceView = mode;
-  $("evidence-graph-view").hidden = mode !== "graph";
+  $("evidence-table-view").hidden = mode !== "table";
   $("evidence-library-view").hidden = mode !== "library";
-  $("show-evidence-graph").setAttribute("aria-pressed", String(mode === "graph"));
+  $("show-evidence-table").setAttribute("aria-pressed", String(mode === "table"));
   $("show-evidence-library").setAttribute("aria-pressed", String(mode === "library"));
-  if (mode === "graph") loadCareerGraph();
+  if (mode === "table") loadExperienceTable();
 }
 function renderWorkflow() {
   const automatic = overviewFlow?.flow?.enabled === true && overviewFlow.flow.mode === "application";
@@ -1007,7 +1045,8 @@ $("action-only").addEventListener("change", renderApplications);
 $("evidence-search").addEventListener("input", renderEvidence);
 $("evidence-kind-filter").addEventListener("change", renderEvidence);
 $("evidence-status-filter").addEventListener("change", renderEvidence);
-$("show-evidence-graph").addEventListener("click", () => setEvidenceView("graph"));
+$("show-evidence-table").addEventListener("click", () => setEvidenceView("table"));
+$("experience-search").addEventListener("input", renderExperienceTable);
 $("show-evidence-library").addEventListener("click", () => setEvidenceView("library"));
 $("interview-evidence").addEventListener("change", updateInterviewEvidence);
 $("interview-evidence-search").addEventListener("input", renderInterviewSources);
@@ -1056,7 +1095,7 @@ document.addEventListener("keydown", (event) => {
     event.preventDefault();
     if (view === "interview") { $("interview-evidence-search").focus(); return; }
     if (view === "overview") { location.hash = "applications"; setView(); }
-    const search = view === "evidence" ? (evidenceView === "graph" ? $("career-graph").querySelector('input[type="search"]') : $("evidence-search")) : $("application-search");
+    const search = view === "evidence" ? (evidenceView === "table" ? $("experience-search") : $("evidence-search")) : $("application-search");
     search?.focus();
   }
   if (event.key.toLowerCase() === "n") { event.preventDefault(); openApplication(); }

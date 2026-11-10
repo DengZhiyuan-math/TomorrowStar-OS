@@ -7,10 +7,8 @@
     <meta name="referrer" content="no-referrer">
     <title>TomorrowStar · 职业工作台</title>
     <link rel="stylesheet" href="/static/style.css">
-    <link rel="stylesheet" href="/static/graph.css">
     <link rel="stylesheet" href="/static/worker.css">
     <link rel="stylesheet" href="/static/handoff.css">
-    <script src="/static/graph.js" defer></script>
     <script src="/static/app.js" defer></script>
     <script src="/static/application_flow.js" defer></script>
     <script src="/static/resume_review.js" defer></script>
@@ -91,8 +89,8 @@
           </section>
           <section id="worker-root" class="worker-root" aria-label="实验自动化助手" hidden></section>
           <section id="view-evidence" aria-labelledby="evidence-title" hidden>
-            <div class="page-heading"><div><div class="eyebrow">CAREER CONNECTIONS</div><h1 id="evidence-title">职业证据</h1><p>从技能找到项目，从项目回到证据。</p></div><div class="evidence-view-switch" role="group" aria-label="职业证据视图"><button type="button" class="button button-secondary" id="show-evidence-graph" aria-pressed="true">◇ 关系图谱</button><button type="button" class="button button-secondary" id="show-evidence-library" aria-pressed="false">▤ 文档列表</button></div></div>
-            <div id="evidence-graph-view"><div id="career-graph" aria-label="项目、技能与证据关系图"><p class="graph-loading-message" role="status">正在整理文档中的关联…</p></div></div>
+            <div class="page-heading"><div><div class="eyebrow">CAREER CONNECTIONS</div><h1 id="evidence-title">职业证据</h1><p>按类别浏览经历库，展开查看每段经历。</p></div><div class="evidence-view-switch" role="group" aria-label="职业证据视图"><button type="button" class="button button-secondary" id="show-evidence-table" aria-pressed="true">▤ 经历表格</button><button type="button" class="button button-secondary" id="show-evidence-library" aria-pressed="false">◇ 文档列表</button></div></div>
+            <div id="evidence-table-view"><div class="filter-bar"><label class="search-field"><span aria-hidden="true">⌕</span><input id="experience-search" type="search" placeholder="搜索经历、机构或技能…" aria-label="搜索经历"><kbd>/</kbd></label></div><div class="results-heading"><span id="experience-result-count"></span><span class="small-label">点击类别标题可折叠</span></div><div id="experience-table" aria-label="按类别分组的经历表格"></div></div>
             <div id="evidence-library-view" hidden>
             <div class="evidence-boundary"><span aria-hidden="true">◇</span><p>资料中的关联用于检索与回忆，不会自动形成能力评分。</p></div>
             <div class="filter-bar"><label class="search-field"><span aria-hidden="true">⌕</span><input id="evidence-search" type="search" placeholder="搜索项目或文档名称…" aria-label="搜索职业证据"><kbd>/</kbd></label><label class="filter-select"><span>类型</span><select id="evidence-kind-filter" aria-label="筛选证据类型"><option value="">全部类型</option></select></label><label class="filter-select"><span>状态</span><select id="evidence-status-filter" aria-label="筛选证据审核状态"><option value="">全部状态</option></select></label></div>

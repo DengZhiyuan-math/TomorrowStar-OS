@@ -1581,45 +1581,11 @@ def test_evidence_api_excludes_raw_hidden_and_replaced_symlink_sources(portal: P
     assert str(external).encode() not in body
 
 
-def test_documentary_graph_endpoint_refreshes_sources_without_mutation(portal: Portal) -> None:
-    reports = portal.career / "reports"
-    reports.mkdir()
-    document = reports / "alpha.md"
-    original = "# Alpha\n\n## Technology\nPython and SQLite.\n"
-    document.write_text(original)
-    raw = portal.career / ".career-evidence/raw"
-    raw.mkdir(parents=True)
-    (raw / "hidden.md").write_text("private-graph-sentinel")
-    status, headers, body = portal.request("GET", "/api/graph")
-    assert status == 200
-    assert headers["Cache-Control"] == "no-store"
-    graph = json.loads(body)
-    assert graph["authority"] == "documentary"
-    assert {node["label"] for node in graph["nodes"] if node["type"] == "skill"} == {
-        "Python",
-        "SQLite",
-    }
-    assert b"private-graph-sentinel" not in body
-    assert document.read_text() == original
-    assert not (portal.applications / ".tomorrowstar-history").exists()
-    document.write_text("# Alpha\n\n## Technology\nRust.\n")
-    status, _, body = portal.request("GET", "/api/graph")
-    assert status == 200
-    assert {node["label"] for node in json.loads(body)["nodes"] if node["type"] == "skill"} == {
-        "Rust"
-    }
-    status, _, _ = portal.request(
-        "GET", "/api/graph", headers={"Origin": "https://outside.invalid"}
-    )
-    assert status == 403
-
-
-@pytest.mark.parametrize("asset,mime", [("graph.js", "text/javascript"), ("graph.css", "text/css")])
-def test_graph_assets_are_local_and_fixed_routes(portal: Portal, asset: str, mime: str) -> None:
-    status, headers, body = portal.request("GET", f"/static/{asset}")
-    assert status == 200
-    assert headers["Content-Type"].startswith(mime)
-    assert len(body) > 100
+def test_graph_endpoint_and_assets_are_removed(portal: Portal) -> None:
+    # 2026-11-10: the evidence page shows a category table of the career library instead.
+    assert portal.request("GET", "/api/graph")[0] == 404
+    for asset in ("graph.js", "graph.css"):
+        assert portal.request("GET", f"/static/{asset}")[0] == 404
 
 
 def _interview_payload() -> dict:

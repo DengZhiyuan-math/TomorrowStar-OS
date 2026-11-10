@@ -227,7 +227,6 @@ def verify(app: Path) -> dict:
             assert status == 200 and "default-src 'self'" in headers["Content-Security-Policy"]
             assert "职业工作台" in body.decode()
             assert request("GET", "/static/app.js")[0] == 200
-            assert request("GET", "/static/graph.css")[0] == 200
             assert request("GET", "/static/handoff.js")[0] == 200
             assert request("GET", "/static/handoff.css")[0] == 200
             assert request("GET", "/static/application_flow.js")[0] == 200
@@ -252,7 +251,6 @@ def verify(app: Path) -> dict:
             assert (resources / "system/scripts/run_codex_handoff.py").is_file()
             assert {"playwright", "greenlet", "pyee"} <= manifest["dependencies"].keys()
             assert request("GET", "/api/evidence/" + state["evidence"][0]["id"])[0] == 200
-            assert request("GET", "/api/graph")[0] == 200
             status, _, body = request("GET", "/api/interview/protocol")
             assert status == 200 and "项目介绍" in body.decode()
             assert request("GET", "/api/public-site")[0] == 404
@@ -542,7 +540,6 @@ def verify(app: Path) -> dict:
         "manual_submit_boundary": "human-assertions-only; no actual ATS submission",
         "worker_autostart": False,
         "application_create_edit_export": "passed",
-        "evidence_graph_protocol": "passed",
         "public_website_projection": "passed",
         "host_csrf_guards": "passed",
         "parent_eof_shutdown": "passed",

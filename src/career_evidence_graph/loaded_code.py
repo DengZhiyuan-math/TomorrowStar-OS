@@ -77,7 +77,6 @@ _PREPARATION_MODULES = (
     "application_storage",
     "career_experiences",
     "career_experience_import",
-    "career_portal_graph",
     "job_screening",
     "url_safety",
     "validation.hashing",

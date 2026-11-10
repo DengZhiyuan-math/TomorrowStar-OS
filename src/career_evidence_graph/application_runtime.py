@@ -18,7 +18,6 @@ from .application_resume import ApplicationResumeStore, career_source_snapshot
 from .application_worker import WorkerService
 from .application_worker_fixtures import create_fixture_server
 from .career_portal_data import ApplicationStore, CareerCatalog, PortalDataError
-from .career_portal_graph import CareerGraph
 from .loaded_code import (
     load_controller_modules,
     loaded_preparation_revision,
@@ -44,7 +43,7 @@ def _external_directory(path: Path) -> Path:
 class ApplicationRuntime:
     """The assembled owners an entry uses; it is not a dependency lookup service."""
 
-    applications = evidence = graph = career_library = handoff = review = None
+    applications = evidence = career_library = handoff = review = None
     worker = worker_unavailable = flow = flow_resumes = resumes = None
     intake = intake_unavailable = pipeline = pipeline_unavailable = fixtures = None
     readiness = flow_sources = source_read = identity = flow_view = None
@@ -328,7 +327,6 @@ def _assemble(
     evidence = runtime.evidence = CareerCatalog(
         open_private_workspace(career_workspace, public_root=PUBLIC_ROOT)
     )
-    runtime.graph = CareerGraph(evidence)
     from .application_career_library import CareerLibrary
 
     career_library = runtime.career_library = CareerLibrary(career_library_manifest)
