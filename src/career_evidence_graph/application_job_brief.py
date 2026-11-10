@@ -129,6 +129,10 @@ def _literal_jd_quote(quote, jd):
     pieces occur in order within one paragraph.
     """
     span = _quote_span(quote, jd)
+    if span is None and quote.rstrip(".;:, ") != quote:
+        # A quote cut mid-line that ends with its own period (2026-11-10, Capco:
+        # "... with drift detection." for "... with drift detection, performance ...").
+        span = _quote_span(quote.rstrip(".;:, "), jd)
     pieces = [piece.strip() for piece in re.split(r"\.\.\.|\u2026", quote) if piece.strip()]
     if span is None and len(pieces) > 1:
         spans, start = [], 0

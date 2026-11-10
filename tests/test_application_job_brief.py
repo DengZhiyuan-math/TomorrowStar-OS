@@ -805,3 +805,16 @@ def test_the_prompt_splits_each_required_language_level(tmp_path, application, o
     # 2026-11-08 (user decision): a language gap only lowers the score.
     assert "A language level is never a hard_condition" in prompt
     assert "mandatory language level" not in prompt
+
+
+def test_a_quote_cut_mid_line_with_its_own_period_names_the_literal_words():
+    # 2026-11-10, Capco: the JD line goes on after "drift detection".
+    from career_evidence_graph.application_job_brief import _literal_jd_quote
+
+    jd = "Deploy and monitor models in production with drift detection, performance tracking"
+    assert (
+        _literal_jd_quote("Deploy and monitor models in production with drift detection.", jd)
+        == "Deploy and monitor models in production with drift detection"
+    )
+    with pytest.raises(PortalDataError):
+        _literal_jd_quote("Deploy and monitor models in staging with drift detection.", jd)
