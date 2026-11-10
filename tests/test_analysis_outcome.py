@@ -9,28 +9,19 @@ from career_evidence_graph.career_portal_data import PortalDataError
 
 
 @pytest.mark.parametrize(
-    ("error_code", "certainty"),
+    "error_code",
     [
-        ("match_model_invalid", "rejected"),
-        ("match_requirement_conflict", "rejected"),
-        ("match_source_invalid", "rejected"),
-        ("match_attribution_invalid", "rejected"),
-        ("match_inference_invalid", "rejected"),
-        ("retrieval_invalid", "rejected"),
-        ("retrieval_too_large", "rejected"),
-        ("match_information_changed", "rejected"),
-        ("job_brief_invalid", "rejected"),
-        ("match_resume_invalid", "rejected"),
-        ("retrieval_execution_incomplete", "unknown"),
-        ("match_model_unavailable", "unknown"),
-        ("match_timeout", "unknown"),
-        ("match_result_needs_recheck", "unknown"),
-        ("flow_stage_failed", "unknown"),
+        "match_model_invalid",
+        "retrieval_too_large",
+        "match_resume_invalid",
+        "retrieval_execution_incomplete",
+        "match_model_unavailable",
+        "match_result_needs_recheck",
+        "flow_stage_failed",
     ],
 )
-def test_modern_failed_analysis_delivers_certainty_without_retry(
-    application, tmp_path, error_code, certainty
-):
+def test_an_ended_failed_analysis_is_known_whatever_its_code(application, tmp_path, error_code):
+    """Each call of an ended attempt holds its verdict, so no code needs a table."""
     applications, job = application
     calls = []
 
@@ -49,53 +40,17 @@ def test_modern_failed_analysis_delivers_certainty_without_retry(
             "schema_version": "analysis-outcome/v1",
             "task_id": task["id"],
             "task_revision": task["revision"],
-            "status": certainty,
+            "status": "rejected",
             "error_code": error_code,
             "attempt_id": task["stages"]["analysis"]["attempt_id"],
-            "recovery": "needs_input" if certainty == "rejected" else "needs_recheck",
+            "recovery": "needs_input",
             "legacy_skippable": False,
             "resendable": False,
         }
         outcome["status"] = "mutated"
-        assert flow.analysis_outcome(task["id"])["status"] == certainty
+        assert flow.analysis_outcome(task["id"])["status"] == "rejected"
         assert flow.path.read_bytes() == before
         assert calls == [task["id"]]
-    finally:
-        flow.close()
-
-
-@pytest.mark.parametrize(
-    ("attempt_status", "certainty"), [("failed", "rejected"), ("needs_recheck", "unknown")]
-)
-@pytest.mark.parametrize(
-    "code", ["retrieval_execution_incomplete", "retrieval_model_failed", "flow_stage_failed"]
-)
-def test_a_saved_size_refusal_is_rejected_only_when_its_attempt_proves_it(
-    application, tmp_path, attempt_status, certainty, code
-):
-    applications, job = application
-
-    def analyze(_task):
-        raise PortalDataError(code, "Synthetic reading or planner failure", 409)
-
-    class Attempts:
-        def reconcile(self, attempt_id):
-            return {"attempt_id": attempt_id, "status": attempt_status}
-
-        def ended_without_answer(self, attempt_id):
-            return False
-
-    flow = ApplicationFlowService(applications, tmp_path / "flow", callbacks={"analysis": analyze})
-    try:
-        task = flow.create(job["id"], job["revision"])
-        flow.start(task["id"], task["revision"], "analysis")
-        task = wait_for(flow, task["id"], lambda row: row["status"] == "failed")
-        assert flow.analysis_outcome(task["id"])["status"] == "unknown"
-        # The same code also wraps reader timeouts; only the saved attempt can
-        # show that every reading call was receipted before the size refusal.
-        flow.analysis = Attempts()
-        assert flow.analysis_outcome(task["id"])["status"] == certainty
-        assert flow.progress(task["id"])["analysis"]["status"] == certainty
     finally:
         flow.close()
 

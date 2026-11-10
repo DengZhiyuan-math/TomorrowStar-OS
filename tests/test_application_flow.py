@@ -1048,12 +1048,7 @@ os._exit(2)
         service.close()
 
 
-@pytest.mark.parametrize(
-    ("attempt", "outcome"), [("complete", "rejected"), ("needs_recheck", "unknown")]
-)
-def test_an_interrupted_analysis_whose_attempt_completed_can_be_resumed(
-    application, tmp_path, attempt, outcome
-):
+def test_an_interrupted_analysis_can_be_continued(application, tmp_path):
     """2026-11-08: finnova's analysis wrote its result as the App closed."""
     applications, job = application
     script = """
@@ -1079,19 +1074,11 @@ os._exit(2)
         check=True,
     )
     service = ApplicationFlowService(applications, tmp_path / "flow", callbacks={})
-
-    class Attempts:
-        def reconcile(self, attempt_id):
-            return {"attempt_id": attempt_id, "status": attempt}
-
-        def ended_without_answer(self, attempt_id):
-            return False
-
-    service.analysis = Attempts()
     try:
         task = service.snapshot()["active_task"]
         assert task["stages"]["analysis"]["error_code"] == "flow_interrupted"
-        assert service.analysis_outcome(task["id"])["status"] == outcome
+        # The process ended, so Continue may resume it; Analysis resends what had no answer.
+        assert service.analysis_outcome(task["id"])["status"] == "rejected"
     finally:
         service.close()
 

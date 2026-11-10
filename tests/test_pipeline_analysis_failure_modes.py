@@ -26,9 +26,9 @@ pytestmark = pytest.mark.usefixtures("reading_limits")
     [
         ("match_model_invalid", "needs_input"),
         ("match_resume_invalid", "needs_input"),
-        ("match_result_needs_recheck", "needs_recheck"),
-        ("reader_cli_timeout", "needs_recheck"),
-        ("reader_subprocess_timeout", "needs_recheck"),
+        ("match_result_needs_recheck", "needs_input"),
+        ("reader_cli_timeout", "needs_input"),
+        ("reader_subprocess_timeout", "needs_input"),
     ],
 )
 def test_default_queue_holds_modern_failed_analysis_without_retry_or_next_job(

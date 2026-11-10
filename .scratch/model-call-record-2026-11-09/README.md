@@ -216,14 +216,32 @@ across 4 modules (ee1af146, 54341431, e1545fed, b262937d, 02d150b6, 5019d594,
   - 997 of 1002 targeted, Flow and Pipeline tests pass; the same 5 fail on the
     base commit.
 
+**Step 6 — Flow reads no code table, done (uncommitted).**
+
+- `_analysis_outcome` no longer lists error codes, and `_known_attempt_failure`
+  (with its `Analysis.reconcile` directory check) is deleted. A modern failed
+  analysis stage is an ended attempt: every call in it holds a recorded verdict,
+  so whatever its code it is *rejected* / `needs_input` and Continue retries it.
+  Safety stays in Analysis: the execution lock refuses while an attempt still
+  runs, `prepare` resumes from the failed attempt and resends calls without an
+  answer, and a damaged record stops with `match_resume_invalid`.
+- `resendable` still comes from `model_call.ended_without_answer`;
+  `legacy_analysis_failure` and the output/handoff checks are unchanged.
+- Behaviour change: codes that used to stop as *unknown* with no Continue
+  (`retrieval_execution_incomplete`, `match_model_unavailable`,
+  `match_result_needs_recheck`, `flow_stage_failed`, `flow_interrupted`) now wait
+  for the user's Continue, which retries.
+- Tests: the code table test asserts *rejected* for every code; the
+  callback-forged `reconcile` test is deleted; the interrupted-analysis and queue
+  failure-mode tests expect `needs_input`. 807 of 813 targeted tests pass; the
+  same 6 fail on the base commit.
+
 **Still to do**, in order:
 
-1. Flow: replace the `_analysis_outcome` code table and `_known_attempt_failure`
-   with the recorded verdict kind.
-2. Migrate the remaining callers: résumé, cover letter, full_latex, jd_extract,
+1. Migrate the remaining callers: résumé, cover letter, full_latex, jd_extract,
    gmail, proofread, and others. Add the Claude second opinion as an adapter with
    resend off.
-3. Delete the private-helper tests; run the full suite once; do one real job
+2. Delete the private-helper tests; run the full suite once; do one real job
    analysis in the App.
 
 ## Follow-up enabled

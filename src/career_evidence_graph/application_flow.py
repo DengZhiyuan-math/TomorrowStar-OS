@@ -105,39 +105,21 @@ def legacy_analysis_failure(task):
     )
 
 
-def _analysis_outcome(task, *, known_attempt_failure=False, resendable=False):
+def _analysis_outcome(task, *, resendable=False):
     """Interpret Flow-owned attempt metadata without authorizing a new attempt.
 
-    ``resendable`` means the ended attempt stopped on a model call that produced no
-    answer (Model Call Record); the queue may then Continue it automatically.
+    A modern failed attempt has ended, so whatever its error code, its model calls
+    each hold a recorded verdict (Model Call Record). Retrying it is safe: Analysis
+    resends calls without an answer, replays identical answered ones, and refuses
+    while an attempt still runs or its record is damaged. ``resendable`` means it
+    stopped on a call that produced no answer; the queue may Continue it itself.
     """
     stage = task.get("stages", {}).get("analysis", {})
     legacy_skippable = legacy_analysis_failure(task)
     # The legacy skip policy keeps its original code and exact field set.
-    # Modern validation failures only classify a same-job input wait.
-    # retrieval_execution_incomplete also wraps reader timeouts; its code alone
-    # cannot establish a known rejected result. Only the saved attempt can prove
-    # it ended without an unknown model result, whatever code the stage recorded.
     modern_rejected = bool(
         task.get("status") == stage.get("status") == "failed"
-        and stage.get("error_code")
-        in {
-            *([stage.get("error_code")] if known_attempt_failure else []),
-            "match_model_invalid",
-            "match_requirement_conflict",
-            "match_source_invalid",
-            "match_attribution_invalid",
-            "match_inference_invalid",
-            "retrieval_invalid",
-            # A size refusal is raised before that call reaches the model (2026-11-07).
-            "retrieval_too_large",
-            "job_brief_invalid",
-            # A refused recovery calls nothing; the next attempt re-checks the records.
-            "match_resume_invalid",
-            # The answer library changed during a completed analysis (2026-11-08,
-            # Mistral); the check runs after every call has answered.
-            "match_information_changed",
-        }
+        and isinstance(stage.get("error_code"), str)
         and isinstance(stage.get("attempt_id"), str)
         and re.fullmatch(r"[a-f0-9]{32}", stage["attempt_id"])
         and isinstance(stage.get("analysis_input_revision"), str)
@@ -5058,25 +5040,6 @@ class ApplicationFlowService:
         except (PortalDataError, KeyError, TypeError, OSError):
             return False
 
-    def _known_attempt_failure(self, task):
-        stage, analysis = task["stages"]["analysis"], getattr(self, "analysis", None)
-        if stage.get("status") != "failed" or analysis is None:
-            return False
-        if self._ended_without_answer(task):
-            # A call without an answer is sent again on retry (Model Call Record).
-            return True
-        try:
-            # A recoverable attempt holds a complete saved answer, never an unknown one.
-            # So does a complete one the App closed before adopting (2026-11-08,
-            # finnova): Continue resumes from it instead of stopping as unknown.
-            return analysis.reconcile(stage["attempt_id"])["status"] in {
-                "failed",
-                "recoverable",
-                "complete",
-            }
-        except (PortalDataError, KeyError, TypeError):
-            return False
-
     def analysis_outcome(self, task_id):
         """Deliver saved analysis certainty; never project, refresh or retry work."""
         # Reads only: the queue asks every tick, and a full parse of the 170 MB record
@@ -5085,7 +5048,6 @@ class ApplicationFlowService:
             task = self._task(self._load_shared(), task_id)
             return _analysis_outcome(
                 task,
-                known_attempt_failure=self._known_attempt_failure(task),
                 resendable=self._ended_without_answer(task),
             )
 
@@ -5097,7 +5059,6 @@ class ApplicationFlowService:
                 task,
                 _analysis_outcome(
                     task,
-                    known_attempt_failure=self._known_attempt_failure(task),
                     resendable=self._ended_without_answer(task),
                 ),
             )
