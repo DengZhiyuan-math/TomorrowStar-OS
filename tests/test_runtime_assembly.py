@@ -157,12 +157,11 @@ DEFAULT_KEYS = {
     "bound_edit_prepare",
     "bound_material_candidate",
     "bound_resume_draft",
-    "cover_letter",
-    "cover_letter_result",
     "existing_experience_materials",
     "experience_generation",
     "export",
     "export_configuration",
+    "letter",
     "material_consistency",
     "material_consistency_result",
     "observe_confirmation",
@@ -192,6 +191,7 @@ WORKER_KEYS = {
     "bound_material_preparation",
     "bound_worker_state",
     "control_worker",
+    "letter_export",
     "preparation_allowed",
     "prepare_worker",
     "verify_automation_authorization",
@@ -378,7 +378,7 @@ def test_flow_owns_material_reads_lineage_and_witness(roots):
         assert flow.material_tasks() == [material_task_view(row) for row in state["tasks"]]
         assert flow.ready_cover_letter_content(job["id"], task.get("analysis_id")) is None
         assert flow.adopted_resume_content(task["id"]) is None
-        assert flow.cover_letter_call_allowed(task["id"], "synthetic-attempt") is False
+        assert flow.resume_call_allowed(task, "letter") is False
         assert flow.reuses_base_sources(job["id"], "synthetic-revision") is False
         assert flow.callbacks["verify_materials"] == flow.verify_materials
         assert flow.callbacks["verify_draft"] == flow.verify_draft

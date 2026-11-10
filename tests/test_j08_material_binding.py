@@ -10,10 +10,10 @@ from copy import deepcopy
 from pathlib import Path
 
 import pytest
-from test_application_flow import wait_for
 from test_canonical_career_sources import canonical as canonical
 from test_j08_flow_combination import (
     finish_json_writing,
+    prepare_materials,
     start_json_writing,
 )
 from test_j08_flow_combination import (
@@ -74,11 +74,9 @@ def prepared_pdf(case, edit):
         assert draft["latex_source"] == human
         task = action(case, task, "capture-prism-result")
     else:
-        case.flow.start(task["id"], task["revision"], "export")
-        task = wait_for(
-            case.flow,
-            task["id"],
-            lambda row: row["status"] in {"materials_ready", "failed", "resume_ready"},
+        # The letter is written before the export, as in the App's preparation.
+        task = prepare_materials(
+            case.flow, task, ready=("materials_ready", "failed", "resume_ready")
         )
     assert task["status"] == "materials_ready", task
     return task

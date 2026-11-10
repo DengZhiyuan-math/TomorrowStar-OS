@@ -94,8 +94,13 @@ def test_skipped_materials_cannot_refresh_or_recover_while_other_job_waits(
         for action, fields in [
             ("refresh-match", payload),
             (
-                "start-cover-letter",
-                {"task_id": task["id"], "task_revision": task["revision"], "retry": True},
+                "start",
+                {
+                    "task_id": task["id"],
+                    "task_revision": task["revision"],
+                    "stage": "letter",
+                    "retry": True,
+                },
             ),
             (
                 "retry-material-consistency",

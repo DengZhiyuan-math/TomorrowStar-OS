@@ -890,10 +890,12 @@ def read_delivered_material_inputs(applications, flow_root, job, *, delivery_rea
         ):
             raise ValueError("changed delivered sources")
         result = {"application": {"id": task["application_id"], **brief["job"]}, "sources": sources}
-        if "cover_letter" in task:
-            from copy import deepcopy
+        from .application_cover_letter import letter_branch
 
-            result["cover_letter"] = deepcopy(task["cover_letter"])
+        letter = letter_branch(task)
+        if letter is not None:
+            # Material consumers read the letter stage and its adopted row as one branch.
+            result["cover_letter"] = letter
             result["material_packet"] = deepcopy(analysis["material_packet"])
             if "material_consistency" in task:
                 result["material_consistency"] = deepcopy(task["material_consistency"])

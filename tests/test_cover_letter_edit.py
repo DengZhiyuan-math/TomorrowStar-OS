@@ -11,6 +11,7 @@ from test_supplemental_material_module import materials
 from test_supplemental_material_module import prepared as prepared
 
 from career_evidence_graph import application_material_edit as editing
+from career_evidence_graph.application_cover_letter import adopted_letter, letter_branch
 from career_evidence_graph.application_flow import ApplicationFlowService
 from career_evidence_graph.career_portal_data import PortalDataError
 
@@ -51,20 +52,32 @@ def editable(modern, monkeypatch, request):
     )
     worker.store.save(state)
     old = deepcopy(state["jobs"][0]["materials"][0])
+    letter = fixed["cover_letter"]["result"]
     fixed["cover_letter"]["attempt_id"] = old["letter_attempt_id"]
+    # The Flow task holds the letter stage and its adopted row.
     flow_state = {
         "tasks": [
             {
                 "id": task_id,
                 "application_id": job["application_id"],
-                "cover_letter": deepcopy(fixed["cover_letter"]),
+                "inputs": {},
+                "stages": {"letter": {"status": "complete", "attempt_id": letter["attempt_id"]}},
+                "letter_id": letter["id"],
+                "artifacts": [
+                    {
+                        "stage": "letter",
+                        "attempt_id": letter["attempt_id"],
+                        "result": deepcopy(letter),
+                        "adopted": True,
+                    }
+                ],
             }
         ]
     }
 
     def save_flow(value):
         flow_state.update(deepcopy(value))
-        fixed["cover_letter"] = deepcopy(value["tasks"][0]["cover_letter"])
+        fixed["cover_letter"] = letter_branch(value["tasks"][0])
 
     flow = SimpleNamespace(
         applications=worker.store.applications,
@@ -109,6 +122,13 @@ def editable(modern, monkeypatch, request):
     return flow, worker, old, payload, flow_state
 
 
+def letter_rows(task):
+    """Adopted letter rows; the last is current and earlier ones are its history."""
+    return [
+        row["result"] for row in task["artifacts"] if row["stage"] == "letter" and row["adopted"]
+    ]
+
+
 def test_human_edit_updates_canonical_body_without_pdf_or_author(editable):
     flow, worker, old, payload, state = editable
     result = editing.edit_material(flow, worker, None, payload)
@@ -118,10 +138,10 @@ def test_human_edit_updates_canonical_body_without_pdf_or_author(editable):
     assert saved["text"] == payload["text"] and saved["actor"] == "user"
     assert "file_path" not in saved
     assert current["material_history"][-1] == old
-    branch = state["tasks"][0]["cover_letter"]
-    assert branch["result"]["content_revision"] == saved["content_revision"]
-    assert branch["result"]["content"]["paragraphs"][0]["protected"] is True
-    assert branch["content_history"][-1]["content_revision"] == old["content_revision"]
+    current = adopted_letter(state["tasks"][0])
+    assert current["content_revision"] == saved["content_revision"]
+    assert current["content"]["paragraphs"][0]["protected"] is True
+    assert letter_rows(state["tasks"][0])[-2]["content_revision"] == old["content_revision"]
 
 
 def test_fixed_text_edit_retains_original_body(editable):
@@ -132,9 +152,7 @@ def test_fixed_text_edit_retains_original_body(editable):
     assert caught.value.code == "letter_fixed_text_changed"
     assert worker.store.load()["jobs"][0]["materials"][0] == old
     assert not worker.store.load()["jobs"][0].get("material_edit")
-    assert (
-        state["tasks"][0]["cover_letter"]["result"]["content_revision"] == old["content_revision"]
-    )
+    assert adopted_letter(state["tasks"][0])["content_revision"] == old["content_revision"]
 
 
 @pytest.mark.parametrize("editable", [{"role_slot": True}], indirect=True)
@@ -177,7 +195,7 @@ def test_interrupted_page_save_reconciles_canonical_successor_without_new_edit(
     monkeypatch.setattr(worker.store, "save", interrupt)
     with pytest.raises(OSError):
         editing.edit_material(flow, worker, None, payload)
-    revision = state["tasks"][0]["cover_letter"]["result"]["content_revision"]
+    revision = adopted_letter(state["tasks"][0])["content_revision"]
     assert worker.store.load()["jobs"][0]["materials"][0] == old
     receipt = editing.reconcile_material_edit(
         flow,
@@ -187,7 +205,7 @@ def test_interrupted_page_save_reconciles_canonical_successor_without_new_edit(
     )
     assert receipt["status"] == "complete"
     assert worker.store.load()["jobs"][0]["materials"][0]["content_revision"] == revision
-    assert len(state["tasks"][0]["cover_letter"]["content_history"]) == 1
+    assert len(letter_rows(state["tasks"][0])) == 2
 
 
 @pytest.mark.parametrize("fixed_edit", [False, True])

@@ -19,9 +19,12 @@ def letter_task():
     }
     task = {
         "application_id": application["id"],
-        "cover_letter": {
-            "attempt_id": "c" * 32,
-            "fixed_inputs_revision": letters.letter_inputs_revision(fixed),
+        "stages": {
+            "letter": {
+                "status": "running",
+                "attempt_id": "c" * 32,
+                "fixed_inputs_revision": letters.letter_inputs_revision(fixed),
+            }
         },
     }
     return task, fixed, sources
@@ -38,12 +41,17 @@ def consistency_task(pair):
         "resume_content_revision": resume["content_revision"],
         "letter_content_revision": letter["content_revision"],
     }
+    letter.setdefault("id", "letter")
     return {
         "application_id": app["id"],
         "analysis_id": fixed["analysis"]["id"],
         "draft_id": resume["id"],
-        "artifacts": [{"stage": "resume", "adopted": True, "result": resume}],
-        "cover_letter": {"result": letter},
+        "artifacts": [
+            {"stage": "resume", "adopted": True, "result": resume},
+            {"stage": "letter", "adopted": True, "result": letter},
+        ],
+        "stages": {"letter": {"status": "complete"}},
+        "letter_id": letter["id"],
         "material_consistency": pair_binding | {"pair_revision": digest(pair_binding)},
     }
 
@@ -94,11 +102,11 @@ def test_consistency_owner_uses_active_resume_instead_of_last_adopted_history(tm
 def test_letter_owner_rejects_changed_attempt_before_directory_or_source_read(tmp_path, change):
     task, fixed, _ = letter_task()
     if change == "attempt":
-        task["cover_letter"]["attempt_id"] = "../other"
+        task["stages"]["letter"]["attempt_id"] = "../other"
     elif change == "retry":
-        task["cover_letter"]["retry_from_attempt_id"] = "../other"
+        task["stages"]["letter"]["retry_from_attempt_id"] = "../other"
     else:
-        task["cover_letter"]["fixed_inputs_revision"] = "old-inputs"
+        task["stages"]["letter"]["fixed_inputs_revision"] = "old-inputs"
     root = tmp_path / "letters"
     module = letters.CoverLetterModule(
         root,

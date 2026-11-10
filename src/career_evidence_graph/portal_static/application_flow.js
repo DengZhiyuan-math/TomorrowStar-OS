@@ -852,14 +852,15 @@
     const analysis = adopted("analysis");
     if (analysis) renderSystem(() => renderAnalysis(analysis));
     const resume = adopted("resume");
-    if (task.cover_letter) {
-      const letter = task.cover_letter;
-      const letterLabels = { pending: "等待写作", queued: "等待写作", running: "正在写作与检查", ready: "正文已保存", failed: "生成失败，可稍后补充", needs_recheck: "结果待核验", cancelled: "已停止，原稿保留" };
+    const letterStage = task.stages?.letter;
+    if (letterStage || task.cover_letter) {
+      // The letter is a Flow stage; a task from before it keeps its read-only record.
+      const letter = letterStage ? { ...letterStage, status: letterStage.status === "complete" ? "ready" : letterStage.status, result: adopted("letter") } : task.cover_letter;
+      const letterLabels = { pending: "等待写作", queued: "等待写作", running: "正在写作与检查", ready: "正文已保存", failed: "生成失败，可继续重试", needs_recheck: "结果待核验，可继续重试", cancelled: "已停止，原稿保留" };
       const panel = node("section", "flow-stage"); panel.id = "flow-cover-letter";
       panel.append(node("h3", "", "Cover Letter"), node("p", "flow-muted", letterLabels[letter.status] || letter.status));
       if (letter.error_message) panel.append(node("p", "flow-error", letter.error_message));
-      if (["failed", "cancelled"].includes(letter.status)) panel.append(button("仅重试 Cover Letter", () => mutate(() => api("/api/flow/start-cover-letter", { method: "POST", body: JSON.stringify({ task_id: task.id, task_revision: task.revision, retry: true }) })), "flow-retry-cover-letter", true));
-      if (letter.status === "needs_recheck") panel.append(button("只读核验 Cover Letter 结果", () => mutate(() => api("/api/flow/recheck-cover-letter", { method: "POST", body: JSON.stringify({ task_id: task.id, task_revision: task.revision }) })), "flow-recheck-cover-letter", true));
+      if (letterStage && ["failed", "needs_recheck", "cancelled"].includes(letter.status)) panel.append(button("仅重试 Cover Letter", () => start("letter", true), "flow-retry-cover-letter", true));
       if (letter.result?.text) {
         const details = node("details", "flow-details");
         details.append(node("summary", "", "查看已保存正文"), node("p", "flow-material-text", letter.result.text));
@@ -896,7 +897,7 @@
     for (const [stage, value] of Object.entries(task.stages || {})) {
       if (value.status === "failed") {
         const error = pdfEnvironmentErrors[value.error_code] || value.error_message || { resume_material_insufficient: "材料不足，请补齐可核验来源并重新分析。", resume_latex_context_too_large: "本次取材超出处理范围，尚未启动模型。原资料已保留；请先核对并调整本次取材范围。", flow_latex_base_changed: "完整 LaTeX 底稿已变化。核对后重新绑定当前底稿，再生成独立版本；原记录保留。", flow_draft_mismatch: "生成结果与当前岗位、底稿或资料版本不符，请保留原记录并核验。", resume_export_failed: "PDF 导出未完成，可仅重试导出。", flow_export_not_started: "上次 PDF 导出尚未开始，可明确仅重试导出。", flow_cancelled: "任务已取消，导出保持停止。" }[flow?.mode === "preparation" ? value.error_code : ""] || value.error_code || "请核对资料后重试。";
-        current.append(node("p", "flow-error", `${stage === "analysis" ? "岗位分析" : stage === "export" ? "PDF 导出" : "简历生成"}失败：${error}`));
+        current.append(node("p", "flow-error", `${stage === "analysis" ? "岗位分析" : stage === "export" ? "PDF 导出" : stage === "letter" ? "求职信写作" : stage === "letter_export" ? "求职信 PDF" : "简历生成"}失败：${error}`));
       }
     }
     if (task.runtime_error) current.append(node("p", "flow-error", task.runtime_error));
@@ -910,7 +911,7 @@
     const panel = node("section", "flow-stage"); panel.id = "flow-recovery"; panel.append(node("h3", "", "已保存进度与下一步"));
     const recovery = task.recovery_history?.at(-1);
     if (recovery) {
-      const stage = { analysis: "岗位分析", resume: "简历生成", export: "PDF 导出" }[recovery.stage] || "准备阶段";
+      const stage = { analysis: "岗位分析", resume: "简历生成", letter: "求职信写作", letter_export: "求职信 PDF", export: "PDF 导出" }[recovery.stage] || "准备阶段";
       const disposition = recovery.status === "needs_recheck" ? "恢复时已开始，结果待核验" : recovery.previous_status === "queued" ? "恢复时尚未开始，保留为手动重试" : "恢复时执行已中断，保留为手动重试";
       panel.append(node("p", "flow-muted", `上次恢复记录 · ${stage}：${disposition}。当前操作以以下进度为准。`));
       const record = node("details", "flow-details"); record.append(node("summary", "", "上次恢复记录"), node("p", "flow-muted flow-hash", `${recovery.at} · 输入轮次 ${recovery.input_epoch} · 输入版本 ${recovery.inputs_revision} · 尝试 ${recovery.attempt_id || "尚未开始"}`)); panel.append(record);
@@ -1689,14 +1690,6 @@
       }
       if (material.status !== "needs_input" || material.kind === "motivation_text") {
         card.append(node("p", "flow-muted", material.status === "needs_recheck" ? "材料结果尚未核验，已停止自动重试。" : "当前材料尚未完成，请核对需要补充的事实。"));
-        if (material.status === "failed" && material.kind === "cover_letter" && material.material_revision) {
-          const retry = button("仅重试求职信文件构建", () => workerAction("retry-cover-letter-file", { application_id: task.application_id, material_id: material.id, expected_material_revision: material.material_revision, request_id: crypto.randomUUID().replaceAll("-", "") }), null, true);
-          retry.dataset.blocked = String(state.control !== "paused"); card.append(retry);
-        }
-        if (material.status === "needs_recheck" && material.kind === "cover_letter" && material.letter_content && material.material_revision) {
-          const recheck = button("只读核验求职信文件结果", () => workerAction("recheck-cover-letter-file", { application_id: task.application_id, material_id: material.id, expected_material_revision: material.material_revision, request_id: crypto.randomUUID().replaceAll("-", "") }), null, true);
-          recheck.dataset.blocked = String(state.control !== "paused"); card.append(recheck);
-        }
         panel.append(card); continue;
       }
       const jdOnly = material.origin === "jd" && !material.field_id && !!material.requirement_id;

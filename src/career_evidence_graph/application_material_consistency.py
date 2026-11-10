@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 
 from ._vendor import job_apply_store as helper
-from .application_cover_letter import letter_inputs_revision, validate_letter
+from .application_cover_letter import adopted_letter, letter_inputs_revision, validate_letter
 from .application_materials import application_binding
 from .application_resume_content import validate_content
 from .career_portal_data import PortalDataError
@@ -325,7 +325,9 @@ class MaterialConsistencyModule:
                 and row.get("result", {}).get("id") == task["draft_id"]
                 and row["result"].get("resume_content")
             )
-            letter = task["cover_letter"]["result"]
+            letter = adopted_letter(task)
+            if letter is None:
+                raise KeyError("no adopted letter")
             application = {
                 "id": task["application_id"],
                 **fixed_inputs["analysis"]["job_brief"]["job"],

@@ -325,3 +325,177 @@ old tests, full suite, real App run.
   (`native`), since reuse verifies the recorded invocation. The obsolete "unknown
   review never reissued" test is replaced by one asserting only the lost call is
   resent. Same failures as the base commit (6 known + 2 role-coverage).
+
+**Material step 2 — design detail found while mapping (2026-11-10).**
+
+Shape (mirrors how the analysis result is adopted):
+- `task["stages"]["letter"]` = `{status, attempt_id, fixed_inputs_revision,
+  retry_from_attempt_id?, error_code?}`, statuses as every stage
+  (pending/queued/running/complete/failed/needs_recheck/cancelled).
+- The adopted letter is an `artifacts` row (`stage: "letter"`, `adopted: True`)
+  plus `task["letter_id"]`; one reader `adopted_letter(task)` (like
+  `adopted_analysis`). A human edit appends a newer adopted row (keeps
+  `human_edit_id` on it); earlier rows are the history. Replaces
+  `task["cover_letter"]`, `cover_letter_history`, `content_history`.
+- Runs on the same `_queue` / `_run_tasks`, started by `Flow.start(..., "letter")`;
+  `_reserve_cover_letter`, `_launch_cover_letter`, `_run_cover_letter`,
+  `_letter_threads`, `start_cover_letter`, `cancel_cover_letter`,
+  `recheck_cover_letter` and the cancel-reuse branch are deleted. Cancel, startup
+  recovery and recheck use the generic stage paths.
+
+Blocking issue: `task["status"]` is the résumé's status (`resume_generating`,
+`draft_ready`, `resume_ready`, `materials_ready`, `failed`, …) and `start()` /
+`_run_tasks` rewrite it for every stage. Resolution: the letter stage never
+changes `task["status"]`. Order is resume → letter → export: `prepare()` starts
+`letter` when the task is `draft_ready` and the letter stage is not complete,
+and starts `export` only after it is complete (or the letter does not apply).
+`_preparation_progress` reports a letter failure/no-answer exactly as a résumé
+author one (same wait reason, continuation and 30 s resend); `material_ready`
+requires the letter when it applies.
+
+Consumers to switch to `adopted_letter(task)` / the stage: `ready_cover_letter_content`,
+`_consistency_pair`, `adopt_cover_letter_successor`, `cover_letter_outcome`,
+`material_outcomes`, `_check_other_material_pending`, `update_inputs`
+(cover_letter_history), `_recover` (letter branch), Pipeline (`_retry_unknown_writing`,
+the letter/consistency scan ~pipe:2822, `cover_letter_result_unknown`,
+`pending_optional_cover_letter`, cancel), `application_single_binding.py:896`,
+`application_materials.py:592`, UI `application_flow.js:855`. Old
+`task["cover_letter"]` stays readable for existing tasks only.
+Tests pinning the old state: ~150 references in 18 files, mostly
+test_application_cover_letter_flow.py (41), test_cover_letter_delivery.py (25),
+test_cover_letter_pair_cancellation.py (15).
+
+**Material step 2 — done (uncommitted, 2026-11-10).**
+
+- The letter is the Flow stage `task["stages"]["letter"]` on the same `_queue` /
+  `_run_tasks` as `resume`/`export`, started by `Flow.start(..., "letter")`. Its
+  reservation carries `fixed_inputs_revision` (`letter_inputs_revision`) and, on a
+  retry, `retry_from_attempt_id`; answered calls are reused via `material_author`.
+  The callback key is `letter`; `cover_letter_result` is gone.
+- Adopted result: an `artifacts` row (`stage: "letter"`) plus `task["letter_id"]`,
+  read only through `application_cover_letter.adopted_letter(task)`. A human edit
+  (`adopt_cover_letter_successor`) appends a newer adopted row carrying
+  `human_edit_id`; earlier rows are the history. `letter_branch(task)` projects the
+  stage plus adopted row into the old branch shape for the fixed material inputs
+  (`application_single_binding`), so the Worker, `application_materials` and
+  worker_browser readers are unchanged.
+- The letter stage never changes `task["status"]` (start, failure, success and
+  startup recovery). `prepare()` runs résumé → letter → export, one stage per call:
+  at `draft_ready` it starts `letter` while `letter_due(task)`, else `export`.
+  The material batch does the same. `prepare()` also returns early on a `failed`
+  progress, so a failed letter is never restarted without retry.
+- `_preparation_progress`: progress key `letter` (was `cover_letter`). A failed
+  letter with `letter_generation_failed` / `letter_generation_no_answer` waits as
+  `resume_author_input_required` with a continuation that names `stage: "letter"`;
+  `continue_preparation` restarts that stage. Pipeline resends a
+  `letter_generation_no_answer` through the same 30 s `_continue_author` path.
+  `letter_generation_needs_recheck` / `letter_result_invalid` → stage
+  `needs_recheck` → `material_result_unknown`; any other letter failure → `failed`.
+  `material_ready` requires the letter stage not to be open or failed.
+- Recheck = explicit retry: a `needs_recheck` letter refuses a plain start and
+  accepts `start(..., "letter", retry=True)` (also from Pipeline Continue via
+  `_retry_unknown_writing`, and the UI "仅重试 Cover Letter" button, which now posts
+  `/api/flow/start` with `stage: "letter"`; Pipeline admits it like the old
+  start-cover-letter). The batch guard lets that one retry through.
+- Deleted: `_reserve_cover_letter`, `_launch_cover_letter`, `_run_cover_letter`,
+  `_letter_threads`, `start_cover_letter`, `cancel_cover_letter`,
+  `recheck_cover_letter`, `cover_letter_outcome`, `cover_letter_call_allowed`
+  (now `resume_call_allowed(task, "letter")`), `_letter_binding` and the
+  cancel-reuse branch; the HTTP actions `start-cover-letter` /
+  `recheck-cover-letter`; the letter branches in `_recover`, `update_inputs`
+  (analysis change now drops the letter stage and `letter_id`),
+  `cancel_preparation` and `reconcile_preparation`.
+- Cross-job guard kept on the new state: `_check_other_material_pending` refuses
+  a letter start or consistency retry while another job's letter stage or pair
+  check is queued/running/unknown.
+- Pipeline skip no longer cancels anything: the queue is serial, so a skipped
+  job's queued letter or pair check runs before the next job's stages and is
+  adopted normally. `material_outcomes` returns `letter` (stage status).
+- Old `task["cover_letter"]` records are read only: `adopted_letter` /
+  `letter_branch` fall back to a ready one when the task has no letter stage, and
+  `letter_due` does not rewrite it. They cannot be edited or retried.
+- Tests: the old letter-lifecycle tests are rewritten to the stage (sequential
+  résumé → letter, Continue, explicit retry of an unknown letter, cancel, close
+  and restart, pair checks, cross-job guard, human edit rows). Integration
+  fixtures that reach materials now call `prepare` per stage
+  (`test_j08_flow_combination.prepare_materials`). The `json_flow` letter fake read
+  the pre-step-1 prompt shape and always raised; that failure was hidden while the
+  letter ran beside the export, and now gates it, so the fake reads `context`.
+- `letter_due` is public so the material batch adds no private use; the ratchet
+  baseline records `test_flow_preparation_interface.py` 15 → 12.
+- Results: 2690 of 2699 targeted tests pass (185 files: letter, Flow, Pipeline,
+  résumé, material, author, loaded-code, J0x, P0x, runtime assembly). The 9
+  failures also fail on the base commit: loaded_role_coverage ×2,
+  pipeline_matching_routes ×2, pipeline_polling_performance,
+  synthetic_flow_fixture, precision_material_preparation[bound_pipeline1-False];
+  the 2 Flow match-admission failures seen first were this change and are fixed.
+  Outside that set, dependency_ratchet ×2 and analysis_source_reuse_guards
+  adoption fail as on the base commit. The UI panel was not checked in the App.
+- Open: a human letter edit during a bound material update appends an
+  `artifacts` row, which the bound-update journal merge (`cover_letter*` keys
+  only) does not carry over; old `task["cover_letter"]` records cannot be
+  edited or retried. Step 3 (letter PDF in the export stage) is next.
+
+**Material step 3 — done (uncommitted, 2026-11-10).**
+
+- Decision: the letter PDF is its own Flow stage `letter_export`, ordered
+  résumé → letter → letter_export → export, all while the task is `draft_ready`.
+  Why not inside the résumé export: that path carries Prism, reconcile, the
+  configuration revision and automatic material binding, none of which the
+  letter uses; a separate stage reuses `_run_tasks`, startup recovery, cancel and
+  Continue unchanged, and a failed letter PDF never discards a good résumé PDF.
+  Export runs last, so `materials_ready` (and execution) still means both PDFs
+  exist. `letter_export` never changes `task["status"]` (`LETTER_STAGES`).
+- `ApplicationFlowService.export_letter(store, task)` calls the new
+  `application_cover_letter.build_letter_pdf`, which uses the Worker store's private
+  template, compiler (`cover_letter_client` / `cover_letter_exporter`) and PDF
+  inspector, and writes `flow/letter-pdfs/<attempt>/`. The callback is registered
+  in `configure_worker`. The result is an `artifacts` row (`stage:
+  "letter_export"`) plus `task["letter_export_id"]`; `adopted_letter_pdf(task)`
+  returns it only while its `content_revision` matches the adopted letter.
+  `letter_branch` adds it as `pdf` (or `pdf_error`) to the fixed material inputs.
+- A letter edit (`adopt_cover_letter_successor`) starts `letter_export` again for
+  the new body; `start` treats a complete but stale PDF as due.
+- Failures: `letter_export_needs_recheck` → stage `needs_recheck`; other codes →
+  `failed`; both stop as `material_result_unknown` / `failed` like the résumé
+  export, and Pipeline Continue (`_retry_unknown_writing`) starts `letter_export`
+  with retry, which builds again in a new attempt directory (a local compile, no
+  outside effect). The batch guard lets that one retry through.
+- Worker: a file field takes Flow's PDF (`file_path` under
+  `single_flow_root/letter-pdfs`, now an accepted material root) and checks the
+  field's format and size limit at that time. Without a current PDF the field
+  waits with reason `pdf_error` or `cover_letter_pdf_pending`. An old per-field
+  build (failed, or unknown with build metadata) is replaced by Flow's PDF and
+  stays in `material_history`; old ready per-field PDFs stay readable.
+- Deleted: the per-field PDF build, retained-build reconcile and compiler/renderer
+  re-prepare branches in `application_materials._prepare_cover_letter`,
+  `KNOWN_COVER_LETTER_PDF_FAILURES`, `_LETTER_PDF_VALIDATION_FAILURES`,
+  `_COMPILER_FAILURES`, `_compiler_available`; the Worker's
+  `_retry_cover_letter_file` / `_recheck_cover_letter_file`, their operation names
+  and the catalog's retry recovery; the Pipeline's Computer Use build (it hands
+  over Flow's PDF); the UI's two file buttons.
+- Kept on purpose: `cover_letter_delivery` (it records which page fields take the
+  letter, for text fields too, and drives destination admission and the optional
+  late-letter wait); the text-field letter materials; the non-single supplemental
+  HTML letter path (no Flow task there).
+- Tests: delivery fixtures now receive Flow's PDF through `flow_inputs` in
+  `test_cover_letter_delivery`, built with the same `build_letter_pdf`; fill-time
+  build, Worker retry/recheck and catalog-retry tests are rewritten as "Flow
+  failure waits, Continue rebuilds in Flow, old builds are replaced, no Worker
+  build". The Worker recheck readback tests (whole operation removed) are reduced
+  to one test that the operations are gone; their unknown-build invariants are
+  covered by new Flow `letter_export` tests. The `json_flow` fixture configures the
+  letter template on the Worker store as the App does.
+- Results: 2937 of 2969 targeted tests pass (letter, Flow, Pipeline, résumé,
+  material, author, loaded-code, J0x, P0x, runtime assembly, Worker material and
+  native-assistance files); the 19 failures that were this change (Pipeline fake
+  Flow lacked `letter_export_due`, Computer Use letter test) are fixed and their
+  files pass (272 tests). The 13 left also fail on the base commit:
+  loaded_role_coverage ×2, pipeline_matching_routes ×2,
+  pipeline_polling_performance, precision_material_preparation[bound_pipeline1-False],
+  synthetic_flow_fixture, worker_assistance_return_service ×2,
+  worker_native_assistance, worker_native_takeover ×2. Opt-in `worker_browser`
+  tests were not run. The App was not run.
+- Open: a missing letter template now stops the job at `letter_export` (before,
+  only that letter upload failed); `application_worker.py` got three formatting
+  hunks from `ruff format` (it was unformatted on the base commit).

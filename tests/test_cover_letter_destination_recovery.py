@@ -15,7 +15,6 @@ from career_evidence_graph import application_form_runner as form_runner
 from career_evidence_graph import application_prism
 from career_evidence_graph import application_worker_browser as browser_engine
 from career_evidence_graph.career_portal_data import PortalDataError
-from career_evidence_graph.validation.hashing import record_digest as digest
 
 
 @pytest.mark.parametrize("required", [False, True])
@@ -55,96 +54,6 @@ def test_shorter_human_page_text_is_retained_instead_of_old_cached_body(modern):
     assert materials(ready).prepare(job, batch, {"fields": [current_field]})
     assert worker.store.resolve(current_field, worker.store.load()["jobs"][0]) is None
     assert job["materials"] == [original]
-
-
-@pytest.mark.parametrize("required", [False, True])
-@pytest.mark.parametrize("recovery", ["prepare", "retry", "recheck_then_prepare"])
-def test_corrected_zero_dispatch_preflight_failure_is_recoverable(
-    modern, monkeypatch, required, recovery
-):
-    ready, fixed = modern
-    worker, job, batch = ready
-    client = Compiler()
-    worker.store.cover_letter_client = client
-    monkeypatch.setattr(
-        application_prism, "PrismClient", lambda *a, **kw: pytest.fail("No real Prism")
-    )
-    monkeypatch.setattr(
-        "career_evidence_graph.application_resume_versions.TectonicCompiler",
-        lambda *a, **kw: pytest.fail("No real Prism"),
-    )
-    wrong = field(kind="file", required=required, accept=".pdf", max_bytes=True)
-    with pytest.raises(PortalDataError) as caught:
-        materials(ready).prepare(job, batch, {"fields": [wrong]})
-    assert caught.value.code == "cover_letter_file_limit_invalid"
-    failed = deepcopy(worker.store.load()["jobs"][0]["materials"][0])
-    assert failed["status"] == "failed" and failed["file_build_started"] is False
-    assert client.calls == 0
-    assert not (worker.store.root / "materials" / failed["id"] / "export-intent.json").exists()
-    correct = wrong | {"max_bytes": 700_000}
-    if recovery != "prepare":
-        state = worker.store.load()
-        state.update(control="paused", current_job_id=job["application_id"])
-        state["jobs"][0]["status"] = "needs_input"
-        worker.store.save(state)
-        worker.store.check_single = lambda *a, **kw: True
-        payload = {
-            "application_id": job["application_id"],
-            "material_id": failed["id"],
-            "expected_material_revision": digest(failed),
-            "request_id": "f" * 32,
-        }
-        if recovery == "retry":
-            worker.request("retry-cover-letter-file", payload)
-            worker.request("retry-cover-letter-file", payload)
-        else:
-            with pytest.raises(PortalDataError) as read:
-                worker.request("recheck-cover-letter-file", payload)
-            assert read.value.code == "material_recheck_changed"
-            assert client.calls == 0
-        state = worker.store.load()
-        state["control"] = "running"
-        state["jobs"][0]["status"] = "filling"
-        worker.store.save(state)
-        job = state["jobs"][0]
-        ready = (worker, job, batch)
-    assert materials(ready).prepare(job, batch, {"fields": [correct]})
-    current = worker.store.load()["jobs"][0]
-    assert (
-        current["materials"][0]["status"] == "ready"
-        and current["materials"][0]["id"] != failed["id"]
-    )
-    assert current["material_history"] == [failed]
-    assert (
-        current["materials"][0]["content_revision"]
-        == fixed["cover_letter"]["result"]["content_revision"]
-    )
-    assert client.calls == 1
-
-
-@pytest.mark.parametrize("failure", ["metadata_error", "timeout"])
-def test_dispatched_failure_is_not_reclassified_as_zero_call_preflight(modern, failure):
-    ready, fixed = modern
-    worker, job, batch = ready
-    calls = []
-
-    def exporter(*args):
-        calls.append(1)
-        if failure == "timeout":
-            raise TimeoutError("Synthetic lost dispatched result")
-        raise PortalDataError(
-            "cover_letter_file_limit_invalid", "Synthetic error after dispatch", 409
-        )
-
-    worker.store.cover_letter_exporter = exporter
-    question = field(kind="file", required=True, accept=".pdf", max_bytes=700_000)
-    with pytest.raises(PortalDataError):
-        materials(ready).prepare(job, batch, {"fields": [question]})
-    original = deepcopy(worker.store.load()["jobs"][0]["materials"][0])
-    assert original["status"] == "needs_recheck" and original["file_build_started"] is True
-    with pytest.raises(PortalDataError):
-        materials(ready).prepare(job, batch, {"fields": [question]})
-    assert worker.store.load()["jobs"][0]["materials"] == [original] and len(calls) == 1
 
 
 @pytest.mark.worker_browser
@@ -280,34 +189,6 @@ def test_html_text_limit_counts_non_bmp_characters_as_utf16_units(modern, retain
     )
     if retained:
         assert job["materials"] == [original]
-
-
-def test_legacy_ambiguous_unknown_record_is_not_replayed_from_missing_intent(modern):
-    ready, fixed = modern
-    worker, job, batch = ready
-
-    def unknown(*args):
-        raise PortalDataError("cover_letter_needs_recheck", "Synthetic unknown old exporter", 409)
-
-    worker.store.cover_letter_exporter = unknown
-    question = field(kind="file", required=True, accept=".pdf")
-    with pytest.raises(PortalDataError):
-        materials(ready).prepare(job, batch, {"fields": [question]})
-    state = worker.store.load()
-    unknown_material = state["jobs"][0]["materials"][0]
-    unknown_material.pop("file_build_started")
-    worker.store.save(state)
-    job = state["jobs"][0]
-    original = deepcopy(unknown_material)
-    worker.store.cover_letter_exporter = lambda *args: pytest.fail(
-        "Unknown legacy attempt replayed"
-    )
-    with pytest.raises(PortalDataError) as caught:
-        materials((worker, job, batch)).prepare(
-            job, batch, {"fields": [question | {"max_bytes": 700_000}]}
-        )
-    assert caught.value.code == "cover_letter_needs_recheck"
-    assert worker.store.load()["jobs"][0]["materials"] == [original]
 
 
 @pytest.mark.worker_browser
@@ -528,3 +409,98 @@ def test_production_observer_preserves_zero_text_cap_before_full_process(
             assert current["materials"] == [original]
         finally:
             browser.close()
+
+
+@pytest.mark.parametrize("required", [False, True])
+def test_corrected_page_limit_failure_is_recovered_by_the_next_prepare(
+    modern, monkeypatch, required
+):
+    ready, fixed = modern
+    worker, job, batch = ready
+    client = Compiler()
+    worker.store.cover_letter_client = client
+    monkeypatch.setattr(
+        application_prism, "PrismClient", lambda *a, **kw: pytest.fail("No real Prism")
+    )
+    monkeypatch.setattr(
+        "career_evidence_graph.application_resume_versions.TectonicCompiler",
+        lambda *a, **kw: pytest.fail("No real Prism"),
+    )
+    wrong = field(kind="file", required=required, accept=".pdf", max_bytes=True)
+    with pytest.raises(PortalDataError) as caught:
+        materials(ready).prepare(job, batch, {"fields": [wrong]})
+    assert caught.value.code == "cover_letter_file_limit_invalid"
+    failed = deepcopy(worker.store.load()["jobs"][0]["materials"][0])
+    assert failed["status"] == "failed"
+    # Flow built the one PDF; the page limit is only checked against it.
+    assert client.calls == 1
+    correct = wrong | {"max_bytes": 700_000}
+    assert materials(ready).prepare(job, batch, {"fields": [correct]})
+    current = worker.store.load()["jobs"][0]
+    assert (
+        current["materials"][0]["status"] == "ready"
+        and current["materials"][0]["id"] != failed["id"]
+    )
+    assert current["material_history"] == [failed]
+    assert (
+        current["materials"][0]["content_revision"]
+        == fixed["cover_letter"]["result"]["content_revision"]
+    )
+    assert client.calls == 1
+
+
+@pytest.mark.parametrize(
+    "failure,code",
+    [
+        ("metadata_error", "cover_letter_file_limit_invalid"),
+        ("timeout", "letter_export_needs_recheck"),
+    ],
+)
+def test_flow_pdf_failure_waits_without_a_material_or_another_build(modern, failure, code):
+    ready, _ = modern
+    worker, job, batch = ready
+    calls = []
+
+    def exporter(*args):
+        calls.append(1)
+        if failure == "timeout":
+            raise TimeoutError("Synthetic lost dispatched result")
+        raise PortalDataError(
+            "cover_letter_file_limit_invalid", "Synthetic error after dispatch", 409
+        )
+
+    worker.store.cover_letter_exporter = exporter
+    question = field(kind="file", required=True, accept=".pdf", max_bytes=700_000)
+    assert materials(ready).prepare(job, batch, {"fields": [question]}) is False
+    assert materials(ready).prepare(job, batch, {"fields": [question]}) is False
+    current = worker.store.load()["jobs"][0]
+    assert current.get("materials", []) == [] and len(calls) == 1
+    assert current["cover_letter_delivery"]["reason"] == code
+
+
+def test_legacy_ambiguous_unknown_record_is_not_replayed_from_missing_intent(modern):
+    """An unknown record without build metadata predates file builds; it stays unknown."""
+    ready, fixed = modern
+    worker, job, batch = ready
+    state = worker.store.load()
+    original = {
+        "id": "legacy-unknown",
+        "kind": "cover_letter",
+        "field_id": "letter",
+        "draft_path": "",
+        "question": "Cover letter",
+        "status": "needs_recheck",
+        "error_code": "cover_letter_needs_recheck",
+        "letter_content": deepcopy(fixed["cover_letter"]["result"]["content"]),
+        "content_revision": fixed["cover_letter"]["result"]["content_revision"],
+    }
+    state["jobs"][0]["materials"] = [original]
+    worker.store.save(state)
+    job = state["jobs"][0]
+    question = field(kind="file", required=True, accept=".pdf")
+    with pytest.raises(PortalDataError) as caught:
+        materials((worker, job, batch)).prepare(
+            job, batch, {"fields": [question | {"max_bytes": 700_000}]}
+        )
+    assert caught.value.code == "cover_letter_needs_recheck"
+    assert worker.store.load()["jobs"][0]["materials"] == [original]

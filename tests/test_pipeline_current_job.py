@@ -1171,32 +1171,56 @@ def test_a_computer_use_fill_gets_the_tasks_ready_cover_letter(
     current_pipeline, monkeypatch, tmp_path
 ):
     """2026-11-08 (SAEKI): a required cover letter upload stayed empty, because only
-    the page-driven Worker attached letters to a job."""
+    the page-driven Worker attached letters to a job. The fill now gets the one PDF
+    Flow built (letter_export); nothing is compiled for it."""
     from career_evidence_graph import (
         application_computer_use,
         application_cover_letter,
-        application_materials,
     )
 
     pipeline, flow, _intake, worker = current_pipeline
     pipeline.computer_use = {"executable": "/bin/codex", "root": tmp_path / "cu"}
     worker.store.root = tmp_path / "worker"
+    pdf = tmp_path / "flow" / "letter-pdfs" / "letter-pdf-1" / "letter.pdf"
     original = flow.task_snapshot
     flow.task_snapshot = lambda identifier: (
-        original(identifier) | {"cover_letter": {"status": "ready", "result": {"id": "letter-1"}}}
+        original(identifier)
+        | {
+            "stages": {
+                **original(identifier).get("stages", {}),
+                "letter": {"status": "complete"},
+                "letter_export": {"status": "complete"},
+            },
+            "letter_id": "letter-1",
+            "letter_export_id": "letter-pdf-1",
+            "artifacts": [
+                *original(identifier).get("artifacts", []),
+                {
+                    "stage": "letter",
+                    "adopted": True,
+                    "result": {"id": "letter-1", "content_revision": "c" * 64},
+                },
+                {
+                    "stage": "letter_export",
+                    "adopted": True,
+                    "result": {
+                        "id": "letter-pdf-1",
+                        "content_revision": "c" * 64,
+                        "file_path": str(pdf),
+                    },
+                },
+            ],
+        }
     )
     content = {"paragraphs": [{"text": "First."}, {"text": "Second."}]}
-    built = []
     monkeypatch.setattr(
         application_cover_letter, "read_letter_material", lambda result, **_: content
     )
-    monkeypatch.setattr(application_materials, "read_cover_letter_template", lambda *_: {})
-
-    def export(directory, letter, template, **_):
-        built.append(directory)
-        return {"file_path": str(directory / "letter.pdf")}
-
-    monkeypatch.setattr(application_cover_letter, "export_cover_letter_pdf", export)
+    monkeypatch.setattr(
+        application_cover_letter,
+        "export_cover_letter_pdf",
+        lambda *a, **kw: pytest.fail("The fill must not build a letter PDF"),
+    )
     contexts = []
 
     def fill(executable, context, root, **options):
@@ -1210,8 +1234,7 @@ def test_a_computer_use_fill_gets_the_tasks_ready_cover_letter(
     pipeline.start(request_id="start")
     drive(pipeline, "ready_for_review")
     (context,) = contexts
-    assert built == [tmp_path / "worker" / "materials" / "computer-use-letter-1"]
-    assert context["cover_letter_path"] == str(built[0] / "letter.pdf")
+    assert context["cover_letter_path"] == str(pdf)
     assert context["cover_letter_text"] == "First.\n\nSecond."
 
 

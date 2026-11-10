@@ -19,32 +19,6 @@ from .codex_cli import run_codex_exec
 from .validation.hashing import record_digest as digest
 from .validation.models import CodexCLIConfig
 
-KNOWN_COVER_LETTER_PDF_FAILURES = frozenset(
-    {
-        "resume_export_failed",
-        "letter_pdf_overflow",
-        "letter_file_too_large",
-        "cover_letter_file_limit_invalid",
-        "prism_not_running",
-        "prism_unavailable",
-        "prism_identity_changed",
-        "prism_sync_active",
-        "prism_source_invalid",
-        "prism_source_changed",
-        "resume_compiler_unavailable",
-        "resume_pdf_invalid",
-    }
-)
-
-# A retained build failed only its PDF validation; the current inspector may accept it.
-# Unverified pages stay an unknown result (needs_recheck) and are rechecked the same way.
-_LETTER_PDF_VALIDATION_FAILURES = frozenset({"resume_pdf_invalid"})
-
-# Environment failures the default compiler may have cleared since the attempt.
-_COMPILER_FAILURES = frozenset(
-    {"prism_unavailable", "prism_not_running", "resume_compiler_unavailable"}
-)
-
 
 def check_cover_letter_file(question, *, material=None):
     """Apply the same destination restrictions to new and retained PDFs."""
@@ -617,15 +591,12 @@ class SupplementalMaterials:
             job["cover_letter_delivery"] = deepcopy(view)
 
     def _prepare_cover_letter(self, job, batch_id, observed):
-        """Map one adopted application body to fresh page destinations, without writing."""
-        from .application_cover_letter import (
-            RENDERER_REVISION,
-            cover_letter_pdf_inspector,
-            export_cover_letter_pdf,
-            read_letter_material,
-            reconcile_cover_letter_pdf,
-            render_cover_letter,
-        )
+        """Map one adopted application body to fresh page destinations, without writing.
+
+        A file field takes the one PDF Flow built for that body (letter_export stage);
+        nothing is compiled here. Each field's size and format limits are checked now.
+        """
+        from .application_cover_letter import read_letter_material, render_cover_letter
 
         branch = self._letter_branch
         requirements = cover_letter_requirements(self._application(job), observed)
@@ -727,62 +698,6 @@ class SupplementalMaterials:
                 self.update(job, batch_id, manual_fields=manual)
                 job["manual_fields"] = manual
                 continue
-            if (
-                found
-                and question["type"] == "file"
-                and found.get("file_build_started") is True
-                and found.get("letter_content")
-                and found.get("content_revision") == content["revision"]
-                and (
-                    found.get("status") == "needs_recheck"
-                    or found.get("status") == "failed"
-                    and found.get("error_code") in _LETTER_PDF_VALIDATION_FAILURES
-                )
-                and all(
-                    (self.store.root / "materials" / found["id"] / name).is_file()
-                    for name in ("letter.pdf", "build.json")
-                )
-            ):
-                # The retained build is checked again with the current inspector,
-                # through the same readback the explicit recheck uses; never rebuilt.
-                directory = self.store.root / "materials" / found["id"]
-                try:
-                    built = reconcile_cover_letter_pdf(
-                        directory,
-                        found["letter_content"],
-                        read_cover_letter_template(self.store, self._application(job)),
-                        client=getattr(self.store, "cover_letter_client", None),
-                        max_bytes=check_cover_letter_file(found),
-                        pdf_inspector=cover_letter_pdf_inspector(self.store),
-                    )
-                    checked = deepcopy(found) | built | {"status": "ready"}
-                    checked.pop("error_code", None)
-                    if not (directory / "export.json").exists():
-                        helper.atomic_write_json(directory / "export.json", built)
-                except PortalDataError as failure:
-                    # The readback reports a validation failure under its own code.
-                    error = failure.__cause__
-                    if not isinstance(error, PortalDataError):
-                        error = failure
-                    if error.code not in KNOWN_COVER_LETTER_PDF_FAILURES:
-                        if found["status"] == "needs_recheck":
-                            self._letter_state(
-                                job,
-                                batch_id,
-                                requirements,
-                                status="needs_recheck",
-                                reason=found.get("error_code"),
-                            )
-                            raise PortalDataError(
-                                "cover_letter_needs_recheck", "求职信文件已有未决构建。", 409
-                            ) from error
-                        checked = found
-                    else:
-                        checked = deepcopy(found) | {"status": "failed", "error_code": error.code}
-                if checked != found:
-                    if not self._save(job, batch_id, checked):
-                        return False
-                    found = checked
             if found and found.get("status") == "ready":
                 if not found.get("letter_content") and len(selected) > 1:
                     raise PortalDataError(
@@ -808,6 +723,20 @@ class SupplementalMaterials:
                     continue
                 if question["type"] != "file" or found.get("file_path"):
                     continue
+            if (
+                found
+                and question["type"] == "file"
+                and found.get("letter_content")
+                and (
+                    found.get("status") == "failed"
+                    or "file_build_started" in found
+                    and found.get("status") in {"generating", "needs_recheck"}
+                )
+            ):
+                # A per-field PDF build from before Flow built the letter PDF (a local
+                # compile only); Flow's PDF replaces it, the attempt stays in history.
+                replacement = digest(found)
+                found = None
             if found and found.get("status") in {"generating", "needs_recheck"}:
                 self._letter_state(
                     job,
@@ -817,16 +746,6 @@ class SupplementalMaterials:
                     reason=found.get("error_code") or "cover_letter_needs_recheck",
                 )
                 raise PortalDataError("cover_letter_needs_recheck", "求职信文件已有未决构建。", 409)
-            if (
-                found
-                and found.get("status") == "failed"
-                and found.get("error_code") == "cover_letter_file_limit_invalid"
-                and found.get("file_build_started") is False
-            ):
-                # Only proven preflight failures can continue without an export intent.
-                check_cover_letter_file(question)
-                replacement = digest(found)
-                found = None
             if (
                 found
                 and found.get("status") == "failed"
@@ -846,30 +765,6 @@ class SupplementalMaterials:
                     continue
                 replacement = digest(found)
                 found = None
-            if (
-                found
-                and found.get("status") == "failed"
-                and (
-                    found.get("error_code") in _COMPILER_FAILURES
-                    # The renderer that wrote the failed TeX has since changed
-                    # (records without one predate it), so its output may now build.
-                    or found.get("error_code")
-                    in {"resume_export_failed", *_LETTER_PDF_VALIDATION_FAILURES}
-                    and found.get("renderer_revision") != RENDERER_REVISION
-                )
-                and self._compiler_available()
-            ):
-                # Prepared again as above once a compiler can build the letter.
-                replacement = digest(found)
-                found = None
-            if (
-                found
-                and found.get("status") == "failed"
-                and found.get("error_code") in KNOWN_COVER_LETTER_PDF_FAILURES
-            ):
-                pending = pending or requirements["requirement"] == "required"
-                reason = found["error_code"]
-                continue
             if question.get("filename"):
                 if found and found.get("status") == "manual":
                     if any(
@@ -919,8 +814,15 @@ class SupplementalMaterials:
                 "source_binding": deepcopy(result["source_binding"]),
                 "language": result.get("language", content.get("language")),
             }
-            if question["type"] == "file":
-                material["file_build_started"] = False
+            pdf = branch.get("pdf") or {}
+            if (
+                question["type"] == "file"
+                and pdf.get("content_revision") != field_content["revision"]
+            ):
+                # Flow has not built this body's PDF yet, or its build stopped.
+                pending = pending or requirements["requirement"] == "required"
+                reason = branch.get("pdf_error") or "cover_letter_pdf_pending"
+                continue
             try:
                 template = read_cover_letter_template(self.store, self._application(job))
                 rendered = render_cover_letter(field_content, template)
@@ -937,38 +839,35 @@ class SupplementalMaterials:
                 )
                 if question["type"] == "file":
                     material["max_bytes"] = check_cover_letter_file(question)
-                    material["file_build_started"] = True
-                    material["status"] = "generating"
-                    if not self._save(
-                        job, batch_id, material, reserve=True, replace_revision=replacement
-                    ):
-                        return False
-                    directory = self.store.root / "materials" / identifier
-                    exporter = getattr(self.store, "cover_letter_exporter", None)
-                    if exporter:
-                        built = exporter(directory, field_content, template)
-                    else:
-                        built = export_cover_letter_pdf(
-                            directory,
-                            field_content,
-                            template,
-                            client=getattr(self.store, "cover_letter_client", None),
-                            max_bytes=material["max_bytes"],
-                            pdf_inspector=cover_letter_pdf_inspector(self.store),
-                        )
-                    material.update(built)
+                    material.update(
+                        {
+                            key: deepcopy(pdf[key])
+                            for key in (
+                                "file_path",
+                                "filename",
+                                "sha256",
+                                "tex_path",
+                                "tex_sha256",
+                                "page_count",
+                                "prism_source_revision",
+                                "template_revision",
+                                "renderer_revision",
+                            )
+                            if key in pdf
+                        }
+                    )
                     check_cover_letter_file(question, material=material)
                 material["status"] = "ready"
             except PortalDataError as error:
                 # A known unsupported destination cannot delete a ready semantic body.
-                known = error.code in KNOWN_COVER_LETTER_PDF_FAILURES | {
+                known = error.code in {
                     "letter_template_required",
                     "letter_role_required",
                     "cover_letter_text_too_long",
                     "cover_letter_format_unsupported",
+                    "letter_file_too_large",
+                    "cover_letter_file_limit_invalid",
                 }
-                if error.code == "cover_letter_file_limit_invalid":
-                    known = material.get("file_build_started") is False
                 material.update(
                     status="failed" if known else "needs_recheck", error_code=error.code
                 )
@@ -997,19 +896,6 @@ class SupplementalMaterials:
                 job, batch_id, status="needs_input", reason=reason or "cover_letter_required"
             )
         return not pending
-
-    def _compiler_available(self):
-        """Only the default tectonic compiler is known to be available again.
-
-        An explicitly configured compiler (a Prism client or exporter) keeps its
-        failure until the explicit file retry, so an unreachable one is not rebuilt.
-        """
-        from .application_resume_versions import tectonic_executable
-
-        return not (
-            getattr(self.store, "cover_letter_exporter", None)
-            or getattr(self.store, "cover_letter_client", None)
-        ) and bool(tectonic_executable())
 
     def _application(self, job):
         if job.get("workflow") != "single":

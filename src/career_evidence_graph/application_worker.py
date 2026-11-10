@@ -2808,9 +2808,7 @@ class WorkerStore:
                 for fact in letter
                 for ref in fact["references"]
             ):
-                raise PortalDataError(
-                    "native_answers_changed", "求职信动机段与交付时不同。", 409
-                )
+                raise PortalDataError("native_answers_changed", "求职信动机段与交付时不同。", 409)
             selected = [fact for fact in selected if fact not in letter]
             if not selected:
                 return True
@@ -3227,9 +3225,9 @@ class WorkerStore:
                         raise ValueError("Material destination changed")
                     entries = [
                         entry
-                        for entry in self.assistance_delivery(
-                            expected_ref, materials_only=True
-                        )["materials"]
+                        for entry in self.assistance_delivery(expected_ref, materials_only=True)[
+                            "materials"
+                        ]
                         if entry.get("material_ref") == candidate["material_ref"]
                     ]
                     if (
@@ -3910,9 +3908,7 @@ class WorkerStore:
             if expected_ref.get("protocol") == CODEX_NATIVE_ASSISTANCE and not materials_only:
                 delivery["answers"] = self._native_assistance_answers(job, context)
             try:
-                validate_assistance_delivery(
-                    delivery, expected_ref, materials_only=materials_only
-                )
+                validate_assistance_delivery(delivery, expected_ref, materials_only=materials_only)
             except ValueError as error:
                 # The private worker log keeps which check refused; the job keeps the code.
                 print(
@@ -3937,8 +3933,6 @@ class WorkerStore:
 
     def _native_material_catalog(self, job, expected_ref, materials):
         """Add opaque fixed-delivery tokens and preserve non-actionable preparation states."""
-        from .application_materials import KNOWN_COVER_LETTER_PDF_FAILURES
-
         projection = job.get("cover_letter_delivery") or {}
         requirements = {
             "requirement": projection.get("requirement"),
@@ -4003,27 +3997,6 @@ class WorkerStore:
                     != original.get("content_revision")
                 ):
                     entry.update(status="waiting", reason="material_changed")
-                if (
-                    entry["status"] == original.get("status") == "failed"
-                    and original.get("letter_content")
-                    and original.get("error_code") in KNOWN_COVER_LETTER_PDF_FAILURES
-                    and (
-                        original["error_code"] != "cover_letter_file_limit_invalid"
-                        or original.get("file_build_started") is False
-                    )
-                ):
-                    entry["recovery"] = {
-                        "operation": "retry-cover-letter-file",
-                        "inputs": {
-                            "application_id": job["application_id"],
-                            "material_id": original["id"],
-                            "expected_material_revision": digest(original),
-                        },
-                        "requires_paused": True,
-                        "requires_no_unknown_actions": True,
-                        "requires_native_handoff_returned": True,
-                        "requires_request_id": True,
-                    }
             if entry["status"] == "ready":
                 try:
                     if entry["kind"] == "resume":
@@ -4415,11 +4388,18 @@ class WorkerStore:
         if material.get("file_path"):
             path = Path(material["file_path"])
             if (
-                not path.resolve().is_relative_to((self.root / "materials").resolve())
+                not any(path.resolve().is_relative_to(root) for root in self._material_roots())
                 or hashlib.sha256(path.read_bytes()).hexdigest() != material["sha256"]
             ):
                 raise PortalDataError("material_changed", "必要附件内容版本已改变。", 409)
         return material
+
+    def _material_roots(self):
+        """Field material files: per-field ones, and the letter PDFs Flow builds once."""
+        roots = [(self.root / "materials").resolve()]
+        if self.single_flow_root is not None:
+            roots.append((self.single_flow_root / "letter-pdfs").resolve())
+        return roots
 
     def verify_material_source(self, material):
         """Check active delivery source without making old immutable PDFs unreadable."""
@@ -4433,7 +4413,7 @@ class WorkerStore:
                 if (
                     tex.is_symlink()
                     or any(parent.is_symlink() for parent in tex.parents)
-                    or not tex.resolve().is_relative_to((self.root / "materials").resolve())
+                    or not any(tex.resolve().is_relative_to(r) for r in self._material_roots())
                     or hashlib.sha256(tex.read_bytes()).hexdigest() != material["tex_sha256"]
                 ):
                     raise ValueError("letter TeX source differs from its build")
@@ -5438,8 +5418,6 @@ class WorkerService:
             "heartbeat",
             "answer",
             "provide-material",
-            "retry-cover-letter-file",
-            "recheck-cover-letter-file",
             "correct-email",
             "resolve-form-differences",
             "review",
@@ -6510,8 +6488,6 @@ class WorkerService:
                 "library",
                 "heartbeat",
                 "provide-material",
-                "retry-cover-letter-file",
-                "recheck-cover-letter-file",
                 "resolve-form-differences",
                 "request-assistance",
                 "claim-assistance",
@@ -6590,8 +6566,6 @@ class WorkerService:
                     "library",
                     "heartbeat",
                     "provide-material",
-                    "retry-cover-letter-file",
-                    "recheck-cover-letter-file",
                     "resolve-form-differences",
                     "request-assistance",
                     "claim-assistance",
@@ -6856,8 +6830,6 @@ class WorkerService:
                     "library",
                     "heartbeat",
                     "provide-material",
-                    "retry-cover-letter-file",
-                    "recheck-cover-letter-file",
                     "resolve-form-differences",
                 }
                 and self.validate_write_preflight
@@ -7097,10 +7069,6 @@ class WorkerService:
                 )
             elif operation == "provide-material":
                 self._provide_material(state, payload)
-            elif operation == "retry-cover-letter-file":
-                self._retry_cover_letter_file(state, payload)
-            elif operation == "recheck-cover-letter-file":
-                self._recheck_cover_letter_file(state, payload)
             elif operation == "answer":
                 self._answer(state, payload)
             elif operation == "resolve-form-differences":
@@ -8245,180 +8213,6 @@ class WorkerService:
             record = self.store.answers_for(job).get_answer(ref["key"])
             if record is None or digest(record) != ref["revision"]:
                 raise PortalDataError("answer_changed", "答案已变更，请重新核验。", 409)
-
-    def _recheck_cover_letter_file(self, state, payload):
-        """Adopt an exact completed file receipt without another build."""
-        from .application_cover_letter import (
-            cover_letter_pdf_inspector,
-            reconcile_cover_letter_pdf,
-        )
-        from .application_materials import check_cover_letter_file, read_cover_letter_template
-
-        if (
-            set(payload)
-            != {"application_id", "material_id", "expected_material_revision", "request_id"}
-            or not isinstance(payload.get("request_id"), str)
-            or re.fullmatch(r"[a-f0-9]{32}", payload["request_id"]) is None
-        ):
-            raise PortalDataError("invalid_material_recheck", "请提供原文件尝试与准确版本。", 400)
-        job = self._job(state, payload["application_id"])
-        previous = next(
-            (
-                row
-                for row in job.get("material_file_rechecks", [])
-                if row["request_id"] == payload["request_id"]
-            ),
-            None,
-        )
-        if previous:
-            if previous["payload_revision"] != digest(payload):
-                raise PortalDataError("material_recheck_changed", "核验请求已绑定其他尝试。", 409)
-            return
-        if (
-            state["control"] != "paused"
-            or state.get("current_job_id", job["application_id"]) != job["application_id"]
-            or job.get("intent")
-            or job.get("handed_off")
-            or job.get("manual_submission")
-            or job.get("status") == "cancelled"
-            or self.store.stop_reason()
-            or manual_submission_unresolved(job)
-            or material_edit_pending(job)
-            or any(unresolved_write_failure(row, job, state) for row in job.get("observations", []))
-        ):
-            raise PortalDataError(
-                "material_recheck_pause_required", "请暂停同一岗位并先核对未知网页动作。", 409
-            )
-        self.store.check_single(job, state)
-        found = [row for row in job.get("materials", []) if row.get("id") == payload["material_id"]]
-        if (
-            len(found) != 1
-            or digest(found[0]) != payload["expected_material_revision"]
-            or found[0].get("kind") != "cover_letter"
-            or found[0].get("status") != "needs_recheck"
-            or not found[0].get("letter_content")
-            or re.fullmatch(r"[a-f0-9]{32}", str(found[0].get("id", ""))) is None
-        ):
-            raise PortalDataError("material_recheck_changed", "原求职信文件尝试已变化。", 409)
-        original = found[0]
-        fixed = self.store.material_inputs(job)
-        branch = fixed.get("cover_letter") or {}
-        if (
-            branch.get("status") != "ready"
-            or branch.get("result", {}).get("content_revision") != original["content_revision"]
-        ):
-            raise PortalDataError("material_recheck_changed", "原构建正文不再是本岗采用版本。", 409)
-        directory = self.store.root / "materials" / original["id"]
-        template = read_cover_letter_template(self.store, fixed["application"])
-        inspector = cover_letter_pdf_inspector(self.store)
-        maximum = check_cover_letter_file(original)
-        for field in (job.get("form_state") or {}).get("snapshot", {}).get("fields", []):
-            if (
-                field.get("id") == original["field_id"]
-                and field.get("draft_path", "") == original.get("draft_path", "")
-                and field.get("type") == "file"
-            ):
-                maximum = min(maximum, check_cover_letter_file(field))
-        built = reconcile_cover_letter_pdf(
-            directory,
-            original["letter_content"],
-            template,
-            client=getattr(self.store, "cover_letter_client", None),
-            max_bytes=maximum,
-            pdf_inspector=inspector,
-        )
-        candidate = deepcopy(original) | built | {"status": "ready"}
-        candidate.pop("error_code", None)
-        self.store.verify_material(candidate, job)
-        self.store.verify_material_source(candidate)
-        job["materials"] = [candidate if row is original else row for row in job["materials"]]
-        job.setdefault("material_file_rechecks", []).append(
-            {
-                "request_id": payload["request_id"],
-                "payload_revision": digest(payload),
-                "previous_material": deepcopy(original),
-                "material_id": candidate["id"],
-                "content_revision": candidate["content_revision"],
-                "sha256": candidate["sha256"],
-            }
-        )
-        job["cover_letter_delivery"] = {
-            **job.get("cover_letter_delivery", {}),
-            "status": "queued",
-            "reason": "file_result_reconciled",
-        }
-        job["reason"] = "cover_letter_file_reconciled"
-
-    def _retry_cover_letter_file(self, state, payload):
-        """Explicitly retire a known failed file attempt; Continue builds only that file."""
-        from .application_materials import KNOWN_COVER_LETTER_PDF_FAILURES
-
-        if (
-            set(payload)
-            != {"application_id", "material_id", "expected_material_revision", "request_id"}
-            or not isinstance(payload.get("request_id"), str)
-            or re.fullmatch(r"[a-f0-9]{32}", payload["request_id"]) is None
-        ):
-            raise PortalDataError("invalid_material_retry", "请提供原文件尝试与准确版本。", 400)
-        job = self._job(state, payload["application_id"])
-        previous = next(
-            (
-                r
-                for r in job.get("material_retry_requests", [])
-                if r["request_id"] == payload["request_id"]
-            ),
-            None,
-        )
-        if previous:
-            if previous["payload_revision"] != digest(payload):
-                raise PortalDataError("material_retry_changed", "重试请求已绑定其他原尝试。", 409)
-            return
-        if (
-            state["control"] != "paused"
-            or state.get("current_job_id", job["application_id"]) != job["application_id"]
-            or job.get("intent")
-            or job.get("handed_off")
-            or job.get("manual_submission")
-            or job.get("status") == "cancelled"
-            or self.store.stop_reason()
-            or manual_submission_unresolved(job)
-            or material_edit_pending(job)
-            or any(unresolved_write_failure(row, job, state) for row in job.get("observations", []))
-        ):
-            raise PortalDataError(
-                "material_retry_pause_required", "请暂停同一岗位并先核对未知动作。", 409
-            )
-        self.store.check_single(job, state)
-        found = [r for r in job.get("materials", []) if r.get("id") == payload["material_id"]]
-        if (
-            len(found) != 1
-            or digest(found[0]) != payload["expected_material_revision"]
-            or found[0].get("kind") != "cover_letter"
-            or not found[0].get("letter_content")
-            or found[0].get("status") != "failed"
-            or found[0].get("error_code") not in KNOWN_COVER_LETTER_PDF_FAILURES
-            or found[0].get("error_code") == "cover_letter_file_limit_invalid"
-            and found[0].get("file_build_started") is not False
-        ):
-            raise PortalDataError(
-                "material_retry_changed", "只能重建原版本的已知失败 PDF，未知结果须先核对。", 409
-            )
-        job.setdefault("material_history", []).append(deepcopy(found[0]))
-        job["materials"] = [r for r in job["materials"] if r is not found[0]]
-        job.setdefault("material_retry_requests", []).append(
-            {
-                "request_id": payload["request_id"],
-                "payload_revision": digest(payload),
-                "material_id": payload["material_id"],
-                "content_revision": found[0]["content_revision"],
-            }
-        )
-        job["cover_letter_delivery"] = {
-            **job.get("cover_letter_delivery", {}),
-            "status": "queued",
-            "reason": "file_retry_requested",
-        }
-        job["reason"] = "cover_letter_file_retry_pending"
 
     def _provide_material(self, state, payload):
         from .application_materials import application_binding, jd_material_requirements

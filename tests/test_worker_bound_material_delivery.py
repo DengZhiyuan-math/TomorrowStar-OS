@@ -7,7 +7,7 @@ from copy import deepcopy
 from pathlib import Path
 
 import pytest
-from test_cover_letter_delivery import TEMPLATE
+from test_cover_letter_delivery import TEMPLATE, flow_inputs
 from test_cover_letter_delivery import field as letter_field
 from test_single_application_worker import single_worker as single_worker
 from test_supplemental_material_module import materials
@@ -92,10 +92,11 @@ def bound_material_page(retained_assistance_page, monkeypatch, tmp_path):
             },
         },
     }
-    service.store.single_material_source_provider = lambda *args: deepcopy(fixed)
     template = tmp_path / "letter-template.tex"
     template.write_text(TEMPLATE)
     service.store.cover_letter_template = template
+    # Flow delivers the adopted body with the one PDF it built (letter_export).
+    service.store.single_material_source_provider = flow_inputs(service.store, fixed, tmp_path)
     monkeypatch.setattr(
         application_materials, "run_codex_exec", lambda *a, **kw: pytest.fail("repeat author")
     )
@@ -485,9 +486,10 @@ def test_known_pdf_failure_is_preserved_without_a_ready_token(bound_material_pag
     ref, context = issue([field(kind="file")])
     rows = service.store.assistance_delivery(ref, page_context=context)["materials"]
     letter = next(row for row in rows if row["kind"] == "cover_letter")
+    # Flow's PDF stage failed: the field has no material and no Worker retry.
     assert letter["status"] == "failed"
     assert letter["reason"] == "prism_unavailable"
-    assert letter["material_id"]
+    assert "material_id" not in letter and "recovery" not in letter
     assert "material_ref" not in letter
 
 

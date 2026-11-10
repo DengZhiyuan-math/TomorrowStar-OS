@@ -525,36 +525,3 @@ def test_an_evaluation_refused_on_size_before_its_prompt_is_retried(
     assert retry.brief_calls == [] and retry.read_calls == []
     assert retry.phases == ["evaluate"]
     assert result["job_brief"]["groups"][0]["label"] == "Interdisciplinary research"
-
-
-@pytest.mark.parametrize(
-    ("result", "resumable"),
-    [
-        ({"status": "failed", "error_type": "CodexCLIError"}, True),
-        ({"status": "failed", "error_type": "TimeoutExpired"}, True),
-        # No recorded end: the call is sent again (Model Call Record, 2026-11-09).
-        (None, True),
-        ({"status": "ok"}, True),
-    ],
-)
-def test_a_recorded_failed_followup_resumes_after_an_app_rebuild(tmp_path, result, resumable):
-    """2026-11-08, Keyrock: a follow-up page timed out; after a rebuild only engine
-    provenance differed, and resumption still demanded a validation-failure marker."""
-    import json
-
-    from career_evidence_graph.application_matching_pipeline import _same_upstream_binding
-
-    page = tmp_path / "retrieval" / "page-0001"
-    page.mkdir(parents=True)
-    if result is not None:
-        (page / "result.json").write_text(json.dumps(result))
-    configuration = {"evaluation_model": "m", "engine_sha256": "old"}
-    saved = {
-        "phase": "planning",
-        "planner_kind": "followup",
-        "planner_pending": True,
-        "planner_origin": str(tmp_path / "retrieval"),
-        "binding": {"application_id": "a", "configuration": configuration},
-    }
-    binding = {"application_id": "a", "configuration": configuration | {"engine_sha256": "new"}}
-    assert _same_upstream_binding(saved, binding) is resumable

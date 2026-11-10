@@ -145,7 +145,7 @@
     "tests/test_bound_preparation_owner.py": 4,
     "tests/test_cover_letter_pair_cancellation.py": 10,
     "tests/test_current_job_browser.py": 2,
-    "tests/test_flow_preparation_interface.py": 15,
+    "tests/test_flow_preparation_interface.py": 12,
     "tests/test_flow_retained_review.py": 8,
     "tests/test_flow_task_snapshot.py": 4,
     "tests/test_flow_worker_interface.py": 2,

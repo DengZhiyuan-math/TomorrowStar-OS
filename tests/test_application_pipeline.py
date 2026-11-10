@@ -68,6 +68,8 @@ class Flow:
 
     prepare = ApplicationFlowService.prepare
     continue_preparation = ApplicationFlowService.continue_preparation
+    letter_due = ApplicationFlowService.letter_due
+    letter_export_due = ApplicationFlowService.letter_export_due
 
     def progress(self, task_id):
         return _preparation_progress(self.tasks[task_id], self.analysis_outcome(task_id))

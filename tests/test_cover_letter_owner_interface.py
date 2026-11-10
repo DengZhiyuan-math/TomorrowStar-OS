@@ -6,6 +6,7 @@ import pytest
 from test_application_worker import service as service
 from test_cover_letter_delivery import modern as modern
 from test_cover_letter_edit import editable as editable
+from test_cover_letter_edit import letter_rows
 from test_supplemental_material_module import prepared as prepared
 
 from career_evidence_graph.application_cover_letter import edit_cover_letter
@@ -32,10 +33,7 @@ def test_flow_adopts_a_human_letter_successor_once(editable):
     )
     assert result["content_revision"] == content["revision"]
     assert result["actor"] == "user"
-    assert (
-        state["tasks"][0]["cover_letter"]["content_history"][-1]["content_revision"]
-        == old["content_revision"]
-    )
+    assert letter_rows(state["tasks"][0])[-2]["content_revision"] == old["content_revision"]
     before = deepcopy(state)
     flow.adopt_cover_letter_successor(
         payload["task_id"],

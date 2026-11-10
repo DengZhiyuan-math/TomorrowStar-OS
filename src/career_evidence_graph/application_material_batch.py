@@ -692,10 +692,12 @@ class MaterialBatch:
 
     def guard_start(self, state, task, stage):
         batch = state.get("preparation_batch")
-        if (
-            not batch
-            and stage in {"resume", "export"}
+        if not batch and (
+            stage in {"resume", "export"}
             and task["stages"].get("export", {}).get("status") == "needs_recheck"
+            # An explicit letter or letter PDF retry redoes only that unknown stage.
+            or stage in {"letter", "letter_export"}
+            and task["stages"].get(stage, {}).get("status") == "needs_recheck"
         ):
             return
         if (
@@ -1008,7 +1010,14 @@ class MaterialBatch:
                         return
                     stage = "resume"
                 elif task["status"] == "draft_ready" and item["status"] == "active":
-                    stage = "export"
+                    # Résumé, then letter, then export, as in Flow.prepare.
+                    stage = (
+                        "letter"
+                        if self.flow.letter_due(task)
+                        else "letter_export"
+                        if self.flow.letter_export_due(task)
+                        else "export"
+                    )
                 else:
                     return
                 self.flow.start(task["id"], task["revision"], stage, retry=bool(retrying))

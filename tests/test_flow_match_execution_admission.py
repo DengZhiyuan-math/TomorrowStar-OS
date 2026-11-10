@@ -221,7 +221,7 @@ def test_fresh_match_waits_for_other_physical_stage_and_preserves_saved_reads(
     assert original_fields(flow.witness(task["id"])[1]) == original_fields(task)
 
 
-@pytest.mark.parametrize("branch", ["cover_letter", "material_consistency"])
+@pytest.mark.parametrize("branch", ["letter", "material_consistency"])
 def test_fresh_match_waits_for_other_material_callback(retained_match, branch):
     from test_application_cover_letter_flow import material
 
@@ -244,7 +244,7 @@ def test_fresh_match_waits_for_other_material_callback(retained_match, branch):
         }
 
     def letter(request):
-        if branch == "cover_letter":
+        if branch == "letter":
             entered.set()
             assert release.wait(15)
         return material(request)
@@ -266,7 +266,7 @@ def test_fresh_match_waits_for_other_material_callback(retained_match, branch):
 
     flow.callbacks.update(
         analysis=analysis,
-        cover_letter=letter,
+        letter=letter,
         material_consistency=consistency,
         resume=lambda request: {
             "id": "synthetic-other-draft",
@@ -283,10 +283,14 @@ def test_fresh_match_waits_for_other_material_callback(retained_match, branch):
     flow.start(other["id"], other["revision"], "analysis")
     other = wait_for(flow, other["id"], lambda row: row["status"] == "analysis_ready")
     flow.start(other["id"], other["revision"], "resume")
+    other = wait_for(flow, other["id"], lambda row: row["status"] == "draft_ready")
+    # The letter stage follows the résumé; its pair check follows the letter.
+    flow.start(other["id"], other["revision"], "letter")
     try:
         assert entered.wait(5)
-        wait_for(flow, other["id"], lambda row: row["status"] == "draft_ready")
-        assert flow.task_snapshot(other["id"])[branch]["status"] == "running"
+        running = flow.task_snapshot(other["id"])
+        part = running["stages"]["letter"] if branch == "letter" else running[branch]
+        assert part["status"] == "running"
         before = flow.witness(task["id"])[1]
         identifier = uuid4().hex
         with pytest.raises(PortalDataError) as rejected:

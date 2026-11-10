@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 from ._vendor import job_apply_store as helper
+from .application_cover_letter import adopted_letter
 from .application_eligibility import task_eligibility
 from .application_explanations import adopted_analysis
 from .application_flow import (
@@ -366,10 +367,13 @@ class ApplicationPipeline:
             finally:
                 self._refresh_entry.reset(token)
             return
-        if action in {
-            "flow:start-cover-letter",
+        letter = (
+            action == "flow:start"
+            and isinstance(payload, dict)
+            and payload.get("stage") == "letter"
+        )
+        if letter or action in {
             "flow:retry-material-consistency",
-            "flow:recheck-cover-letter",
             "flow:recheck-material-consistency",
             "flow:recheck-resume-author",
         }:
@@ -377,11 +381,7 @@ class ApplicationPipeline:
                 self.flow,
                 lambda: self._check_material_branch_entry(
                     payload,
-                    execution=action
-                    in {
-                        "flow:start-cover-letter",
-                        "flow:retry-material-consistency",
-                    },
+                    execution=letter or action == "flow:retry-material-consistency",
                 ),
             ):
                 yield
@@ -1557,15 +1557,13 @@ class ApplicationPipeline:
                     "cover_letter_result_unknown",
                     "material_consistency_required",
                 }:
+                    outcomes = self.flow.material_outcomes(
+                        item["task_id"] for item in state["items"] if item.get("task_id")
+                    )
                     if any(
-                        self.flow.cover_letter_outcome(item["task_id"])["status"] == "needs_recheck"
-                        or (
-                            hasattr(self.flow, "material_consistency_outcome")
-                            and self.flow.material_consistency_outcome(item["task_id"])["status"]
-                            in {"conflict", "failed", "needs_recheck"}
-                        )
-                        for item in state["items"]
-                        if item.get("task_id")
+                        row["letter"] == "needs_recheck"
+                        or row["material_consistency"] in {"conflict", "failed", "needs_recheck"}
+                        for row in outcomes.values()
                     ):
                         self._stop(
                             state, "needs_recheck", "材料结果仍待核验或冲突未处理，请保留原回执。"
@@ -1952,8 +1950,6 @@ class ApplicationPipeline:
             self._pause_owned_worker(state)
         item["pipeline_context"] = {key: deepcopy(state.get(key)) for key in keys}
         item["retained_status"] = item["status"]
-        if state.get("active_task_id") and hasattr(self.flow, "cancel_cover_letter"):
-            self.flow.cancel_cover_letter(state["active_task_id"])
         if state.get("worker_batch_id"):
             task = self._task(state)
             self.flow.worker_action(
@@ -2207,7 +2203,8 @@ class ApplicationPipeline:
     def _retry_unknown_writing(self, state, request_id):
         """Re-run résumé or letter writing calls with unknown results (approved 2026-10-31).
 
-        Writing only drafts text; the unknown attempts stay in the task history.
+        Writing only drafts text; the unknown attempts stay in the task history, and
+        their answered calls are reused (Model Call Record).
         """
         task, retried = self._task(state), False
         resume = task["stages"].get("resume", {})
@@ -2242,15 +2239,18 @@ class ApplicationPipeline:
                 retry=True,
                 _continuation_request_id=request_id,
             )
-        if (task.get("cover_letter") or {}).get("status") == "needs_recheck":
-            retried = True
-            try:
-                # A locally saved letter is adopted without calling the writer again.
-                self.flow.recheck_cover_letter(task["id"], task["revision"])
-            except PortalDataError:
-                self.flow.start_cover_letter(
-                    task["id"], retry=True, _continuation_request_id=request_id
+        for stage in ("letter", "letter_export"):
+            # A letter PDF is a local build: Continue builds it again from the same body.
+            if task["stages"].get(stage, {}).get("status") in {"needs_recheck", "failed"}:
+                retried = True
+                task = self.flow.start(
+                    task["id"],
+                    task["revision"],
+                    stage,
+                    retry=True,
+                    _continuation_request_id=request_id,
                 )
+                break
         return retried
 
     def _material_wait_for_recovery(self, state):
@@ -2819,29 +2819,15 @@ class ApplicationPipeline:
         if match_refresh_running(self.flow, other_than=state.get("active_task_id")):
             # Skip releases adoption, not the callback's physical execution slot.
             return
-        if hasattr(self.flow, "cover_letter_outcome"):
-            outcomes = (
-                self.flow.material_outcomes(
-                    item["task_id"] for item in state["items"] if item.get("task_id")
-                )
-                if hasattr(self.flow, "material_outcomes")
-                else None
+        if hasattr(self.flow, "material_outcomes"):
+            outcomes = self.flow.material_outcomes(
+                item["task_id"] for item in state["items"] if item.get("task_id")
             )
             for item in state["items"]:
                 if not item.get("task_id"):
                     continue
-                letter = (
-                    {"status": outcomes[item["task_id"]]["cover_letter"]}
-                    if outcomes is not None
-                    else self.flow.cover_letter_outcome(item["task_id"])
-                )
-                consistency = (
-                    {"status": outcomes[item["task_id"]]["material_consistency"]}
-                    if outcomes is not None
-                    else self.flow.material_consistency_outcome(item["task_id"])
-                    if hasattr(self.flow, "material_consistency_outcome")
-                    else {}
-                )
+                letter = {"status": outcomes[item["task_id"]]["letter"]}
+                consistency = {"status": outcomes[item["task_id"]]["material_consistency"]}
                 if consistency.get("status") == "needs_recheck" or (
                     item.get("status") != "skipped"
                     and consistency.get("status") in {"conflict", "failed"}
@@ -3184,7 +3170,10 @@ class ApplicationPipeline:
             reason = progress["wait_reason"]
             if progress["status"] in {"waiting", "needs_recheck", "failed", "cancelled"}:
                 state.update(resume_status="generating_resume", wait_reason=reason)
-                no_answer = progress["resume"].get("error_code") == "resume_author_no_answer"
+                no_answer = (
+                    progress["resume"].get("error_code") == "resume_author_no_answer"
+                    or progress["letter"].get("error_code") == "letter_generation_no_answer"
+                )
                 self._stop(
                     state,
                     "needs_input" if progress["status"] == "waiting" else "needs_recheck",
@@ -3365,41 +3354,25 @@ class ApplicationPipeline:
         )
 
     def _computer_use_letter(self, task, job, text):
-        """The task's ready cover letter for a Computer Use fill, built as one PDF.
+        """The task's adopted cover letter for a Computer Use fill, with Flow's one PDF.
 
         2026-11-08 (SAEKI): a required letter upload stayed empty; only the page-driven
-        Worker attached letters. A failed build still hands over the text.
+        Worker attached letters. Without a built PDF the text is still handed over.
         """
-        from .application_cover_letter import (
-            cover_letter_pdf_inspector,
-            export_cover_letter_pdf,
-            read_letter_material,
-        )
-        from .application_materials import read_cover_letter_template
+        from .application_cover_letter import adopted_letter_pdf, read_letter_material
 
-        result = (task.get("cover_letter") or {}).get("result") or {}
-        if (task.get("cover_letter") or {}).get("status") != "ready" or not result.get("id"):
+        result = adopted_letter(task) or {}
+        if not result.get("id"):
             return job, text
-        store = self.worker.store
         try:
             content = read_letter_material(result, application_id=task["application_id"])
         except (ValueError, KeyError, TypeError, PortalDataError):
             return job, text
         text = text or "\n\n".join(row["text"] for row in content["paragraphs"])
-        try:
-            built = export_cover_letter_pdf(
-                Path(store.root) / "materials" / f"computer-use-{result['id']}",
-                content,
-                read_cover_letter_template(
-                    store, self.flow.applications.get_application(task["application_id"])
-                ),
-                client=getattr(store, "cover_letter_client", None),
-                pdf_inspector=cover_letter_pdf_inspector(store),
-            )
-        except (PortalDataError, OSError, ValueError) as error:
-            print(f"computer_use_letter_pdf_failed: {getattr(error, 'code', error)}", flush=True)
+        pdf = adopted_letter_pdf(task)
+        if pdf is None:
             return job, text
-        material = {"kind": "cover_letter", "file_path": built["file_path"]}
+        material = {"kind": "cover_letter", "file_path": pdf["file_path"]}
         return job | {"materials": [*(job.get("materials") or []), material]}, text
 
     def _start_computer_use(self, state):
@@ -3818,7 +3791,10 @@ class ApplicationPipeline:
             and (job.get("cover_letter_delivery") or {}).get("status") in {"queued", "running"}
             and (job.get("cover_letter_delivery") or {}).get("requirement") == "optional"
             and bool((job.get("cover_letter_delivery") or {}).get("selected_fields"))
-            and (task.get("cover_letter") or {}).get("status") in {"queued", "running", "ready"}
+            and (
+                task.get("stages", {}).get("letter", {}).get("status") in {"queued", "running"}
+                or adopted_letter(task) is not None
+            )
         )
         if optional_pending:
             if not state.get("pending_optional_cover_letter"):

@@ -75,13 +75,15 @@ def test_canonical_letter_consumes_same_full_facts_and_reuses_body_on_new_fields
     from test_cover_letter_delivery import TEMPLATE, field
     from test_supplemental_material_module import materials
 
+    from career_evidence_graph.application_cover_letter import adopted_letter
+
     worker, job = bound_worker(json_material)
     task_id = job["single_binding"]["task_id"]
     task = wait_for(
         json_material.flow,
         task_id,
         lambda row: (
-            row.get("cover_letter", {}).get("status") == "ready"
+            row["stages"].get("letter", {}).get("status") == "complete"
             and row.get("material_consistency", {}).get("status") == "passed"
         ),
     )
@@ -96,7 +98,7 @@ def test_canonical_letter_consumes_same_full_facts_and_reuses_body_on_new_fields
     boundary = materials((worker, job, state["batch_id"]))
     assert boundary.prepare(job, state["batch_id"], {"fields": [field()]})
     material = worker.store.load()["jobs"][0]["materials"][0]
-    assert material["content_revision"] == task["cover_letter"]["result"]["content_revision"]
+    assert material["content_revision"] == adopted_letter(task)["content_revision"]
     assert worker.store.verify_material(material, job)["letter_content"]
     assert boundary.prepare(job, state["batch_id"], {"fields": [field("new-field")]})
     current = worker.store.load()["jobs"][0]

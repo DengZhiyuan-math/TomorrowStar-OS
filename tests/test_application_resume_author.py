@@ -61,23 +61,15 @@ def author_output(request):
 
 
 @pytest.mark.parametrize("json_flow", [{"automatic_resume_author": True}], indirect=True)
-def test_actual_scoped_resume_writer_overlaps_whole_letter_writer(json_flow):
+def test_actual_scoped_resume_writer_runs_before_whole_letter_writer(json_flow):
+    """Résumé first, then the letter, on one Flow queue (unified material lifecycle)."""
     case = json_flow
-    entered = threading.Barrier(3)
-    release = threading.Event()
     calls = []
-    resume_waited = False
 
     def runner(config, prompt, **kwargs):
-        nonlocal resume_waited
         if "automatic-authors" in config.workspace.parts:
             request = json.loads(prompt.split("\n", 1)[1])
-            role = request["role"]
-            calls.append(role)
-            if role.startswith("experience-") and not resume_waited:
-                resume_waited = True
-                entered.wait(timeout=5)
-                assert release.wait(5)
+            calls.append(request["role"])
             return response(author_output(request))
         if "material-consistency" in config.workspace.parts:
             return response({"consistent": True, "issues": []})
@@ -85,8 +77,6 @@ def test_actual_scoped_resume_writer_overlaps_whole_letter_writer(json_flow):
             calls.append("letter-review")
             return response({"supported": True, "reason": "Synthetic sources preserved."})
         calls.append("letter-author")
-        entered.wait(timeout=5)
-        assert release.wait(5)
         return response(
             {
                 "language": "en",
@@ -109,25 +99,19 @@ def test_actual_scoped_resume_writer_overlaps_whole_letter_writer(json_flow):
     task = case.flow.prepare_automatic_materials(
         task["id"], task["revision"], project_root=str(case.project), main="main.tex"
     )
-    try:
-        case.flow.start(task["id"], task["revision"], "resume")
-        entered.wait(timeout=5)
-        current = case.flow.task_snapshot(task["id"])
-        assert current["cover_letter"]["status"] == "running"
-        assert current["stages"]["resume"]["status"] == "running"
-        release.set()
-        done = wait_for(
-            case.flow,
-            task["id"],
-            lambda row: row["status"] == "draft_ready" and row["cover_letter"]["status"] == "ready",
-        )
-        assert done["draft_id"]
-        assert calls.count("plan") == 1
-        assert len([role for role in calls if role.startswith("experience-")]) == 2
-        assert calls.count("review") == 1
-        assert calls.count("letter-author") == calls.count("letter-review") == 1
-    finally:
-        release.set()
+    case.flow.start(task["id"], task["revision"], "resume")
+    drafted = wait_for(case.flow, task["id"], lambda row: row["status"] == "draft_ready")
+    assert "letter-author" not in calls and "letter" not in drafted["stages"]
+    case.flow.prepare(task["id"], drafted["revision"])
+    done = wait_for(
+        case.flow, task["id"], lambda row: row["stages"]["letter"]["status"] == "complete"
+    )
+    assert done["status"] == "draft_ready" and done["draft_id"] == drafted["draft_id"]
+    assert calls.count("plan") == 1
+    assert len([role for role in calls if role.startswith("experience-")]) == 2
+    assert calls.count("review") == 1
+    assert calls.count("letter-author") == calls.count("letter-review") == 1
+    assert calls.index("letter-author") > calls.index("review")
 
 
 def test_an_author_call_without_answer_is_resent_alone(json_flow):

@@ -1321,6 +1321,87 @@ def export_cover_letter_pdf(
         ) from error
 
 
+def build_letter_pdf(store, directory, content, application):
+    """The letter's one PDF, with the store's private template, compiler and inspector."""
+    from .application_materials import read_cover_letter_template
+
+    template = read_cover_letter_template(store, application)
+    exporter = getattr(store, "cover_letter_exporter", None)
+    built = (
+        exporter(directory, content, template)
+        if exporter
+        else export_cover_letter_pdf(
+            directory,
+            content,
+            template,
+            client=getattr(store, "cover_letter_client", None),
+            pdf_inspector=cover_letter_pdf_inspector(store),
+        )
+    )
+    return {"content_revision": content["revision"]} | built
+
+
+def adopted_letter(task):
+    """The task's adopted letter material, or None (like ``adopted_analysis``).
+
+    A human edit appends a newer adopted row with the same id; earlier rows are the
+    history. A task from before the letter stage keeps its ``cover_letter`` record.
+    """
+    task = task or {}
+    if "letter_id" not in task and "letter" not in task.get("stages", {}):
+        legacy = task.get("cover_letter") or {}
+        return legacy.get("result") if legacy.get("status") == "ready" else None
+    return next(
+        (
+            row["result"]
+            for row in reversed(task.get("artifacts", []))
+            if row.get("stage") == "letter"
+            and row.get("adopted")
+            and row.get("result", {}).get("id") == task.get("letter_id")
+        ),
+        None,
+    )
+
+
+def adopted_letter_pdf(task):
+    """The one PDF Flow built for the current adopted letter, or None.
+
+    An edit adopts a newer letter body, so a PDF of an earlier body is not current.
+    """
+    letter = adopted_letter(task)
+    return next(
+        (
+            row["result"]
+            for row in reversed((task or {}).get("artifacts", []))
+            if row.get("stage") == "letter_export"
+            and row.get("adopted")
+            and row.get("result", {}).get("id") == task.get("letter_export_id")
+            and letter is not None
+            and row["result"].get("content_revision") == letter.get("content_revision")
+        ),
+        None,
+    )
+
+
+def letter_branch(task):
+    """The letter as material consumers read it: status, attempt, adopted result and PDF."""
+    stage = task.get("stages", {}).get("letter")
+    if stage is None:
+        return deepcopy(task["cover_letter"]) if task.get("cover_letter") else None
+    branch = {key: deepcopy(stage[key]) for key in ("attempt_id", "error_code") if key in stage}
+    letter = adopted_letter(task)
+    if stage["status"] == "complete" and letter is not None:
+        branch |= {"status": "ready", "result": deepcopy(letter)}
+        pdf = adopted_letter_pdf(task)
+        export = task["stages"].get("letter_export", {})
+        if pdf is not None:
+            branch["pdf"] = deepcopy(pdf)
+        elif export.get("status") in {"failed", "needs_recheck"}:
+            branch["pdf_error"] = export.get("error_code") or export["status"]
+        return branch
+    return branch | {"status": stage["status"]}
+
+
 class CoverLetterModule:
     """Own saved author attempts and consume only the adopted analysis delivery."""
 
@@ -1342,7 +1423,7 @@ class CoverLetterModule:
             raise PortalDataError(
                 "cover_letter_sources_required", "求职信的分析归档身份不能核验。", 409
             )
-        branch = task["cover_letter"]
+        branch = task["stages"]["letter"]
         attempt = branch.get("attempt_id", "")
         if not isinstance(attempt, str) or re.fullmatch(r"[a-f0-9]{32}", attempt) is None:
             raise PortalDataError(

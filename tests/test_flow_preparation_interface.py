@@ -10,7 +10,7 @@ from test_bound_material_update import bound_pipeline as bound_pipeline
 from test_bound_preparation_owner import queued_bound_preparation as queued_bound_preparation
 from test_canonical_career_sources import canonical as canonical
 from test_full_latex_generation import full_latex as full_latex
-from test_j08_flow_combination import finish_json_writing, start_json_writing
+from test_j08_flow_combination import finish_json_writing, prepare_materials, start_json_writing
 from test_j08_flow_combination import json_flow as json_flow
 
 from career_evidence_graph.application_flow import ApplicationFlowService
@@ -38,7 +38,7 @@ def test_progress_reads_preparation_without_dispatch_or_execution_projection(app
         assert progress["task_revision"] == task["revision"]
         assert progress["analysis"]["status"] == "pending"
         assert progress["resume"]["status"] == "pending"
-        assert progress["cover_letter"]["status"] == "not_started"
+        assert progress["letter"]["status"] == "not_started"
         assert progress["material_consistency"]["status"] == "not_started"
         assert progress["can_prepare_execution"] is False
         assert calls == []
@@ -217,12 +217,14 @@ def test_preparation_ready_is_not_replaced_by_execution_status(
             current = flow._task(state, task["id"])
             current.update(status="queued", worker_ref={"batch_id": "saved", "job_id": job["id"]})
             if letter_running:
-                current["cover_letter"] = {"status": "running", "attempt_id": "d" * 32}
+                current["automatic_materials"] = True
+                current["stages"]["letter"] = {"status": "running", "attempt_id": "d" * 32}
             flow._save(state)
         before = {p: p.read_bytes() for p in flow.root.rglob("*") if p.is_file()}
         progress = flow.progress(task["id"])
         assert progress["status"] == ("running" if letter_running else "ready")
-        assert progress["can_prepare_execution"] is True
+        # Materials are ready only once the letter is adopted too.
+        assert progress["can_prepare_execution"] is not letter_running
         assert progress["task"]["status"] == "queued"
         assert progress["execution_ref"] == {"batch_id": "saved", "job_id": job["id"]}
         assert {p: p.read_bytes() for p in flow.root.rglob("*") if p.is_file()} == before
@@ -325,8 +327,7 @@ def test_explicit_analysis_reset_preserves_material_history_and_starts_once(
     flow = case.flow
     assert flow.preparation_only is False
     task, _ = finish_json_writing(case, start_json_writing(case))
-    flow.prepare(task["id"], task["revision"])
-    original = wait_for(flow, task["id"], lambda row: row["status"] == "materials_ready")
+    original = prepare_materials(flow, task)
     old_pdf = case.store.pdf(original["resume_id"])
     original_artifacts = deepcopy(original["artifacts"])
     analyze = flow.callbacks["analysis"]
@@ -469,7 +470,7 @@ def test_continue_request_is_bound_to_original_failed_attempt(application, tmp_p
         flow.close()
 
 
-@pytest.mark.parametrize("first_stage", ["analysis", "resume", "export", "cover_letter"])
+@pytest.mark.parametrize("first_stage", ["analysis", "resume", "export", "letter"])
 def test_continue_first_dispatch_cannot_be_reused_for_a_later_author_failure(
     json_flow, first_stage
 ):
@@ -498,38 +499,31 @@ def test_continue_first_dispatch_cannot_be_reused_for_a_later_author_failure(
             flow.start(task["id"], task["revision"], "resume")
     else:
         task, _ = finish_json_writing(case, start_json_writing(case))
-        if first_stage == "cover_letter":
-            flow.prepare(task["id"], task["revision"])
-            task = wait_for(
-                flow, task["id"], lambda row: row["status"] in {"resume_ready", "materials_ready"}
+
+        def settled(row):
+            return all(
+                part.get("status") not in {"queued", "running"}
+                for part in (*row["stages"].values(), row.get("material_consistency", {}))
             )
-            # A retained completed resume may predate automatic letter preparation.
-            with flow.applications.write_lock():
-                state = flow._load()
-                current = flow._task(state, task["id"])
-                current.setdefault("cover_letter_history", []).append(current.pop("cover_letter"))
-                flow._save(state)
-                task = deepcopy(current)
+
+        if first_stage == "export":
+            # The letter and its PDF come first; the Continue then dispatches the export.
+            for _ in range(2):
+                flow.prepare(task["id"], task["revision"])
+                task = wait_for(flow, task["id"], settled)
         flow.continue_preparation(task["id"], task["revision"], request_id=request_id)
+        task = wait_for(flow, task["id"], settled)
+        while task["status"] == "draft_ready":
+            flow.prepare(task["id"], task["revision"])
+            task = wait_for(flow, task["id"], settled)
         task = wait_for(
             flow,
             task["id"],
-            lambda row: (
-                row["status"] in {"resume_ready", "materials_ready"}
-                and row.get("cover_letter", {}).get("status") not in {"queued", "running"}
-                and row.get("material_consistency", {}).get("status") not in {"queued", "running"}
-            ),
+            lambda row: row["status"] in {"resume_ready", "materials_ready"} and settled(row),
         )
         flow.callbacks["resume"] = rejected
         flow.start(task["id"], task["revision"], "resume", retry=True)
-    task = wait_for(
-        flow,
-        task["id"],
-        lambda row: (
-            row["status"] == "failed"
-            and row.get("cover_letter", {}).get("status") not in {"queued", "running"}
-        ),
-    )
+    task = wait_for(flow, task["id"], lambda row: row["status"] == "failed")
     assert len(calls) == 1
     try:
         flow.continue_preparation(task["id"], task["revision"], request_id=request_id)

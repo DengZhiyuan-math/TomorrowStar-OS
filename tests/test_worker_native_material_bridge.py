@@ -5,7 +5,6 @@ from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
-from test_cover_letter_content import Compiler
 from test_native_bound_material_protocol import material_call, text_resolution
 from test_single_application_worker import single_worker as single_worker
 from test_worker_assistance_delivery import page_context
@@ -882,10 +881,11 @@ def test_unparsed_cover_letter_destination_is_proven_or_refused(
 
 
 @pytest.mark.parametrize("template_now", [True, False])
-def test_a_letter_failed_for_its_template_is_prepared_again_once_one_is_readable(
+def test_a_letter_pdf_failed_for_its_template_is_taken_once_flow_builds_it(
     bound_material_page, template_now
 ):
-    """2026-11-03: the backend gained its template; the job kept letter_template_required."""
+    """2026-11-03: the backend gained its template; the job kept letter_template_required.
+    Flow's letter_export owns that build now; the field waits and then takes its PDF."""
     service, _, _ = bound_material_page
     template = service.store.cover_letter_template
     letter_exporter(service)
@@ -903,145 +903,21 @@ def test_a_letter_failed_for_its_template_is_prepared_again_once_one_is_readable
     failed = service.store.load()["jobs"][0]
     assert failed["cover_letter_delivery"]["status"] == "failed"
     assert failed["cover_letter_delivery"]["reason"] == "letter_template_required"
-    original = failed["materials"][0]
-    assert (original["status"], original["error_code"]) == ("failed", "letter_template_required")
+    assert failed.get("materials", []) == []
 
     if template_now:
         service.store.cover_letter_template = template
+        # Continue builds the PDF again in Flow.
+        service.store.single_material_source_provider.built.clear()
     runner._prepare_native_cover_letter(failed, state["batch_id"], page)
     job = service.store.load()["jobs"][0]
     if not template_now:
-        # Still no template: the failed attempt stays as it was.
-        assert job["materials"] == [original]
+        assert job.get("materials", []) == []
         assert job["cover_letter_delivery"]["reason"] == "letter_template_required"
-        assert not job.get("material_history")
         return
     letter = job["materials"][0]
-    assert letter["status"] == "ready" and letter["id"] != original["id"]
-    assert letter["filename"] == "cover-letter.pdf"
-    # The failed attempt retires to history; it is not overwritten.
-    assert job["material_history"][-1] == original
-    assert job["cover_letter_delivery"]["status"] == "ready"
-
-
-@pytest.mark.parametrize("compiler_now", [True, False])
-def test_a_letter_failed_for_its_compiler_is_prepared_again_once_one_is_available(
-    bound_material_page, monkeypatch, compiler_now
-):
-    """2026-11-03: the letter LaTeX rendered, but the build reached for Prism and
-    failed prism_unavailable; tectonic compiles it once it can be found."""
-    from career_evidence_graph import application_resume_versions
-
-    service, _, _ = bound_material_page
-
-    def unreachable(directory, content, template):
-        raise PortalDataError("prism_unavailable", "Prism 服务暂不能核验。", 503)
-
-    service.store.cover_letter_exporter = unreachable
-    runner = ApplicationRunner(service.store, None)
-    state = service.store.load()
-    job = state["jobs"][0]
-    page = ContextPage(letter_fields(["Upload your CV", "Cover letter"]))
-    runner.pages[job["application_id"]] = page
-    runner.page_ids[page] = job["page_observation"]["page_id"]
-    state["jobs"][0]["form_state"]["snapshot"] = {"fields": []}
-    service.store.save(state)
-
-    runner._prepare_native_cover_letter(job, state["batch_id"], page)
-    failed = service.store.load()["jobs"][0]
-    assert failed["cover_letter_delivery"]["reason"] == "prism_unavailable"
-    original = failed["materials"][0]
-    assert (original["status"], original["error_code"]) == ("failed", "prism_unavailable")
-
-    # The default compiler now builds the letter: tectonic, faked here.
-    service.store.cover_letter_exporter = None
-    compiler = Compiler()
-    monkeypatch.setattr(application_resume_versions, "TectonicCompiler", lambda: compiler)
-    monkeypatch.setattr(
-        application_resume_versions,
-        "tectonic_executable",
-        lambda: "/opt/homebrew/bin/tectonic" if compiler_now else None,
-    )
-    runner._prepare_native_cover_letter(failed, state["batch_id"], page)
-    job = service.store.load()["jobs"][0]
-    if not compiler_now:
-        assert job["materials"] == [original]
-        assert job["cover_letter_delivery"]["reason"] == "prism_unavailable"
-        assert not job.get("material_history")
-        assert compiler.calls == 0
-        return
-    assert compiler.calls == 1
-    letter = job["materials"][0]
-    assert letter["status"] == "ready" and letter["id"] != original["id"]
-    assert job["material_history"][-1] == original
-    assert job["cover_letter_delivery"]["status"] == "ready"
-
-
-@pytest.mark.parametrize(
-    ("recorded", "compiler_now", "retried"),
-    [
-        ("cover-letter-renderer/v3", True, True),
-        (None, True, True),
-        ("cover-letter-renderer/v4", True, False),
-        ("cover-letter-renderer/v3", False, False),
-    ],
-)
-def test_a_letter_failed_to_compile_is_prepared_again_after_its_renderer_changed(
-    bound_material_page, monkeypatch, recorded, compiler_now, retried
-):
-    """2026-11-03: a v3 letter body with π₀ failed resume_export_failed; renderer v4
-    maps those symbols, but the failed attempt was never prepared again."""
-    from career_evidence_graph import application_resume_versions
-
-    service, _, _ = bound_material_page
-
-    def missing_glyph(directory, content, template):
-        raise PortalDataError("resume_export_failed", "缺少字形。", 409)
-
-    service.store.cover_letter_exporter = missing_glyph
-    runner = ApplicationRunner(service.store, None)
-    state = service.store.load()
-    job = state["jobs"][0]
-    page = ContextPage(letter_fields(["Upload your CV", "Cover letter"]))
-    runner.pages[job["application_id"]] = page
-    runner.page_ids[page] = job["page_observation"]["page_id"]
-    state["jobs"][0]["form_state"]["snapshot"] = {"fields": []}
-    service.store.save(state)
-
-    runner._prepare_native_cover_letter(job, state["batch_id"], page)
-    state = service.store.load()
-    failed = state["jobs"][0]
-    original = failed["materials"][0]
-    assert (original["status"], original["error_code"]) == ("failed", "resume_export_failed")
-    assert original["renderer_revision"] == "cover-letter-renderer/v4"
-    if recorded is None:
-        del original["renderer_revision"]
-    else:
-        original["renderer_revision"] = recorded
-    service.store.save(state)
-    failed = service.store.load()["jobs"][0]
-
-    service.store.cover_letter_exporter = None
-    compiler = Compiler()
-    monkeypatch.setattr(application_resume_versions, "TectonicCompiler", lambda: compiler)
-    monkeypatch.setattr(
-        application_resume_versions,
-        "tectonic_executable",
-        lambda: "/opt/homebrew/bin/tectonic" if compiler_now else None,
-    )
-    runner._prepare_native_cover_letter(failed, state["batch_id"], page)
-    job = service.store.load()["jobs"][0]
-    if not retried:
-        assert job["materials"] == [original]
-        assert job["cover_letter_delivery"]["reason"] == "resume_export_failed"
-        assert not job.get("material_history")
-        assert compiler.calls == 0
-        return
-    assert compiler.calls == 1
-    letter = job["materials"][0]
-    assert letter["status"] == "ready" and letter["id"] != original["id"]
-    assert letter["renderer_revision"] == "cover-letter-renderer/v4"
-    assert job["material_history"][-1] == original
+    assert letter["status"] == "ready" and letter["filename"] == "cover-letter.pdf"
+    assert "letter-pdfs" in letter["file_path"]
     assert job["cover_letter_delivery"]["status"] == "ready"
 
 
@@ -1071,6 +947,8 @@ def test_a_failed_letter_is_ready_after_the_next_unparsed_step_with_a_template(
     assert service.store.load()["jobs"][0]["cover_letter_delivery"]["status"] == "failed"
 
     service.store.cover_letter_template = template
+    # Continue builds the PDF again in Flow, now with the template.
+    service.store.single_material_source_provider.built.clear()
 
     def unparsed(job, batch_id):
         raise PortalDataError("unsupported_structure", "表单结构需要人工核验。", 409)
@@ -1083,7 +961,7 @@ def test_a_failed_letter_is_ready_after_the_next_unparsed_step_with_a_template(
     assert job["cover_letter_delivery"]["status"] == "ready"
     letter = job["materials"][0]
     assert letter["status"] == "ready" and letter["kind"] == "cover_letter"
-    assert job["material_history"][-1]["error_code"] == "letter_template_required"
+    assert "letter-pdfs" in letter["file_path"]
 
 
 @pytest.mark.parametrize("change", [None, "sha256", "questions"])

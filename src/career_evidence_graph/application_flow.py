@@ -169,6 +169,7 @@ def _analysis_outcome(task, *, resendable=False):
                 "draft_sha256",
                 "worker_ref",
                 "cover_letter",
+                "letter_id",
             )
         )
     ):
@@ -242,7 +243,8 @@ def _preparation_progress(task, analysis):
     """Project saved preparation only; an execution status cannot overwrite it."""
     resume = deepcopy(task.get("stages", {}).get("resume", {"status": "pending"}))
     export = deepcopy(task.get("stages", {}).get("export", {"status": "pending"}))
-    letter = deepcopy(task.get("cover_letter") or {"status": "not_started"})
+    letter = deepcopy(task.get("stages", {}).get("letter", {"status": "not_started"}))
+    letter_export = deepcopy(task.get("stages", {}).get("letter_export", {"status": "not_started"}))
     consistency = deepcopy(task.get("material_consistency") or {"status": "not_started"})
     update = task.get("material_update") or {"status": "not_started"}
     material_update = {
@@ -292,7 +294,7 @@ def _preparation_progress(task, analysis):
         )
         and not any(
             part.get("status") in {"queued", "running", "failed", "needs_recheck"}
-            for part in (resume, export)
+            for part in (resume, export, letter, letter_export)
         )
     )
     if task["status"] == "cancelled":
@@ -312,10 +314,10 @@ def _preparation_progress(task, analysis):
         )
         if status in {"waiting", "needs_recheck"}:
             reason = "analysis_input_required" if status == "waiting" else "analysis_result_unknown"
-    elif resume.get("status") == "needs_recheck" or export.get("status") == "needs_recheck":
+    elif any(
+        part.get("status") == "needs_recheck" for part in (resume, export, letter, letter_export)
+    ):
         status, reason = "needs_recheck", "material_result_unknown"
-    elif letter["status"] == "needs_recheck":
-        status, reason = "needs_recheck", "cover_letter_result_unknown"
     elif consistency["status"] in {"conflict", "failed", "needs_recheck"}:
         status = "needs_recheck" if consistency["status"] == "needs_recheck" else "waiting"
         reason = "material_consistency_required"
@@ -335,15 +337,32 @@ def _preparation_progress(task, analysis):
                 "简历写作的模型输出未通过程序核验，已保留原响应和完成片段；点继续会重新核验或重写。"
             )
             continuation = {"task_id": task["id"], "attempt_id": resume.get("attempt_id")}
-    elif export.get("status") == "failed" or (
-        resume.get("status") == "failed" and resume.get("error_code") != "resume_author_paused"
+    elif letter["status"] == "failed" and letter.get("error_code") in LETTER_CONTINUATIONS:
+        # The letter's writing call fails and continues exactly as a résumé author call.
+        status, reason = "waiting", "resume_author_input_required"
+        message = (
+            "求职信写作的模型调用没有返回结果；点继续只重发这一次调用。"
+            if letter["error_code"] == "letter_generation_no_answer"
+            else "求职信写作已停止或输出未通过程序核验，已保留原响应；点继续会重新核验或重写。"
+        )
+        continuation = {
+            "task_id": task["id"],
+            "attempt_id": letter.get("attempt_id"),
+            "stage": "letter",
+        }
+    elif (
+        export.get("status") == "failed"
+        or letter["status"] == "failed"
+        or letter_export["status"] == "failed"
+        or resume.get("status") == "failed"
+        and resume.get("error_code") != "resume_author_paused"
     ):
         status, reason = "failed", "material_result_unknown"
     elif task.get("experience_handoff") and task["status"] == "needs_input":
         status, reason = "running", "codex_resume_required"
     elif any(
         part.get("status") in {"queued", "running"}
-        for part in (resume, export, letter, consistency)
+        for part in (resume, export, letter, letter_export, consistency)
     ) or task["status"] in {"resume_generating", "exporting"}:
         status = "running"
     elif material_ready:
@@ -365,7 +384,8 @@ def _preparation_progress(task, analysis):
         "analysis": analysis,
         "resume": resume,
         "export": export,
-        "cover_letter": letter,
+        "letter": letter,
+        "letter_export": letter_export,
         "material_consistency": consistency,
         "material_update": material_update,
         "can_prepare_execution": bool(material_ready) and status in {"ready", "running"},
@@ -482,6 +502,12 @@ def compact_match_rechecks(task):
         receipt.pop("result", None)
 
 
+# The letter's writing and PDF stages; neither changes the résumé's task status.
+LETTER_STAGES = frozenset({"letter", "letter_export"})
+# Letter failures that one Continue retries; the same as the résumé author's.
+LETTER_CONTINUATIONS = frozenset({"letter_generation_failed", "letter_generation_no_answer"})
+
+
 # What the page reads of a task other than the active one (application mode).
 TASK_BRIEF_KEYS = frozenset({"id", "revision", "application_id", "status"})
 
@@ -527,7 +553,6 @@ class ApplicationFlowService:
         self._owner_guard = threading.Lock()
         self._queue = queue.Queue()
         self._running_stage_task_id = None
-        self._letter_threads = {}
         lock_path = self.root / ".flow.lock"
         if lock_path.is_symlink():
             raise PortalDataError("flow_invalid", "任务锁不能使用符号链接。", 409)
@@ -628,7 +653,9 @@ class ApplicationFlowService:
                     and (
                         set(task["stages"]) == {"analysis", "resume"}
                         or (self.preparation_only or task.get("automatic_materials") is True)
-                        and set(task["stages"]) == {"analysis", "resume", "export"}
+                        and {"analysis", "resume"}
+                        <= set(task["stages"])
+                        <= {"analysis", "resume", "letter", "letter_export", "export"}
                     )
                     and all(
                         stage["status"]
@@ -659,7 +686,8 @@ class ApplicationFlowService:
                     )
                     and all(
                         isinstance(record, dict)
-                        and record["stage"] in {"analysis", "resume", "export"}
+                        and record["stage"]
+                        in {"analysis", "resume", "letter", "letter_export", "export"}
                         and record["previous_status"] in {"queued", "running"}
                         and record["status"] in {"failed", "needs_recheck"}
                         and isinstance(record["reason"], str)
@@ -779,15 +807,6 @@ class ApplicationFlowService:
         state = self._load()
         changed = self.material_batch.recover(state) if self.material_batch else False
         for task in state["tasks"]:
-            letter = task.get("cover_letter") or {}
-            if letter.get("status") in {"queued", "running"}:
-                letter.update(
-                    status="failed" if letter["status"] == "queued" else "needs_recheck",
-                    error_code="letter_not_started"
-                    if letter["status"] == "queued"
-                    else "letter_generation_interrupted",
-                )
-                changed = True
             consistency = task.get("material_consistency") or {}
             if consistency.get("status") in {"queued", "running"}:
                 consistency.update(
@@ -848,7 +867,9 @@ class ApplicationFlowService:
                         }
                     )
                     stage.update(status=status, error_code=recovery_reason)
-                    task["status"] = "export_failed" if unstarted else status
+                    if name not in LETTER_STAGES:
+                        # Letter stages never change the résumé's task status.
+                        task["status"] = "export_failed" if unstarted else status
                     changed = True
         if self.material_batch:
             before = digest(state.get("preparation_batch"))
@@ -940,12 +961,10 @@ class ApplicationFlowService:
                     task["application_id"] == application_id
                     and task.get("analysis_id") == analysis_id
                 ):
-                    branch = task.get("cover_letter") or {}
-                    return (
-                        deepcopy(branch["result"]["content"])
-                        if branch.get("status") == "ready"
-                        else None
-                    )
+                    from .application_cover_letter import adopted_letter
+
+                    letter = adopted_letter(task)
+                    return deepcopy(letter["content"]) if letter else None
         return None
 
     def adopted_resume_content(self, task_id):
@@ -961,18 +980,6 @@ class ApplicationFlowService:
                     and row.get("result", {}).get("resume_content")
                 ),
                 None,
-            )
-
-    def cover_letter_call_allowed(self, task_id, attempt_id):
-        """Check the saved letter attempt before each letter author call."""
-        with self.applications.write_lock():
-            current = self._task(self._load(), task_id)
-            branch = current.get("cover_letter") or {}
-            return (
-                not self._closed.is_set()
-                and current["status"] != "cancelled"
-                and branch.get("attempt_id") == attempt_id
-                and not branch.get("cancel_requested")
             )
 
     def read_draft(self, identifier):
@@ -1191,13 +1198,12 @@ class ApplicationFlowService:
             self.root / "material-consistency", runner=material_runner
         )
 
-        def generate_cover_letter(task):
-            attempt = task["cover_letter"]["attempt_id"]
+        def generate_letter(task):
             return letters.prepare(
                 task,
                 self.fixed_writing_inputs(task),
                 sibling_content_provider=lambda: self.adopted_resume_content(task["id"]),
-                admit_call=lambda: self.cover_letter_call_allowed(task["id"], attempt),
+                admit_call=lambda: self.resume_call_allowed(task, "letter"),
             )
 
         def read_existing_experience_materials(task, generation_id, export_id):
@@ -1221,8 +1227,7 @@ class ApplicationFlowService:
             resume=generate_resume,
             retained_draft=resumes.retained_career_draft,
             verify_prepared_resume=resumes.validate_prepared,
-            cover_letter=generate_cover_letter,
-            cover_letter_result=lambda task: letters.read(task, self.fixed_writing_inputs(task)),
+            letter=generate_letter,
             material_consistency=lambda task: consistency.check(
                 task, self.fixed_writing_inputs(task)
             ),
@@ -1556,7 +1561,11 @@ class ApplicationFlowService:
                 )
         if local_materials(task) and stage != "analysis":
             return self.applications.get_application(task["application_id"])
-        fixed = self.fixed_writing_inputs(task) if stage in {"resume", "export"} else None
+        fixed = (
+            self.fixed_writing_inputs(task)
+            if stage in {"resume", "export", *LETTER_STAGES}
+            else None
+        )
         application = self.applications.get_application(task["application_id"])
         if fixed is not None:
             # The adopted delivery owns these inputs; unrelated live changes do
@@ -1581,8 +1590,6 @@ class ApplicationFlowService:
         fields = {
             "create": ({"application_id", "application_revision"}, {"inputs"}),
             "start": ({"task_id", "task_revision", "stage"}, {"retry"}),
-            "start-cover-letter": ({"task_id", "task_revision"}, {"retry"}),
-            "recheck-cover-letter": ({"task_id", "task_revision"}, set()),
             "recheck-resume-author": ({"task_id", "task_revision"}, set()),
             "recheck-material-consistency": ({"task_id", "task_revision"}, set()),
             "retry-material-consistency": ({"task_id", "task_revision"}, set()),
@@ -1832,9 +1839,6 @@ class ApplicationFlowService:
                 and not task.get("prism_edit", {}).get("opening"),
             )
             task.update(status="cancelled", materials_confirmed=False)
-            letter = task.get("cover_letter") or {}
-            if letter.get("status") in {"queued", "running"}:
-                letter["cancel_requested"] = True
             self._cancel_material_consistency(task)
             for stage in task["stages"].values():
                 if stage["status"] in {"queued", "running"}:
@@ -2346,11 +2350,10 @@ class ApplicationFlowService:
                     )
                     resolved = upgraded
             if changed and (
-                task.get("cover_letter", {}).get("status") in {"queued", "running", "needs_recheck"}
-                or task.get("worker_preparation", {}).get("status") == "pending"
+                task.get("worker_preparation", {}).get("status") == "pending"
                 or any(
                     stage.get("status") == "needs_recheck"
-                    or name in {"resume", "export"}
+                    or name in {"resume", "export", *LETTER_STAGES}
                     and stage.get("status") in {"queued", "running"}
                     for name, stage in task["stages"].items()
                 )
@@ -2442,8 +2445,11 @@ class ApplicationFlowService:
                 job_binding=job_input_revision(application),
             )
             if changed:
-                if analysis_changed and task.get("cover_letter"):
-                    task.setdefault("cover_letter_history", []).append(task.pop("cover_letter"))
+                if analysis_changed:
+                    # Earlier letter rows stay in the artifacts as history.
+                    for name in LETTER_STAGES:
+                        task["stages"].pop(name, None)
+                        task.pop(name + "_id", None)
                 task["input_epoch"] = task.get("input_epoch", 0) + 1
                 task.update(
                     resume_id=None,
@@ -4586,6 +4592,8 @@ class ApplicationFlowService:
             return legacy_reference(task, command(execution["reference"], operation, payload))
 
         self.callbacks.update(
+            # The letter PDF uses the Worker's private template, compiler and inspector.
+            letter_export=lambda task: self.export_letter(worker.store, task),
             prepare_worker=prepare,
             control_worker=control,
             worker_reference=lambda task: legacy_reference(task, execution_reference(task)),
@@ -4596,6 +4604,19 @@ class ApplicationFlowService:
                 expected_batch_id=reference["batch_id"],
             ),
         )
+
+    def export_letter(self, store, task):
+        """Render, compile and check the adopted letter's one PDF (letter_export stage)."""
+        from .application_cover_letter import adopted_letter, build_letter_pdf
+
+        fixed = self.fixed_writing_inputs(task)
+        attempt = task["stages"]["letter_export"]["attempt_id"]
+        return build_letter_pdf(
+            store,
+            self.root / "letter-pdfs" / attempt,
+            adopted_letter(task)["content"],
+            {"id": task["application_id"], **fixed["analysis"]["job_brief"]["job"]},
+        ) | {"id": attempt}
 
     def _worker_reference(self, task, worker):
         if (
@@ -4842,8 +4863,6 @@ class ApplicationFlowService:
                 "answer",
                 "heartbeat",
                 "provide-material",
-                "retry-cover-letter-file",
-                "recheck-cover-letter-file",
                 "resolve-form-differences",
             }
             else nullcontext()
@@ -4859,8 +4878,6 @@ class ApplicationFlowService:
             "heartbeat",
             "answer",
             "provide-material",
-            "retry-cover-letter-file",
-            "recheck-cover-letter-file",
             "correct-email",
             "resolve-form-differences",
             "review",
@@ -5092,21 +5109,22 @@ class ApplicationFlowService:
             ):
                 self.start(task_id, task_revision, "resume", retry=True, **request)
                 return self.progress(task_id)
-            if progress["status"] in {"waiting", "needs_recheck"}:
+            if progress["status"] in {"waiting", "needs_recheck", "failed"}:
                 return progress
-            if (
-                task["status"] in {"draft_ready", "resume_ready", "materials_ready"}
-                and not task.get("cover_letter")
-                and "cover_letter" in self.callbacks
-            ):
-                task = self.start_cover_letter(task_id, task_revision, **request)
-                task_revision = task["revision"]
             try:
                 if task["status"] == "analysis_ready":
                     task = self.prepare_automatic_materials(task_id, task_revision)
                     self.start(task_id, task["revision"], "resume", **request)
                 elif task["status"] == "draft_ready":
-                    self.start(task_id, task_revision, "export", **request)
+                    # Résumé, letter, letter PDF, then résumé PDF, one stage at a time.
+                    stage = (
+                        "letter"
+                        if self.letter_due(task)
+                        else "letter_export"
+                        if self.letter_export_due(task)
+                        else "export"
+                    )
+                    self.start(task_id, task_revision, stage, **request)
             except PortalDataError as error:
                 reasons = {
                     "flow_latex_base_required": "material_base_required",
@@ -5144,7 +5162,7 @@ class ApplicationFlowService:
                 self.start(
                     task_id,
                     task_revision,
-                    "resume",
+                    continuation.get("stage", "resume"),
                     retry=True,
                     _continuation_request_id=request_id,
                 )
@@ -5166,8 +5184,6 @@ class ApplicationFlowService:
             self.recheck_resume_author(task_id, task_revision)
         elif progress["export"].get("status") == "needs_recheck":
             self.recheck_export(task_id, task_revision)
-        elif progress["cover_letter"]["status"] == "needs_recheck":
-            self.recheck_cover_letter(task_id, task_revision)
         elif progress["material_consistency"]["status"] == "needs_recheck":
             self.recheck_material_consistency(task_id, task_revision)
         return self.progress(task_id)
@@ -5462,44 +5478,28 @@ class ApplicationFlowService:
             self._save(state)
             return deepcopy(task)
 
-    def _letter_binding(self, task):
-        fixed = self.fixed_writing_inputs(task)
-        if fixed is None:
-            raise PortalDataError(
-                "letter_fixed_inputs_required", "求职信需要本岗已采用的固定资料。", 409
-            )
-        analysis = fixed["analysis"]
-        analysis_id = task["analysis_id"]
-        previous = task.get("cover_letter") or {}
-        if (
-            previous.get("status") == "ready"
-            and previous.get("analysis_id") != analysis_id
-            and previous.get("job_binding") == task["job_binding"]
-        ):
-            prior = next(
-                (
-                    row["result"]
-                    for row in task.get("artifacts", [])
-                    if row.get("stage") == "analysis"
-                    and row.get("adopted")
-                    and row.get("result", {}).get("id") == previous.get("analysis_id")
-                ),
-                None,
-            )
-            if prior and all(
-                prior.get(key) == analysis.get(key)
-                for key in ("jd_revision", "job_brief", "material_packet", "inference_result")
-            ):
-                analysis_id = previous["analysis_id"]
-        return digest(
-            {
-                "analysis_id": analysis_id,
-                "job_binding": analysis.get("jd_revision"),
-                **{
-                    key: analysis[key]
-                    for key in ("job_brief", "material_packet", "inference_result")
-                },
-            }
+    def letter_due(self, task):
+        """The letter applies to this task and is not adopted yet (résumé → letter → export)."""
+        return bool(
+            "letter" in self.callbacks
+            and task.get("material_contract") == "content-writing/v1"
+            and (self.preparation_only or task.get("automatic_materials"))
+            and task.get("origin") != "existing_latex"
+            and task["stages"].get("letter", {}).get("status") != "complete"
+            # A task from before the letter stage keeps its ready letter.
+            and (task.get("cover_letter") or {}).get("status") != "ready"
+            and self.fixed_writing_inputs(task) is not None
+        )
+
+    def letter_export_due(self, task):
+        """The adopted letter has no current PDF yet (its edit adopts a new body)."""
+        from .application_cover_letter import adopted_letter, adopted_letter_pdf
+
+        return bool(
+            "letter_export" in self.callbacks
+            and task["stages"].get("letter", {}).get("status") == "complete"
+            and adopted_letter(task) is not None
+            and adopted_letter_pdf(task) is None
         )
 
     def _check_other_match_pending(self, task):
@@ -5511,10 +5511,9 @@ class ApplicationFlowService:
         self._check_other_match_pending(task)
         if any(
             row["id"] != task["id"]
-            and (
-                row.get("cover_letter", {}).get("status") in {"queued", "running", "needs_recheck"}
-                or row.get("material_consistency", {}).get("status")
-                in {"queued", "running", "needs_recheck"}
+            and any(
+                part.get("status") in {"queued", "running", "needs_recheck"}
+                for part in (row["stages"].get("letter", {}), row.get("material_consistency", {}))
             )
             for row in state["tasks"]
         ):
@@ -5536,125 +5535,6 @@ class ApplicationFlowService:
                 "flow_other_job_running", "原岗位阶段仍在执行或结果未知，其他岗位须等待。", 409
             )
 
-    def _reserve_cover_letter(self, state, task, *, retry=False, _continuation_request_id=None):
-        if (
-            "cover_letter" not in self.callbacks
-            or task.get("material_contract") != "content-writing/v1"
-            or not (self.preparation_only or task.get("automatic_materials"))
-            or task.get("origin") == "existing_latex"
-        ):
-            return None
-        if self.fixed_writing_inputs(task) is None:
-            return None
-        previous = task.get("cover_letter") or {}
-        binding = self._letter_binding(task)
-        # Writing only drafts text; the user's explicit retry may run an unknown letter
-        # call again (approved 2026-10-31). The unknown attempt stays in history.
-        if previous.get("status") == "needs_recheck" and not retry:
-            raise PortalDataError(
-                "letter_generation_needs_recheck", "求职信调用结果未知，先核验原尝试。", 409
-            )
-        if previous.get("status") in {"queued", "running"}:
-            return None
-        if previous.get("fixed_inputs_revision") == binding and (
-            previous.get("status") == "ready" or not retry
-        ):
-            return None
-        self._check_other_material_pending(state, task)
-        if previous:
-            task.setdefault("cover_letter_history", []).append(deepcopy(previous))
-        attempt = uuid4().hex
-        task["cover_letter"] = {
-            "status": "queued",
-            "attempt_id": attempt,
-            "analysis_id": task["analysis_id"],
-            "job_binding": task["job_binding"],
-            "fixed_inputs_revision": binding,
-        }
-        if retry and previous.get("status") == "failed":
-            task["cover_letter"]["retry_from_attempt_id"] = previous["attempt_id"]
-        _record_preparation_attempt(
-            task, "cover_letter", attempt, previous.get("attempt_id"), _continuation_request_id
-        )
-        return attempt
-
-    def _launch_cover_letter(self, task_id, attempt):
-        if attempt is None:
-            return
-        self._letter_threads = {
-            key: thread for key, thread in self._letter_threads.items() if thread.is_alive()
-        }
-        thread = threading.Thread(
-            target=self._run_cover_letter,
-            args=(task_id, attempt),
-            name="application-cover-letter",
-            daemon=True,
-        )
-        self._letter_threads[attempt] = thread
-        thread.start()
-
-    def start_cover_letter(
-        self, task_id, task_revision=None, *, retry=False, _continuation_request_id=None
-    ):
-        """Start only a missing letter; a completed resume is never regenerated."""
-        with self.applications.write_lock():
-            self._writable()
-            state = self._load()
-            task = self._task(state, task_id)
-            if task_revision is not None and task["revision"] != task_revision:
-                raise PortalDataError("conflict", "任务已变化，请重新读取。", 409)
-            if task["status"] == "cancelled":
-                raise PortalDataError("flow_cancelled", "任务已取消，请保留原材料。", 409)
-            self._fresh(task, stage="resume")
-            previous = task.get("cover_letter") or {}
-            if (
-                retry
-                and previous.get("status") == "cancelled"
-                and previous.get("job_binding") == task["job_binding"]
-                and previous.get("fixed_inputs_revision") == self._letter_binding(task)
-            ):
-                retained = next(
-                    (
-                        row["result"]
-                        for row in reversed(task["artifacts"])
-                        if row.get("stage") == "cover_letter"
-                        and row.get("attempt_id") == previous.get("attempt_id")
-                        and row.get("adopted") is False
-                        and row.get("result", {}).get("status") == "ready"
-                    ),
-                    None,
-                )
-                if retained is not None:
-                    self._check_other_material_pending(state, task)
-                    self._check_letter_result(task, retained)
-                    previous.update(status="ready", result=deepcopy(retained))
-                    previous.pop("cancel_requested", None)
-                    previous.pop("error_code", None)
-                    task["artifacts"].append(
-                        {
-                            "stage": "cover_letter",
-                            "attempt_id": previous["attempt_id"],
-                            "result": deepcopy(retained),
-                            "inputs": deepcopy(task["inputs"]),
-                            "adopted": True,
-                            "reused_after_cancel": True,
-                        }
-                    )
-                    consistency = task.get("material_consistency") or {}
-                    if consistency.get("status") == "cancelled" and consistency.get(
-                        "cancel_requested"
-                    ):
-                        consistency.pop("pair_revision", None)
-                    self._reserve_material_consistency(task)
-                    self._save(state)
-                    return deepcopy(task)
-            attempt = self._reserve_cover_letter(
-                state, task, retry=retry, _continuation_request_id=_continuation_request_id
-            )
-            self._save(state)
-            self._launch_cover_letter(task_id, attempt)
-            return deepcopy(task)
-
     def adopt_cover_letter_successor(
         self,
         task_id,
@@ -5674,8 +5554,9 @@ class ApplicationFlowService:
             self._writable()
             state = self._load()
             task = self._task(state, task_id)
-            branch = task.get("cover_letter") or {}
-            current = branch.get("result") or {}
+            from .application_cover_letter import adopted_letter
+
+            current = adopted_letter(task) or {}
             try:
                 value = validate_letter(content)
             except (ValueError, TypeError) as error:
@@ -5695,11 +5576,11 @@ class ApplicationFlowService:
                     row["origin"] != "human" or row["protected"] is not True
                     for row in value["paragraphs"]
                 )
-                or branch.get("status") != "ready"
-                or branch.get("attempt_id") != expected_attempt_id
+                or "letter" not in task["stages"]
+                or current.get("attempt_id") != expected_attempt_id
             ):
                 raise PortalDataError("material_changed", "人工求职信与原申请尝试不符。", 409)
-            if branch.get("human_edit_id") == request_id:
+            if current.get("human_edit_id") == request_id:
                 if digest(current.get("content")) == digest(value) and digest(
                     current.get("source_binding")
                 ) == digest(source_binding):
@@ -5724,9 +5605,8 @@ class ApplicationFlowService:
                 raise PortalDataError(
                     "material_changed", "申请级求职信版本已变化，人工新稿已保留。", 409
                 )
-            branch.setdefault("content_history", []).append(deepcopy(current))
             body = "\n\n".join(row["text"] for row in value["paragraphs"])
-            branch["result"] = {
+            edited = {
                 **current,
                 "content": deepcopy(value),
                 "content_revision": value["revision"],
@@ -5735,40 +5615,29 @@ class ApplicationFlowService:
                 "paragraphs": deepcopy(value["paragraphs"]),
                 "actor": "user",
                 "source_binding": deepcopy(source_binding),
+                "human_edit_id": request_id,
             }
-            branch["result"].pop("grounding", None)
-            branch["human_edit_id"] = request_id
+            edited.pop("grounding", None)
+            # A newer adopted row replaces the letter; earlier rows are its history.
+            task["artifacts"].append(
+                {
+                    "stage": "letter",
+                    "attempt_id": current["attempt_id"],
+                    "result": edited,
+                    "inputs": deepcopy(task["inputs"]),
+                    "adopted": True,
+                }
+            )
             self._reserve_material_consistency(task)
             self._save(state)
-            return deepcopy(branch["result"])
-
-    def cancel_cover_letter(self, task_id):
-        """Stop adoption, retaining an in-flight call until its outcome is known."""
-        with self.applications.write_lock():
-            self._writable()
-            state = self._load()
-            task = self._task(state, task_id)
-            letter = task.get("cover_letter") or {}
-            if task.get("material_consistency", {}).get("status") == "needs_recheck":
-                raise PortalDataError(
-                    "material_consistency_needs_recheck",
-                    "原一致性调用结果未知，先核验原尝试。",
-                    409,
-                )
-            if letter.get("status") == "needs_recheck":
-                raise PortalDataError(
-                    "letter_generation_needs_recheck", "求职信调用结果未知，先核验原尝试。", 409
-                )
-            if letter.get("status") in {"queued", "running"}:
-                letter["cancel_requested"] = True
-            self._cancel_material_consistency(task)
-            self._save(state)
-            return deepcopy(letter)
-
-    def cover_letter_outcome(self, task_id):
-        with self.applications.write_lock():
-            task = self._task(self._load(), task_id)
-            return deepcopy(task.get("cover_letter") or {"status": "not_started"})
+            if "letter_export" in getattr(self, "callbacks", {}):
+                # The edited body gets its own PDF on the Flow queue, as the first did.
+                try:
+                    self.start(task_id, task["revision"], "letter_export", retry=True)
+                except PortalDataError as error:
+                    # The body stays adopted; its file field waits until the PDF is built.
+                    print(f"letter_export_after_edit_refused: {error.code}", flush=True)
+            return deepcopy(edited)
 
     @staticmethod
     def _check_letter_result(request, result):
@@ -5780,11 +5649,11 @@ class ApplicationFlowService:
             not isinstance(result, dict)
             or result.get("kind") != "cover_letter"
             or result.get("status") != "ready"
-            or result.get("attempt_id") != request["cover_letter"]["attempt_id"]
+            or result.get("attempt_id") != request["stages"]["letter"]["attempt_id"]
             or not isinstance(result.get("id"), str)
             or re.fullmatch(r"[a-f0-9]{64}", result.get("content_revision", "")) is None
             or result.get("content", {}).get("inputs_revision")
-            != request["cover_letter"]["fixed_inputs_revision"]
+            != request["stages"]["letter"]["fixed_inputs_revision"]
             or result.get("content", {}).get("application_id") != request["application_id"]
             or result.get("content", {}).get("revision") != result.get("content_revision")
         ):
@@ -5798,134 +5667,7 @@ class ApplicationFlowService:
             raise PortalDataError("letter_result_invalid", "求职信正文与内容版本不符。", 409)
         digest(result)
 
-    def recheck_cover_letter(self, task_id, task_revision):
-        """Adopt an exact persisted receipt without another author/reviewer call."""
-        with self.applications.write_lock():
-            state, task = self._checked(task_id, task_revision)
-            letter = task.get("cover_letter") or {}
-            if letter.get("status") == "ready":
-                return deepcopy(task)
-            if letter.get("status") != "needs_recheck" or any(
-                thread.is_alive() for thread in self._letter_threads.values()
-            ):
-                raise PortalDataError(
-                    "letter_recheck_unavailable", "求职信尚不能核验，保留原尝试。", 409
-                )
-            reader = self.callbacks.get("cover_letter_result")
-            if reader is None:
-                raise PortalDataError(
-                    "letter_generation_needs_recheck", "求职信原回执暂不可读。", 409
-                )
-            result = reader(deepcopy(task))
-            self._check_letter_result(task, result)
-            if (
-                self._letter_binding(task) != letter["fixed_inputs_revision"]
-                or task["job_binding"] != letter["job_binding"]
-            ):
-                raise PortalDataError(
-                    "letter_result_invalid", "求职信原回执的固定资料已变化。", 409
-                )
-            adopt = not letter.get("cancel_requested") and task["status"] != "cancelled"
-            task["artifacts"].append(
-                {
-                    "stage": "cover_letter",
-                    "attempt_id": letter["attempt_id"],
-                    "result": deepcopy(result),
-                    "inputs": deepcopy(task["inputs"]),
-                    "adopted": adopt,
-                    "reconciled": True,
-                }
-            )
-            if adopt:
-                letter.update(status="ready", result=deepcopy(result))
-            else:
-                letter["status"] = "cancelled"
-            letter.pop("error_code", None)
-            self._reserve_material_consistency(task)
-            self._save(state)
-            return deepcopy(task)
-
-    def _run_cover_letter(self, task_id, attempt):
-        try:
-            with self.applications.write_lock():
-                if self._closed.is_set():
-                    return
-                state = self._load()
-                task = self._task(state, task_id)
-                letter = task.get("cover_letter") or {}
-                if letter.get("attempt_id") != attempt or letter.get("status") != "queued":
-                    return
-                if letter.get("cancel_requested") or task["status"] == "cancelled":
-                    letter["status"] = "cancelled"
-                    self._save(state)
-                    return
-                letter["status"] = "running"
-                self._save(state)
-                request = deepcopy(task)
-            result, error_code, known_failure = None, None, False
-            try:
-                candidate = self.callbacks["cover_letter"](request)
-                self._check_letter_result(request, candidate)
-                result = candidate
-            except Exception as error:
-                error_code = getattr(error, "code", "letter_generation_needs_recheck")
-                # A call without an answer is resent on retry (Model Call Record).
-                known_failure = error_code in {
-                    "letter_generation_failed",
-                    "letter_generation_no_answer",
-                }
-            with self.applications.write_lock():
-                state = self._load()
-                task = self._task(state, task_id)
-                letter = task.get("cover_letter") or {}
-                active = (
-                    not self._closed.is_set()
-                    and letter.get("attempt_id") == attempt
-                    and letter.get("status") == "running"
-                    and not letter.get("cancel_requested")
-                    and task["status"] != "cancelled"
-                    and task["job_binding"] == request["job_binding"]
-                )
-                if active:
-                    try:
-                        active = (
-                            self._letter_binding(task)
-                            == request["cover_letter"]["fixed_inputs_revision"]
-                        )
-                    except (PortalDataError, KeyError, ValueError):
-                        active = False
-                if result is not None:
-                    task["artifacts"].append(
-                        {
-                            "stage": "cover_letter",
-                            "attempt_id": attempt,
-                            "result": result,
-                            "inputs": request["inputs"],
-                            "adopted": active and error_code is None,
-                        }
-                    )
-                if letter.get("attempt_id") == attempt and letter.get("status") == "running":
-                    if error_code:
-                        letter.update(
-                            status="failed" if known_failure else "needs_recheck",
-                            error_code=error_code,
-                        )
-                    elif active:
-                        letter.update(status="ready", result=deepcopy(result))
-                    elif letter.get("status") == "running":
-                        letter["status"] = "cancelled"
-                self._reserve_material_consistency(task)
-                self._save(state)
-            self._run_material_consistency(task_id)
-        except (OSError, ValueError, PortalDataError, helper.StoreError):
-            self._runtime_error = "flow_checkpoint_unavailable"
-            self._closed.set()
-            self._queue.put(None)
-        finally:
-            if self._closed.is_set():
-                self._release_owner()
-
-    def resume_call_allowed(self, expected):
+    def resume_call_allowed(self, expected, stage="resume"):
         """Check the saved task and preparation control before each author call."""
         if self._closed.is_set() or self._runtime_error:
             return False
@@ -5938,8 +5680,8 @@ class ApplicationFlowService:
                     or task["status"] == "cancelled"
                     or task["job_binding"] != expected["job_binding"]
                     or task["inputs"] != expected["inputs"]
-                    or task["stages"]["resume"].get("attempt_id")
-                    != expected["stages"]["resume"].get("attempt_id")
+                    or task["stages"].get(stage, {}).get("attempt_id")
+                    != expected["stages"][stage].get("attempt_id")
                 ):
                     return False
                 if self.material_batch and not self.material_batch.guard_admission(state, task):
@@ -5981,7 +5723,9 @@ class ApplicationFlowService:
 
     @staticmethod
     def _consistency_pair(task):
-        letter = (task.get("cover_letter") or {}).get("result") or {}
+        from .application_cover_letter import adopted_letter
+
+        letter = adopted_letter(task) or {}
         resume = next(
             (
                 row["result"]
@@ -6014,8 +5758,10 @@ class ApplicationFlowService:
         with self.applications.write_lock():
             return {
                 task["id"]: {
-                    key: (task.get(key) or {}).get("status", "not_started")
-                    for key in ("cover_letter", "material_consistency")
+                    "letter": task["stages"].get("letter", {}).get("status", "not_started"),
+                    "material_consistency": (task.get("material_consistency") or {}).get(
+                        "status", "not_started"
+                    ),
                 }
                 for task in self._load_shared()["tasks"]
                 if task["id"] in wanted
@@ -6195,13 +5941,20 @@ class ApplicationFlowService:
 
     def start(self, task_id, task_revision, stage, *, retry=False, _continuation_request_id=None):
         self._writable()
-        if stage not in self.callbacks or stage not in {"analysis", "resume", "export"}:
+        if stage not in self.callbacks or stage not in {
+            "analysis",
+            "resume",
+            "export",
+            *LETTER_STAGES,
+        }:
             raise PortalDataError("flow_stage_unavailable", "此任务阶段暂不可用。", 409)
         with self.applications.write_lock():
             self._writable()
             state = self._load()
             task = self._task(state, task_id)
             self._check_other_match_pending(task)
+            if stage == "letter":
+                self._check_other_material_pending(state, task)
             if task.get("codex_handoff_ref") or task.get("codex_handoff_attempt"):
                 raise PortalDataError(
                     "flow_handoff_bound",
@@ -6256,8 +6009,18 @@ class ApplicationFlowService:
                 raise PortalDataError(
                     "flow_resume_recheck_required", "写作结果尚未核验，请先保留并核对原交付。", 409
                 )
+            if stage in LETTER_STAGES and current["status"] == "needs_recheck" and not retry:
+                raise PortalDataError(
+                    "letter_generation_needs_recheck"
+                    if stage == "letter"
+                    else "letter_export_needs_recheck",
+                    "求职信结果未知，先核验原尝试。",
+                    409,
+                )
+            # A letter edit adopts a new body, whose PDF is built again.
+            stale_pdf = stage == "letter_export" and self.letter_export_due(task)
             if current["status"] in {"queued", "running"} or (
-                current["status"] == "complete" and not regenerate
+                current["status"] == "complete" and not regenerate and not stale_pdf
             ):
                 return deepcopy(task)
             if task["revision"] != task_revision:
@@ -6375,6 +6138,27 @@ class ApplicationFlowService:
                 base = retained_preparation_base(task, self.callbacks.get("retained_draft"))
                 if base:
                     task["stages"][stage]["latex_base"] = base
+            if stage == "letter":
+                from .application_cover_letter import letter_inputs_revision
+
+                fixed = self.fixed_writing_inputs(task)
+                if fixed is None:
+                    raise PortalDataError(
+                        "letter_fixed_inputs_required", "求职信需要本岗已采用的固定资料。", 409
+                    )
+                task["stages"][stage]["fixed_inputs_revision"] = letter_inputs_revision(fixed)
+                if current.get("attempt_id"):
+                    # Answered calls of the earlier attempt are reused; see material_author.
+                    task["stages"][stage]["retry_from_attempt_id"] = current["attempt_id"]
+            if stage == "letter_export":
+                from .application_cover_letter import adopted_letter
+
+                letter = adopted_letter(task)
+                if letter is None or task["stages"].get("letter", {}).get("status") != "complete":
+                    raise PortalDataError(
+                        "letter_export_unavailable", "求职信正文尚未采用，不能构建 PDF。", 409
+                    )
+                task["stages"][stage]["content_revision"] = letter["content_revision"]
             if stage == "export":
                 task["stages"][stage]["configuration_revision"] = self._export_configuration(task)
                 if not local_materials(task):
@@ -6433,24 +6217,15 @@ class ApplicationFlowService:
                 )
                 if "export" in task["stages"]:
                     task["stages"]["export"] = {"status": "pending"}
-            task["status"] = (
-                "analyzing"
-                if stage == "analysis"
-                else "exporting"
-                if stage == "export"
-                else "resume_generating"
-            )
-            letter_attempt = (
-                self._reserve_cover_letter(
-                    state,
-                    task,
-                    # An approved writing retry also re-runs an unknown letter call.
-                    retry=author_retry,
-                    _continuation_request_id=_continuation_request_id,
+            if stage not in LETTER_STAGES:
+                # Letter stages never change the résumé's task status.
+                task["status"] = (
+                    "analyzing"
+                    if stage == "analysis"
+                    else "exporting"
+                    if stage == "export"
+                    else "resume_generating"
                 )
-                if stage == "resume"
-                else None
-            )
             _record_preparation_attempt(
                 task, stage, attempt_id, current.get("attempt_id"), _continuation_request_id
             )
@@ -6460,7 +6235,6 @@ class ApplicationFlowService:
                 if observer:
                     observer(deepcopy(task))
             self._queue.put((task_id, stage, attempt_id))
-            self._launch_cover_letter(task_id, letter_attempt)
             return deepcopy(task)
 
     def _run(self):
@@ -6565,6 +6339,17 @@ class ApplicationFlowService:
                         )
                     if stage == "export":
                         self._export_result(request, candidate)
+                    if stage == "letter":
+                        self._check_letter_result(request, candidate)
+                    if stage == "letter_export" and (
+                        candidate.get("content_revision")
+                        != request["stages"][stage]["content_revision"]
+                        or not candidate.get("file_path")
+                        or re.fullmatch(r"[a-f0-9]{64}", str(candidate.get("sha256"))) is None
+                    ):
+                        raise PortalDataError(
+                            "letter_export_needs_recheck", "求职信 PDF 与采用正文不符。", 409
+                        )
                     reused_pdf = stage == "resume" and candidate.get("kind") in {
                         "accepted_pdf_reuse",
                         "checked_pdf_reuse",
@@ -6648,7 +6433,13 @@ class ApplicationFlowService:
                     if stage == "resume" and isinstance(failed_handoff, dict):
                         task["experience_handoff"] = deepcopy(failed_handoff)
                     uncertain = (
-                        error_code == "resume_author_needs_recheck"
+                        error_code
+                        in {
+                            "resume_author_needs_recheck",
+                            "letter_generation_needs_recheck",
+                            "letter_result_invalid",
+                            "letter_export_needs_recheck",
+                        }
                         or stage == "export"
                         and error_code
                         in {
@@ -6663,15 +6454,16 @@ class ApplicationFlowService:
                     # Analysis keeps its exact failure fields; other stages say why.
                     if error_message and stage != "analysis":
                         task["stages"][stage]["error_message"] = error_message
-                    task["status"] = (
-                        "needs_recheck"
-                        if uncertain
-                        else "stale"
-                        if error_code == "flow_inputs_stale"
-                        else "export_failed"
-                        if stage == "export"
-                        else "failed"
-                    )
+                    if stage not in LETTER_STAGES:
+                        task["status"] = (
+                            "needs_recheck"
+                            if uncertain
+                            else "stale"
+                            if error_code == "flow_inputs_stale"
+                            else "export_failed"
+                            if stage == "export"
+                            else "failed"
+                        )
                     self._batch_after(state, task)
                     self._save(state)
                     continue
@@ -6688,6 +6480,8 @@ class ApplicationFlowService:
                 task["stages"][stage].update(status="complete", artifact_id=result["id"])
                 if stage == "export":
                     self._adopt_export(task, result)
+                elif stage in LETTER_STAGES:
+                    task[stage + "_id"] = result["id"]
                 elif stage == "resume" and result.get("kind") in {
                     "accepted_pdf_reuse",
                     "checked_pdf_reuse",
@@ -6735,7 +6529,7 @@ class ApplicationFlowService:
                     observer = self.callbacks.get("observe_pdf_ready")
                     if observer:
                         observer(deepcopy(task))
-            if stage in {"resume", "export"}:
+            if stage in {"resume", "export", "letter"}:
                 self._run_material_consistency(task_id)
 
     def _release_owner(self):
@@ -6743,7 +6537,7 @@ class ApplicationFlowService:
             current = threading.current_thread()
             if any(
                 thread is not current and thread.is_alive()
-                for thread in [self._thread, *self._letter_threads.values()]
+                for thread in [self._thread]
                 if thread is not None
             ):
                 return
@@ -6762,7 +6556,5 @@ class ApplicationFlowService:
         finally:
             if self._thread is not None:
                 self._thread.join(timeout=0.2)
-            for thread in list(self._letter_threads.values()):
-                thread.join(timeout=0.2)
             if self._thread is None or not self._thread.is_alive():
                 self._release_owner()

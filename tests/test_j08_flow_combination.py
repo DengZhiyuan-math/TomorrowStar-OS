@@ -129,7 +129,8 @@ def json_flow(canonical, tmp_path, monkeypatch, request):
                 if phase(prompt) == "review-schema.json":
                     output = {"supported": True, "reason": "Bound synthetic facts."}
                 else:
-                    context = json.loads(prompt[prompt.index("\n{") + 1 :])
+                    # The shared writing call wraps the letter's inputs in "context".
+                    context = json.loads(prompt[prompt.index("\n{") + 1 :])["context"]
                     # Grouped prompts list library facts under their experience.
                     source = (
                         context["sources"]
@@ -158,6 +159,15 @@ def json_flow(canonical, tmp_path, monkeypatch, request):
             )
 
         store.model_runner = recorded_material_model
+        # As the App does: the Worker store holds the private letter template, which
+        # Flow's letter_export uses; a synthetic compiler builds the one PDF.
+        from test_cover_letter_delivery import TEMPLATE as LETTER_TEMPLATE
+        from test_cover_letter_delivery import synthetic_export
+
+        letter_template = tmp_path / "private-letter.tex"
+        letter_template.write_text(LETTER_TEMPLATE)
+        server.worker_service.store.cover_letter_template = letter_template
+        server.worker_service.store.cover_letter_exporter = synthetic_export
         yield SimpleNamespace(
             server=server,
             flow=server.application_flow_service,
@@ -170,6 +180,24 @@ def json_flow(canonical, tmp_path, monkeypatch, request):
             information=information,
             manifest=manifest,
         )
+
+
+def prepare_materials(flow, task, ready=("materials_ready",)):
+    """Résumé → letter → letter PDF → export: each ``prepare`` advances one stage,
+    as the Pipeline's ticks do."""
+
+    def settled(row):
+        return all(
+            part.get("status") not in {"queued", "running"}
+            for part in (*row["stages"].values(), row.get("material_consistency", {}))
+        )
+
+    for _ in range(4):
+        flow.prepare(task["id"], task["revision"])
+        task = wait_for(flow, task["id"], settled)
+        if task["status"] in ready or task["status"] != "draft_ready":
+            break
+    return wait_for(flow, task["id"], lambda row: row["status"] in ready)
 
 
 def start_json_writing(case, job=None, *, bind_template=True):

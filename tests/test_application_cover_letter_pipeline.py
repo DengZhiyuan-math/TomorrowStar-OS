@@ -1,4 +1,4 @@
-"""Late optional letters retain page ownership without blocking ready materials."""
+"""Letter stage outcomes stop the Pipeline; late optional deliveries keep page ownership."""
 
 import threading
 
@@ -10,15 +10,27 @@ from career_evidence_graph.application_flow import ApplicationFlowService
 from career_evidence_graph.career_portal_data import PortalDataError
 
 
+def letter_outcomes(flow):
+    """The fake Flow reads letter stages as ``ApplicationFlowService.material_outcomes``."""
+    flow.material_outcomes = lambda task_ids: {
+        task_id: {
+            "letter": flow.tasks[task_id]
+            .get("stages", {})
+            .get("letter", {})
+            .get("status", "not_started"),
+            "material_consistency": "not_started",
+        }
+        for task_id in task_ids
+    }
+
+
 def test_unknown_optional_author_stops_already_running_page(environment):
     pipeline, flow, _, worker, _ = environment
     pipeline.start(request_id="letter-unknown")
     state = advance(pipeline, "filling")
     identifier = state["active_task_id"]
-    flow.tasks[identifier]["cover_letter"] = {"status": "needs_recheck"}
-    flow.cover_letter_outcome = lambda task_id: flow.tasks[task_id].get(
-        "cover_letter", {"status": "not_started"}
-    )
+    flow.tasks[identifier].setdefault("stages", {})["letter"] = {"status": "needs_recheck"}
+    letter_outcomes(flow)
     pipeline._tick()
     stopped = pipeline.snapshot()
     assert stopped["control"] == "paused"
@@ -34,7 +46,7 @@ def test_page_ready_retains_authority_until_late_optional_delivery(environment):
     pipeline.start(request_id="letter-late")
     state = advance(pipeline, "filling")
     identifier = state["active_task_id"]
-    flow.tasks[identifier]["cover_letter"] = {"status": "running"}
+    flow.tasks[identifier].setdefault("stages", {})["letter"] = {"status": "running"}
     job = worker.state["jobs"][0]
     job.update(
         status="ready_for_review",
@@ -52,8 +64,12 @@ def test_page_ready_retains_authority_until_late_optional_delivery(environment):
     assert worker.state["control"] == "running"
     assert ("worker_pause", identifier) not in flow.calls
     assert ("worker_review", identifier) not in flow.calls
-    # The browser wakes this same page when the independently adopted letter arrives.
-    flow.tasks[identifier]["cover_letter"]["status"] = "ready"
+    # The browser wakes this same page when the adopted letter arrives.
+    flow.tasks[identifier]["stages"]["letter"]["status"] = "complete"
+    flow.tasks[identifier]["letter_id"] = "letter"
+    flow.tasks[identifier]["artifacts"].append(
+        {"stage": "letter", "adopted": True, "result": {"id": "letter"}}
+    )
     job["status"] = "filling"
     pipeline._tick()
     assert pipeline.snapshot()["status"] == "filling"
@@ -70,7 +86,7 @@ def test_absent_cover_letter_destination_does_not_delay_ready_page(environment):
     pipeline, flow, _, worker, _ = environment
     pipeline.start(request_id="letter-absent")
     state = advance(pipeline, "filling")
-    flow.tasks[state["active_task_id"]]["cover_letter"] = {"status": "running"}
+    flow.tasks[state["active_task_id"]].setdefault("stages", {})["letter"] = {"status": "running"}
     worker.state["jobs"][0].update(
         status="ready_for_review",
         cover_letter_delivery={"status": "running", "requirement": "none", "selected_fields": []},
@@ -84,10 +100,9 @@ def test_absent_cover_letter_destination_does_not_delay_ready_page(environment):
 @pytest.mark.parametrize(
     "action",
     [
-        "flow:start-cover-letter",
+        "flow:start",
         "flow:refresh-match",
         "flow:retry-material-consistency",
-        "flow:recheck-cover-letter",
         "flow:recheck-material-consistency",
         "flow:recheck-resume-author",
     ],
@@ -103,7 +118,9 @@ def test_manual_material_author_admission_keeps_current_job_and_paused_control(
     if paused:
         pipeline.pause()
     flow._runtime_error, flow._owner, flow._closed = "", True, threading.Event()
-    with pipeline.manual_entry(action, {"task_id": target}):
+    # A manual letter retry is a Flow start of the letter stage.
+    payload = {"task_id": target} | ({"stage": "letter"} if action == "flow:start" else {})
+    with pipeline.manual_entry(action, payload):
         if current and paused:
             ApplicationFlowService._writable(flow)
         else:
