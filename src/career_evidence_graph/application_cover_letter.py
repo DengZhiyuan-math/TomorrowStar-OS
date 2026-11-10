@@ -785,6 +785,7 @@ LETTER_CODES = {
     "recheck": "letter_generation_needs_recheck",
     "paused": "letter_generation_failed",
     "no_answer": "letter_generation_no_answer",
+    "too_large": "letter_generation_too_large",
 }
 
 

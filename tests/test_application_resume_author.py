@@ -336,3 +336,34 @@ def test_rewrite_keeps_reviewer(json_flow):
     result = execute_content_generation(case.store, identifier, runner=runner)
     assert result["kind"] == "draft"
     assert len(reviews) == 2
+
+
+def test_an_author_input_over_the_cli_limit_stops_without_resend(json_flow):
+    """2026-11-10: a 1.15 M-character planner prompt was refused before any model turn."""
+    from career_evidence_graph.codex_cli import CodexCLIError
+
+    case = json_flow
+    task = start_json_writing(case)
+    calls = []
+
+    def runner(config, prompt, **kwargs):
+        calls.append(prompt)
+        error = CodexCLIError("Codex CLI failed")
+        error.redacted_stderr = 'turn/start failed: {"input_error_code":"input_too_large"}'
+        raise error
+
+    identifier = task["experience_handoff"]["id"]
+    with pytest.raises(PortalDataError) as refused:
+        execute_content_generation(case.store, identifier, runner=runner)
+    assert refused.value.code == "resume_author_too_large"
+    assert len(calls) == 1
+
+
+def test_the_planner_context_omits_each_requirements_source_texts(json_flow):
+    from career_evidence_graph import application_experience_latex as generation
+
+    case = json_flow
+    task = start_json_writing(case)
+    context = generation.generation_context(case.store, task["experience_handoff"]["id"])
+    assert context["requirements"]
+    assert all("sources" not in row for row in context["requirements"])

@@ -312,9 +312,15 @@ def generation_context(store, identifier):
             **_public(state),
             "job": deepcopy(payload["job"]),
             "job_brief": deepcopy(payload["job_brief"]),
-            # Scoring groups repeat the job_brief and never guide wording.
+            # Scoring groups repeat the job_brief and never guide wording. Each row's
+            # source texts repeat the assignments' facts: 29 requirements copied 48
+            # sources 106 times, 1.15 M characters over Codex's limit (2026-11-10).
             "requirements": [
-                {key: value for key, value in row.items() if key != "scoring_framework"}
+                {
+                    key: value
+                    for key, value in row.items()
+                    if key not in {"scoring_framework", "sources"}
+                }
                 for row in payload["requirements"]
             ],
             "content_plan": deepcopy(payload["content_plan"]),

@@ -182,6 +182,11 @@ def _error_text(error, primary, fallback):
     return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else str(value)
 
 
+def input_too_large(error) -> bool:
+    """The CLI refused the input as over its length limit; resending cannot help."""
+    return "input_too_large" in _error_text(error, "redacted_stderr", "stderr")
+
+
 def failure_code(error, default="match_model_unavailable"):
     """Name a runner failure the same way in every stage."""
     if isinstance(

@@ -29,6 +29,7 @@ RESUME_CODES = {
     "recheck": "resume_author_needs_recheck",
     "paused": "resume_author_paused",
     "no_answer": "resume_author_no_answer",
+    "too_large": "resume_author_too_large",
 }
 
 
@@ -118,6 +119,11 @@ def author_call(
     except PortalDataError:
         raise
     except Exception as error:
+        if model_call.input_too_large(error):
+            # The same input is refused again, so this stops instead of resending.
+            raise _failure(
+                codes["too_large"], "写作输入超过模型长度上限，未发送；需要缩短输入。"
+            ) from error
         raise _failure(
             codes["no_answer"],
             "写作的模型调用没有返回结果；已完成的部分保留，继续时只重发这一次调用。",
