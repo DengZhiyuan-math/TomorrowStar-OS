@@ -322,9 +322,13 @@ def _preparation_progress(task, analysis):
     elif resume.get("status") == "failed" and resume.get("error_code") in {
         "resume_author_material_required",
         "resume_author_failed",
+        "resume_author_no_answer",
     }:
         status, reason = "waiting", "resume_author_input_required"
         message = "简历写作需要处理对应经历，已保留完成片段和原稿。"
+        if resume["error_code"] == "resume_author_no_answer":
+            message = "简历写作的模型调用没有返回结果，已保留完成片段；点继续只重发这一次调用。"
+            continuation = {"task_id": task["id"], "attempt_id": resume.get("attempt_id")}
         if resume["error_code"] == "resume_author_failed":
             # A model output that failed the program's check is not missing experience.
             message = (
@@ -5425,6 +5429,7 @@ class ApplicationFlowService:
                     "resume_author_failed",
                     "resume_author_material_required",
                     "resume_author_paused",
+                    "resume_author_no_answer",
                 }
             )
             if handoff.get("id") != generation_id or not (
@@ -6271,7 +6276,12 @@ class ApplicationFlowService:
                     stage == "resume"
                     and current.get("status") == "failed"
                     and current.get("error_code")
-                    in {"resume_author_paused", "resume_author_failed", "resume_latex_invalid"}
+                    in {
+                        "resume_author_paused",
+                        "resume_author_failed",
+                        "resume_author_no_answer",
+                        "resume_latex_invalid",
+                    }
                     and retry
                 )
             ):

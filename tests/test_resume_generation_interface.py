@@ -63,30 +63,33 @@ def test_default_flow_dispatches_authors_through_resume_owner(json_flow, monkeyp
     assert case.store.draft(done["draft_id"])["generation_contract"] == "content-writing/v1"
 
 
-def test_unknown_generation_cannot_replay_through_execute_or_reconcile(json_flow):
+def test_generation_without_answer_resends_through_execute_never_reconcile(json_flow):
     case = json_flow
     task = start_json_writing(case)
     handoff = task["experience_handoff"]
-    calls = []
+    calls, lost = [], []
 
     def runner(config, prompt, **kwargs):
         request = json.loads(prompt.split("\n", 1)[1])
         calls.append(request["role"])
-        if request["role"].startswith("experience-"):
+        if request["role"].startswith("experience-") and not lost:
+            lost.append(request["role"])
             raise TimeoutError("Synthetic lost author response")
         return response(author_output(request))
 
     case.store.model_runner = runner
     with pytest.raises(PortalDataError) as unknown:
         case.store.execute_generation(handoff)
-    assert unknown.value.code == "resume_author_needs_recheck"
+    assert unknown.value.code == "resume_author_no_answer"
     before = list(calls)
-    for operation in (case.store.execute_generation, case.store.reconcile_generation):
-        with pytest.raises(PortalDataError) as retained:
-            operation(handoff)
-        assert retained.value.code == "resume_author_needs_recheck"
-        assert retained.value.experience_handoff == handoff
+    with pytest.raises(PortalDataError) as retained:
+        case.store.reconcile_generation(handoff)
+    assert retained.value.code == "resume_author_needs_recheck"
+    assert retained.value.experience_handoff == handoff
     assert calls == before
+    result = case.store.execute_generation(handoff)
+    assert result["generation_contract"] == "content-writing/v1"
+    assert calls[len(before)] == lost[0] and "plan" not in calls[len(before) :]
 
 
 def test_cancelling_flow_stops_subsequent_author_calls_and_preserves_completed_plan(json_flow):

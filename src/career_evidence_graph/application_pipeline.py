@@ -96,6 +96,11 @@ MAIL_POLL = 1800
 # this many times; then the job stops for the user (decided 2026-11-09).
 MODEL_RESENDS = 3
 MODEL_RESEND_WAIT = 30
+# The wait each resent stage stops in; its Continue resends the call without an answer.
+_RESEND_WAITS = {
+    "analysis": "analysis_input_required",
+    "resume": "resume_author_input_required",
+}
 
 
 def same_company(listed, company) -> bool:
@@ -1588,20 +1593,9 @@ class ApplicationPipeline:
                         self._save(state)
                         return self.snapshot()
                     if state.get("wait_reason") == "resume_author_input_required":
-                        task = self._task(state)
-                        progress = self.flow.progress(task["id"])
-                        continuation = progress["continuation"]
-                        if continuation is not None:
-                            state["resume_author_retry"] = continuation | {
-                                "request_id": payload["request_id"]
-                            }
-                        if progress["can_continue"]:
-                            state.pop("wait_reason", None)
-                            state.pop("resume_status", None)
-                            state.update(
-                                control="running", status="generating_resume", notification=None
-                            )
-                        self._save(state)
+                        # The user's own Continue starts a fresh run of automatic resends.
+                        state.pop("model_resend", None)
+                        self._continue_author(state, payload["request_id"])
                         return self.snapshot()
                     if state.get("wait_reason") in {
                         "analysis_input_required",
@@ -2357,31 +2351,51 @@ class ApplicationPipeline:
             )
         self._save(state)
 
+    def _continue_author(self, state, request_id):
+        """Queue Flow's continuation of a stopped résumé author, then resume materials."""
+        task = self._task(state)
+        progress = self.flow.progress(task["id"])
+        continuation = progress["continuation"]
+        if continuation is not None:
+            state["resume_author_retry"] = continuation | {"request_id": request_id}
+        if progress["can_continue"]:
+            state.pop("wait_reason", None)
+            state.pop("resume_status", None)
+            state.update(control="running", status="generating_resume", notification=None)
+        self._save(state)
+
     def _schedule_resend(self, state, outcome):
         """Plan the next automatic Continue of a call without an answer, or None."""
         resend = state.get("model_resend") or {}
         if not outcome.get("resendable"):
             state.pop("model_resend", None)
             return None
-        count = resend.get("count", 0) if resend.get("task_id") == outcome["task_id"] else 0
+        stage = outcome.get("stage", "analysis")
+        same = (resend.get("task_id"), resend.get("stage", "analysis")) == (
+            outcome["task_id"],
+            stage,
+        )
+        count = resend.get("count", 0) if same else 0
         if count >= MODEL_RESENDS:
             return None
         state["model_resend"] = {
             "task_id": outcome["task_id"],
+            "stage": stage,
             "count": count,
             "due": time.time() + MODEL_RESEND_WAIT,
         }
         return f"模型调用失败，{MODEL_RESEND_WAIT} 秒后第 {count + 1} 次重试。"
 
     def _resend_when_due(self, state):
-        """Continue a stopped analysis whose resend wait has passed."""
+        """Continue a stopped analysis or résumé author whose resend wait has passed."""
         resend = state.get("model_resend")
+        stage = (resend or {}).get("stage", "analysis")
         if (
             not resend
             or resend.get("due") is None
             or time.time() < resend["due"]
             or state["control"] != "paused"
-            or state.get("wait_reason") != "analysis_input_required"
+            or state.get("wait_reason") != _RESEND_WAITS.get(stage)
             or state.get("active_task_id") != resend["task_id"]
         ):
             return False
@@ -2389,7 +2403,10 @@ class ApplicationPipeline:
         resend.update(count=resend["count"] + 1, due=None)
         self._save(state)
         try:
-            self._retry_analysis(state, uuid4().hex)
+            if stage == "resume":
+                self._continue_author(state, uuid4().hex)
+            else:
+                self._retry_analysis(state, uuid4().hex)
         except PortalDataError as error:
             state["last_stop_error"] = {"code": error.code, "location": None, "at": time.time()}
             self._stop(state, "needs_recheck", str(error))
@@ -3167,10 +3184,18 @@ class ApplicationPipeline:
             reason = progress["wait_reason"]
             if progress["status"] in {"waiting", "needs_recheck", "failed", "cancelled"}:
                 state.update(resume_status="generating_resume", wait_reason=reason)
+                no_answer = progress["resume"].get("error_code") == "resume_author_no_answer"
                 self._stop(
                     state,
                     "needs_input" if progress["status"] == "waiting" else "needs_recheck",
-                    progress["message"] or "材料生成未完成，保留原任务和结果。",
+                    (
+                        no_answer
+                        and self._schedule_resend(
+                            state, {"task_id": task["id"], "stage": "resume", "resendable": True}
+                        )
+                    )
+                    or progress["message"]
+                    or "材料生成未完成，保留原任务和结果。",
                 )
                 return
             if reason != state.get("wait_reason"):

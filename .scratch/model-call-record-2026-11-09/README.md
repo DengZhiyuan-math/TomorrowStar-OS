@@ -236,13 +236,37 @@ across 4 modules (ee1af146, 54341431, e1545fed, b262937d, 02d150b6, 5019d594,
   failure-mode tests expect `needs_input`. 807 of 813 targeted tests pass; the
   same 6 fail on the base commit.
 
+**Step 7 — résumé author, done (uncommitted).**
+
+- Each author call (plan, one per experience, review) goes through
+  `model_call`: files `prompt.json`, `schema.json`, `result.json`, rejection
+  `validation-failure.json`. An answered call is reused (`earlier_answer`); a call
+  without an answer is sent again in the same directory; a rejected answer still
+  moves to the next directory, whose prompt carries the rejection.
+- A runner failure now raises `resume_author_no_answer` (stage *failed*, not
+  `needs_recheck`). Flow routes it like `resume_author_failed`: a continuation that
+  keeps the handoff, so finished fragments are not rewritten. Before, an unknown
+  author result became `resume_author_needs_recheck`, and Continue discarded the
+  handoff and rewrote the whole résumé (17952ff5).
+- Pipeline: the 30 s resend (`model_resend`) records its `stage`; a résumé author
+  without an answer is resent through the same continuation as the user's
+  Continue (`_continue_author`), up to 3 times.
+- Legacy directories (`intent.json`, wrapped `result.json`) are still read; one
+  without a result is resent in place.
+- Receipt-only reconcile (`allow_calls=False`) still never sends.
+- Tests: the two "never replay" tests now assert that only the unanswered call
+  is resent; new tests cover a legacy reservation and the Pipeline's automatic
+  author resend. 1867 of 1873 targeted tests pass; the same 6 fail on the base
+  commit. The ratchet gains 2 `pipeline._tick()` uses in the new test.
+
 **Still to do**, in order:
 
-1. Migrate the remaining callers: résumé, cover letter, full_latex, jd_extract,
-   gmail, proofread, and others. Add the Claude second opinion as an adapter with
-   resend off.
-2. Delete the private-helper tests; run the full suite once; do one real job
-   analysis in the App.
+1. Migrate the cover letter and material consistency check. Other callers
+   (gmail, jd_extract, account check, employer page search, audit, cli) are
+   one-shot calls with no resume semantics and stay as they are; the Claude second
+   opinion already never blocks a job.
+2. Delete the private-helper tests; run the full suite once; generate one real
+   résumé in the App.
 
 ## Follow-up enabled
 

@@ -6,10 +6,11 @@ import json
 from copy import deepcopy
 from pathlib import Path
 
+from . import model_call
 from ._vendor import job_apply_store as helper
 from .application_resume_content import ContentPatch, validate_plan, writer_schema
 from .career_portal_data import PortalDataError
-from .codex_cli import run_codex_exec, strict_output_schema, validate_recorded_result
+from .codex_cli import run_codex_exec, strict_output_schema
 from .validation.hashing import record_digest as digest
 from .validation.models import CodexCLIConfig
 
@@ -18,8 +19,16 @@ def _failure(code, message):
     return PortalDataError(code, message, 409)
 
 
+AUTHOR = model_call.Files("prompt.json", "schema.json", "result.json")
+
+
 def _call(store, identifier, role, context, schema, runner, allow_calls, admit_call):
-    """Reserve before calling; a missing response never authorizes another call."""
+    """One author call through its Model Call Record (see ``model_call``).
+
+    A recorded answer is reused. A call that produced no answer is sent again in the
+    same directory, so finished calls are never repeated. A rejected answer moves on
+    to the next directory, whose prompt shows the model that rejection.
+    """
     base = Path(store.root) / identifier / "automatic-authors"
     # Strict structured output lists every property as required (installed MC-11:
     # every author call was rejected for the optional headline).
@@ -42,7 +51,7 @@ def _call(store, identifier, role, context, schema, runner, allow_calls, admit_c
             directory = base / (binding + "-" + str(index))
             if directory.is_symlink() or base.is_symlink():
                 raise _failure("resume_author_needs_recheck", "简历作者目录不能重定向。")
-            failed = directory / "validation-failure.json"
+            failed = directory / model_call.REJECTION
             if not failed.exists():
                 break
             previous = helper.read_json_object(failed, "resume author rejected response")
@@ -53,26 +62,16 @@ def _call(store, identifier, role, context, schema, runner, allow_calls, admit_c
             "Do not call tools, browse, retrieve, inspect files or change fixed facts. "
             "Return only the required JSON object.\n" + json.dumps(request, ensure_ascii=False)
         )
-        expected = {"binding": binding, "request": request, "schema": schema}
-        intent = directory / "intent.json"
-        result_path = directory / "result.json"
         writer_id = "automatic-" + role + "-" + digest([binding, index])[:24]
-        if intent.exists():
-            if helper.read_json_object(intent, "resume author intent") != expected:
-                raise _failure("resume_author_needs_recheck", "简历作者输入回执不符。")
-            if not result_path.exists():
-                raise _failure(
-                    "resume_author_needs_recheck", "简历作者调用结果未知，不会重复调用。"
-                )
-            receipt = helper.read_json_object(result_path, "resume author response")
-            raw = receipt["result"]
-            if receipt.get("binding") != binding or receipt.get("result_revision") != digest(raw):
-                raise _failure("resume_author_needs_recheck", "简历作者结果回执不能核验。")
-            if raw.get("schema_version") == "codex-cli-result/v1":
-                validate_recorded_result(
-                    raw, prompt=prompt, output_schema=directory / "schema.json"
-                )
-            answer = raw["structured_result"]
+        try:
+            if (directory / "intent.json").exists() and not (directory / AUTHOR.prompt).exists():
+                answer = _legacy_answer(directory, {"binding": binding, "request": request})
+            else:
+                answer = model_call.earlier_answer(directory, AUTHOR)
+                answer = None if answer is None else answer.structured_result
+        except model_call.DamagedRecord as error:
+            raise _failure("resume_author_needs_recheck", "简历作者调用记录不能核验。") from error
+        if answer is not None:
             return deepcopy(_unwrapped(answer, wrapped)), writer_id, directory
         if not allow_calls:
             raise _failure(
@@ -80,35 +79,53 @@ def _call(store, identifier, role, context, schema, runner, allow_calls, admit_c
             )
         if admit_call is not None and admit_call() is False:
             raise _failure("resume_author_paused", "简历作者已停止，保留完成结果且不启动后续调用。")
-        directory.mkdir(parents=True, exist_ok=False)
-        helper.atomic_write_json(directory / "schema.json", schema)
-        helper.atomic_write_json(intent, expected)
+        directory.mkdir(parents=True, exist_ok=True)
+        helper.atomic_write_json(directory / AUTHOR.schema, schema)
+        helper.atomic_write_json(directory / AUTHOR.prompt, {"prompt": prompt})
     config = CodexCLIConfig(
         schema_version="codex-cli-config/v1",
         workspace=directory,
-        output_schema=directory / "schema.json",
+        output_schema=directory / AUTHOR.schema,
         drift_limitation_reason=(
             "Resume JSON authors retain configured alias and raw native output."
         ),
     )
     try:
-        response = runner(config, prompt, timeout_seconds=300, allow_non_repository=True)
-        raw = response.model_dump(mode="json")
-        if raw.get("schema_version") == "codex-cli-result/v1":
-            validate_recorded_result(raw, prompt=prompt, output_schema=config.output_schema)
-        helper.atomic_write_json(
-            result_path, {"binding": binding, "result_revision": digest(raw), "result": raw}
+        response = model_call.send(
+            directory,
+            AUTHOR,
+            runner,
+            config,
+            prompt,
+            timeout_seconds=300,
+            allow_non_repository=True,
         )
-        answer = response.structured_result
-        return deepcopy(_unwrapped(answer, wrapped)), writer_id, directory
+    except PortalDataError:
+        raise
     except Exception as error:
-        helper.atomic_write_json(
-            directory / "failure.json",
-            {"status": "needs_recheck", "error_type": type(error).__name__},
-        )
         raise _failure(
-            "resume_author_needs_recheck", "简历作者结果未知，原尝试已保留；不会自动重放。"
+            "resume_author_no_answer",
+            "简历写作的模型调用没有返回结果；已完成的部分保留，继续时只重发这一次调用。",
         ) from error
+    return deepcopy(_unwrapped(response.structured_result, wrapped)), writer_id, directory
+
+
+def _legacy_answer(directory, expected):
+    """An author directory saved before Model Call Record: its answer, or None."""
+    intent = helper.read_json_object(directory / "intent.json", "resume author intent")
+    if {key: intent.get(key) for key in expected} != expected:
+        raise model_call.DamagedRecord(str(directory))
+    if not (directory / "result.json").exists():
+        return None
+    receipt = helper.read_json_object(directory / "result.json", "resume author response")
+    raw = receipt.get("result")
+    if (
+        not isinstance(raw, dict)
+        or receipt.get("binding") != expected["binding"]
+        or receipt.get("result_revision") != digest(raw)
+    ):
+        raise model_call.DamagedRecord(str(directory))
+    return raw.get("structured_result")
 
 
 def _unwrapped(answer, wrapped):
@@ -196,7 +213,7 @@ def repaired_global_refs(plan):
 
 def _rejected(directory, error):
     helper.atomic_write_json(
-        directory / "validation-failure.json",
+        directory / model_call.REJECTION,
         {
             "status": "failed",
             "reason": str(error),
@@ -325,7 +342,7 @@ def _execute_content_generation(
 def execute_content_generation(
     store, identifier, *, runner=None, allow_calls=True, admit_call=None
 ):
-    """Execute or reconcile the existing content handoff; unknown effects never replay."""
+    """Execute or reconcile the existing content handoff; finished calls never repeat."""
     try:
         return _execute_content_generation(
             store, identifier, runner=runner, allow_calls=allow_calls, admit_call=admit_call

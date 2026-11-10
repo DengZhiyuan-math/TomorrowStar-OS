@@ -154,3 +154,36 @@ def test_a_global_reference_with_an_extra_exp_prefix_is_corrected_only_when_uniq
     # An already delivered reference is kept; an undelivered one is left to fail validation.
     assert plan["summary"][0]["fact_refs"] == ["exp-a::exp-a-human-cv-L1", "exp-b::exp-b-fact-1"]
     assert plan["skills"][0]["inference_refs"] == ["inf-1"]
+
+
+def test_pipeline_resends_an_author_without_answer_after_the_wait(current_pipeline, monkeypatch):
+    from career_evidence_graph import application_pipeline
+
+    monkeypatch.setattr(application_pipeline, "MODEL_RESEND_WAIT", 0)
+    pipeline, flow, _, _ = current_pipeline
+    pipeline.start(request_id="author-without-answer")
+    state = drive(pipeline, "generating_resume")
+    task = flow.tasks[state["active_task_id"]]
+    task["status"] = "failed"
+    task.setdefault("stages", {})["resume"] = {
+        "status": "failed",
+        "error_code": "resume_author_no_answer",
+        "attempt_id": "original-attempt",
+    }
+    pipeline._tick()
+    state = pipeline.snapshot()
+    assert state["wait_reason"] == "resume_author_input_required"
+    assert state["notification"]["message"] == "模型调用失败，0 秒后第 1 次重试。"
+    calls = []
+
+    def retry(identifier, revision, stage, *, retry=False, _continuation_request_id=None):
+        assert retry and stage == "resume"
+        calls.append(identifier)
+        task["stages"]["resume"]["attempt_id"] = f"no-answer-again-{len(calls)}"
+
+    monkeypatch.setattr(flow, "start", retry)
+    # No Continue from the user: the due resend queues Flow's continuation itself.
+    for _ in range(4):
+        pipeline._tick()
+    assert calls == [task["id"]]
+    assert pipeline.snapshot()["model_resend"]["stage"] == "resume"

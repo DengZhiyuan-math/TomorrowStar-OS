@@ -129,30 +129,74 @@ def test_actual_scoped_resume_writer_overlaps_whole_letter_writer(json_flow):
         release.set()
 
 
-def test_unknown_resume_author_intent_cannot_be_replayed(json_flow):
+def test_an_author_call_without_answer_is_resent_alone(json_flow):
+    """Model Call Record: only the unanswered call is sent again; answered ones are kept."""
     case = json_flow
     task = start_json_writing(case)
-    calls = []
+    calls, lost = [], []
 
     def runner(config, prompt, **kwargs):
         request = json.loads(prompt.split("\n", 1)[1])
         calls.append(request["role"])
-        if request["role"].startswith("experience-"):
+        if request["role"].startswith("experience-") and not lost:
+            lost.append(request["role"])
             raise TimeoutError("lost response")
         return response(author_output(request))
 
     identifier = task["experience_handoff"]["id"]
     with pytest.raises(PortalDataError) as first:
         execute_content_generation(case.store, identifier, runner=runner)
-    assert first.value.code == "resume_author_needs_recheck"
+    assert first.value.code == "resume_author_no_answer"
     before = list(calls)
-    with pytest.raises(PortalDataError) as second:
-        execute_content_generation(case.store, identifier, runner=runner)
-    assert second.value.code == "resume_author_needs_recheck"
-    assert calls == before
-    with pytest.raises(PortalDataError):
+    # A receipt-only check never sends the missing call.
+    with pytest.raises(PortalDataError) as checked:
         execute_content_generation(case.store, identifier, runner=runner, allow_calls=False)
+    assert checked.value.code == "resume_author_needs_recheck"
     assert calls == before
+    result = execute_content_generation(case.store, identifier, runner=runner)
+    assert result["kind"] == "draft"
+    resent = calls[len(before) :]
+    assert "plan" not in resent
+    assert resent[0] == lost[0]
+    assert resent.count(lost[0]) == 1
+
+
+def test_an_author_reservation_saved_before_model_call_record_is_resent(json_flow):
+    """A legacy intent.json without a result no longer blocks: that one call is resent."""
+    case = json_flow
+    task = start_json_writing(case)
+    calls, lost = [], []
+
+    def runner(config, prompt, **kwargs):
+        request = json.loads(prompt.split("\n", 1)[1])
+        calls.append(request["role"])
+        if request["role"].startswith("experience-") and not lost:
+            lost.append(config.workspace)
+            raise TimeoutError("lost response")
+        return response(author_output(request))
+
+    identifier = task["experience_handoff"]["id"]
+    with pytest.raises(PortalDataError):
+        execute_content_generation(case.store, identifier, runner=runner)
+    directory = lost[0]
+    prompt = json.loads((directory / "prompt.json").read_text())["prompt"]
+    # Rewrite the record as the old reservation: intent saved, no result.
+    (directory / "intent.json").write_text(
+        json.dumps(
+            {
+                "binding": directory.name.rsplit("-", 1)[0],
+                "request": json.loads(prompt.split("\n", 1)[1]),
+                "schema": json.loads((directory / "schema.json").read_text()),
+            }
+        )
+    )
+    (directory / "prompt.json").unlink()
+    (directory / "result.json").unlink()
+    before = list(calls)
+    result = execute_content_generation(case.store, identifier, runner=runner)
+    assert result["kind"] == "draft"
+    assert calls[len(before)] == calls[len(before) - 1]
+    assert "plan" not in calls[len(before) :]
 
 
 def test_adoption_response_loss_reuses_complete_authors_and_review(json_flow, monkeypatch):
