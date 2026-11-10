@@ -104,7 +104,7 @@
   const heading = node("div", "page-heading");
   const headingCopy = node("div");
   const title = node("h1", "", "自动申请"); title.id = "flow-title";
-  headingCopy.append(node("div", "eyebrow", "APPLICATIONS"), title, node("p", "", "邮件推荐、岗位匹配、专用简历和申请填写自动衔接，完成后通知你最终确认。"));
+  headingCopy.append(title);
   const observe = button("读取最新状态", () => refresh(true), "flow-observe", true);
   delete observe.dataset.flowWrite;
   heading.append(headingCopy, observe);
@@ -278,8 +278,6 @@
   function renderMode() {
     const preparing = flow?.mode === "preparation";
     title.textContent = preparing ? "投递工作台" : "自动申请";
-    headingCopy.querySelector(".eyebrow").textContent = preparing ? "MATERIAL PREPARATION" : "APPLICATIONS";
-    headingCopy.querySelector("p").textContent = preparing ? "查看当前岗位进度与最终简历。" : "邮件推荐、岗位匹配、专用简历和申请填写自动衔接，完成后通知你最终确认。";
     const label = preparing ? "投递工作台" : "自动申请";
     if (viewLabels.flow !== label) {
       viewLabels.flow = label;

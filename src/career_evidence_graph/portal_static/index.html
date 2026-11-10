@@ -21,7 +21,6 @@
     <div class="workspace">
       <aside class="sidebar" aria-label="工作台导航">
         <a class="brand" href="#overview" aria-label="TomorrowStar 工作台首页"><span class="brand-mark" aria-hidden="true">TS<span>✦</span></span><span>TomorrowStar<small>职业工作台</small></span></a>
-        <div class="workspace-label"><span class="live-dot"></span> 个人工作空间</div>
         <nav class="navigation" aria-label="主要导航">
           <span class="nav-section-label">日常申请</span>
           <a href="#flow" data-view="flow" class="nav-item"><span aria-hidden="true">→</span><span id="flow-navigation-label">自动申请</span></a>
@@ -38,12 +37,11 @@
           <div class="connection-title">数据连接</div>
           <div class="connection" id="applications-connection"><span class="connection-dot"></span>投递记录<span>连接中</span></div>
           <div class="connection" id="career-connection"><span class="connection-dot"></span>职业证据<span>连接中</span></div>
-          <div class="sidebar-footnote">每一次行动，都有迹可循。<br><span>TomorrowStar OS · 本机工作台</span></div>
         </div>
       </aside>
       <main id="main" class="main" tabindex="-1">
         <header class="topbar">
-          <span class="breadcrumb">个人工作空间 <span aria-hidden="true">/</span> <strong id="current-view-label">今日工作</strong></span>
+          <span class="breadcrumb" hidden><strong id="current-view-label">今日工作</strong></span>
           <div class="topbar-actions"><button class="button button-quiet icon-button" id="refresh-button" type="button" aria-label="刷新工作台" title="刷新工作台">↻</button><button type="button" id="add-application" class="button button-primary"><span aria-hidden="true">＋</span> 新增投递 <kbd>N</kbd></button></div>
         </header>
         <div id="page-notice" class="notice" role="status" hidden></div>
