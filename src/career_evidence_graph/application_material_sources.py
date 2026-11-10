@@ -241,7 +241,8 @@ def model_source(source):
     if source.get("application_trusted") is True:
         # The program admitted this trusted-library source and keeps these flags and
         # file locators for its own checks; the model reads evidence and boundaries.
-        # resume_eligible stays: only native citations list resume sources in the schema.
+        # Library items are résumé material by default, so only resume_eligible=false is
+        # sent; native citations also list the allowed résumé sources in the schema.
         keys -= _TRUSTED_RECEIPT_ONLY
         if source.get("source_kind") == "confirmed_information":
             # Every confirmed fact shares this boundary, which the prompt already states.
@@ -252,7 +253,12 @@ def model_source(source):
             key: value
             for key, value in result.items()
             if not (
-                key == "planned_only" and value is not True or key == "boundaries" and not value
+                key == "planned_only"
+                and value is not True
+                or key == "boundaries"
+                and not value
+                or key == "resume_eligible"
+                and value is True
             )
         }
     if source.get("confirmed_information"):

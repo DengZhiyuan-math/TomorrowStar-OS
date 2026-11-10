@@ -107,9 +107,10 @@ def test_trusted_projection_sends_evidence_and_boundaries_without_admission_flag
         "text": "Led delivery.",
         "record_context": {"organization": "Example", "role": "Lead"},
         "attribution": "Editorial statement",
-        "resume_eligible": True,
     }
     assert model_source(profile | {"planned_only": True})["planned_only"] is True
+    # Résumé material is the default; only an excluded source says so.
+    assert model_source(profile | {"resume_eligible": False})["resume_eligible"] is False
     confirmed = {
         "source_id": "fact-answer",
         "source_kind": "confirmed_information",
@@ -124,7 +125,6 @@ def test_trusted_projection_sends_evidence_and_boundaries_without_admission_flag
         "source_id": "fact-answer",
         "source_kind": "confirmed_information",
         "text": '{"fact": "language_french_cefr", "value": "B2"}',
-        "resume_eligible": True,
         "confirmed_information": {"fact": "language_french_cefr"},
     }
     research = {key: value for key, value in profile.items() if key != "application_trusted"}
@@ -151,7 +151,6 @@ def test_trusted_projection_sends_evidence_and_boundaries_without_admission_flag
         {
             "source_id": "fact",
             "text": "Built the parser.",
-            "resume_eligible": True,
             # The user's own completed work is the default and carries no labels.
             "record_context": {
                 "experience_context_ref": "experience-1",
