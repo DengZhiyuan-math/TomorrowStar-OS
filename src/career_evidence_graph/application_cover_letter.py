@@ -1080,10 +1080,7 @@ def _pdf_delivery_result(directory, rendered, binding, raw, *, max_bytes, pdf_in
         raise PortalDataError(
             "letter_pdf_pages_unverified", "求职信 PDF 页数尚未核验，保留正文和文件。", 409
         )
-    if pages != 1:
-        raise PortalDataError(
-            "letter_pdf_overflow", "求职信超过一页，请调整正文；不会裁切或缩小字号。", 409
-        )
+    # One page is the writer's target, not a limit: a longer letter is still delivered.
     return {
         **{
             key: rendered[key]

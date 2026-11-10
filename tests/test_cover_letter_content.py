@@ -426,7 +426,7 @@ def test_pdf_is_lazily_built_via_existing_prism_and_reuses_completed_result(tmp_
     assert compiler.calls == 1
 
 
-def test_unknown_build_and_overflow_keep_body_and_pdf_without_automatic_rebuild(tmp_path):
+def test_unknown_build_keeps_body_and_a_longer_letter_is_delivered(tmp_path):
     content = ready(tmp_path)["content"]
     compiler = Compiler(unknown=True)
     for _ in range(2):
@@ -434,12 +434,11 @@ def test_unknown_build_and_overflow_keep_body_and_pdf_without_automatic_rebuild(
             export_cover_letter_pdf(tmp_path / "unknown-pdf", content, TEMPLATE, client=compiler)
         assert caught.value.code == "letter_export_needs_recheck"
     assert compiler.calls == 1
-    overflowing = Compiler()
-    with pytest.raises(PortalDataError) as caught:
-        export_cover_letter_pdf(
-            tmp_path / "overflow", content, TEMPLATE, client=overflowing, pdf_inspector=lambda _: 2
-        )
-    assert caught.value.code == "letter_pdf_overflow"
+    # 2026-11-10 (Harmattan AI): one page is only the writing target, never a stop.
+    two_pages = export_cover_letter_pdf(
+        tmp_path / "overflow", content, TEMPLATE, client=Compiler(), pdf_inspector=lambda _: 2
+    )
+    assert two_pages["page_count"] == 2
     assert (tmp_path / "overflow/letter.pdf").exists()
     assert validate_letter(content)["revision"] == content["revision"]
     assert (tmp_path / "overflow/project/main.tex").read_text().startswith("\\documentclass[11pt]")
