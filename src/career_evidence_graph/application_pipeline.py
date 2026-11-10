@@ -3009,10 +3009,17 @@ class ApplicationPipeline:
                 return
             if tier == "approve" and not decided:
                 state.update(active_task_id=item["task_id"], wait_reason="score_approval")
+                upper = (item.get("score") or {}).get("upper")
+                why = (
+                    "匹配分在 55–75 之间"
+                    if upper is not None and 55 <= upper < 75
+                    else "两个评分模型给的分数相差较大"
+                )
                 self._stop(
                     state,
                     "needs_input",
-                    "匹配分在待审批区间或两个模型分差较大：请查看匹配概览，点继续即批准生成材料。",
+                    f"{why}，是否投递由你决定。简历和求职信还没生成："
+                    "要投就点“继续当前岗位”，不投就点“跳过当前岗位”。",
                 )
                 return
             if tier == "manual" and item.get("application_route") != "manual":

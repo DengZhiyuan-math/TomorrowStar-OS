@@ -341,7 +341,6 @@
     }
     automation.append(actions);
     if (pipeline?.wait_reason === "codex_resume_required") automation.append(node("p", "flow-muted", "当前岗位等待 Codex 完成分经历写作、程序组装和单一终审；完成后自动继续，其他岗位保持等待。"));
-    if (pipeline?.wait_reason === "score_approval") automation.append(node("p", "flow-muted", "此岗位匹配分在 55–75 区间，或两个模型分差较大：已完成分析、尚未生成材料。查看匹配概览后，点击“继续当前岗位”即批准生成材料；不投可点跳过。"));
     if (pipeline?.wait_reason === "precision_adjustment") automation.append(node("p", "flow-muted", "此岗位已完成分析、完整简历与已发现的必要附稿。你可以先调整材料，再点击“继续当前岗位”使用当前版本填写。"));
     if (pipeline?.notice) automation.append(node("p", "flow-muted", pipeline.notice.message || pipeline.notice.title));
     // One row per job: title, a status badge with its reason, and the row's action.
