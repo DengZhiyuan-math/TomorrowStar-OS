@@ -564,6 +564,9 @@ def test_prepare_builds_the_letter_pdf_once_in_flow_before_the_export(tmp_path):
         assert pdf["content_revision"] == adopted_letter(done)["content_revision"]
         assert Path(pdf["file_path"]).parent == flow.root / "letter-pdfs" / pdf["id"]
         assert letter_branch(done)["pdf"] == pdf
+        assert flow.read_letter_pdf(pdf["id"]) == Path(pdf["file_path"]).read_bytes()
+        with pytest.raises(PortalDataError):
+            flow.read_letter_pdf("f" * 32)
         assert not flow.letter_export_due(done)
         flow.start(task["id"], done["revision"], "letter_export", retry=True)
         assert compiler.calls == 1

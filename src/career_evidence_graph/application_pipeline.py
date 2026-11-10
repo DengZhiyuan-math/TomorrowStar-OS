@@ -370,7 +370,7 @@ class ApplicationPipeline:
         letter = (
             action == "flow:start"
             and isinstance(payload, dict)
-            and payload.get("stage") == "letter"
+            and payload.get("stage") in {"letter", "letter_export"}
         )
         if letter or action in {
             "flow:retry-material-consistency",

@@ -1025,6 +1025,17 @@ class ApplicationFlowService:
             return resumes.read_reuse(task, record, self.material_tasks())
         return resumes.read_pdf(record)
 
+    def read_letter_pdf(self, identifier):
+        """Read the bytes of one letter PDF Flow built, checked against its record."""
+        record = self.adopted_artifact("letter_export", identifier)
+        path = Path(record["file_path"]) if record else None
+        if path is None or path.parent != self.root / "letter-pdfs" / identifier:
+            raise PortalDataError("flow_export_not_found", "找不到此求职信 PDF。", 404)
+        raw = path.read_bytes()
+        if hashlib.sha256(raw).hexdigest() != record["sha256"]:
+            raise PortalDataError("material_changed", "求职信 PDF 已变化，请保留原版本。", 409)
+        return raw
+
     def verify_materials(self, task):
         """Verify the task's final PDF against its adopted lineage."""
         if local_materials(task):

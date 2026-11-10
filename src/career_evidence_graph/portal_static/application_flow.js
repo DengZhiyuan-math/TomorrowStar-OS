@@ -866,6 +866,17 @@
         details.append(node("summary", "", "查看已保存正文"), node("p", "flow-material-text", letter.result.text));
         panel.append(details);
       }
+      const letterPdf = task.stages?.letter_export;
+      const pdfResult = adopted("letter_export");
+      if (letterStage?.status === "complete" && letterPdf) {
+        const pdfCurrent = pdfResult?.content_revision === letter.result?.content_revision;
+        const pdfLabels = { pending: "PDF 等待生成", queued: "PDF 等待生成", running: "正在生成 PDF", failed: "PDF 生成失败，可仅重试 PDF", needs_recheck: "PDF 结果待核验，可仅重试 PDF", cancelled: "PDF 生成已停止" };
+        panel.append(node("p", "flow-muted", letterPdf.status === "complete" && pdfCurrent ? `PDF 已生成 · ${pdfResult.page_count} 页` : letterPdf.status === "complete" ? "正文已修改，PDF 等待重新生成" : pdfLabels[letterPdf.status] || letterPdf.status));
+        if (letterPdf.status === "complete" && pdfCurrent && /^[a-f0-9]{32}$/.test(pdfResult.id || "")) {
+          const link = node("a", "button button-secondary", "打开 Cover Letter PDF"); link.href = `/api/flow/letter-pdfs/${pdfResult.id}/pdf`; link.target = "_blank"; link.rel = "noopener noreferrer"; panel.append(link);
+        }
+        if (["failed", "needs_recheck", "cancelled"].includes(letterPdf.status)) panel.append(button("仅重试 Cover Letter PDF", () => start("letter_export", true), "flow-retry-cover-letter-pdf", true));
+      }
       current.append(panel);
     }
     if (task.material_consistency) {

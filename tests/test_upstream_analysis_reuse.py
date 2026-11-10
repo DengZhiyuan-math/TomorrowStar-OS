@@ -255,7 +255,6 @@ def test_retry_after_a_configuration_change_reads_the_rejected_job_brief_again(
 def test_a_packet_refused_for_size_after_every_read_is_a_known_failure(
     canonical, tmp_path, monkeypatch
 ):
-    from career_evidence_graph import application_matching_pipeline
 
     library, _, _, base, *_ = canonical
     snapshot = thin(canonical)
@@ -283,10 +282,11 @@ def test_a_packet_refused_for_size_after_every_read_is_a_known_failure(
     monkeypatch.delenv("TOMORROWSTAR_MATERIAL_CONTEXT_BYTES")
     # Installed MC-11: the trimmed source view changed the information revision,
     # so the refused reading could not be resumed; it is read again from the start.
-    monkeypatch.setattr(application_matching_pipeline, "_same_upstream_binding", lambda *_: False)
+    # A changed job field stands in for that changed binding.
     fresh = RecordedPipeline(first.requirements)
+    moved = APPLICATION | {"location": "Basel"}
     progress = application_match.Analysis(root, runner=fresh, **options).prepare(
-        APPLICATION, snapshot, request_id="3" * 32, recovery_candidates=["2" * 32, "1" * 32]
+        moved, snapshot, request_id="3" * 32, recovery_candidates=["2" * 32, "1" * 32]
     )
     assert progress["status"] == "complete"
     assert len(fresh.brief_calls) == 1
@@ -299,8 +299,6 @@ def test_a_rejected_evaluation_with_changed_inputs_is_analysed_again_from_the_st
     canonical, tmp_path, monkeypatch
 ):
     from test_application_match import model_runner
-
-    from career_evidence_graph import application_matching_pipeline
 
     library, _, _, base, *_ = canonical
     snapshot = thin(canonical)
@@ -323,11 +321,16 @@ def test_a_rejected_evaluation_with_changed_inputs_is_analysed_again_from_the_st
         application_match.analyze_job(APPLICATION, snapshot, old, runner=invalid, **options)
     assert caught.value.code == "match_inference_invalid"
     # Installed MC-11: the Education Record changed the information binding, so the
-    # rejected attempt could not be resumed and every retry was refused.
-    monkeypatch.setattr(application_matching_pipeline, "_same_upstream_binding", lambda *_: False)
+    # rejected attempt could not be resumed and every retry was refused. A changed
+    # job field stands in for that changed binding.
     retry = RecordedPipeline(initial.requirements)
     result = application_match.analyze_job(
-        APPLICATION, snapshot, tmp_path / "fresh", runner=retry, resume_from=old, **options
+        APPLICATION | {"location": "Basel"},
+        snapshot,
+        tmp_path / "fresh",
+        runner=retry,
+        resume_from=old,
+        **options,
     )
     assert len(retry.brief_calls) == 1
     assert result["material_packet"]["status"] == "complete"

@@ -434,6 +434,9 @@ def create_server(
                         raise PortalDataError("material_not_found", "找不到此附稿。", 404)
                     raw = read_material_pdf(flow, worker, worker_reference, parts[0], parts[1])
                     self._send(200, raw, "application/pdf", allow_same_origin_frame=True)
+                elif re.fullmatch(r"/api/flow/letter-pdfs/[a-f0-9]{32}/pdf", path) and flow:
+                    raw = flow.read_letter_pdf(path.split("/")[4])
+                    self._send(200, raw, "application/pdf", allow_same_origin_frame=True)
                 elif path.startswith("/api/flow/drafts/") and flow_resumes:
                     self._json(flow.read_draft(path.removeprefix("/api/flow/drafts/")))
                 elif path.startswith("/api/flow/exports/") and flow_resumes and preparation_only:
