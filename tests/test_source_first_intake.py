@@ -373,9 +373,11 @@ def test_reconcile_does_not_clear_saved_location_conflict(applications, tmp_path
         )
         service.ingest(text=TEXT, request_id="7" * 32)
         conflict = ready(service)
-        assert conflict["job"]["status"] == "needs_recheck"
+        # 2026-11-11, Mistral: a refused save wrote nothing, so its outcome is known;
+        # as "needs recheck" it locked the input with nothing left to recheck.
+        assert conflict["job"]["status"] == "failed"
         reconciled = service.reconcile_job("7" * 32)
-        assert reconciled["job"]["status"] == "needs_recheck"
+        assert reconciled["job"]["status"] == "failed"
         assert reconciled["job"]["error_code"] == "recommendation_source_conflict"
         assert reconciled["recommendations"][0]["selection_status"] == "source_conflict"
         assert applications.get_application(saved["id"])["revision"] == changed["revision"]
@@ -395,10 +397,29 @@ def test_retargeted_application_is_not_saved_by_prior_selection_receipt(applicat
         changed = applications.update_application(saved["id"], {"url": other}, saved["revision"])
         service.ingest(text=text, request_id="c" * 32)
         conflict = ready(service)
-        assert conflict["job"]["status"] == "needs_recheck"
+        # A refused save is a known failure (2026-11-11); nothing is saved either way.
+        assert conflict["job"]["status"] == "failed"
         assert conflict["recommendations"][0]["selection_status"] == "source_conflict"
         reconciled = service.reconcile_job("c" * 32)
-        assert reconciled["job"]["status"] == "needs_recheck"
+        assert reconciled["job"]["status"] == "failed"
         assert applications.get_application(saved["id"])["revision"] == changed["revision"]
+    finally:
+        service.close()
+
+
+def test_reconcile_unlocks_a_conflict_recorded_as_needing_recheck(applications, tmp_path):
+    """A job saved before refusals counted as known is released by Read saved state."""
+    service = ApplicationIntakeService(applications, tmp_path / "intake", extractor=fields)
+    try:
+        service.ingest(text=TEXT, request_id="6" * 32)
+        saved = applications.get_application(ready(service)["job"]["application_id"])
+        applications.update_application(saved["id"], {"location": "Basel"}, saved["revision"])
+        service.ingest(text=TEXT, request_id="7" * 32)
+        ready(service)
+        job = service._read_job("7" * 32) | {"status": "needs_recheck"}
+        service._save_job(job)
+        reconciled = service.reconcile_job("7" * 32)
+        assert reconciled["job"]["status"] == "failed"
+        assert reconciled["job"]["error_code"] == "recommendation_source_conflict"
     finally:
         service.close()

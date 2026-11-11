@@ -34,6 +34,13 @@ from .indeed_job_source import fetch_job_source_or_browser
 from .validation.hashing import record_digest as digest
 from .workable_uploads import job_shortcode
 
+# Selections refused before anything is written: the outcome is known.
+KNOWN_SAVE_REFUSALS = {
+    "recommendation_source_conflict",
+    "recommendation_source_changed",
+    "recommendation_identity_unknown",
+}
+
 
 def _canonical(url):
     key = recommendation_key(url)
@@ -445,6 +452,13 @@ class ApplicationIntakeService:
                 # Selection is admitted only after recommendation_id is durably saved.
                 # The exclusive intake owner proves the interrupted runner has exited.
                 job.update(status="failed", error_code="intake_interrupted_before_save")
+                self._save_job(job)
+                if state.get("job", {}).get("request_id") == request_id:
+                    state.update(job=job, status="failed", error_code=job["error_code"])
+                    self._save(state)
+            if job["status"] == "needs_recheck" and job.get("error_code") in KNOWN_SAVE_REFUSALS:
+                # Recorded before refusals counted as known; nothing was saved.
+                job.update(status="failed")
                 self._save_job(job)
                 if state.get("job", {}).get("request_id") == request_id:
                     state.update(job=job, status="failed", error_code=job["error_code"])
@@ -1303,9 +1317,15 @@ class ApplicationIntakeService:
                                 state.update(status="failed", error_code="intake_failed")
                                 if request.get("operation") == "ingest":
                                     job = state["job"]
+                                    # 2026-11-11, Mistral: a refused save (a source that
+                                    # conflicts with the saved job) wrote nothing; as
+                                    # "needs recheck" it locked the input for good.
+                                    known = isinstance(error, PortalDataError) and (
+                                        error.code in KNOWN_SAVE_REFUSALS
+                                    )
                                     job.update(
                                         status="needs_recheck"
-                                        if job.get("recommendation_id")
+                                        if job.get("recommendation_id") and not known
                                         else "failed",
                                         error_code=error.code
                                         if isinstance(error, PortalDataError)

@@ -747,6 +747,7 @@ function renderSourceIntake(snapshot) {
       intake_source_incomplete: "来源已保留。尚未取得完整岗位信息，请补充 JD 全文后再次整理。",
       intake_source_unavailable: "来源已保留。岗位页面暂不可读，可粘贴 JD 全文再次整理。",
       intake_extraction_failed: "来源已保留。自动提取未完成，请查看原文后明确重试整理。",
+      recommendation_source_conflict: "这个来源与已保存的同一岗位记录不符，未保存。可在“岗位与进度”核对已有记录，或粘贴其他岗位。",
     }[job.error_code] || "来源已保留。整理未完成，请查看已保存来源后明确重试整理。");
     $("source-intake-status").append(node("p", "", explanation));
     const diagnostics = node("details", "jd-details"); diagnostics.id = "source-intake-diagnostics";
