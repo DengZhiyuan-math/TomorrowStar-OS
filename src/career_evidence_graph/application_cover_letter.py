@@ -20,7 +20,7 @@ from pydantic import Field
 
 from ._vendor import job_apply_store as helper
 from .application_resume_content import Contract, Text
-from .application_resume_render import _ESCAPES, _text, symbol_escapes
+from .application_resume_render import _ESCAPES, SYMBOLS, _text, symbol_escapes
 from .career_portal_data import PortalDataError
 from .material_author import AUTHOR, author_call, record_rejection
 from .validation.hashing import record_digest as digest
@@ -293,6 +293,12 @@ def render_cover_letter(content, template, *, application=None, renderer=RENDERE
     if existing_body.strip():
         raise ValueError("letter template contains existing body content")
     greeting, closing = _fixed_text(prefix, suffix)
+    start, end = prefix.find(BEGIN_OPENING), prefix.find(END_OPENING)
+    if renderer == RENDERER_REVISION and 0 <= start < end:
+        # 2026-11-11: a role title with "–" reached the 8-bit font raw and failed the
+        # PDF. The fixed opening maps symbols like the body; the plain text keeps them.
+        opening = "".join(SYMBOLS.get(char, char) for char in prefix[start:end])
+        prefix = prefix[:start] + opening + prefix[end:]
     pieces, ranges = [prefix], {}
     for row in content["paragraphs"]:
         pieces.append("% LETTER PARAGRAPH " + row["id"] + " BEGIN\n")
@@ -421,7 +427,7 @@ def reconcile_letter_tex(content, template, edited):
         ),
     }
     try:
-        prefix, _, suffix = _template_parts(template)
+        prefix, _, suffix = _template_parts(original)
         new_prefix, body, new_suffix = _template_parts(edited)
         if new_prefix != prefix or new_suffix != suffix:
             raise ValueError("fixed template area was edited")

@@ -308,7 +308,15 @@ def test_fixed_opening_markers_do_not_silently_drop_greeting_or_intro(tmp_path, 
     assert error.value.code == "letter_template_invalid"
 
 
-@pytest.mark.parametrize("title", ["Quantitative Researcher", "Research & C++_Tools (100%)"])
+@pytest.mark.parametrize(
+    "title",
+    [
+        "Quantitative Researcher",
+        "Research & C++_Tools (100%)",
+        # 2026-11-11: a raw en dash in the opening failed the PDF's missing-glyph guard.
+        "Quantitative Researcher \u2013 Postgraduate",
+    ],
+)
 def test_program_fills_fixed_opening_from_exact_application_role(tmp_path, title):
     from career_evidence_graph.application_materials import application_binding
 
@@ -329,6 +337,11 @@ def test_program_fills_fixed_opening_from_exact_application_role(tmp_path, title
     assert ROLE_TITLE_SLOT not in rendered["tex"]
     if "&" in title:
         assert r"Research \& C++\_Tools (100\%)" in rendered["tex"]
+    if "\u2013" in title:
+        assert "Quantitative Researcher -- Postgraduate" in rendered["tex"]
+        assert "\u2013" not in rendered["tex"]
+        bound = bind_letter_template(template, application)
+        assert reconcile_letter_tex(content, bound, rendered["tex"])["status"] == "ready"
     assert rendered == render_cover_letter(content, bind_letter_template(template, application))
     wrong_job = {**application, "role_title": "Other role"}
     with pytest.raises(ValueError):
