@@ -2374,6 +2374,14 @@ class ApplicationPipeline:
             state.update(control="running", status="generating_resume", notification=None)
         self._save(state)
 
+    def _analysis_failure_reason(self, outcome):
+        """The saved model error behind a failed analysis, in the user's words, or None."""
+        analysis = getattr(self.flow, "analysis", None)
+        try:
+            return analysis.failure_reason(outcome["attempt_id"]) if analysis else None
+        except (PortalDataError, OSError, KeyError, TypeError, AttributeError):
+            return None
+
     def _schedule_resend(self, state, outcome):
         """Plan the next automatic Continue of a call without an answer, or None."""
         resend = state.get("model_resend") or {}
@@ -3194,11 +3202,14 @@ class ApplicationPipeline:
                 resume_status="matching",
                 wait_reason="analysis_input_required",
             )
+            reason = self._analysis_failure_reason(outcome)
+            resend = self._schedule_resend(state, outcome)
             self._stop(
                 state,
                 "needs_input",
-                self._schedule_resend(state, outcome)
-                or "当前岗位分析未通过校验，请处理已保存的失败原因；其他岗位保持等待。",
+                (f"{reason}。{resend}" if reason and resend else resend)
+                or f"当前岗位分析未完成：{reason or '错误代码 ' + str(outcome['error_code'])}。"
+                "其他岗位保持等待。",
             )
         elif outcome is None and _known_analysis_failure(task):
             item.update(
@@ -3448,6 +3459,8 @@ class ApplicationPipeline:
         from .application_computer_use import (
             fill_context,
             next_trial_effort,
+            preferred_executor,
+            run_claude_fill,
             run_fill,
             stage_files,
         )
@@ -3500,7 +3513,9 @@ class ApplicationPipeline:
             ),
             {},
         )
-        open_page = self.computer_use.get("open_page")
+        claude = self.computer_use.get("claude")
+        use_claude = bool(claude) and preferred_executor(self.computer_use["root"]) == "claude"
+        open_page = None if use_claude else self.computer_use.get("open_page")
         opened = bool(
             open_page and not item.get("computer_use_page_opened") and open_page(context["job_url"])
         )
@@ -3532,13 +3547,22 @@ class ApplicationPipeline:
                 )
                 if found:
                     record["salary_research"] = context["salary_research"] = found
-                record["report"] = run_fill(
-                    self.computer_use["executable"],
-                    context,
-                    self.computer_use["root"],
-                    started=lambda process: record.__setitem__("process", process),
-                    reasoning_effort=effort,
-                )
+                started = lambda process: record.__setitem__("process", process)  # noqa: E731
+                report = None
+                if not use_claude:
+                    report = run_fill(
+                        self.computer_use["executable"],
+                        context,
+                        self.computer_use["root"],
+                        started=started,
+                        reasoning_effort=effort,
+                    )
+                # 2026-11-11: when Codex is out of usage, Claude continues the same job.
+                if use_claude or (claude and report.get("usage_limit")):
+                    report = run_claude_fill(
+                        claude, context, self.computer_use["root"], started=started
+                    )
+                record["report"] = report
             except (OSError, ValueError) as error:
                 record["report"] = {
                     "status": "failed",

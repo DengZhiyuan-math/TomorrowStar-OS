@@ -802,3 +802,85 @@ def test_account_revision_follows_the_dedicated_codex_home(tmp_path, monkeypatch
     assert preparation_inputs(tmp_path)["account_context_revision"] == original
     (home / ".codex/auth.json").write_text("{}")
     assert preparation_inputs(tmp_path)["account_context_revision"] != original
+
+
+_LIMIT = json.dumps(
+    {"type": "error", "message": "You’ve hit your usage limit. Try again at Nov 13th."}
+)
+
+
+class LimitedRunner(FakeRunner):
+    """Codex answers with its usage limit; the Claude CLI answers the same prompt."""
+
+    def __init__(self, claude_output):
+        super().__init__(subprocess.CompletedProcess(["codex"], 1, _LIMIT + "\n", ""))
+        self.claude_output = claude_output
+
+    def __call__(self, argv, **kwargs):
+        if argv[0].endswith("claude"):
+            self.calls.append((argv, kwargs))
+            return subprocess.CompletedProcess(argv, 0, json.dumps(self.claude_output), "")
+        return super().__call__(argv, **kwargs)
+
+
+def test_claude_answers_when_codex_is_out_of_usage(tmp_path, monkeypatch):
+    """2026-11-11: every analysis call failed while the Codex account was out of usage."""
+    from career_evidence_graph import application_second_opinion
+    from career_evidence_graph.codex_cli import validate_recorded_result
+
+    monkeypatch.setattr(application_second_opinion, "claude_executable", lambda: "/bin/claude")
+    runner = LimitedRunner({"is_error": False, "structured_output": {"status": "ok"}})
+    config = _config(tmp_path)
+    result = run_codex_exec(
+        config,
+        "prompt",
+        runner=runner,
+        environment={"TOMORROWSTAR_CLAUDE_CONFIG": "/claude-config"},
+    )
+    assert result.structured_result == {"status": "ok"}
+    # The record names the model that answered and keeps the requested Codex profile.
+    assert result.model_identity.model_alias == "claude-opus-5-5"
+    assert result.requested_configuration["model"] == config.requested_model
+    assert "hit your usage limit" in result.raw_stdout_jsonl
+    assert '"fallback"' in result.raw_stdout_jsonl
+    # A retry adopts the recorded answer like any Codex answer.
+    assert validate_recorded_result(result, prompt="prompt", output_schema=config.output_schema)
+    argv, options = runner.calls[-1]
+    assert argv[:2] == ["/bin/claude", "-p"] and options["input"] == "prompt"
+    assert argv[argv.index("--tools") + 1] == "Read" and "--allowedTools" not in argv
+    assert options["env"]["CLAUDE_CONFIG_DIR"] == "/claude-config"
+    assert options["cwd"] == tmp_path.resolve() or Path(options["cwd"]) == tmp_path
+
+
+def test_a_search_call_falls_back_with_web_tools(tmp_path, monkeypatch):
+    from career_evidence_graph import application_second_opinion
+
+    monkeypatch.setattr(application_second_opinion, "claude_executable", lambda: "/bin/claude")
+    runner = LimitedRunner({"is_error": False, "structured_output": {"status": "ok"}})
+    runner.web_search = True
+    run_codex_exec(
+        _config(tmp_path),
+        "prompt",
+        runner=runner,
+        environment={"TOMORROWSTAR_CLAUDE_CONFIG": "/c"},
+    )
+    argv, _ = runner.calls[-1]
+    assert argv[argv.index("--tools") + 1] == "Read,WebSearch,WebFetch"
+    assert argv[argv.index("--allowedTools") + 1 :][:2] == ["WebSearch", "WebFetch"]
+
+
+def test_without_claude_or_with_its_failure_the_usage_limit_stays_an_error(tmp_path, monkeypatch):
+    from career_evidence_graph import application_second_opinion
+
+    monkeypatch.setattr(application_second_opinion, "claude_executable", lambda: "/bin/claude")
+    monkeypatch.delenv("TOMORROWSTAR_CLAUDE_CONFIG", raising=False)
+    with pytest.raises(CodexCLIError) as raised:
+        run_codex_exec(_config(tmp_path), "prompt", runner=LimitedRunner({}), environment={})
+    assert "hit your usage limit" in raised.value.raw_stdout_jsonl
+    with pytest.raises(CodexCLIError, match="Claude fallback failed"):
+        run_codex_exec(
+            _config(tmp_path),
+            "prompt",
+            runner=LimitedRunner({"is_error": True, "result": "limit"}),
+            environment={"TOMORROWSTAR_CLAUDE_CONFIG": "/c"},
+        )

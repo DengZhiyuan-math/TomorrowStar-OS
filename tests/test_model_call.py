@@ -283,3 +283,29 @@ def test_an_attempt_ended_without_answer_only_after_a_sent_call_failed(tmp_path,
         )
 
     assert model_call.ended_without_answer(tmp_path / "attempt") is expected
+
+
+def test_a_failure_reason_names_the_usage_limit_and_when_it_resets(call_dir):
+    """2026-11-11, ZKB: the stop said only that the analysis failed validation."""
+    limit = (
+        "You’ve hit your usage limit. Visit https://x.invalid or try again at"
+        " Nov 13th, 2026 2:34 AM."
+    )
+    stdout = STARTED + "\n" + json.dumps({"type": "error", "message": limit}) + "\n"
+    with pytest.raises(CodexCLIError):
+        model_call.send(
+            call_dir, PAGE, raising(CodexCLIError("x", raw_stdout_jsonl=stdout)), None, "p"
+        )
+    assert model_call.failure_reason(call_dir.parent) == (
+        "模型账号用量额度已用完，Nov 13th, 2026 2:34 AM 后可继续"
+    )
+
+
+def test_a_failure_reason_quotes_the_model_error(call_dir):
+    stdout = STARTED + "\n" + json.dumps({"type": "error", "message": "invalid  schema"}) + "\n"
+    with pytest.raises(CodexCLIError):
+        model_call.send(
+            call_dir, PAGE, raising(CodexCLIError("x", raw_stdout_jsonl=stdout)), None, "p"
+        )
+    assert model_call.failure_reason(call_dir) == "模型调用失败：invalid schema"
+    assert model_call.failure_reason(call_dir / "missing") is None

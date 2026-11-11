@@ -168,6 +168,41 @@ def ended_without_answer(directory: Path) -> bool:
     )
 
 
+def failure_reason(directory: Path) -> str | None:
+    """What a failed call under ``directory`` said went wrong, for the user, or None.
+
+    2026-11-11, ZKB: the queue said only that the analysis failed validation while
+    the record held Codex's usage-limit message and when it resets.
+    """
+    for files in (PAGE, JOB_BRIEF, EVALUATION):
+        for prompt in Path(directory).rglob(files.prompt):
+            if prompt.is_symlink() or verdict(prompt.parent, files) not in {
+                Verdict.KNOWN_FAILURE,
+                Verdict.UNKNOWN,
+            }:
+                continue
+            try:
+                receipt = helper.read_json_object(prompt.parent / files.result, "model call")
+            except (OSError, ValueError):
+                continue
+            text = str(receipt.get("raw_stdout_jsonl") or "")
+            messages = []
+            for line in text.splitlines():
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(event, dict) and event.get("type") == "error":
+                    messages.append(str(event.get("message") or ""))
+            limit = re.search(r"usage limit.*?try again at ([^.\n]+(?:\.\d+)?[^.\n]*)", text)
+            if limit:
+                return f"模型账号用量额度已用完，{limit[1].strip()} 后可继续"
+            detail = (messages or [str(receipt.get("redacted_stderr") or "")])[-1].strip()
+            if detail:
+                return "模型调用失败：" + " ".join(detail.split())[:200]
+    return None
+
+
 def failure_receipt(error) -> dict:
     return {
         "status": "failed",

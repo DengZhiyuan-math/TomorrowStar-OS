@@ -1309,6 +1309,38 @@ def test_a_fill_answers_salary_from_this_jobs_research_looked_up_once(
     assert len(lookups) == 1 and lookups[0]["company"]
 
 
+def test_claude_continues_a_fill_codex_ended_at_its_usage_limit(
+    current_pipeline, monkeypatch, tmp_path
+):
+    """2026-11-11, Celonis: Codex ran out of usage mid-fill."""
+    from career_evidence_graph import application_computer_use
+
+    pipeline, _flow, _intake, worker = current_pipeline
+    pipeline.computer_use = {"executable": "/bin/codex", "root": tmp_path / "cu", "claude": "/c"}
+    calls = []
+    limited = {"status": "failed", "summary": "limit", "usage_limit": True}
+    ready = {"status": "ready_for_review", "summary": "", "filled": [], "unanswered": []}
+    monkeypatch.setattr(
+        application_computer_use, "run_fill", lambda *a, **kw: calls.append("codex") or limited
+    )
+    monkeypatch.setattr(
+        application_computer_use,
+        "run_claude_fill",
+        lambda config, context, root, **kw: calls.append(config) or ready,
+    )
+    monkeypatch.setattr(
+        worker.store, "_native_answer_reference", lambda job: {"confirmed_answers": []}
+    )
+    pipeline.start(request_id="start")
+    for _ in range(100):
+        pipeline._tick()
+        state = pipeline.snapshot()
+        if (state.get("computer_use") or {}).get("report"):
+            break
+    assert calls == ["codex", "/c"]
+    assert state["computer_use"]["report"]["status"] == "ready_for_review"
+
+
 def test_a_removed_posting_leaves_the_queue_without_a_click(
     current_pipeline, monkeypatch, tmp_path
 ):

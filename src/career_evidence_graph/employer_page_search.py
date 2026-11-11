@@ -179,6 +179,8 @@ def codex_web_search(prompt, model, *, runner=run_codex_exec, timeout_seconds=24
                 ]
             return subprocess.run(argv, **options)
 
+        # A Claude fallback for this call searches the web as Codex would (2026-11-11).
+        transport.web_search = True
         try:
             result = runner(
                 config,

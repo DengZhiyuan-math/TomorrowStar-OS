@@ -129,7 +129,9 @@ class ValidationCharter(StrictModel):
 
 class ModelIdentity(StrictModel):
     schema_version: Literal["model-identity/v1"]
-    model_alias: Literal["gpt-5.6-luna", "gpt-6.1-sol"]
+    # claude-opus-5-5 answers when Codex is out of usage (2026-11-11); the requested
+    # configuration still names the Codex profile that was asked.
+    model_alias: Literal["gpt-5.6-luna", "gpt-6.1-sol", "claude-opus-5-5"]
     resolved_snapshot: str | None = None
 
     @model_validator(mode="after")

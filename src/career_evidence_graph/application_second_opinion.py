@@ -35,19 +35,23 @@ def _claude_environment(config_dir: Path) -> dict:
     }
 
 
+def claude_executable():
+    return next(
+        (
+            path
+            for path in (*_EXECUTABLES, str(Path.home() / ".local/bin/claude"))
+            if os.access(path, os.X_OK)
+        ),
+        None,
+    )
+
+
 class ClaudeScorer:
     """Run the Claude CLI once; return a result record and never raise."""
 
     def __init__(self, config_dir: Path, executable: str | None = None):
         self.config_dir = Path(config_dir).expanduser()
-        self.executable = executable or next(
-            (
-                path
-                for path in (*_EXECUTABLES, str(Path.home() / ".local/bin/claude"))
-                if os.access(path, os.X_OK)
-            ),
-            None,
-        )
+        self.executable = executable or claude_executable()
 
     def __call__(self, prompt: str, schema: dict, directory: Path) -> dict:
         record = {"model": CLAUDE_MODEL, "status": "failed"}

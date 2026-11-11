@@ -768,6 +768,9 @@ def main() -> int:
         from career_evidence_graph.application_second_opinion import ClaudeScorer
 
         configure_second_opinion(ClaudeScorer(args.second_opinion_claude_config))
+        # The same configuration fills through Claude in Chrome and answers model calls
+        # when Codex is out of usage (2026-11-11).
+        os.environ["TOMORROWSTAR_CLAUDE_CONFIG"] = str(args.second_opinion_claude_config)
     legacy = args.automation_lab or args.codex_handoff
     preparation_only = not (
         legacy

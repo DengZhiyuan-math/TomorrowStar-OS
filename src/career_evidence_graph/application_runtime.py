@@ -747,6 +747,9 @@ def _assemble(
                     "account_check": check_account,
                     # The salary expectation is looked up for each job (2026-11-11).
                     "research_salary": research_salary,
+                    # Claude in Chrome fills when chosen or when Codex is out of usage
+                    # (2026-11-11), with the App's Claude configuration.
+                    "claude": os.environ.get("TOMORROWSTAR_CLAUDE_CONFIG"),
                     # The company's confirmation mail records a manual Submit.
                     "confirmations": partial(
                         _read_confirmations, root=Path(worker_root) / "confirmation-mail"

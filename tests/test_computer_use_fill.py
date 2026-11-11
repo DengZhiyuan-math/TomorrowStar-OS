@@ -96,7 +96,7 @@ def test_a_fill_ended_by_the_usage_limit_says_so_and_when_it_resets(tmp_path):
         return Process(argv, report=None, code=1, **options)
 
     result = run_fill("/bin/codex", {"job_url": "u"}, tmp_path, popen=popen)
-    assert result["status"] == "failed"
+    assert result["status"] == "failed" and result["usage_limit"] is True
     assert result["summary"] == (
         "Codex 账号用量额度已用完，Nov 13th, 2026 2:34 AM 后可继续；页面保留已填内容。"
     )
@@ -361,3 +361,114 @@ def test_a_refill_keeps_the_staged_file_itself_and_rewrites_a_changed_one(tmp_pa
     stage_files(context, folder)
     assert staged.read_bytes() == b"two" and staged.stat().st_ino == first.st_ino
     assert [path.name for path in folder.iterdir()] == ["A_B_CV.pdf"]
+
+
+class ClaudeProcess:
+    def __init__(self, argv, *, output, code=0, **options):
+        self.argv, self.options, self.code = argv, options, code
+        self.prompt = b""
+        this = self
+
+        class Stdin:
+            def write(self, data):
+                this.prompt += data
+
+            def close(self):
+                pass
+
+        self.stdin = Stdin()
+        if output is not None:
+            options["stdout"].write(json.dumps(output).encode())
+
+    def wait(self, timeout=None):
+        return self.code
+
+
+def test_a_claude_fill_works_only_through_claude_in_chrome(tmp_path, monkeypatch):
+    """2026-11-11: Claude fills when Codex is out of usage."""
+    from career_evidence_graph.application_computer_use import run_claude_fill
+
+    monkeypatch.setenv("HOME", "/Users/u")
+    seen, started = [], []
+
+    def popen(argv, **options):
+        process = ClaudeProcess(
+            argv, output={"is_error": False, "structured_output": REPORT}, **options
+        )
+        seen.append(process)
+        return process
+
+    context = {"job_url": "https://jobs.example.invalid/1", "resume_path": "~/Apply/A_CV.pdf"}
+    report = run_claude_fill(
+        "~/.claude-x",
+        context,
+        tmp_path,
+        popen=popen,
+        executable="/bin/claude",
+        chrome=lambda: started.append("chrome"),
+    )
+    assert {key: report[key] for key in REPORT} == REPORT
+    assert started == ["chrome"]
+    (process,) = seen
+    argv = process.argv
+    assert argv[:3] == ["/bin/claude", "-p", "--chrome"]
+    assert argv[argv.index("--tools") + 1] == "Read"
+    allowed = argv[argv.index("--allowedTools") + 1 : argv.index("--no-session-persistence")]
+    assert "mcp__claude-in-chrome__file_upload" in allowed
+    assert "mcp__claude-in-chrome__javascript_tool" not in allowed
+    # 2026-11-11, Celonis: batched clicks were refused and ~/Apply was out of reach.
+    assert "mcp__claude-in-chrome__browser_batch" not in allowed
+    assert argv[argv.index("--add-dir") + 1] == "/Users/u/Apply"
+    assert process.options["env"]["CLAUDE_CONFIG_DIR"].endswith("/.claude-x")
+    prompt = process.prompt.decode()
+    assert "Never click Submit" in prompt and "file_upload" in prompt
+    # The file tool needs a full path; the extension works in its own tab group.
+    assert "/Users/u/Apply/A_CV.pdf" in prompt and "tab group" in prompt
+    assert "upload(control_id" not in prompt and "node_repl" not in prompt
+    # 2026-11-11, adesso: the highest qualification was set to the Master's.
+    assert "in-progress degree with an expected graduation counts as held" in prompt
+
+
+@pytest.mark.parametrize(
+    "output",
+    [None, {"is_error": True, "result": "You've hit your limit"}, {"structured_output": {}}],
+)
+def test_a_claude_fill_without_a_valid_report_fails(tmp_path, output):
+    from career_evidence_graph.application_computer_use import run_claude_fill
+
+    result = run_claude_fill(
+        "/c",
+        {"job_url": "u"},
+        tmp_path,
+        executable="/bin/claude",
+        popen=lambda argv, **options: ClaudeProcess(argv, output=output, **options),
+        chrome=lambda: None,
+    )
+    assert result["status"] == "failed"
+    if output and output.get("result"):
+        assert "hit your limit" in result["summary"]
+
+
+def test_the_fill_executor_file_chooses_claude(tmp_path):
+    from career_evidence_graph.application_computer_use import preferred_executor
+
+    assert preferred_executor(tmp_path) == "codex"
+    (tmp_path / "fill-executor.json").write_text('{"executor": "claude"}')
+    assert preferred_executor(tmp_path) == "claude"
+
+
+def test_a_closed_chrome_is_started_before_a_claude_fill():
+    """2026-11-11, ZKB: with Chrome closed the extension was not connected."""
+    from career_evidence_graph.application_computer_use import start_chrome
+
+    calls, waits = [], []
+
+    def run(argv, **options):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 1 if argv[0] == "pgrep" else 0)
+
+    start_chrome(run=run, wait=waits.append)
+    assert calls[1] == ["open", "-g", "-a", "Google Chrome"] and waits == [15]
+    calls.clear()
+    start_chrome(run=lambda argv, **o: calls.append(argv) or subprocess.CompletedProcess(argv, 0))
+    assert calls == [["pgrep", "-x", "Google Chrome"]]

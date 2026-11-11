@@ -1974,6 +1974,10 @@ class Analysis:
         """The ended attempt stopped on a sent model call that produced no answer."""
         return model_call.ended_without_answer(self._directory(attempt_id))
 
+    def failure_reason(self, attempt_id):
+        """What the ended attempt's failed model call said, for the user, or None."""
+        return model_call.failure_reason(self._directory(attempt_id))
+
     def _dispatch_stop(self, attempt_id):
         directory = self._directory(attempt_id)
         path = directory / "dispatch-stopped.json"

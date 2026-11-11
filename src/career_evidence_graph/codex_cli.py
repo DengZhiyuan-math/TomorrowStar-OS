@@ -321,6 +321,124 @@ def _check_schema_unchanged(path: Path, original: bytes) -> None:
         raise CodexCLIError("Codex output schema changed during the call")
 
 
+# 2026-11-11: with the Codex account out of usage until Nov 13, every analysis and
+# writing call failed. When the App configures Claude, Claude answers the same prompt
+# against the same schema, and the record names Claude as the model that answered.
+CLAUDE_CONFIG_ENVIRONMENT = "TOMORROWSTAR_CLAUDE_CONFIG"
+CLAUDE_FALLBACK_MODEL = "claude-opus-5-5"
+USAGE_LIMIT = "hit your usage limit"
+
+
+def _claude_fallback(
+    config,
+    prompt,
+    claude_config,
+    *,
+    workspace,
+    schema,
+    schema_bytes,
+    codex_stdout,
+    cli_version,
+    started_at,
+    runner,
+    timeout_seconds,
+):
+    from .application_second_opinion import _claude_environment, claude_executable
+
+    executable = claude_executable()
+    if executable is None:
+        raise CodexCLIError("Codex usage limit reached and the Claude CLI is unavailable")
+    argv = [
+        executable,
+        "-p",
+        "--model",
+        CLAUDE_FALLBACK_MODEL,
+        "--effort",
+        "medium",
+        "--output-format",
+        "json",
+        "--json-schema",
+        schema,
+        # Read only, confined to the call's workspace, as Codex's read-only sandbox;
+        # web tools only for a call that asked Codex to search the web.
+        "--tools",
+        "Read,WebSearch,WebFetch" if getattr(runner, "web_search", False) else "Read",
+        *(
+            ["--allowedTools", "WebSearch", "WebFetch"]
+            if getattr(runner, "web_search", False)
+            else []
+        ),
+        "--no-session-persistence",
+    ]
+    try:
+        process = runner(
+            argv,
+            shell=False,
+            input=prompt,
+            cwd=workspace,
+            env=_claude_environment(Path(claude_config).expanduser()),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout_seconds,
+        )
+        value = json.loads(process.stdout or "{}")
+    except subprocess.TimeoutExpired as exc:
+        raise CodexCLIError("Claude fallback timed out", raw_stdout_jsonl=codex_stdout) from exc
+    except ValueError as exc:
+        raise CodexCLIError(
+            "Claude fallback output is not JSON", raw_stdout_jsonl=codex_stdout
+        ) from exc
+    output = value.get("structured_output") if isinstance(value, dict) else None
+    if process.returncode != 0 or value.get("is_error") or output is None:
+        raise CodexCLIError(
+            "Codex usage limit reached and the Claude fallback failed: "
+            + str(value.get("result") or process.stderr or "")[:300],
+            raw_stdout_jsonl=codex_stdout,
+        )
+    raw = (
+        codex_stdout.rstrip("\n")
+        + "\n"
+        + json.dumps(
+            {"type": "fallback", "reason": "codex_usage_limit", "model": CLAUDE_FALLBACK_MODEL}
+        )
+        + "\n"
+        + json.dumps({"type": "structured_result", "result": output}, ensure_ascii=False)
+        + "\n"
+    )
+    return CodexCLIResult(
+        schema_version="codex-cli-result/v1",
+        started_at=started_at,
+        completed_at=datetime.now(UTC),
+        cli_version=f"{cli_version}; answered by Claude fallback",
+        sanitized_argv=[
+            *argv[:9],
+            "<schema>",
+            *argv[10:],
+            f"<prompt:{sha256_digest(prompt.encode())}>",
+        ],
+        exit_code=0,
+        raw_stdout_jsonl=raw,
+        redacted_stderr="",
+        structured_result=output,
+        requested_configuration={
+            "model": config.requested_model,
+            "reasoning_effort": config.reasoning_effort,
+            "sandbox": config.sandbox,
+        },
+        model_identity=ModelIdentity(
+            schema_version="model-identity/v1", model_alias=CLAUDE_FALLBACK_MODEL
+        ),
+        model_drift_limitation=ModelDriftLimitation(
+            schema_version="model-drift-limitation/v1",
+            reason="Codex usage limit; answered by the Claude fallback model.",
+            raw_response_retained=True,
+        ),
+        prompt_hash=sha256_digest(prompt.encode()),
+        output_schema_hash=sha256_digest(schema_bytes),
+    )
+
+
 def run_codex_exec(
     config: CodexCLIConfig,
     prompt: str,
@@ -391,6 +509,23 @@ def run_codex_exec(
             ) from exc
         completed_at = datetime.now(UTC)
         redacted_stderr = _redact(process.stderr, child_environment)
+        claude_config = source_environment.get(CLAUDE_CONFIG_ENVIRONMENT) or os.environ.get(
+            CLAUDE_CONFIG_ENVIRONMENT
+        )
+        if process.returncode != 0 and claude_config and USAGE_LIMIT in (process.stdout or ""):
+            return _claude_fallback(
+                config,
+                prompt,
+                claude_config,
+                workspace=workspace,
+                schema=snapshot_bytes.decode("utf-8"),
+                schema_bytes=schema_bytes,
+                codex_stdout=_redact(process.stdout, child_environment),
+                cli_version=cli_version,
+                started_at=started_at,
+                runner=runner,
+                timeout_seconds=timeout_seconds,
+            )
         if process.returncode != 0:
             raise CodexCLIError(
                 f"Codex exec failed with exit code {process.returncode}: {redacted_stderr}",
