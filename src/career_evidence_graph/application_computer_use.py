@@ -415,9 +415,22 @@ def run_fill(
         or set(report) != set(REPORT_SCHEMA["required"])
         or report["status"] not in REPORT_SCHEMA["properties"]["status"]["enum"]
     ):
+        # 2026-11-11, Celonis: the Codex account ran out of usage mid-fill and the stop
+        # said only "no valid report". Codex prints the limit and when it resets.
+        limit = re.search(
+            r"hit your usage limit.*?(?:try again at ([^\n]+?))?\.?\s*$",
+            (run / "codex.log").read_text(encoding="utf-8", errors="replace"),
+            re.M,
+        )
         return {
             "status": "failed",
-            "summary": f"Computer Use 未返回有效报告（退出码 {code}）。",
+            "summary": (
+                "Codex 账号用量额度已用完"
+                + (f"，{limit[1]} 后可继续" if limit[1] else "")
+                + "；页面保留已填内容。"
+                if limit
+                else f"Computer Use 未返回有效报告（退出码 {code}）。"
+            ),
             "run": str(run),
         }
     return {**report, "run": str(run)}

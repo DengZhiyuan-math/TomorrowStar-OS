@@ -85,6 +85,23 @@ def test_a_missing_or_invalid_report_is_a_failed_fill(tmp_path, report, code):
     assert result["status"] == "failed"
 
 
+def test_a_fill_ended_by_the_usage_limit_says_so_and_when_it_resets(tmp_path):
+    # 2026-11-11, Celonis: the stop said only "no valid report (exit code 1)".
+    def popen(argv, **options):
+        options["stdout"].write(
+            "ERROR: You\u2019ve hit your usage limit. Visit https://chatgpt.com/settings/usage"
+            " to purchase more credits or try again at Nov 13th, 2026 2:34 AM.\n"
+            "tokens used\n43,192\n".encode()
+        )
+        return Process(argv, report=None, code=1, **options)
+
+    result = run_fill("/bin/codex", {"job_url": "u"}, tmp_path, popen=popen)
+    assert result["status"] == "failed"
+    assert result["summary"] == (
+        "Codex 账号用量额度已用完，Nov 13th, 2026 2:34 AM 后可继续；页面保留已填内容。"
+    )
+
+
 def test_a_fill_that_outlasts_its_budget_is_stopped(tmp_path):
     stopped = []
 
