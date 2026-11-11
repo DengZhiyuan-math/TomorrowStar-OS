@@ -350,6 +350,23 @@ def test_paused_empty_queue_one_continue_restores_saved_mail_wait(queue_environm
     assert reads == [None] and fetches == [] and flow.tasks == {}
 
 
+def test_a_job_tiered_for_approval_by_an_older_rule_is_tiered_again(queue_environment, monkeypatch):
+    from career_evidence_graph import application_pipeline
+
+    # 2026-11-11: jobs tiered "approve" while 55-75 still asked no longer wait.
+    pipeline, flow, _intake, _worker, _reads, _fetches, _messages = queue_environment
+    tiers = ["approve"]
+    monkeypatch.setattr(
+        application_pipeline,
+        "score_tier",
+        lambda score, needs_review=False: tiers.pop(0) if tiers else "auto",
+    )
+    pipeline.start(request_id="retier")
+    current = drive(pipeline, "filling")
+    assert current.get("wait_reason") != "score_approval"
+    assert all(row.get("score_tier") != "approve" for row in current["items"])
+
+
 def test_low_score_is_skipped_and_a_middle_score_waits_for_one_continue(
     queue_environment, monkeypatch
 ):
@@ -358,11 +375,11 @@ def test_low_score_is_skipped_and_a_middle_score_waits_for_one_continue(
     # Decided 2026-10-31: below the skip line the job is set aside; in the approval band
     # it waits after analysis, before materials, until one Continue approves it.
     pipeline, flow, _intake, _worker, _reads, _fetches, _messages = queue_environment
-    tiers = ["skip", "approve"]
+    tiers = ["skip"]
     monkeypatch.setattr(
         application_pipeline,
         "score_tier",
-        lambda score, needs_review=False: tiers.pop(0) if tiers else "auto",
+        lambda score, needs_review=False: tiers.pop(0) if tiers else "approve",
     )
     pipeline.start(request_id="tiers")
     waiting = drive(pipeline, "needs_input")

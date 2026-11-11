@@ -3020,6 +3020,21 @@ class ApplicationPipeline:
             # Four score tiers (decided 2026-10-31); a decision binds to its analysis.
             tier = item.get("score_tier", "auto")
             decided = item.get("score_decision") == item.get("score_analysis_id")
+            if tier == "approve" and not decided:
+                # 2026-11-11 (user decision): a job tiered before the 55-75 band stopped
+                # asking is tiered again by the current rule from its saved analysis.
+                try:
+                    analysis = adopted_analysis(self._task_by_id(item))
+                    score, models = combined_score(
+                        calculate_match_score(analysis["requirements"]),
+                        analysis,
+                        analysis["requirements"],
+                    )
+                    tier = item["score_tier"] = score_tier(
+                        score, needs_review=bool(models and models["needs_review"])
+                    )
+                except (OSError, PortalDataError, KeyError, TypeError, ValueError):
+                    pass
             account = self._account_check_result(item)
             if account is None:
                 return
