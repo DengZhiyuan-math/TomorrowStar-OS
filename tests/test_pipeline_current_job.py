@@ -410,7 +410,7 @@ def test_a_current_pending_result_read_is_awaited(current_pipeline, monkeypatch)
     )
 
 
-def test_source_wait_skip_return_reuses_current_pointer_and_continue_retries_source(
+def test_failed_source_is_skipped_and_a_return_retries_it(
     current_pipeline,
 ):
     pipeline, flow, intake, _worker = current_pipeline
@@ -426,27 +426,23 @@ def test_source_wait_skip_return_reuses_current_pointer_and_continue_retries_sou
 
     intake.fetcher = fetch
     pipeline.start(request_id="source-wait")
-    waiting = drive(pipeline, "needs_input")
-    first_id = waiting["current_recommendation_id"]
-    pipeline.skip_current(request_id="skip-source")
+    # 2026-11-10: the unreachable job leaves the queue without a click.
     second = drive(pipeline, "filling")
     # A job skipped before it had an application is still labelled in the list.
-    skipped = next(row for row in second["items"] if row["recommendation_id"] == first_id)
+    skipped = next(row for row in second["items"] if row.get("reason") == "source_unavailable")
+    first_id = skipped["recommendation_id"]
     record = next(row for row in intake.snapshot()["recommendations"] if row["id"] == first_id)
     assert "application_id" not in skipped or skipped["application_id"] is None
     assert (skipped["company"], skipped["role_title"]) == (record["company"], record["role_title"])
     assert skipped["source_host"] == "www.linkedin.com"
     pipeline.return_to(first_id, request_id="return-source")
-    pipeline.continue_current(request_id="source-still-failed")
-    drive(pipeline, "needs_input")
-    assert len(calls) == 3
     allow_retry.append(True)
     pipeline.continue_current(request_id="source-now-captured")
     returned = drive(pipeline, "filling")
     assert returned["current_recommendation_id"] == first_id and len(flow.tasks) == 2
     assert returned["active_task_id"] != second["active_task_id"]
     assert sum(row.get("recommendation_id") == first_id for row in returned["items"]) == 1
-    assert len(calls) == 4
+    assert len(calls) == 3
 
 
 def test_an_indeed_verification_stop_says_the_user_completes_it(current_pipeline):
@@ -1279,6 +1275,34 @@ def test_a_fill_opens_the_page_once_and_uses_short_file_paths(
     assert len(contexts) == 2 and len(opened) == 1
     assert [context["page_opened"] for context in contexts] == [True, False]
     assert contexts[0]["resume_path"] == str(tmp_path / "Apply" / "A_B_CV.pdf")
+
+
+def test_a_removed_posting_leaves_the_queue_without_a_click(
+    current_pipeline, monkeypatch, tmp_path
+):
+    """2026-11-10: a dead Greenhouse link read as "needs information" in English."""
+    from career_evidence_graph import application_computer_use
+
+    pipeline, _flow, _intake, worker = current_pipeline
+    pipeline.computer_use = {"executable": "/bin/codex", "root": tmp_path / "cu"}
+    report = {
+        "status": "posting_not_found",
+        "summary": "No listing",
+        "filled": [],
+        "unanswered": [],
+    }
+    monkeypatch.setattr(application_computer_use, "run_fill", lambda *a, **kw: report)
+    monkeypatch.setattr(
+        worker.store, "_native_answer_reference", lambda job: {"confirmed_answers": []}
+    )
+    pipeline.start(request_id="start")
+    for _ in range(100):
+        pipeline._tick()
+        state = pipeline.snapshot()
+        if any(row.get("reason") == "posting_not_found" for row in state["items"]):
+            break
+    (left,) = [row for row in state["items"] if row.get("reason") == "posting_not_found"]
+    assert left["status"] == "skipped" and state["control"] == "running"
 
 
 def test_a_sign_in_wall_parks_the_job_and_the_queue_moves_on(

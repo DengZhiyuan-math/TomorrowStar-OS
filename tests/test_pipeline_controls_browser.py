@@ -408,3 +408,89 @@ def test_unreadable_flow_retains_answer_draft_without_autosaving(backend, browse
     finally:
         owner.shutdown()
         thread.join(3)
+
+
+def test_ticker_names_the_running_step_and_the_step_that_failed(portal, browser_page):
+    from playwright.sync_api import expect
+
+    page = browser_page
+    task = {
+        "id": "task-Current",
+        "application_id": "Current",
+        "status": "resume_generating",
+        "revision": "one",
+        "job_description": "Saved JD",
+        "stages": {"analysis": {"status": "complete"}, "resume": {"status": "running"}},
+    }
+    pipeline = pipeline_state(
+        id="synthetic-pipeline",
+        control="running",
+        status="generating_resume",
+        active_task_id="task-Current",
+        current_recommendation_id="rec-one",
+        items=[
+            {
+                "recommendation_id": "rec-one",
+                "task_id": "task-Current",
+                "company": "Synthetic Co",
+                "role_title": "Engineer",
+                "status": "matched",
+            }
+        ],
+    )
+    flow = {"enabled": True, "mode": "application", "tasks": [task], "active_task": task}
+    page.route("**/api/pipeline/state", lambda route: route.fulfill(json=pipeline))
+    page.route("**/api/flow/*", lambda route: route.fulfill(json=flow))
+    page.goto(portal.origin + "/#flow")
+    ticker = page.locator("#flow-automation .flow-ticker")
+    expect(ticker).to_contain_text("Synthetic Co · Engineer")
+    expect(ticker.locator(".flow-ticker-text")).to_have_text("正在生成简历")
+    task["stages"].update(resume={"status": "complete"}, export={"status": "running"})
+    task["revision"] = "two"
+    expect(ticker.locator(".flow-ticker-text")).to_have_text("正在导出简历 PDF", timeout=6000)
+    pipeline.update(
+        control="paused",
+        status="needs_recheck",
+        resume_status="generating_resume",
+        notice={"kind": "wait", "title": "自动流程需要处理", "message": "Synthetic export failure"},
+        last_stop_error={"code": "resume_export_failed", "location": None, "at": 1},
+    )
+    expect(ticker).to_have_class("flow-ticker is-failed", timeout=6000)
+    expect(ticker).to_contain_text("出错的步骤：生成并检查完整岗位材料")
+    expect(ticker).to_contain_text("原因：Synthetic export failure（resume_export_failed）")
+
+
+def test_ticker_names_a_job_stopped_while_fetching_its_jd(portal, browser_page):
+    from playwright.sync_api import expect
+
+    page = browser_page
+    pipeline = pipeline_state(
+        id="synthetic-pipeline",
+        status="needs_input",
+        current_recommendation_id="rec-one",
+        source_receipt={"recommendation_id": "rec-one", "status": "started"},
+        current_recommendation={
+            "company": "",
+            "role_title": "",
+            "context": "“Synthetic alert”: Synthetic Co - Engineer",
+            "source_error_code": "network_error",
+        },
+    )
+    page.route("**/api/pipeline/state", lambda route: route.fulfill(json=pipeline))
+    page.goto(portal.origin + "/#flow")
+    ticker = page.locator("#flow-automation .flow-ticker")
+    expect(ticker.locator(".flow-ticker-job")).to_have_text("Synthetic Co - Engineer")
+    expect(ticker).to_contain_text("停在的步骤：取得当前岗位的完整 JD")
+    expect(ticker).to_contain_text("原因：岗位页面没能打开（网络错误）")
+
+
+def test_ticker_says_a_score_decision_waits_for_confirmation(portal, browser_page):
+    from playwright.sync_api import expect
+
+    page = browser_page
+    pipeline = pipeline_state(
+        id="synthetic-pipeline", status="needs_input", wait_reason="score_approval"
+    )
+    page.route("**/api/pipeline/state", lambda route: route.fulfill(json=pipeline))
+    page.goto(portal.origin + "/#flow")
+    expect(page.locator("#flow-automation .flow-ticker-text")).to_have_text("等你确认是否投递")

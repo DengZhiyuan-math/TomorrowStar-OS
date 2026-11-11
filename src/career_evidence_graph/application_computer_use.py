@@ -28,7 +28,13 @@ REPORT_SCHEMA = {
     "properties": {
         "status": {
             "type": "string",
-            "enum": ["ready_for_review", "needs_user", "account_required", "failed"],
+            "enum": [
+                "ready_for_review",
+                "needs_user",
+                "account_required",
+                "posting_not_found",
+                "failed",
+            ],
         },
         "summary": {"type": "string", "maxLength": 2000},
         "filled": {"type": "array", "maxItems": 200, "items": {"type": "string", "maxLength": 300}},
@@ -208,6 +214,8 @@ Do not change account settings or other sites.
 When every field you can answer is filled, leave the tab open on the form and stop.
 Report status ready_for_review (all required fields filled and files attached),
 account_required (a sign-in or account creation comes before the form),
+posting_not_found (the link no longer leads to this job: it was removed, closed, or
+opens a job list without it),
 needs_user (something only the user can do, or a required question with no
 truthful answer), or failed. List filled field labels in filled, and every field
 left empty with its reason in unanswered.

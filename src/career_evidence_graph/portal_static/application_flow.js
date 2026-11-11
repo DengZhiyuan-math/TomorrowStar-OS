@@ -306,17 +306,55 @@
     }
   }
 
+  let shownStep = "";
+  const sourceErrors = { network_error: "岗位页面没能打开（网络错误）", verification_required: "网站要求人工验证", login_required: "网站要求登录后才能查看", http_error: "岗位页面返回错误", browser_error: "浏览器没能打开岗位页面" };
+  // A mail subject reads “alert name”: Company - Role; the part after the colon names the job.
+  const mailJob = context => (context || "").replace(/^.*”:\s*/, "");
+  // The step inside "matching" and "materials", read from the current job's saved stages.
+  function pipelineStep() {
+    if (pipeline?.control !== "running") return "";
+    const task = flow?.active_task?.id === pipeline.active_task_id ? flow.active_task : null;
+    const busy = name => ["queued", "running"].includes((name === "material_consistency" ? task?.material_consistency : task?.stages?.[name])?.status);
+    if (pipeline.status === "matching") return !pipeline.active_task_id ? "正在核对岗位来源并建立任务" : busy("analysis") ? "正在分析岗位 JD 与要求" : "正在计算当前岗位匹配度";
+    if (pipeline.status !== "generating_resume" || !task) return "";
+    const steps = [["resume", "正在生成简历"], ["export", "正在导出简历 PDF"], ["letter", "正在撰写求职信"], ["letter_export", "正在导出求职信 PDF"], ["material_consistency", "正在核对简历与求职信是否一致"]];
+    return steps.find(([name]) => busy(name))?.[1] || "";
+  }
+
   function renderPipeline() {
     automation.hidden = flow?.mode === "preparation";
     automation.dataset.taskId = `${pipeline?.id || ""}/${pipelineScope()}/${pipeline?.active_task_id || ""}`;
-    const key = JSON.stringify([flow?.mode, pipeline?.enabled, pipeline?.id, pipeline?.control, pipeline?.status, pipeline?.current_recommendation_id, pipeline?.active_task_id, pipeline?.wait_reason, pipeline?.notice?.message || pipeline?.notice?.title, pipeline?.items?.map(item => [item.application_id, item.recommendation_id, item.company, item.role_title, item.status, item.reason, item.mismatch, item.source_host, item.pipeline_context?.notification?.message, item.pipeline_context?.wait_reason, item.submitted_by, item.target_company, item.score?.lower, item.score?.upper, item.score?.coverage])]);
+    const step = pipelineStep();
+    const key = JSON.stringify([step, pipeline?.current_recommendation, pipeline?.source_receipt?.recommendation_id, pipeline?.computer_use?.report?.status, pipeline?.resume_status, pipeline?.runtime_error, flow?.mode, pipeline?.enabled, pipeline?.id, pipeline?.control, pipeline?.status, pipeline?.current_recommendation_id, pipeline?.active_task_id, pipeline?.wait_reason, pipeline?.notice?.message || pipeline?.notice?.title, pipeline?.items?.map(item => [item.application_id, item.recommendation_id, item.company, item.role_title, item.context, item.source_error_code, item.status, item.reason, item.mismatch, item.source_host, item.pipeline_context?.notification?.message, item.pipeline_context?.wait_reason, item.submitted_by, item.target_company, item.score?.lower, item.score?.upper, item.score?.coverage])]);
     if (renderedPipeline === key) return;
     renderedPipeline = key;
     automation.replaceChildren(node("h2", "", "自动申请流程"));
     if (automation.hidden) return;
     const labels = { idle: "尚未开始", reading_email: "正在收录推荐邮件", starting_email: "正在启动邮件读取", selecting_job: "正在选择下一个待处理岗位", acquiring_source: "正在取得当前岗位的完整 JD", starting_source: "正在启动当前岗位读取", waiting_for_mail: "正在等待新的推荐邮件", matching: "正在计算当前岗位匹配度", generating_resume: "正在生成并检查完整岗位材料", preparing: "正在准备申请", starting_worker: "正在检查并启动填写", admitting_worker: "正在启动填写", awaiting_native_check: "正在后台检查填写环境", recovering_worker: "正在核验原页面并恢复当前岗位", filling: "正在填写并上传申请材料", ready_for_review: "申请已准备好，请到原网站最终确认", needs_input: "需要补充信息", needs_recheck: "结果待核验，已停止", blocked: "流程已停止，请查看具体原因", paused: "自动流程已暂停", interrupted: "上次流程已中断，进度已保留", expired: "本次运行窗口已结束，进度已保留", no_matches: "本次未取得可处理的完整岗位", complete: "本次处理已完成", unavailable: "自动流程暂不可用" };
-    const status = node("p", "flow-badges", labels[pipeline?.status] || (pipeline?.control === "running" ? "自动流程进行中" : "尚未开始"));
-    status.setAttribute("role", "status"); automation.append(status);
+    const running = pipeline?.control === "running";
+    const headline = step || (!running && pipeline?.wait_reason === "score_approval" && "等你确认是否投递") || labels[pipeline?.status] || (running ? "自动流程进行中" : "尚未开始");
+    // 2026-11-10: one prominent line names the step in progress; a stop names the step it stopped in.
+    const failed = !running && (pipeline?.runtime_error || ["needs_recheck", "blocked", "interrupted", "unavailable"].includes(pipeline?.status));
+    const status = node("div", `flow-ticker${running ? " is-running" : failed ? " is-failed" : ""}`);
+    status.setAttribute("role", "status");
+    const currentItem = pipeline?.items?.find(item => item.status !== "skipped" && item.recommendation_id === pipeline.current_recommendation_id);
+    const recommended = pipeline?.current_recommendation;
+    const jobName = [currentItem?.company, currentItem?.role_title].filter(Boolean).join(" · ") || [recommended?.company, recommended?.role_title].filter(Boolean).join(" · ") || mailJob(recommended?.context);
+    if (jobName) status.append(node("span", "flow-ticker-job", jobName));
+    const line = node("strong", `flow-ticker-text${headline !== shownStep ? " is-new" : ""}`, headline);
+    shownStep = headline;
+    status.append(line);
+    const fetching = !pipeline?.active_task_id && pipeline?.current_recommendation_id && pipeline?.source_receipt?.recommendation_id === pipeline.current_recommendation_id;
+    const stoppedIn = !running && labels[pipeline?.resume_status || (fetching ? "acquiring_source" : "")];
+    if (stoppedIn && ["needs_recheck", "blocked", "interrupted", "needs_input"].includes(pipeline.status)) {
+      status.append(node("span", "flow-ticker-detail", `${failed ? "出错" : "停在"}的步骤：${stoppedIn.replace(/^正在/, "")}`));
+    }
+    if (failed && (pipeline?.notice?.message || pipeline?.runtime_error)) {
+      const code = pipeline?.last_stop_error?.code;
+      status.append(node("span", "flow-ticker-detail", `原因：${pipeline?.notice?.message || "自动流程记录未能核验"}${code ? `（${code}）` : ""}`));
+    }
+    if (!running && fetching && recommended?.source_error_code) status.append(node("span", "flow-ticker-detail", `原因：${sourceErrors[recommended.source_error_code] || recommended.source_error_code}`));
+    automation.append(status);
     automation.append(node("p", "flow-muted", "开启后，系统持续收录推荐邮件，并按顺序处理当前岗位的 JD、匹配、完整材料、填写和上传。等待你处理信息或最终确认时，仍可收录新邮件；最终 Submit 由你操作。"));
     const actions = node("div", "flow-actions");
     // A flow saved before the queue (no queue_mode) resumes through start.
@@ -340,7 +378,7 @@
     automation.append(actions);
     if (pipeline?.wait_reason === "codex_resume_required") automation.append(node("p", "flow-muted", "当前岗位等待 Codex 完成分经历写作、程序组装和单一终审；完成后自动继续，其他岗位保持等待。"));
     if (pipeline?.wait_reason === "precision_adjustment") automation.append(node("p", "flow-muted", "此岗位已完成分析、完整简历与已发现的必要附稿。你可以先调整材料，再点击“继续当前岗位”使用当前版本填写。"));
-    if (pipeline?.notice) automation.append(node("p", "flow-muted", pipeline.notice.message || pipeline.notice.title));
+    if (pipeline?.notice && !failed) automation.append(node("p", "flow-muted", pipeline.notice.message || pipeline.notice.title));
     // One row per job: title, a status badge with its reason, and the row's action.
     // The current job comes first, then the rest newest first.
     // A closed posting is not listed (2026-11-05); older ones stay recorded only.
@@ -395,6 +433,8 @@
       : item.reason === "posting_closed" ? ["已停招", "withdrawn", "领英显示岗位已停止招聘"]
       : item.reason === "easy_apply_only" ? ["仅领英站内申请", "withdrawn", "只能用领英 Easy Apply，需要时请自己投递"]
       : item.reason === "indeed_apply_only" ? ["仅 Indeed 站内申请", "withdrawn", "只能用 Indeed Apply，需要时请自己投递"]
+      : item.reason === "posting_not_found" ? ["岗位已找不到", "withdrawn", "原链接已失效或岗位已下架，已自动跳过"]
+      : item.reason === "source_unavailable" ? ["未取得 JD", "candidate", `${sourceErrors[item.source_error_code] || "岗位页面没能读取"}，已自动跳过`]
       : item.reason === "low_match_score" ? ["匹配过低", "withdrawn", "匹配分低于 15，已自动跳过"]
       : item.reason === "account_low_match" ? ["需要账号·匹配不高", "withdrawn", "申请需要登录或注册，且匹配分低于 55，已自动跳过"]
       : item.reason === "account_required" ? ["需要账号", "candidate", "申请需要登录或注册；已搁置，页面留在 Chrome，可自行注册后投递"]
@@ -403,7 +443,7 @@
     const row = node("li", `flow-pipeline-item${current ? " is-current" : ""}${band ? ` tier-${band}` : ""}${item.target_company ? " is-target" : ""}`);
     const main = node("div", "flow-pipeline-item-main");
     const title = node("p", "flow-pipeline-item-title");
-    title.append(node("strong", "", item.company || (item.source_host ? `${item.source_host} 推荐` : "未命名岗位")));
+    title.append(node("strong", "", item.company || mailJob(item.context) || (item.source_host ? `${item.source_host} 推荐` : "未命名岗位")));
     if (item.role_title) title.append(node("span", "", item.role_title));
     else if (!item.company) title.append(node("span", "", "未取得岗位信息"));
     const meta = node("p", "flow-pipeline-item-meta");

@@ -201,7 +201,8 @@ def test_previously_saved_pending_note_remains_eligible(queue_environment):
     assert len(fetches) == 1 and len(flow.applications.list_applications()) == 1
 
 
-def test_failed_source_holds_current_and_never_retries(queue_environment):
+def test_failed_sources_leave_the_queue_and_three_in_a_row_stop_it(queue_environment):
+    """2026-11-10: an unreachable page no longer waits for a click; an outage still stops."""
     pipeline, flow, intake, worker, _reads, fetches, _messages = queue_environment
 
     def failed(url):
@@ -213,8 +214,11 @@ def test_failed_source_holds_current_and_never_retries(queue_environment):
     waiting = drive(pipeline, "needs_input")
     for _ in range(5):
         pipeline._tick()
-    assert len(fetches) == 1 and flow.tasks == {} and worker.state["jobs"] == []
+    assert len(fetches) == 3 and flow.tasks == {} and worker.state["jobs"] == []
     assert pipeline.snapshot()["current_recommendation_id"] == waiting["current_recommendation_id"]
+    assert "网络" in waiting["notice"]["message"]
+    left = [row for row in waiting["items"] if row.get("reason") == "source_unavailable"]
+    assert len(left) == 2 and all(row["status"] == "skipped" for row in left)
 
 
 def test_empty_queue_waits_for_mail_without_expiring(queue_environment, monkeypatch):

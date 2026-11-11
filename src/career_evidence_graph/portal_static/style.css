@@ -159,6 +159,17 @@
 .flow-muted { color: var(--muted); font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
 .flow-recommendation { border-top: 1px solid var(--line); padding: 20px 0; }
 .flow-badges { color: var(--green); font-size: 13px; line-height: 1.7; }
+.flow-ticker { display: grid; gap: 4px; margin: 0 0 14px; padding: 12px 16px; border-left: 3px solid var(--line); background: var(--green-soft); overflow: hidden; }
+.flow-ticker.is-running { border-left-color: var(--green); }
+.flow-ticker.is-failed { border-left-color: var(--red); background: transparent; outline: 1px solid var(--line); }
+.flow-ticker-job, .flow-ticker-detail { color: var(--muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.flow-ticker-text { font-size: 15px; line-height: 1.6; color: var(--navy); }
+.flow-ticker.is-running .flow-ticker-text { color: var(--green); }
+.flow-ticker.is-failed .flow-ticker-text, .flow-ticker.is-failed .flow-ticker-detail { color: var(--red); }
+.flow-ticker-text.is-new { animation: flow-ticker-in .35s ease-out; }
+.flow-ticker.is-running .flow-ticker-text::after { content: "…"; display: inline-block; overflow: hidden; vertical-align: bottom; width: 0; animation: flow-ticker-dots 1.4s steps(4, end) infinite; }
+@keyframes flow-ticker-in { from { opacity: 0; transform: translateY(100%); } to { opacity: 1; transform: none; } }
+@keyframes flow-ticker-dots { to { width: 1.2em; } }
 .flow-text { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 13px; line-height: 1.7; max-height: 340px; overflow: auto; }
 .flow-details { margin: 16px 0; }
 .flow-details summary { cursor: pointer; font-size: 13px; color: var(--navy); }

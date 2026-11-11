@@ -311,6 +311,8 @@ class ApplicationPipeline:
             by_id = {row.get("id"): row for row in recommendations if isinstance(row, dict)}
             for item in state["items"]:
                 row = by_id.get(item.get("recommendation_id"))
+                if row is not None and not item.get("company"):
+                    item["context"] = row.get("context") or ""
                 if item.get("company") or row is None:
                     continue
                 item.update(
@@ -318,6 +320,14 @@ class ApplicationPipeline:
                 )
                 url = row.get("jd_source_url") or row.get("url") or row.get("mail_url") or ""
                 item["source_host"] = (urlsplit(url).hostname or "") if isinstance(url, str) else ""
+            # 2026-11-10: a job still fetching its JD has no item yet; the page names it
+            # from its recommendation, else from the mail subject that recommended it.
+            row = by_id.get(state.get("current_recommendation_id"))
+            if row is not None:
+                state["current_recommendation"] = {
+                    key: row.get(key) or ""
+                    for key in ("company", "role_title", "context", "source_error_code")
+                }
             # The list highlights target companies, also jobs listed before the mark existed.
             listed = self._target_companies()
             for item in state["items"]:
@@ -2739,6 +2749,31 @@ class ApplicationPipeline:
             checkpoint == "failed"
             and state["source_receipt"]["status"] in {"dispatching", "needs_recheck"}
         )
+        code = record.get("source_error_code")
+        streak = state.get("source_failure_streak", 0)
+        if checkpoint == "failed" and not (unknown or retry) and code != "verification_required":
+            # 2026-11-10 (user decision): a page that cannot be opened no longer waits
+            # for a click; the job is set aside and the queue goes on. Three in a row
+            # look like a network outage, which stops instead of emptying the queue.
+            if streak >= 2:
+                state["source_failure_streak"] = 0
+                self._stop(
+                    state,
+                    "needs_input",
+                    "连续 3 个岗位的页面都没能打开，可能是网络问题；已停下，恢复后点继续重试。",
+                )
+                return
+            recommendation = record["id"]
+            # The retained context is the old wait, so Return then Continue retries it.
+            state.update(control="paused", status="needs_input")
+            self._leave_current(state, "source-unavailable:" + recommendation)
+            item = next(
+                row for row in state["items"] if row.get("recommendation_id") == recommendation
+            )
+            item.update(reason="source_unavailable", source_error_code=code or "")
+            state["source_failure_streak"] = streak + 1
+            self._save(state)
+            return
         if unknown or (checkpoint == "failed" and not retry):
             self._stop(
                 state,
@@ -2790,6 +2825,7 @@ class ApplicationPipeline:
             self._save(state)
             return
         state["source_receipt"]["status"] = "adopted"
+        state.pop("source_failure_streak", None)
         item = next(
             (row for row in state["items"] if row.get("recommendation_id") == record["id"]), None
         )
@@ -3521,6 +3557,16 @@ class ApplicationPipeline:
                 reason="account_required", account_check={"status": "account", "by": "fill"}
             )
             self._leave_current(state, "account-required:" + state["computer_use"]["run_id"])
+        elif report["status"] == "posting_not_found":
+            # 2026-11-10 (user decision): a removed posting is set aside under its own
+            # reason and the queue goes on without waiting for a click.
+            item = next(
+                row
+                for row in state["items"]
+                if row.get("recommendation_id") == state.get("current_recommendation_id")
+            )
+            item["reason"] = "posting_not_found"
+            self._leave_current(state, "posting-not-found:" + state["computer_use"]["run_id"])
         elif report["status"] == "needs_user":
             self._stop(state, "needs_input", "需要你在 Chrome 处理：" + summary)
         else:
