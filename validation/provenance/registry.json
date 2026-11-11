@@ -1,0 +1,65 @@
+{
+  "schema_version": "provenance-registry/v1",
+  "records": [
+    {
+      "schema_version": "provenance-record/v1",
+      "record_id": "cv-market-formal-history",
+      "classification": "adapt",
+      "repository": "https://github.com/sangowu/cv-market-learning-planner",
+      "pinned_commit": "ea507847c7a42a1a54becc853fadd15506479b38",
+      "spdx_license": "MIT",
+      "attribution": "CV Market Learning Planner contributors",
+      "upstream_source_path": null,
+      "local_destination": null,
+      "local_subsystem": "formal-run storage and linked history",
+      "rationale": "Adapt the separation of current outputs from retained historical snapshots.",
+      "divergence": "Local formal runs use immutable run directories, complete input hashes, atomic publication, explicit parent links, and no overwrite or delete operation.",
+      "covering_test": "tests/test_run_store.py"
+    },
+    {
+      "schema_version": "provenance-record/v1",
+      "record_id": "tabiya-run-store-boundary",
+      "classification": "inspired-by",
+      "repository": "https://github.com/tabiya-tech/compass",
+      "pinned_commit": "8470bea7f68d0990898f441a12bbb6a261a0ef34",
+      "spdx_license": "MIT",
+      "attribution": "Tabiya Compass contributors",
+      "upstream_source_path": null,
+      "local_destination": null,
+      "local_subsystem": "FormalRunStore directory-per-run boundary",
+      "rationale": "Retain an explicit store boundary and an isolated directory for each run.",
+      "divergence": "The local store rejects overwrites and symlinks, validates content manifests, and exposes no delete or mutable state-save API.",
+      "covering_test": "tests/test_run_store.py"
+    },
+    {
+      "schema_version": "provenance-record/v1",
+      "record_id": "hiring-agent-validation-contracts",
+      "classification": "adapt",
+      "repository": "https://github.com/interviewstreet/hiring-agent",
+      "pinned_commit": "70fd3ea9aa74d8f76519ec643a99f9871003e70d",
+      "spdx_license": "MIT",
+      "attribution": "Hiring Agent contributors",
+      "upstream_source_path": null,
+      "local_destination": null,
+      "local_subsystem": "strict structured validation contracts",
+      "rationale": "Adapt Pydantic validation at stored structured-output boundaries.",
+      "divergence": "Local contracts forbid unknown fields, retain invalid formal artifacts, include full lineage hashes, and never derive mastery from resume or repository content.",
+      "covering_test": "tests/test_charter.py"
+    },
+    {
+      "schema_version": "provenance-record/v1",
+      "record_id": "hiring-agent-provider-port",
+      "classification": "adapt",
+      "repository": "https://github.com/interviewstreet/hiring-agent",
+      "pinned_commit": "70fd3ea9aa74d8f76519ec643a99f9871003e70d",
+      "spdx_license": "MIT",
+      "attribution": "Hiring Agent contributors",
+      "upstream_source_path": null,
+      "local_destination": null,
+      "local_subsystem": "Codex CLI provider process boundary",
+      "rationale": "Adapt the project-owned provider seam so the validation domain remains isolated from one concrete model runtime.",
+      "divergence": "The local adapter uses a fixed shell-free Codex argv, a read-only sandbox, an allowlisted environment, retained JSONL, redacted diagnostics, and snapshot-or-drift enforcement instead of an in-process chat provider.",
+      "covering_test": "tests/test_codex_cli.py"
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "mode": "synthetic_independent_worker",
+  "round": "greenhouse-round-2-shared-answers",
+  "checks": [
+    "one_library_for_two_platforms",
+    "same_country_equivalent_questions_group",
+    "different_country_not_reused",
+    "answer_saved_while_paused_only_queues",
+    "automatic_waiting_resume",
+    "revised_answer_rechecked_on_both_platforms",
+    "no_duplicate_upload",
+    "zero_final_actions"
+  ],
+  "result": "passed",
+  "worker_pid": 99746,
+  "jobs": [
+    {
+      "company": "Synthetic 2",
+      "platform": "greenhouse",
+      "status": "ready_for_review",
+      "reason": "",
+      "file_sha256": "8b97486deefd401be949dedec07345b5a1a248c50695cb9c63343d8eaa2544c2",
+      "sync_error": ""
+    },
+    {
+      "company": "Synthetic 1",
+      "platform": "greenhouse",
+      "status": "ready_for_review",
+      "reason": "",
+      "file_sha256": "27b25c896dd8f9ccaafcd753c7fa4256564d9bde55017f49530253b6595dd0fa",
+      "sync_error": ""
+    },
+    {
+      "company": "Synthetic 0",
+      "platform": "lever",
+      "status": "ready_for_review",
+      "reason": "",
+      "file_sha256": "830062b6db212ce148c93d1aceceeecdf50361e94b71d9236a1b7536e5968913",
+      "sync_error": ""
+    }
+  ],
+  "uploaded_files": 3,
+  "automatic_final_submissions": 0,
+  "model_calls": 0,
+  "real_ats_calls": 0
+}

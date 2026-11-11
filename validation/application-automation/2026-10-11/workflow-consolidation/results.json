@@ -1,0 +1,98 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-11",
+  "recorded_at": "2026-10-10T22:08:02.195209+00:00",
+  "checks": [
+    {
+      "name": "offline",
+      "passed": 777,
+      "deselected": 37,
+      "failed": 0,
+      "seconds": 141.44,
+      "log": "offline.txt",
+      "scope": "not worker_browser and not live_model"
+    },
+    {
+      "name": "browser",
+      "passed": 36,
+      "deselected": 47,
+      "failed": 0,
+      "seconds": 133.55,
+      "log": "browser.txt",
+      "scope": "worker_browser, before final UI staleness refinement"
+    },
+    {
+      "name": "final_ui",
+      "passed": 1,
+      "failed": 0,
+      "seconds": 18.1,
+      "log": "ui-stale-green.txt",
+      "scope": "final UI; same test already included in browser count"
+    },
+    {
+      "name": "ruff_check",
+      "passed": true,
+      "log": "ruff-check.txt"
+    },
+    {
+      "name": "ruff_format",
+      "passed": true,
+      "files": 181,
+      "log": "ruff-format.txt"
+    },
+    {
+      "name": "worker_js_syntax",
+      "passed": true
+    },
+    {
+      "name": "local_links",
+      "passed": true
+    },
+    {
+      "name": "final_source_hashes",
+      "passed": true
+    },
+    {
+      "name": "served_worker_js",
+      "passed": true
+    },
+    {
+      "name": "existing_application_statuses",
+      "passed": true
+    },
+    {
+      "name": "diff_whitespace",
+      "passed": true
+    }
+  ],
+  "preserved_failure_logs": [
+    "ui-stale-red.txt"
+  ],
+  "new_real_application_form_actions": 0,
+  "new_model_calls": 0,
+  "automatic_final_submissions": 0,
+  "current_runtime": {
+    "control_service_port": 8769,
+    "control_service_restored": true,
+    "application_browser_started": false,
+    "original_page_currently_verified": false,
+    "original_worker_pid_observed": false,
+    "checkpoint_control": "paused",
+    "checkpoint_status": "needs_recheck",
+    "checkpoint_handed_off": true,
+    "checkpoint_page_open_is_historical": true,
+    "runtime_error": "TargetClosedError",
+    "exit_cause": "unresolved",
+    "new_manual_submission_confirmation": false,
+    "new_receipt": false,
+    "existing_application_statuses_preserved": true
+  },
+  "historical_real_worker_rounds": {
+    "posting_count": 1,
+    "failed_development_rounds": 5,
+    "successful_previous_version_rounds": 3,
+    "successful_final_version_rounds": 3,
+    "success_rate_claimed": false
+  },
+  "source_manifest": "source-hashes.json"
+}

@@ -1,540 +1,471 @@
 # Architecture Research
 
-**Domain:** Career Evidence Graph core-hypothesis validation
-**Researched:** 2026-07-30
-**Confidence:** HIGH for project/upstream mapping; MEDIUM for the still-unvalidated assessment and aggregation policies
+**Domain:** Local-first career-evidence graph, human review, and real-JD hypothesis validation
+**Milestone:** v1.1 Full Career Graph and Real JD Validation
+**Researched:** 2026-08-28
+**Confidence:** HIGH for current-code findings and the recommended integration shape; MEDIUM for implementation details that still require phase fixtures
 
-## Recommended Architecture
+## Executive Recommendation
 
-### Decision
+Extend the existing packaged Python modular monolith. Keep one private filesystem workspace, one canonical graph projection, and the existing explicit state machines. Do not add a database, graph engine, agent framework, UI, or another career ledger.
 
-Build a **local-first modular monolith with versioned JSON artifacts, strict domain contracts, and an append-only audit trail**. The smallest useful system is a CLI or thin local application, not a multi-user service. It should exercise one complete path:
+Make the current STOA fixture path a legacy validation adapter and introduce a generic, reviewed career inventory as the production input. Audits and assessments continue to own their distinct review histories. A deterministic `CareerGraphSnapshot` becomes the only downstream read model: it joins one accepted inventory revision with completed audit hashes, current assessment-version hashes, active policy hashes, and explicit coverage states. It is a sealed projection, not a second editable fact store.
 
-```text
-STOA source material
-  → confirmed Contributions and responsibility attribution
-  → resumable one-question-at-a-time Grill-Me audit
-  → confirmed Contribution–Skill assessments
-  → provisional user Skill aggregation
-  → structured JD expectations
-  → usefulness report showing relevant Contributions and gaps
-```
+Apply the same rule to JDs. Raw bytes become one interpretation proposal, item-level reviews produce one effective proposal, and explicit acceptance seals that exact hash. Acceptance must not parse again. Exactly three accepted packet hashes are sealed into one immutable corpus manifest. Evaluation consumes the confirmed graph hash, three-JD corpus hash, frozen charter hash, and policy hashes; it never writes backward into inventory, assessments, or mastery.
 
-Do not build the full résumé compiler, a graph database, a generalized agent platform, or a production web application. The validation target is whether Contribution-grounded audits produce stable skill judgments that help explain fit for a few JDs.
+## Standard Architecture
 
 ### System Overview
 
 ```text
-┌──────────────────────────── Human Review Surface ────────────────────────────┐
-│ seed/inspect → confirm contribution → answer one question → confirm claims │
-│                                  → review assessment → review JD comparison │
-└──────────────┬──────────────────────────────┬────────────────────────────────┘
-               │ typed commands               │ typed proposals/reports
-┌──────────────▼──────────────────────────────▼────────────────────────────────┐
-│                           Application Orchestrator                          │
-│  use cases only: seed, audit-next, confirm, assess, aggregate, compare-jd  │
-└──────┬──────────────┬────────────────┬──────────────────┬───────────────────┘
-       │              │                │                  │
-┌──────▼──────┐ ┌─────▼────────┐ ┌─────▼──────────┐ ┌────▼─────────────────┐
-│ Grill-Me    │ │ Skill        │ │ Assessment &   │ │ JD Usefulness Slice │
-│ Audit       │ │ Normalizer   │ │ Aggregation    │ │ parse → normalize → │
-│ State       │ │ Adapter      │ │ Policies       │ │ compare → explain   │
-└──────┬──────┘ └─────┬────────┘ └─────┬──────────┘ └────┬─────────────────┘
-       │              │                │                  │
-┌──────▼──────────────▼────────────────▼──────────────────▼───────────────────┐
-│                          Strict Domain Model                               │
-│ Experience ─CONTAINS→ Contribution ─DEMONSTRATES→ Skill                   │
-│ Evidence ─SUPPORTS→ Contribution; ContributionSkillAssessment is audited  │
-└───────────────────────────────────┬────────────────────────────────────────┘
-                                    │ repository ports
-┌───────────────────────────────────▼────────────────────────────────────────┐
-│ Versioned Workspace: canonical/*.json + sessions/*.json + events/*.jsonl │
-│ proposals/*.json + snapshots/* + fixtures/* + reports/* + provenance/*   │
-└────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ Thin CLI / operator workflow                                                │
+│ inventory · audit · assessment · graph · jd · evaluation                    │
+└──────────────────────────────────┬───────────────────────────────────────────┘
+                                   │ typed commands / explicit hashes
+┌──────────────────────────────────▼───────────────────────────────────────────┐
+│ Application workflows                                                       │
+│                                                                              │
+│ Career intake ─► inventory review ─► contribution audit ─► assessment       │
+│                                             │                    │           │
+│                                             └─────────┬──────────┘           │
+│                                                       ▼                      │
+│                                             canonical graph projector         │
+│                                                                              │
+│ JD intake ─► interpretation ─► item review ─► acceptance ─► 3-JD corpus     │
+│                                                                              │
+│ confirmed graph + sealed corpus + frozen charter ─► evaluation ─► decision  │
+└──────────────────────────────────┬───────────────────────────────────────────┘
+                                   │ pure functions over strict models
+┌──────────────────────────────────▼───────────────────────────────────────────┐
+│ Domain and policy                                                           │
+│ Experience · Contribution · Evidence · Skill · Audit · Assessment · JD      │
+│ coverage state · mastery anchors · admission · matching · decision criteria │
+└──────────────────────────────────┬───────────────────────────────────────────┘
+                                   │ shared canonical serialization primitives
+┌──────────────────────────────────▼───────────────────────────────────────────┐
+│ One private filesystem workspace: .career-evidence/                         │
+│ sources/ · inventories/ · audits/ · assessments/ · graph/ · jds/ · evals/  │
+│ create-only bundles + atomic current snapshots/pointers + explicit hashes   │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Architectural Invariants
+### One Workspace, Multiple Semantic Authorities
 
-These are domain rules, not prompt suggestions:
+“One store” should mean one persistence boundary and one set of write primitives, not one untyped JSON document. `AuditStore`, `AssessmentStore`, and `JDIntakeStore` may remain narrow aggregate repositories under `.career-evidence/`; they are not competing graph stores because they own different facts. All should share one `WorkspacePaths` policy and the existing `atomic_write_canonical_json` / `create_only_canonical_bundle` primitives.
 
-1. `Contribution` is the only Grill-Me audit target. An `Experience` can organize Contributions but cannot directly establish mastery.
-2. `Evidence` supports a Contribution. It does not itself demonstrate a Skill and is not a second interview hierarchy.
-3. Every `ContributionSkillAssessment` keeps `demonstrated_mastery`, `skill_centrality`, `evidence_confidence`, `context`, `duration`, and `assessment_basis` separate.
-4. Responsibility attribution distinguishes at least `user`, `team/shared`, `other_person`, `codex_assisted`, `third_party`, and `unknown`.
-5. Ontology aliases and relations may normalize or suggest Skills; they cannot create a user mastery assertion.
-6. JD fit is computed per target JD and never mutates the stable user mastery assessment.
-7. Only confirmed claims can feed a canonical assessment. LLM output is always a proposal.
-8. User-level aggregation is a versioned policy over confirmed Contribution–Skill assessments. It may remain provisional until golden cases support it.
-9. A higher user mastery band requires evidence satisfying that band's observable anchor; repeated weaker Contributions cannot numerically accumulate into expertise.
-10. Every derived result records input IDs/revisions, policy version, model/prompt version when applicable, timestamp, and confirmation status.
+| Authority | Owns | Must not own | Canonical artifact |
+|---|---|---|---|
+| Source custody | Exact private bytes, content hash, locator, acquisition metadata | Personal responsibility, capability, mastery | Create-only source bundle |
+| Inventory | Known Experience, Contribution, Evidence, candidate Skill identities and coverage as of a cutoff | Audit conclusions, mastery, JD relevance | Accepted inventory revision |
+| Audit | Capability boundary, ownership, assistance, contradictions, conclusion review | Skill normalization decision, score, user-level mastery | Completed `AuditSnapshot` plus conclusion-lineage hash |
+| Skill resolution | Whether wording maps to one existing Skill or creates one specific Skill | Evidence sufficiency or mastery | Hash-bound `SkillResolutionDecision` |
+| Assessment | Contribution–Skill judgments, bases, substantive review, admission, immutable versions | Inventory completeness or JD fit | Current `AssessmentVersion` lineage |
+| Graph projection | Status-aware join of accepted inventory, reviewed lineages, and user-Skill results | New source facts, free-form edits, JD-specific scores | Immutable `CareerGraphSnapshot`; one current pointer |
+| JD | Exact source, span-bound interpretation, item reviews, accepted packet | User mastery or graph mutation | Accepted packet and three-packet corpus manifest |
+| Evaluation | Runs, baselines, adversarial/stability results, blind review, final decision | Changes to graph, assessment, or JD truth | Create-only evaluation and decision bundles |
 
-## Component Boundaries and Contracts
+The graph is canonical because every downstream comparison reads one confirmed snapshot hash. It is not a second source of facts: every node, edge, score, and status carries revision hashes from the authority that owns it, and the projector is the only graph writer.
 
-| Component | Owns | Input Contract | Output Contract | Must Not Own |
-|---|---|---|---|---|
-| Domain model | Entity identities, relationships, enums, validation invariants | Typed construction commands | Strict, versioned entities | LLM calls, persistence layout, scoring formula |
-| Evidence registry | Artifact metadata, immutable hashes, excerpts/locations, access status | Local artifact path or user explanation reference | `Evidence` plus provenance | Skill inference or mastery |
-| Contribution workspace | STOA `Experience`, Contribution decomposition, responsibility attribution | Seed fixture and decomposition proposal | Confirmed/rejected Contributions | Questions or scores |
-| Audit orchestrator | Current Contribution, coverage checklist, question history, pause/resume state | `StartAudit`, `AnswerQuestion`, `ConfirmClaims` | Next question, proposal, or terminal coverage result | Direct persistence and aggregation |
-| Question policy | One best next question based on unresolved audit coverage | Confirmed Contribution, evidence inventory, prior turns | Exactly one `Question` with reason and target | Multiple-question batches or final scores |
-| Claim extractor | Structured capability/responsibility claims from one answer and cited artifacts | Answer turn plus bounded context | `ClaimProposal[]` with source spans | Canonical mutations |
-| Skill normalizer | Canonical name/alias lookup and ontology relation suggestions | Raw skill phrase, pinned ontology version | Candidate canonical Skills and match rationale | Mastery propagation through `impliesKnowingSkills` |
-| Assessment policy | Contribution-specific capability judgment | Confirmed claims, Evidence links, mastery anchors | `ContributionSkillAssessmentProposal` | User-level aggregation or JD fit |
-| Aggregation/calibration | Stable user-level mastery candidate and explanation | Confirmed assessments for one Skill, policy version | `UserSkillAssessmentCandidate` plus trace | Evidence ingestion or target-JD relevance |
-| JD parser | Structured expectations from a small raw JD fixture | JD text and parser version | `JobDescription`, `JDSkillExpectation[]` | Résumé rewriting |
-| JD comparator | Target-specific usefulness calculation | JD expectations, user Skills, Contributions and assessments | `JDUsefulnessReport` | Mutation of mastery/confidence/duration |
-| Evaluation harness | Golden cases, invariant tests, replay, calibration comparison | Versioned fixtures and recorded runs | Reproducible pass/fail and disagreement reports | Production ranking or automatic acceptance |
-| Workspace repository | Atomic load/save, snapshots, append-only events, migrations | Versioned domain envelopes | Current canonical state and historical revisions | Business decisions |
+## Component Responsibilities
 
-### Minimal Domain Contracts
+| Component | Change | Responsibility | Integration rule |
+|---|---|---|---|
+| `domain/models.py` | Modify | Add generic source, inventory, coverage, graph, JD review/corpus, and evaluation contracts | Add schema versions; do not loosen v1 contracts or rewrite sealed v1 data |
+| `domain/fixtures.py` | Narrow to legacy | Preserve sealed STOA verification and mutation suite | Fixture-test authority only; never the production career loader |
+| `inventory.py` | New | Source bundle → inventory proposal → item review → accepted inventory | One interpreter proposes; only review/acceptance creates truth |
+| `workspace.py` | New, minimal | Resolve the sole private root and namespaces; reuse existing write helpers | No new persistence engine or generic repository framework |
+| `audit/models.py` | Modify | Use the shared identifier and bind audits to inventory/graph/source hashes | Preserve one-question, coverage, attribution, and conclusion review |
+| `audit/workflow.py` | Modify | Read `ContributionContext` instead of sealed STOA fixture paths | Keep one state machine and one decision port; no full-career fork |
+| `audit/store.py` | Paths only | Continue one atomic resumable snapshot per audit ID | Incomplete snapshots never establish mastery |
+| `assessment.py` | Modify | Generalize existing proposal/review/admission/aggregation for real user truth | Synthetic and real inputs use the same builder, partitioned by authority |
+| `AssessmentStore` | Retain | Keep current sidecars with immutable embedded versions | Projector consumes only latest valid versions; no mastery cache |
+| `graph.py` | New | Deterministically project and publish canonical snapshots/current pointer | Sole graph writer; expected-prior-hash check before pointer movement |
+| `jd.py` | Modify | Add one interpretation port, item review, accepted loader, corpus seal | `analyze` uses a sealed corpus item, not an arbitrary packet path |
+| `JDIntakeStore` | Modify | Keep source/proposal private; create-only accept/corpus operations | Preparing is not accepting; accepting never reparses |
+| `evaluation.py` | New | Orchestrate frozen evaluation stages and final decision | Read-only over graph/JD; create-only outputs |
+| `cli.py` | Modify | Thin commands and safe status views using IDs/expected hashes | No parser repair or canonical JSON mutation in CLI branches |
 
-Use strict Pydantic-style models (`extra="forbid"`) or equivalent. Persist every top-level file in a versioned envelope.
+## Recommended Project Structure
 
-```python
-class Envelope(BaseModel):
-    schema_version: str
-    artifact_type: str
-    artifact_id: str
-    revision: int
-    created_at: datetime
-    updated_at: datetime
-    data: dict
-    model_config = ConfigDict(extra="forbid")
-
-class ContributionSkillAssessment(BaseModel):
-    id: str
-    contribution_id: str
-    skill_id: str
-    demonstrated_mastery: int       # capability anchor reached here
-    skill_centrality: int           # importance to this Contribution
-    evidence_confidence: int        # credibility/admissibility, not capability
-    context: str
-    duration: DurationEvidence
-    assessment_basis: list[AssessmentBasisItem]
-    responsibility_attribution: ResponsibilityAttribution
-    status: Literal["proposed", "confirmed", "rejected", "superseded"]
-    policy_version: str
-    model_config = ConfigDict(extra="forbid")
-```
-
-Additional contracts:
-
-- `AuditSession`: `session_id`, `contribution_id`, `status`, `coverage_items`, `turn_ids`, `pending_confirmation_id`, `started_at`, `resumed_at`, `completed_at`.
-- `AuditTurn`: immutable question, answer, cited Evidence IDs, artifact observations, and source spans.
-- `ClaimProposal`: claim text, claim type, responsibility attribution, source turn/span, related Contribution, candidate Skills, confidence, confirmation status.
-- `AssessmentBasisItem`: claim/evidence IDs, capability anchor supported, counterevidence/limitations, reviewer decision.
-- `UserSkillAssessmentCandidate`: skill ID, mastery, supporting assessment IDs, anchor rationale, confidence summary, verified duration summary, contexts, aggregation policy version. Confidence, duration, and contexts are outputs alongside mastery, never ingredients hidden inside its meaning.
-- `JDSkillExpectation`: normalized skill ID or unresolved phrase, requirement level (`required`, `preferred`, `contextual`), expected capability text, importance, source span, parser confidence.
-- `SkillJDComparison`: stable mastery, evidence confidence summary, verified duration, matching contexts, JD importance, fit judgment, supporting Contribution IDs, limitations. Each field remains visible and separately inspectable.
-
-### Command/Proposal Separation
-
-Use a small application layer with typed commands:
+Do not reorganize the whole package. Add only seams required by v1.1:
 
 ```text
-StartContributionAudit(contribution_id)
-RecordAnswer(session_id, question_id, answer, evidence_ids)
-ConfirmClaims(proposal_id, accepted_claim_ids, edits)
-ProposeAssessment(contribution_id, skill_id)
-ConfirmAssessment(proposal_id, edits)
-AggregateSkill(skill_id, policy_version)
-ParseJD(jd_id, parser_version)
-CompareJD(jd_id, comparison_policy_version)
-```
-
-Each model-assisted operation produces a file under `proposals/`. A human confirmation command appends an event and writes a new canonical revision. Rejecting or editing a proposal never destroys the original proposal; this is essential for measuring model error.
-
-## Explicit Data Flow and Confirmation Points
-
-### Flow A: Seed and Confirm STOA
-
-```text
-source material/artifacts
-  → Evidence registry hashes and indexes artifacts
-  → decomposition proposes Experience + Contributions + attribution
-  → [HUMAN CONFIRMATION 1] accept/edit/reject each Contribution and ownership
-  → canonical STOA Experience and Contribution revisions
-```
-
-The system may inspect files before asking questions. It must not treat repository presence, authorship metadata, résumé prose, or an Experience title as mastery.
-
-### Flow B: Grill-Me One Contribution
-
-```text
-confirmed Contribution + Evidence inventory + unresolved coverage
-  → question policy chooses one question
-  → user answers and may cite/add Evidence
-  → claim extractor proposes concrete claims and responsibility classification
-  → [HUMAN CONFIRMATION 2] accept/edit/reject extracted claims and attribution
-  → coverage auditor identifies the next unresolved capability boundary
-  → repeat until stop criteria are met
-```
-
-Coverage should test observable capability: explain, implement, reproduce, defend trade-offs, debug/failure handling, and operate/maintain where relevant. The policy chooses only applicable dimensions; it must not force every Contribution through an identical checklist.
-
-Pause/resume occurs after every persisted turn. A pending confirmation is an explicit state, not a prompt convention. Resume loads the same session, pending proposal, and one next allowable action.
-
-### Flow C: Contribution–Skill Assessment
-
-```text
-confirmed claims + linked Evidence + responsibility + mastery anchors
-  → normalizer proposes canonical Skill identity
-  → [HUMAN CONFIRMATION 3] confirm ambiguous normalization only
-  → assessment policy proposes mastery, centrality, confidence, context, duration
-  → invariant checks reject semantic collapse or unsupported anchor jumps
-  → [HUMAN CONFIRMATION 4] review assessment and explicit basis
-  → confirmed ContributionSkillAssessment revision
-```
-
-Normalization confirmation can be skipped for exact alias matches already covered by golden fixtures. Assessment confirmation cannot be skipped during validation because disagreement is a primary outcome.
-
-### Flow D: User Skill Aggregation
-
-```text
-all confirmed assessments for one Skill
-  → deterministic aggregation policy candidate
-  → anchor gate checks observable requirements
-  → report supporting and contradicting Contributions
-  → [HUMAN CALIBRATION 5] record accept/adjust/reject and reason
-  → provisional UserSkillAssessment revision
-```
-
-Keep the formula replaceable behind `AggregationPolicy`. During validation, store all candidate outputs and reviewer decisions. Do not make a database schema depend on one weighting formula.
-
-### Flow E: Thin JD Usefulness Slice
-
-```text
-2–5 raw JD fixtures
-  → parser proposes explicit required/preferred skill expectations and source spans
-  → [HUMAN CONFIRMATION 6] correct normalization and importance in golden fixtures
-  → comparator joins expectations to stable user Skills
-  → relevance policy selects supporting Contributions
-  → usefulness report:
-       expectation | mastery | confidence | duration | context | JD fit
-       supporting Contributions | limitations/gaps
-```
-
-This slice proves usefulness without generating résumé prose. A successful output answers:
-
-- Which confirmed Contributions are relevant to this JD requirement, and why?
-- What capability has actually been demonstrated?
-- How credible and broad is the evidence?
-- What is missing or only weakly supported?
-- Would a human choose similar Contributions for a future tailored résumé?
-
-Do not add layouts, PDF export, bullet rewriting, cover letters, or a résumé editor in this project.
-
-## Persistence: Required Now vs Provisional
-
-### Persist Canonically Now
-
-| Data | Why It Must Persist |
-|---|---|
-| Experience, Contribution, Evidence, Skill identities and relations | Core graph under test |
-| Responsibility attribution and user corrections | Truthfulness and auditability |
-| Full question/answer turns with artifact citations | Replay and assessment basis |
-| Claim proposals and confirmation decisions | Measures extraction error; prevents silent model mutation |
-| Confirmed Contribution–Skill assessments | Primary validation output |
-| JD raw text, parsed expectations, source spans, and corrections | Reproducible usefulness comparison |
-| Model/prompt/policy/schema/upstream versions | Reproducibility and regression diagnosis |
-| Golden fixtures and human review outcomes | Calibration evidence |
-| Append-only events and supersession links | Preserve history without event-sourcing the whole product |
-
-### Keep Replaceable/Provisional
-
-| Decision | Representation Now | Why Not Freeze |
-|---|---|---|
-| Aggregation formula and weights | `AggregationPolicy` function plus versioned configuration | Core hypothesis requires empirical calibration |
-| Confidence admission threshold | Named policy with fixture results | False-positive/negative trade-off is unknown |
-| Audit stop criteria | Coverage policy and human override | Different Contribution types need different depth |
-| Question-selection prompt/model | Versioned adapter | Model behavior will change |
-| JD importance/fit formula | Explainable comparison policy | Only a small usefulness test is in scope |
-| Ontology subset | Read-only pinned adapter and local Skill IDs | Avoid coupling canonical data to the full upstream ontology |
-| Storage engine | Repository interface backed by files | JSON is enough for one user and golden cases |
-
-### Workspace Layout
-
-```text
-workspace/
-├── canonical/
-│   ├── experiences.json
-│   ├── contributions.json
-│   ├── evidence.json
-│   ├── skills.json
-│   ├── contribution_skill_assessments.json
-│   └── user_skill_assessments.json
-├── sessions/<session_id>/
-│   ├── state.json
-│   └── turns.jsonl
-├── proposals/
-│   ├── claims/
-│   ├── assessments/
-│   └── jd_parses/
-├── jobs/<jd_id>/
-│   ├── source.txt
-│   ├── expectations.json
-│   └── usefulness_report.json
-├── events/audit_events.jsonl
-├── snapshots/<timestamp>/
-├── fixtures/
-│   ├── stoa/
-│   ├── audits/
-│   ├── assessments/
-│   └── jds/
-├── reports/
-└── provenance/
-    ├── upstream_baseline.json
-    └── model_policy_versions.json
-```
-
-Write canonical files atomically (temporary sibling then rename), validate before replacement, and snapshot before migrations or recalibration runs. JSONL is appropriate for turns, confirmations, and reviews; current entities remain ordinary versioned JSON for simple inspection and diffs.
-
-## Recommended Source Structure
-
-```text
-src/
+src/career_evidence_graph/
 ├── domain/
-│   ├── entities.py
-│   ├── value_objects.py
-│   ├── commands.py
-│   ├── proposals.py
-│   └── invariants.py
-├── application/
-│   ├── seed_stoa.py
-│   ├── audit_contribution.py
-│   ├── assess_contribution_skill.py
-│   ├── aggregate_skill.py
-│   └── compare_job.py
+│   ├── models.py              # existing contracts + new v1.1 schema versions
+│   ├── invariants.py          # existing pure checks, extended
+│   └── fixtures.py            # frozen STOA legacy path
 ├── audit/
-│   ├── state_machine.py
-│   ├── question_policy.py
-│   ├── claim_extractor.py
-│   └── coverage_policy.py
-├── skills/
-│   ├── ontology_port.py
-│   └── mind_adapter.py
-├── assessment/
-│   ├── contribution_policy.py
-│   ├── aggregation_port.py
-│   └── anchor_gates.py
-├── jobs/
-│   ├── parser.py
-│   ├── comparator.py
-│   └── usefulness_report.py
-├── infrastructure/
-│   ├── workspace_repository.py
-│   ├── model_gateway.py
-│   ├── artifact_reader.py
-│   └── provenance.py
+│   ├── models.py              # generic IDs and input custody
+│   ├── workflow.py            # same single-Contribution state machine
+│   └── store.py               # same atomic snapshot repository
+├── inventory.py               # source → proposal → review → inventory
+├── assessment.py              # existing assessment authority, generalized
+├── graph.py                   # sole canonical projector/publisher
+├── jd.py                      # one interpret/review/accept/corpus/compare path
+├── evaluation.py              # frozen evaluation orchestration and decision
+├── workspace.py               # sole root/path policy
+├── validation/
+│   ├── hashing.py
+│   └── store.py               # shared atomic/create-only primitives
 └── cli.py
-tests/
-├── unit/
-├── contract/
-├── golden/
-├── adversarial/
-└── replay/
+
+.career-evidence/              # ignored, private, single-user workspace
+├── sources/<source_hash>/
+├── inventories/<revision_hash>/
+├── audits/<audit_id>.json
+├── assessments/<assessment_id>.json
+├── graph/{snapshots,current.json}
+├── jds/{prepared,accepted,corpora}/
+└── evaluations/<run_hash>/
 ```
 
-Organize by domain capability, not by generic `controllers/services/models`. The application layer coordinates components; domain and policy modules remain testable without an LLM or filesystem.
+Keep raw career material, raw JD text, user answers, personal graph snapshots, and evaluations under the ignored private root. Committed `validation/` contains only schemas, content-free fixtures, adversarial cases, redacted manifests, and hashes. Preserve the STOA fixture and exact hashes untouched; generic v1.1 data uses new schema versions.
 
-## Build Order Driven by Dependencies and Hypothesis Risk
+## Canonical Domain Additions
 
-Every stage must leave a testable artifact.
+### Generic source custody
 
-1. **Freeze contracts, invariants, and fixtures**
-   - Implement strict domain models, versioned envelopes, canonical mastery anchors, responsibility enum, and file repository.
-   - Seed a hand-authored STOA Experience with distinguishable Contributions and Evidence links.
-   - Evidence produced: schema tests, invalid-state tests, round-trip fixtures, provenance baseline.
-   - This comes first because every upstream pattern must adapt to this model rather than redefine it.
+The current `Evidence` contract requires a repository, pinned commit, and tracked path. Full-career material needs Git objects, private files/pastes, and reviewed user statements. Do not weaken provenance with nullable repository fields. Add a tagged `SourceLocator` union (`git-object`, `private-blob`, `user-statement`) in which every variant retains a stable source ID, content hash, and bounded locator. Acquisition adapters return bytes and metadata only; one career interpreter turns admitted source bundles into inventory proposals. No adapter may create canonical Contributions directly.
 
-2. **Validate Contribution decomposition and responsibility attribution**
-   - Build artifact indexing, decomposition proposals, and confirmation workflow.
-   - Evidence produced: human-reviewed STOA Contributions, false-attribution cases, accepted/rejected proposal log.
-   - This attacks the highest upstream-integration risk: whole-experience or team work being mistaken for personal capability.
+### Status-aware graph without status inflation
 
-3. **Build a resumable single-Contribution Grill-Me loop**
-   - Implement audit state machine, one-question policy, persisted turns, claim proposals, and confirmation.
-   - Start with one representative STOA Contribution, then one contrasting Contribution.
-   - Evidence produced: replayable transcripts, question-quality review, responsibility corrections, coverage/stop decisions.
+Add `GraphCoverageRecord(entity_kind, entity_id, state, basis_hashes, limitation)` rather than overloading audit or admission status.
 
-4. **Produce Contribution–Skill assessments without aggregation**
-   - Add normalizer adapter, separate assessment dimensions, basis trace, and human review.
-   - Evidence produced: golden assessment cases, semantic-separation tests, counterexamples where confidence and mastery diverge.
-   - Do not hide weak evidence behind a user-level score before this relationship is trustworthy.
+| State | Meaning | Mastery effect |
+|---|---|---|
+| `pending` | Known item, required review incomplete | None |
+| `insufficient-evidence` | Review/audit cannot establish the claim or capability | None |
+| `unresolved-responsibility` | Ownership or assistance remains unresolved/disputed | None |
+| `reviewed` | Relevant item review is complete, but graph-wide cutoff confirmation is not | Only a separately admitted reviewed assessment may contribute |
+| `confirmed` | User confirmed inclusion/coverage in this exact snapshot as of its cutoff | Confirmation alone never creates mastery |
 
-5. **Calibrate replaceable user-level aggregation**
-   - Implement at least one simple policy plus anchor gates; compare policy outputs across fixtures and repeated runs.
-   - Evidence produced: reviewer agreement/disagreement, no-score-inflation tests, cross-context higher-anchor cases.
-   - Exact formula remains provisional until this evidence supports a choice.
+Mastery eligibility remains separate: the assessment must be current in its immutable version lineage, `reviewed`, substantively reviewed, `reviewed-user-truth`, and admitted by the active policy.
 
-6. **Add the thin JD usefulness slice**
-   - Parse a few JDs, confirm expectations, compare separate dimensions, rank/explain relevant Contributions.
-   - Evidence produced: golden JD parses, selected-Contribution agreement, usefulness review, explicit gaps.
-   - This is the first end-to-end hypothesis result and the stopping point for the validation project.
+### Canonical graph snapshot
 
-7. **Harden replay and adversarial evaluation**
-   - Add prompt-injection artifacts, hidden-text cases, contradictory answers, fabricated ownership, ambiguous aliases, and repeat-run variance checks.
-   - Evidence produced: deterministic invariant results and documented model variability.
-   - Only after this gate should a roadmap consider résumé compilation.
+`CareerGraphSnapshot` should retain the cutoff, accepted inventory revision hash, prior graph hash, active policy hashes, stable entity/relation references, every coverage record, current assessment-version hashes, derived user-Skill results, graph hash, and separate confirmation lineage. It must not copy raw source bytes or full transcripts. Corrections happen in the owning inventory, audit, resolution, or assessment workflow; the projector then emits a new snapshot.
 
-## Upstream Integration Map
+## Authoritative Data Flow
 
-All pinned upstreams are reference inputs, not runtime dependencies. Copying or adapting code requires provenance in `provenance/upstream_baseline.json`, the relevant license/notice, a local divergence note, and a test expressing this project's distinct semantics.
+### Full-career inventory
 
-| Local Component | Exact Upstream File/Pattern | Action | Adaptation / Rejection | License |
-|---|---|---|---|---|
-| Audit state and resumability | `tabiya-compass/backend/app/agent/skill_explorer_agent/skill_explorer_agent.py` (`SkillsExplorerAgentState` tracks questions/answers) | Adapt pattern | Key state by `contribution_id`, add pending confirmation, coverage, Evidence citations, revisions; do not audit whole Experience | MIT, pinned `8470bea…` |
-| Conversation/extraction/transition separation | `tabiya-compass/backend/app/agent/collect_experiences_agent/collect_experiences_agent.py`, `_dataextraction_llm.py`, `_transition_decision_tool.py` | Adapt pattern | Separate next-question generation, claim extraction, and deterministic state transition; reject fixed work-type progression and automatic state mutation from extraction | MIT |
-| Responsibility attribution | `tabiya-compass/backend/app/agent/skill_explorer_agent/_responsibilities_extraction_tool.py` and `_responsibilities_extraction_llm.py` | Adapt pattern | Preserve user/non-user/other-person separation; extend to team/shared, Codex-assisted, third-party, unknown; require confirmation before canonicalization | MIT |
-| Application state repository | `tabiya-compass/backend/app/application_state.py`, `app/store/json_application_state_store.py` | Inspired-by | Keep repository port and file-backed state; add atomic writes, schema versions, migrations, proposal/history separation | MIT |
-| One-question discipline | `mattpocock-skills/skills/productivity/grilling/SKILL.md` | Adapt behavioral pattern | Ask one question, inspect environment first, distinguish facts from user decisions; add Contribution target, coverage policy, and persisted outcome | MIT, pinned `2ab9580…` |
-| Artifact-first grilling | `mattpocock-skills/skills/engineering/grill-with-docs/SKILL.md` | Adapt behavioral pattern | Read available Evidence before asking; reject documentation generation as the audit goal | MIT |
-| Canonical vocabulary and boundary cases | `mattpocock-skills/skills/engineering/domain-modeling/SKILL.md` | Adapt pattern | Maintain domain glossary and challenge ambiguity; do not let glossary terms encode scoring policy | MIT |
-| Skill normalization | `mind-tech-ontology/__aggregated_skills.json`, `skills/*.json`, `concepts/*.json` | Reuse data through adapter | Use canonical names, synonyms, misspellings, domains, concepts, and tasks from pinned read-only snapshot | MIT, pinned `2367527…` |
-| Ontology loading | `mind-tech-ontology/skills.py` | Inspired-by, preferably reimplement small adapter | Implement only indexed lookup needed by fixtures; do not import the entire class hierarchy into the domain | MIT |
-| Implied knowledge | `impliesKnowingSkills` / `impliesKnowingConcepts` fields in MIND data | Reject for mastery; allow suggestion only | May suggest a follow-up question or JD normalization candidate. Never create a user Skill or score from the edge | MIT |
-| Versioned workspace | `cv-market-learning-planner/references/schemas.md`, `scripts/run_cycle.py` | Adapt pattern | Separate current canonical artifacts from history/snapshots; replace CV/gap/learning files with graph/audit/JD artifacts | MIT, pinned `ea50784…` |
-| Append-only review history | `cv-market-learning-planner/scripts/update_progress.py` | Adapt code pattern | Use JSONL for audit turns, confirmations, calibration reviews; do not inherit exercise progress semantics | MIT |
-| Strict structured boundaries | `hiring-agent/models.py` and `pdf.py` section-specific Pydantic/JSON Schema calls | Adapt pattern | Define project-specific strict models per extraction stage; validate proposals before display/persistence | MIT, pinned `70fd3ea…` |
-| Staged extraction and caching | `hiring-agent/pdf.py`; cache orchestration in `hiring-agent/score.py` | Adapt pattern | Cache by content hash + model/prompt/schema version; never use stale outputs after policy changes | MIT |
-| Role-specific configuration | `hiring-agent/roles.py`, `roles/<role>/role.json`, prompt templates | Inspired-by | Use versioned JD parsing/comparison policy configs; reject direct free-form résumé scoring and final LLM score | MIT |
-| Adversarial lessons | `hiring-agent/README.md` coverage discussion | Reuse as fixture inspiration | Add variance, hidden-text, GitHub bias, and prompt-injection cases. GitHub signals cannot bypass Contribution audit | MIT |
-| Raw JD ingestion | `resume-matcher/apps/backend/app/routers/jobs.py` | Adapt very thin pattern | Store raw JD and ID, then parse to versioned expectations; no database/service required | Apache-2.0, pinned `ad7754c…` |
-| Golden JD fixtures and truthfulness checks | `resume-matcher/apps/backend/tests/evals/golden/cases.py`, `tests/evals/test_tailoring_eval.py`, `tests/unit/test_prompt_guardrails.py` | Adapt test pattern | Pair good/bad cases, use structural scorers first and optional LLM judge second; replace résumé-tailoring assertions with Contribution-selection and no-fabrication assertions | Apache-2.0 |
-| Résumé schemas, editor, PDF/export | `resume-matcher/apps/backend/app/schemas/models.py`, frontend builder, PDF pipeline | Reject for this project | Useful only after graph usefulness is validated; flat résumé state must not become source of truth | Apache-2.0 |
+```text
+private bytes / pinned Git objects / reviewed statements
+    ↓ validate encoding, locator, bounds, hash
+create-only SourceBundle
+    ↓ one CareerInterpreter or recorded proposal
+InventoryProposal (non-authoritative)
+    ↓ one decision per Experience / Contribution / Evidence / candidate Skill
+ordered InventoryReview lineage
+    ↓ all known items have a disposition + recorded cutoff
+AcceptedInventoryRevision
+```
 
-### License-Aware Integration Rules
+Completeness is measured against the declared source bundle and cutoff, not an unknowable lifetime universe. Omitted, rejected, unavailable, and unresolved items remain explicit dispositions; deletion is not coverage.
 
-- MIT upstreams: retain copyright and permission notice in substantial copied/adapted portions; record source file and pinned commit.
-- Resume Matcher is Apache-2.0: preserve license and notices, mark modified files, and do not assume MIT treatment. Prefer pattern adaptation rather than copying large subsystems.
-- Maintain a per-file classification: `reuse`, `adapt`, `inspired-by`, or `reject`.
-- A local test must demonstrate the divergence that matters: Contribution granularity, confirmed responsibility, separate score dimensions, no implied mastery, or JD fit isolation.
+### Audit, resolution, assessment, and graph
 
-## Patterns to Follow
+```text
+AcceptedInventoryRevision
+    ↓ project one ContributionContext with exact Evidence hashes
+existing AuditWorkflow → completed, whole-confirmed AuditSnapshot
+    ↓
+single Skill resolver → explicit SkillResolutionDecision
+    ↓
+Assessment proposal → substantive review → admission → AssessmentVersion
+    ↓
+CareerGraphProjector ← accepted inventory + all current status/version hashes
+    ↓
+immutable CareerGraphSnapshot → user confirms exact graph hash/cutoff
+    ↓
+atomic current pointer movement with expected-prior-hash check
+```
 
-### 1. Proposal → Confirmation → Canonical Revision
+Modify `load_reviewed_user_graph` into a snapshot loader/projector. Its current assessment-only projection drops unassessed Contributions and coverage states; v1.1 must retain them while still allowing only admitted reviewed-user-truth assessments into mastery.
 
-**What:** Model output lives as an immutable proposal. Human decisions create a new canonical revision and append an event.
+### Raw JD to immutable three-JD corpus
 
-**Why:** Corrections are validation data. Direct model writes would erase the error signal and make audits irreproducible.
+```text
+raw UTF-8 JD bytes
+    ↓ existing code-point, size, ID, and source-hash checks
+JDRawSource + JDInterpretationProposal
+    ↓ item-level confirm/edit/reject/split/merge decisions
+effective proposal with ordered before/after hashes
+    ↓ explicit exact-hash acceptance
+AcceptedJDPacket
+    ↓ select exactly three distinct accepted packet hashes
+JDCorpusManifest (create-only, ordered slots, corpus hash)
+```
 
-### 2. Functional Core, Imperative Shell
+The current `PreparedJDIntake.packet` is already typed as `AcceptedJDPacket`, collapsing proposal and acceptance. Replace it with a strict proposal model; only complete review and explicit confirmation construct the accepted packet. Production `jd analyze` must load a packet from the sealed corpus through `JDIntakeStore`. Arbitrary `--packet` paths remain fixture-test helpers only.
 
-**What:** Parsing gateways and repositories handle I/O; domain validation, anchor gates, aggregation, and comparison are pure functions over typed inputs.
+### Evaluation and final decision
 
-**Why:** The hypotheses can be tested without model calls, and changing a formula does not require changing persistence.
+```text
+confirmed graph hash + three-JD corpus hash + charter/policy/baseline hashes
+    ↓
+create-only EvaluationRun
+    ├── deterministic comparisons
+    ├── adversarial and no-backflow checks
+    ├── repeated-run stability
+    ├── human usefulness review
+    ├── opaque blind baseline review
+    └── holdout and replication evidence
+    ↓
+FinalDecisionRecord with criterion verdicts and limitations
+```
 
-### 3. Evidence-Bearing Derivations
+An unfavorable result remains a valid retained result. A rerun after a correction creates a linked bundle with parent hash and change reason; it never overwrites the prior run or silently changes the charter.
 
-**What:** Every claim and score cites source turns, artifact locations, and prior entity revisions.
+## Review and Hash Transitions
 
-**Why:** Evidence and assertion are distinct. External Evidence Ontology practice likewise records evidence so users can understand why an assertion was made and apply quality control.
+Use one transition grammar across domains:
 
-### 4. Stable Capability, Target-Specific Projection
+```text
+original proposal hash
+  → review[n] {before_hash, after_hash, reviewer, reason}
+  → effective hash
+  → acceptance/admission {effective_hash + policy/input hashes}
+  → immutable output hash
+```
 
-**What:** User Skill assessment is stable; a JD comparison is a separate projection joining capability with target requirements.
+Required ancestry:
 
-**Why:** Research on competence-level prediction and résumé–JD suitability treats them as distinct tasks, and adjacent competence levels remain difficult even for expert annotators. Combining them would make calibration opaque.
+1. `source_bundle_hash = H(manifest + declared source hashes)`
+2. `inventory_revision_hash = H(proposal + review lineage + cutoff + source_bundle_hash)`
+3. `audit_snapshot_hash = H(inventory_revision_hash + Contribution context + conclusion lineage)`
+4. `assessment_version_hash = H(audit hash + Skill-resolution hash + effective assessment + review + admission policy)`
+5. `graph_hash = H(inventory hash + current audit/assessment versions + policy hashes + coverage projection)`
+6. `graph_confirmation_hash = H(graph hash + reviewer + cutoff acknowledgment + limitations)`
+7. `accepted_jd_hash = H(raw source hash + proposal + item-review lineage)`
+8. `jd_corpus_hash = H(three ordered distinct accepted_jd_hash values)`
+9. `evaluation_hash = H(graph confirmation + corpus + charter/policy/baseline hashes + outputs)`
+10. `decision_hash = H(evaluation hash + criterion verdicts + reviewer decision + limitations)`
 
-## Anti-Patterns to Reject
+Only resumable working snapshots and `current.json` use atomic replacement. Accepted inventories, assessment versions, graph snapshots, accepted JDs, corpora, evaluations, and decisions are append/create-only.
 
-### Experience-to-Skill Shortcut
+## Explicit STOA Hard-Coding Retirement
 
-**Mistake:** Infer Skills or mastery from the existence/title of an Experience.
+| Current coupling | v1.1 replacement | v1.0 treatment |
+|---|---|---|
+| Literal STOA repository IDs, `_REPOSITORIES`, `_DOCUMENT_PATHS`, exact 4/10 counts | Generic `SourceBundle` with tagged locators | Preserve inside legacy verifier |
+| `src-stoa-*`, `exp-stoa`, `contrib-stoa-*`, `claim-stoa-*`, `evid-stoa-*` regexes | Shared `Identifier` contract | Old IDs remain valid; remove prefix requirements from generic schemas |
+| STOA candidate/review/sealed schemas as runtime ingress | Generic inventory proposal/review/revision schemas | Never rewrite historical known-good |
+| Phase 2 path resolution and checkpoint lookup | Workspace-relative bundle ancestry | Legacy verification only |
+| `inspect_contribution(fixture_path, manifest_path, ...)` | `inspect_contribution(ContributionContext)` | Fixture helper may adapt STOA for tests |
+| Audit models require `contrib-stoa-*` | Generic ID plus bound input revision hash | Legacy snapshots stay readable |
+| Assessment `fixture_hash` / `source_manifest_hash` | v2 source-bundle, inventory, and graph-input hashes | v1 envelopes remain readable |
+| Literal rejection of `skill-stoa-reviewed-fixture` | Semantic rejection of fixture markers/non-specific Skills | Preserve old negative case |
+| Calibration corpus is the only assessment builder | One generic builder; calibration supplies derived authority | Synthetic data cannot enter user-truth partition |
+| `.career-evidence/phase-05` | Stable domain namespaces under the same private root | Explicit migration only if real private v1 data exists |
+| Arbitrary CLI fixture/JD packet paths | Workspace-bound production IDs plus explicit legacy test commands | Keep test compatibility separate |
 
-**Consequence:** Team work, credentials, and broad summaries become unearned capability.
+Generalization is complete only when no production schema, workflow, or CLI command requires `stoa`; remaining occurrences are confined to legacy fixtures, validation data, tests, and explanatory names.
 
-**Instead:** Audit confirmed Contributions and create assessments only from confirmed claims.
+## Architectural Patterns to Follow
 
-### One Ambiguous Relationship Score
+### 1. Functional Core, Imperative Shell
 
-**Mistake:** Multiply mastery, centrality, confidence, duration, and JD relevance into a single stored edge weight.
+Keep parsing, normalization, aggregation, graph projection, coverage calculation, comparison, and evaluation as pure functions over validated Pydantic models. Keep filesystem reads, atomic writes, timestamps, and CLI argument handling at the edge. This extends the current workflow/store split and makes every policy replaceable without changing custody.
 
-**Consequence:** A score change cannot be interpreted or calibrated.
+### 2. Proposal → Review → Acceptance
 
-**Instead:** Persist semantically distinct values and combine them only in a named, versioned view/policy.
+Every interpretation that can alter career truth must cross an explicit review boundary:
 
-### Ontology Edge as Personal Evidence
+```text
+source bytes + interpreter version
+        ↓
+candidate items (replaceable proposal)
+        ↓ item-level human decisions
+accepted items (source-bound authority)
+        ↓
+derived assessments / graph / comparisons
+```
 
-**Mistake:** `Next.js → React` becomes "the user masters React."
+Acceptance records must bind the exact proposal hash, source hashes, schema version, and reviewer decisions. Acceptance must validate an existing proposal; it must never invoke the interpreter again. Re-running interpretation creates a new proposal with a new hash and requires a new review.
 
-**Consequence:** Taxonomic knowledge turns into fabricated personal knowledge.
+Apply the pattern separately to inventory items, audit claims, skill resolutions, contribution-skill assessments, and JD requirements. Do not collapse their decisions into one generic approval object: they share custody mechanics but retain different semantics.
 
-**Instead:** Use the edge to normalize a JD or ask a follow-up question.
+### 3. One Deterministic Graph Projector
 
-### Transcript as Source of Truth
+Introduce one projector that consumes accepted inventory, accepted contribution records, reviewed assessments, and reviewed skill resolutions to create a `CareerGraphSnapshot`. This snapshot is the sole graph read model for inspection, JD comparison, and evaluation.
 
-**Mistake:** Recompute all facts from raw chat on every run.
+The projector must:
 
-**Consequence:** State drifts with model versions and corrections are lost.
+- retain every in-scope inventory item, including uncovered and unassessed items;
+- expose explicit coverage and review states instead of treating absence as failure or capability;
+- use accepted stable IDs and relationship records without copying mutable facts into graph-only fields;
+- reject dangling or ambiguous identities;
+- produce a deterministic content hash from canonical serialized inputs and projector version;
+- remain rebuildable from upstream authorities.
 
-**Instead:** Preserve transcript plus confirmed claims and canonical revisions.
+No command may edit the graph snapshot directly. A correction is made at the owning upstream authority, then projected into a new immutable snapshot.
 
-### Model as Workflow Controller
+### 4. Source-Bound Interpretation Ports
 
-**Mistake:** Let a prompt decide whether to mutate state, skip confirmation, or declare the audit complete.
+Use one career-source interpretation port for heterogeneous career materials and one JD interpretation port for job descriptions. These are intentionally separate because their output contracts and review questions differ. Within either domain, all file formats and providers must route through the same port and proposal schema; do not create a second parser for “real” inputs beside the fixture path.
 
-**Consequence:** Non-determinism changes process guarantees.
+The raw source record remains authoritative for provenance. The interpreter produces candidates, not truth. Deterministic adapters for JSON, Markdown, or text should be preferred; a provider-backed implementation is added only where the real source set proves it necessary.
 
-**Instead:** Model proposes; typed state machine validates allowed transitions.
+### 5. Immutable Inputs, Versioned Policies
 
-### Premature Final Pipeline
+Treat raw source captures, accepted review bundles, graph snapshots, the three-JD corpus, and evaluation runs as create-only artifacts. Treat normalization rules, aggregation formulas, question-selection logic, comparison policy, and evaluation rubrics as versioned replaceable policies. Every derived artifact records the policy version and hashes of authoritative inputs so a changed rule produces a new artifact rather than silently rewriting history.
 
-**Mistake:** Add a graph database, agents, web UI, résumé rewriting, export, and gap sprints.
+### 6. Stable Identity Before Cross-Source Deduplication
 
-**Consequence:** The project can ship impressive plumbing without learning whether assessment is valid.
+Assign source-local immutable item IDs before resolving equivalence across sources. Preserve aliases and merge decisions as reviewed resolution records. Do not use display names, paths, or guessed semantic similarity as graph identity. This allows a resume line, repository contribution, interview statement, and audit item to converge on one accepted contribution without losing their individual provenance.
 
-**Instead:** Stop at the JD usefulness report.
+## Anti-Patterns to Avoid
+
+### Parallel Fact Ledgers
+
+**What:** Storing inventory claims, accepted evidence, or skill facts again inside an assessment, graph, JD analysis, or evaluation bundle.
+
+**Why bad:** Corrections would have multiple owners, hashes could remain valid while facts diverge, and “latest file wins” would become accidental policy.
+
+**Instead:** Store stable references plus the exact upstream artifact hashes. Denormalize only immutable display summaries and make them non-authoritative.
+
+### Mutable Universal Graph
+
+**What:** Treating one editable graph JSON object as source, workflow state, assessment store, and analysis result.
+
+**Why bad:** Review state and evidence custody become indistinguishable from derived relationships, and partial updates cannot be independently audited.
+
+**Instead:** Keep semantic authorities separate and project one immutable graph snapshot for reads.
+
+### Re-parsing During Acceptance or Analysis
+
+**What:** Accepting raw documents directly or letting JD analysis re-run extraction.
+
+**Why bad:** The reviewed content is no longer necessarily the analyzed content; model or parser changes can alter results without a new review.
+
+**Instead:** Analysis reads accepted, hash-bound packets only.
+
+### Coverage-as-Capability
+
+**What:** Converting inventory presence, repository activity, keywords, ontology implication, or a reviewed JD match into mastery.
+
+**Why bad:** It violates Contribution-level grounding and lets unverified work inflate user truth.
+
+**Instead:** Coverage indicates workflow completeness; only reviewed Contribution–Skill assessments can affect mastery.
+
+### Evaluation Backflow
+
+**What:** Letting an evaluation score mutate graph, JD, or assessment records, or selecting “passing” evidence after seeing the desired outcome.
+
+**Why bad:** Evaluation stops being independent evidence and becomes another scoring authority.
+
+**Instead:** Evaluation is a read-only consumer that emits a create-only run and final decision record.
+
+### Phase-Number Storage Contracts
+
+**What:** Encoding runtime paths such as `phase-05` as permanent domain locations.
+
+**Why bad:** Milestone progression changes paths and encourages new stores for each phase.
+
+**Instead:** Use stable semantic directories under one private workspace; planning phase numbers belong only in roadmap artifacts.
+
+### Speculative Infrastructure
+
+**What:** Adding a graph database, SQL database, workflow framework, vector store, web API, or UI before a concrete validated requirement.
+
+**Why bad:** It introduces migrations and competing abstractions while the domain contracts are still being validated.
+
+**Instead:** Continue with Pydantic, standard-library orchestration, atomic JSON/JSONL bundles, and explicit CLI commands.
+
+## Dependency-Aware Build Order
+
+1. **Generic identity, source, and workspace foundation**
+   - Replace STOA-shaped identifiers and path assumptions with generic source and inventory models.
+   - Consolidate atomic/create-only storage helpers behind one `.career-evidence/` workspace root.
+   - Preserve the current STOA fixture as a frozen regression adapter.
+
+2. **Full-career inventory and cutoff**
+   - Ingest heterogeneous sources into one proposed inventory.
+   - Add item-level include/exclude/merge/split review and an accepted coverage cutoff.
+   - Do not begin production assessment until the in-scope inventory is sealed.
+
+3. **Generic contribution audit**
+   - Generalize audit models and workflow from `contrib-stoa-*` to accepted inventory item IDs.
+   - Reuse proposal/review/admission and local snapshot mechanics.
+   - Make unanswered, declined, unsupported, and covered states explicit.
+
+4. **Skill resolution and reviewed-user-truth production**
+   - Resolve candidate skill identities through a reviewable mapping layer.
+   - Produce reviewed Contribution–Skill assessments and user-level aggregations from accepted audits only.
+   - Preserve attribution, mastery, confidence, duration, and context as separate meanings.
+
+5. **Canonical graph and user confirmation**
+   - Implement the single deterministic graph projector.
+   - Surface inventory coverage, audit coverage, assessment state, and unresolved references.
+   - Seal a reviewed graph snapshot only after required user-truth checks pass.
+
+6. **Raw-JD interpretation and immutable corpus**
+   - Extend the existing JD prepare/accept seams to raw inputs and item-level requirement review.
+   - Seal exactly three accepted, source-hashed JD packets into one immutable corpus manifest.
+   - Prevent corpus replacement or hidden packet substitution during comparison.
+
+7. **Workspace-bound JD comparisons**
+   - Compare each accepted JD packet with one selected canonical graph snapshot.
+   - Bind analysis outputs to graph, corpus, packet, and policy hashes.
+   - Keep match results distinct from user mastery.
+
+8. **Evaluation orchestration and final decision**
+   - Run deterministic structural checks first, then any explicitly selected model-assisted rubric.
+   - Emit immutable per-case results, aggregate evaluation, exceptions, and final go/hold decision.
+   - Evaluation must not write upstream state.
+
+This order prevents downstream work from stabilizing against STOA-only IDs, partial inventory, mutable review packets, or an unconfirmed graph authority.
+
+## Privacy and Publication Boundary
+
+All real resumes, raw career documents, audit transcripts, evidence files, raw JDs, review packets, graph snapshots, and evaluation runs remain beneath the ignored private workspace. Committed artifacts may contain only synthetic fixtures, schemas, policy versions, redacted examples, tests, and aggregate claims that cannot reconstruct private material.
+
+Store source locators as workspace-relative opaque references rather than absolute user paths. Never copy raw text into logs or planning documents merely for convenience. A publish/export command is unnecessary for v1.1; if later required, it must be an explicit redaction boundary with its own tests.
 
 ## Scaling Considerations
 
-| Scale | Architecture Adjustment |
-|---|---|
-| Current validation: one user, STOA, 2–5 JDs | File-backed modular monolith; synchronous or simple async model calls; manual confirmation; no service boundary |
-| Dozens of users / repeated pilots | Swap repository implementation to SQLite/PostgreSQL, add per-user encryption/access control and job queue; keep domain/application interfaces |
-| Production product | Consider durable workflow execution, object storage, search/vector indexing, and separate résumé compiler only after measurement shows distinct load or ownership needs |
+| Concern | v1.1 approach | Trigger for reconsideration |
+|---------|---------------|-----------------------------|
+| Data volume | Load validated JSON artifacts and build in-memory indexes | Measured memory or query latency on a real corpus becomes material |
+| Writes | Single-process atomic replacement and create-only bundles | Concurrent writers or transactional multi-record updates become required |
+| Graph queries | Deterministic projection plus dictionaries/adjacency maps | Repeated real queries cannot be expressed or performed acceptably in memory |
+| Interpretation | Sequential, resumable proposals with recorded provider calls | Throughput becomes a demonstrated bottleneck after correctness is stable |
+| Evaluation | Local orchestrator over immutable fixtures/runs | A reproducible distributed evaluation need is demonstrated |
 
-The first bottleneck will be review throughput and calibration consistency, not database scale. The second will be repeated model calls; address it with content-addressed stage caching and replay before adding distributed infrastructure.
+None of these triggers is present in the milestone scope; do not add infrastructure for hypothetical scale.
 
-## Validation and Observability
+## Open Design Questions for Phase Fixtures
 
-Record enough metadata to answer:
+- Which heterogeneous source kinds are actually present, and which need deterministic adapters versus model-assisted interpretation?
+- What item-level review vocabulary is sufficient across inventory, skill resolution, and JD requirements without erasing their semantic differences?
+- Which coverage states block graph sealing, and which may remain explicitly unresolved at the evaluation cutoff?
+- How should accepted merge/split decisions preserve stable identity when one source item maps to multiple contributions or vice versa?
+- Which aggregation and comparison policy versions constitute the final experiment, and what fixture failures force recalibration?
+- What exact decision rule turns three bound JD comparison results and evaluation evidence into the milestone go/hold conclusion?
 
-- Which question/prompt/model produced this proposal?
-- Which exact answer span and Evidence supported each claim?
-- What did the human change, and why?
-- Which policy version produced this score or JD comparison?
-- Does replay with the same recorded model output produce the same canonical result?
-- How often do repeated live model runs disagree?
-
-Required test layers:
-
-1. Domain invariant and schema round-trip tests.
-2. Contract tests for each model-assisted stage using recorded outputs.
-3. Golden audit/assessment/JD cases with expected ranges and rationale, not only exact opaque scores.
-4. Metamorphic tests: adding irrelevant Evidence or duplicate low-level Contributions cannot increase mastery.
-5. Adversarial tests: hidden text, instruction injection, conflicting ownership, alias collisions, fabricated metrics, and copied repository content.
-6. Human agreement reports for Contribution boundaries, confirmed claims, mastery anchors, and selected JD-relevant Contributions.
+These are phase-level policy questions. They should be decided with real reviewed fixtures, not embedded prematurely in infrastructure.
 
 ## Sources
 
-### Pinned primary upstreams
+### Verified Project Sources
 
-- [Open-source reference baseline](../../references/README.md) — pinned revisions, reuse matrix, and license boundary. **Confidence: HIGH**
-- [Tabiya Compass collect-experiences orchestration](../../references/upstream/tabiya-compass/backend/app/agent/collect_experiences_agent/collect_experiences_agent.py), [transition decision](../../references/upstream/tabiya-compass/backend/app/agent/collect_experiences_agent/_transition_decision_tool.py), [responsibility extraction](../../references/upstream/tabiya-compass/backend/app/agent/skill_explorer_agent/_responsibilities_extraction_tool.py), and [application state](../../references/upstream/tabiya-compass/backend/app/application_state.py). **Confidence: HIGH**
-- [Matt Pocock one-question grilling](../../references/upstream/mattpocock-skills/skills/productivity/grilling/SKILL.md) and [domain modeling](../../references/upstream/mattpocock-skills/skills/engineering/domain-modeling/SKILL.md). **Confidence: HIGH**
-- [MIND Tech Ontology README](../../references/upstream/mind-tech-ontology/README.md), [aggregated skills](../../references/upstream/mind-tech-ontology/__aggregated_skills.json), and [loader/classes](../../references/upstream/mind-tech-ontology/skills.py). **Confidence: HIGH**
-- [CV Market Learning Planner workspace schema](../../references/upstream/cv-market-learning-planner/references/schemas.md), [snapshot cycle](../../references/upstream/cv-market-learning-planner/scripts/run_cycle.py), and [append-only reviews](../../references/upstream/cv-market-learning-planner/scripts/update_progress.py). **Confidence: HIGH**
-- [Hiring Agent structured models](../../references/upstream/hiring-agent/models.py), [section extraction](../../references/upstream/hiring-agent/pdf.py), [role configuration](../../references/upstream/hiring-agent/roles.py), and [documented architecture/adversarial lessons](../../references/upstream/hiring-agent/README.md). **Confidence: HIGH**
-- [Resume Matcher JD ingestion](../../references/upstream/resume-matcher/apps/backend/app/routers/jobs.py), [golden cases](../../references/upstream/resume-matcher/apps/backend/tests/evals/golden/cases.py), [tailoring evaluation](../../references/upstream/resume-matcher/apps/backend/tests/evals/test_tailoring_eval.py), and [prompt guardrails](../../references/upstream/resume-matcher/apps/backend/tests/unit/test_prompt_guardrails.py). **Confidence: HIGH**
+- `.planning/PROJECT.md`, `.planning/ROADMAP.md`, and `AGENTS.md` — milestone constraints, authority semantics, and YAGNI/reuse requirements. **Confidence: HIGH**
+- `src/career_evidence_graph/domain/models.py`, `domain/fixtures.py`, and `domain/invariants.py` — current canonical models, STOA-bound identities, and invariants. **Confidence: HIGH**
+- `src/career_evidence_graph/audit/models.py`, `audit/workflow.py`, and `audit/store.py` — current audit proposal/review/admission workflow and local persistence. **Confidence: HIGH**
+- `src/career_evidence_graph/assessment.py` — assessment sidecars, aggregation, and current reviewed-user-graph projection. **Confidence: HIGH**
+- `src/career_evidence_graph/jd.py` — source-bound JD preparation, acceptance, inspection, and analysis seams. **Confidence: HIGH**
+- `src/career_evidence_graph/validation/store.py` — existing atomic replacement and create-only bundle primitives. **Confidence: HIGH**
+- `src/career_evidence_graph/cli.py` — current command boundaries and phase-number/private-path coupling. **Confidence: HIGH**
 
-### External corroboration
+### Corroborating Standards and Documentation
 
-- [Pydantic models documentation](https://docs.pydantic.dev/latest/concepts/models/) — typed nested models, explicit extra-field behavior, validation, serialization, and JSON Schema. **Confidence: HIGH**
-- [Microsoft Agent Framework human-in-the-loop with AG-UI](https://learn.microsoft.com/en-us/agent-framework/integrations/ag-ui/human-in-the-loop) — typed interrupt and resume protocol as corroboration for explicit persisted confirmation states. **Confidence: MEDIUM**
-- [Evidence & Conclusion Ontology](https://evidenceontology.org/about_eco/) — separation of evidence, assertions, and assertion methods; evidence-bearing quality control. **Confidence: MEDIUM**
-- [Li et al., “Competence-Level Prediction and Resume & Job Description Matching Using Context-Aware Transformer Models”](https://aclanthology.org/2020.emnlp-main.679/) — separate competence and suitability tasks; expert annotation and adjacent-level ambiguity. **Confidence: MEDIUM**
+- [Pydantic unions](https://docs.pydantic.dev/latest/concepts/unions/), [strict mode](https://docs.pydantic.dev/latest/concepts/strict_mode/), and [validators](https://docs.pydantic.dev/latest/concepts/validators/) — support explicit heterogeneous contracts and strict validation at authority boundaries. **Confidence: MEDIUM**
+- [Python 3.13 `os.replace` and `fsync`](https://docs.python.org/3.13/library/os.html) — support the existing standard-library atomic file-store approach. **Confidence: MEDIUM**
+- [W3C PROV Overview](https://www.w3.org/TR/prov-overview/) — corroborates representing entities, activities, agents, and derivations without making provenance itself the capability authority. **Confidence: MEDIUM**
 
----
-*Architecture research for: Career Evidence Graph — Core Hypothesis Validation*
-*Researched: 2026-07-30*
+*Architecture confidence: HIGH for integration and component boundaries because recommendations follow verified local seams; MEDIUM for policy details intentionally deferred to real-fixture phases.*
+
+*Primary recommendation: evolve the existing validated-file architecture into one private workspace with several narrow semantic authorities and exactly one rebuildable graph projection. Do not introduce a second store, parser, graph authority, database, framework, or UI.*

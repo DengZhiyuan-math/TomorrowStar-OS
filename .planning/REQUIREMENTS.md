@@ -1,152 +1,168 @@
-# Requirements: TomorrowStar OS — Core Hypothesis Validation
+# Requirements: Application Product and Career Evidence Research
 
-**Defined:** 2026-07-30
+**Defined:** 2026-08-28
+**Milestone:** v1.1 — Full Career Graph and Real JD Validation
 **Core Value:** Accurately determine what the user can genuinely do within specific contributions and convert that understanding into skill scores and graph relationships that are useful for JD-relevant career decisions.
 
-## v1 Requirements
+## Current application product requirements — 2026-10-20
 
-Requirements for the first validation milestone. Each requirement maps to exactly one roadmap phase.
+[APP-01–18](../docs/single-job-flow.md#可验证要求) are the normative operational
+requirements. Their acceptance conditions are defined there, with implementation
+ownership, dependencies and verification in [the development plan](../docs/development-plan.md).
+The [audit](../docs/system-audit-2026-10-20.md) records why old approval and bounded-cycle
+requirements are superseded. These are target requirements, not completed checkboxes.
 
-### Validation Contract and Open-Source Provenance
+| Requirements | Scope |
+| --- | --- |
+| APP-01–03 | Durable mail ingestion, label/archive, incrementality, deduplication and continuous sequential execution |
+| APP-04–05 | Authoritative career facts, application information, direct correction and autonomous reuse |
+| APP-06–09 | Match routing, automatic materials, browser fallback and actual login waits |
+| APP-10–14 | One-Continue manual handoff, manual Submit, observed result, recovery and skip |
+| APP-15–18 | Impact-based updates, operation-level failure handling, minimal local checks and truthfulness |
 
-- [ ] **VAL-01**: An evaluator can apply a versioned validation charter that fixes the acceptance gates, comparison baselines, holdouts, failure rules, and `supported` / `partially supported` / `rejected` decision meanings before final results are reviewed.
-- [ ] **VAL-02**: An evaluator can reproduce an assessment run from its recorded fixture, artifact, prompt, model, configuration, policy, and reviewer versions without overwriting earlier runs.
-- [ ] **OSS-01**: A maintainer can trace every reused or adapted upstream seam to its repository, pinned revision, source path, license, reuse classification, attribution, and documented local divergence.
+The following v1.1 requirements retain their research meaning. Their accepted
+snapshots and mastery review do not require the user to approve a direct fact
+correction twice and do not gate documentary résumé preparation.
 
-### Domain Model and Validation Fixtures
+## v1.1 Research Requirements
 
-- [ ] **MOD-01**: A user can represent employment, projects, research, publications, education, teaching, open-source work, internships, and related history as typed `Experience` records containing distinguishable `Contribution` records.
-- [ ] **MOD-02**: The system treats `Contribution` as the smallest auditable unit and rejects any attempt to create a user Skill assessment directly from an `Experience`, credential, title, repository, or résumé skill list.
-- [ ] **MOD-03**: A user can attach typed, provenance-bearing `Evidence` to the `Contribution` it supports while Evidence remains supporting information rather than a separate audit hierarchy.
-- [ ] **MOD-04**: Each `ContributionSkillAssessment` records a Contribution, a specific Skill, `demonstrated_mastery`, `skill_centrality`, `evidence_confidence`, context, duration, and an explicit assessment basis, with all three scores independently constrained to 0–100.
-- [ ] **MOD-05**: Assessment records distinguish the user's own work from team work, another person's work, non-responsibilities, Codex-assisted work, and third-party work wherever attribution affects mastery.
-- [ ] **MOD-06**: Each specific user Skill has one relatively stable 0–100 mastery value while evidence confidence, verified duration, recency, context, and JD-specific match remain separately inspectable.
-- [ ] **MOD-07**: A maintainer can normalize Skill names and ontology relationships without ontology adjacency, aliases, dependencies, or `implies knowledge` relations creating or increasing user mastery.
-- [ ] **FIX-01**: An evaluator can use a human-reviewed STOA fixture decomposed into selected Contributions, supporting Evidence, responsibility boundaries, and Contribution–Skill relationships.
-- [ ] **FIX-02**: The fixture set contains known-good and known-bad variants spanning different mastery, centrality, confidence, context, duration, attribution, assistance, and evidence-quality cases.
+Requirements for this milestone. Each requirement must map to exactly one roadmap phase.
 
-### Contribution-Level Grill-Me Audit
+### Full-Career Inventory and Source Custody
 
-- [ ] **AUD-01**: The audit inspects supplied artifacts before questioning and records what was inspected, what was established from it, and why each remaining question is necessary.
-- [ ] **AUD-02**: A user receives at most one focused, decision-bearing question per turn and can pause and resume an audit without losing answers, extracted facts, coverage state, contradictions, or unresolved questions.
-- [ ] **AUD-03**: The audit rejects repeated, multi-part, leading, or artifact-answerable questions and instead probes what the user can explain, implement, reproduce, defend, debug, or operate for the selected Contribution.
-- [ ] **AUD-04**: The audit challenges ambiguous responsibility and assistance claims until user-owned, team-owned, other-owned, Codex-assisted, and third-party work are explicitly separated or marked unresolved.
-- [ ] **AUD-05**: For each audited Contribution, the user can review, edit, confirm, or reject a conclusion that states the strongest capability established, the next-higher capability not established, the supporting basis, and any provisional or unresolved points.
+- [x] **INV-01**: The user can declare the career-source universe, unavailable sources, and a cutoff that define what “all known career history” means for one inventory revision.
+- [x] **INV-02**: The user can record every known employment, project, research, publication, education, teaching, open-source, internship, and related Experience in one inventory without a résumé or repository list being treated as complete by itself.
+- [x] **INV-03**: The user can review every discovered or user-added inventory item and explicitly confirm, edit, add, split, merge, exclude with reason, or retain it as unresolved without silent omission.
+- [x] **INV-04**: The user can inspect a coverage report for every supported Experience category, declared source, candidate item, unresolved item, and unavailable source before the inventory is called complete.
+- [x] **INV-05**: The user can seal one exact inventory revision and cutoff only after every candidate has a recorded disposition; any later correction creates a new immutable revision instead of rewriting the accepted inventory.
+- [x] **INV-06**: An evaluator can trace every accepted inventory fact and Evidence item to a retained source identity, content hash, capture metadata, and any versioned transformation that produced derived text.
+- [x] **INV-07**: The operator can process raw career sources in the ignored private workspace while committed artifacts, routine status output, logs, and errors expose only safe identifiers, counts, hashes, and redacted diagnostics.
 
-### Contribution–Skill Assessment and User Skill Aggregation
+### Canonical Skill Graph and Assessment Authority
 
-- [ ] **ASS-01**: The system proposes a specific Skill only from an audited Contribution and preserves the Contribution, Evidence, audit answers, attribution, and assessment basis supporting that proposal.
-- [ ] **ASS-02**: Reviewers can assign and inspect `demonstrated_mastery`, `skill_centrality`, and `evidence_confidence` as separate judgments, including high-centrality/low-mastery, low-centrality/high-mastery, and high-mastery/low-confidence cases.
-- [ ] **ASS-03**: Every demonstrated-mastery judgment identifies the observable 0–100 anchor it satisfies, and no judgment enters a higher band without evidence of that band's capability conditions.
-- [ ] **ASS-04**: A high demonstrated-mastery proposal with insufficient evidence confidence remains explicitly provisional and requires human confirmation rather than being silently accepted or converted into a different capability score.
-- [ ] **AGG-01**: A user can inspect one aggregated mastery score per specific Skill and trace it back to the admitted Contribution–Skill assessments and aggregation-policy version.
-- [ ] **AGG-02**: Duplicate Evidence, duplicated Contributions, and numerous incidental or low-centrality uses cannot mechanically raise a user Skill into a higher mastery band.
-- [ ] **AGG-03**: Multiple Contributions can justify a user score above the strongest single Contribution only when their combined, credible behavior observably satisfies the higher anchor, such as repeated advanced responsibility across real contexts.
-- [ ] **AGG-04**: Evaluators can compare replaceable aggregation and confidence-admission policies while preserving run-to-run variance, reviewer disagreement, calibration decisions, and regressions instead of hiding them in one opaque score.
+- [ ] **GRF-01**: The user can run the artifact-aware, one-question-at-a-time audit for any accepted Contribution ID without STOA-specific production identifiers or paths. A project interview orders overview, depth and transfer, keeps layer separate from difficulty, and declares evaluation criteria before answers.
+- [ ] **GRF-02**: Each real Contribution audit preserves capability coverage, user/team/other-person/coding-agent/third-party attribution, evidence sufficiency, assistance, skips, contradictions, unresolved responsibility, layer conclusions and context requests as distinct reviewable facts. Prior answers are reused; missing recall is not negative capability evidence.
+- [ ] **GRF-03**: The user can review candidate Skill identities and explicitly accept, correct, merge, split, or leave ambiguous aliases while source-local identity and decision lineage remain inspectable.
+- [ ] **GRF-04**: The user can inspect one canonical graph snapshot containing every item in the accepted inventory, including reviewed, pending, insufficient-evidence, unresolved-responsibility, confirmed, and excluded-with-reason states where applicable.
+- [ ] **GRF-05**: Only current admitted `reviewed-user-truth` Contribution–Skill assessments can establish or increase mastery; inventory presence, pending review, insufficient evidence, unresolved responsibility, résumé/JD wording, ontology relations, titles, credentials, and repository presence have no mastery effect.
+- [ ] **GRF-06**: The user can inspect mastery, skill centrality, evidence confidence, context, duration, recency, responsibility, assistance, assessment basis, and admission status as separate meanings for every score-bearing Contribution–Skill relationship. The three interview layers are not averaged; overview fluency alone cannot establish technical mastery, and transfer reasoning cannot establish completed work or repeated real contexts.
+- [ ] **GRF-07**: Duplicate sources, Evidence, Contributions, aliases, and incidental uses cannot mechanically increase mastery, confidence, duration, or cross-context promotion; a higher band still requires observable evidence for that anchor.
+- [ ] **GRF-08**: The user can inspect and confirm a deterministic graph snapshot bound to the accepted inventory, current audit and assessment versions, Skill-resolution decisions, policy versions, exclusions, coverage states, and one canonical graph hash.
+- [ ] **GRF-09**: A correction, reassessment, attribution change, or policy change creates a linked new version, invalidates stale graph snapshots and dependent results, and preserves the prior accepted lineage.
+- [ ] **GRF-10**: The user can pause and resume a full-career audit queue that shows why each Contribution is pending and may prioritize unresolved items relevant to the fixed JD corpus without hiding or deleting non-prioritized inventory items.
 
-### Structured JD Comparison
+### Real JD Intake and Comparison
 
-- [ ] **JD-01**: An evaluator can represent at least three contrasting JDs as structured requirements containing the source span, Skill, required or preferred status, stated strength or responsibility, context, seniority, duration, and experience expectations where present.
-- [ ] **JD-02**: A user can view each JD requirement as `supported`, `partially supported`, `unsupported`, or `uncertain`, with every positive or partial judgment citing the relevant Contribution–Skill assessments and their limitations.
-- [ ] **JD-03**: Comparing the same user graph with a different JD can change relevance, selected Contributions, gaps, and match judgments but cannot mutate the user's underlying Skill mastery.
-- [ ] **JD-04**: A comparison identifies missing capability, missing evidence, context mismatch, and uncertainty separately and never turns JD wording or résumé keywords into an unsupported capability claim.
+- [ ] **JD-01**: The user can supply exactly three distinct real JD raw sources selected by the user, with exact private bytes, source identity, acquisition metadata, and three distinct raw-source hashes retained, and represent each as structured requirements containing reconstructable source spans, Skill or linked Skill constituents, required/preferred and core status, stated strength or responsibility, context, seniority, duration, and experience expectations where present.
+- [ ] **JD-05**: The system can produce a source-bound interpretation proposal from each retained raw JD while prompt-like text remains inert, absent fields remain absent, and proposed content has no acceptance or mastery authority.
+- [ ] **JD-06**: The user can review every proposed JD requirement and explicitly add an omitted requirement, edit fields, split, merge, accept, or reject an item while the original proposal and ordered correction lineage remain inspectable.
+- [ ] **JD-07**: The user can immutably accept one reviewed packet for each of the three distinct raw-source hashes and seal those one-to-one source/packet identities into one corpus; any correction creates a new packet and invalidates dependent runs instead of modifying accepted bytes.
+- [ ] **JD-08**: The user can inspect `supported`, `partially supported`, `unsupported`, and `uncertain` judgments for every accepted JD requirement, with cited Contribution–Skill lineage and missing capability, missing evidence, context mismatch, pending review, unresolved responsibility, and other uncertainty reported separately.
+- [ ] **JD-09**: Comparing the same confirmed graph with any of the three accepted JDs can change only relevance, selected Contributions, gaps, route, and match judgments; the underlying graph and mastery hashes remain unchanged before and after every comparison.
+- [ ] **JD-10**: An evaluator can reproduce each comparison from the exact accepted graph, JD corpus, packet, interpretation, comparison-policy, and configuration hashes without loading an arbitrary substitute or moving current pointer.
 
-### Evaluation, Replication, and Decision
+### Evaluation and Core-Hypothesis Decision
 
-- [ ] **EVAL-01**: An evaluator can run deterministic schema, lineage, interval, duplication, split/merge, ontology-non-propagation, JD-isolation, and known-good/known-bad golden tests against the complete validation loop.
-- [ ] **EVAL-02**: An evaluator can run adversarial and counterfactual cases covering borrowed responsibility, Codex or team attribution, evidence-volume inflation, centrality/confidence confusion, ontology inference, stale state, hidden text, and prompt injection.
-- [ ] **EVAL-03**: Each critical golden and adversarial case can be run at least three times under the same versioned configuration, with the supported mastery band remaining stable and material variance reported rather than averaged away.
-- [ ] **EVAL-04**: Human reviewers can independently judge attribution, Skill specificity, mastery-anchor fit, centrality, evidence confidence, aggregation validity, and JD usefulness, with disagreement preserved and adjudication recorded.
-- [ ] **EVAL-05**: A blinded reviewer can compare graph-based JD results with a preregistered flat résumé or keyword baseline using fixed relevance, truthfulness, decision-usefulness, and traceability criteria, with zero critical fabricated capability claims required for acceptance.
-- [ ] **EVAL-06**: An evaluator can run sealed-holdout and leave-one-Contribution/JD-out checks plus one minimal non-STOA replication where feasible, and the resulting report states the limits of any generalization claim.
-- [ ] **DEC-01**: The milestone produces an evidence-backed `supported`, `partially supported`, or `rejected for expansion` decision by applying the frozen validation rules and identifying every blocking failure.
-- [ ] **DEC-02**: If expansion is justified, the milestone produces a scoped next-milestone recommendation and a provenance contract for dynamic résumé selection and rewriting; it does not treat a polished demo as proof.
+- [ ] **EVAL-01**: An evaluator can run deterministic schema, lineage, interval, duplication, alias, split/merge, ontology-non-propagation, JD-isolation, graph-rebuild, known-good, and known-bad tests against the complete real-input loop.
+- [ ] **EVAL-02**: An evaluator can run adversarial and counterfactual cases covering borrowed responsibility, coding-agent or team attribution, evidence-volume inflation, centrality/confidence confusion, ontology inference, stale or substituted manifests, hidden text, unsafe source content, JD omission or invention, and prompt injection.
+- [ ] **EVAL-03**: Each critical golden and adversarial case can run at least three times under one frozen versioned configuration, with supported mastery bands and JD judgments remaining stable and material variance reported rather than averaged away.
+- [ ] **EVAL-04**: Independent human reviewers can judge inventory completeness, attribution, Skill specificity, mastery-anchor fit, centrality, evidence confidence, aggregation validity, JD interpretation, and JD usefulness while disagreement and adjudication remain retained.
+- [ ] **EVAL-05**: A blinded reviewer can compare graph-based JD results with the preregistered flat-résumé or exact-keyword baseline using frozen relevance, truthfulness, decision-usefulness, and traceability criteria, with zero critical fabricated capability claims required for acceptance.
+- [ ] **EVAL-06**: An evaluator can run sealed holdout, leave-one-Contribution-out, leave-one-JD-out, and feasible non-STOA or cross-Experience replication checks and can state the exact limits of any generalization claim from one user and three JDs.
+- [ ] **DEC-01**: The milestone produces exactly one reproducible `supported`, `partially supported`, or `rejected for expansion` decision by applying the frozen validation rules and identifying every blocking failure, deviation, unstable result, and unresolved limitation.
+- [ ] **DEC-02**: If and only if expansion is justified, the milestone produces a scoped next-milestone recommendation and provenance contract for dynamic JD-tailored résumé selection and rewriting without treating graph visualization, polished output, or the development evaluation as employment-effectiveness evidence.
 
-## v2 Requirements
+## Future Requirements
 
-Deferred product capabilities. These remain central to TomorrowStar OS but are not part of the first validation roadmap.
+Tracked product capabilities that remain central but are not part of the v1.1 roadmap.
 
 ### Dynamic JD-Tailored Résumé
 
-- **RES-01**: A user can parse a target JD into a reusable requirement graph and inspect or correct its interpretation.
-- **RES-02**: A user can dynamically select the most relevant Experiences and Contributions and generate a truthful, role-specific résumé rather than keyword-editing a fixed résumé.
-- **RES-03**: A user can trace every generated résumé claim to confirmed Contributions and Evidence and review, edit, accept, or reject proposed wording.
-- **RES-04**: A user can compare revisions and export an approved tailored résumé in practical document formats.
+- **RES-01**: The user can turn an accepted JD packet into a reusable requirement graph and inspect or correct its role-specific interpretation.
+- **RES-02**: The user can dynamically select the most relevant Experiences and Contributions and generate a truthful role-specific résumé rather than keyword-editing a fixed résumé.
+- **RES-03**: The user can trace every generated résumé claim to confirmed Contributions and Evidence and review, edit, accept, or reject proposed wording.
+- **RES-04**: The user can compare revisions and export an approved tailored résumé in practical document formats.
 
 ### Evidence-Producing Gap Closure
 
-- **GAP-01**: A user targeting a weakly matched but reachable role can receive a one-week project or open-source contribution plan tied to specific missing Skills and evidence goals.
-- **GAP-02**: A user can feed completed gap-closing work back through Grill-Me and update Contributions, Evidence, assessments, and user Skill mastery without losing history.
+- **GAP-01**: A user targeting a weakly matched but reachable role can receive a time-bounded project, open-source contribution, hackathon, or similar action plan tied to specific missing Skills and evidence goals; its exact duration must be confirmed before promotion.
+- **GAP-02**: The user can feed completed gap-closing work back through Grill-Me and update Contributions, Evidence, assessments, and user Skill mastery without losing history.
 
-### Broader Career Workspace
+### Broader Product Operation
 
-- **CAR-01**: A user can ingest and maintain a broader set of employment, project, research, publication, education, teaching, internship, and open-source Experiences.
-- **CAR-02**: A user can review longitudinal changes to Skills, evidence confidence, contexts, JDs, generated résumés, gap work, and reassessments.
+- **OPS-01**: The user can maintain longitudinal career-graph changes across later JDs, generated résumés, gap work, and reassessments after the core hypothesis is supported.
+- **OPS-02**: Additional users or JD corpora can be introduced only through a separately scoped replication or product-validation milestone with explicit privacy and authority boundaries.
 
 ## Out of Scope
 
-Explicit exclusions from the current project or from the TomorrowStar OS product direction.
-
 | Feature | Reason |
 |---------|--------|
-| Automated job applications or job-site automation | Unrelated to validating assessment accuracy and risks broadening the product into application automation. |
-| Recruiter, employer, or applicant-ranking tooling | The current product evaluates and assists its user; it is not a hiring decision system. |
-| Keyword-match percentage as the success metric | Text overlap does not measure mastery, responsibility, evidence quality, or truthful JD usefulness. |
-| Experience-, credential-, repository-, or ontology-derived mastery | Association cannot substitute for an audited Contribution and explicit assessment basis. |
-| One composite number mixing mastery, confidence, duration, recency, context, and JD fit | These signals have different meanings and would make user mastery unstable and target-dependent. |
-| Graph database, vector database, event-driven infrastructure, or large ontology ingestion in v1 | Infrastructure scale is premature until the internal model and validation cases prove useful. |
-| Multi-user SaaS, authentication, billing, or a complex web interface in v1 | These capabilities do not test the current hypothesis and can follow a validated workflow. |
-| Résumé layout polish as evidence of assessment quality | Attractive output cannot retrospectively prove that the underlying capability assessment is truthful or calibrated. |
+| Dynamic résumé selection, generation, wording review, layout, or export | Core downstream output, but implementing it before the v1.1 decision would contaminate the current hypothesis test. |
+| Gap Sprint generation or post-gap reassessment | Deferred until graph usefulness and gap semantics are supported; plan duration is intentionally unfrozen here. |
+| More or fewer than the exactly three user-selected real JDs | The frozen development evaluation requires a bounded three-JD corpus; a different corpus requires a new declared experiment. |
+| Automated job applications, job-site automation, recruiter tooling, employer ranking, or applicant ranking | Unrelated to the user-authoritative assessment hypothesis and outside the product boundary. |
+| Interview, offer, hiring, employment, or long-term career-effectiveness claims | One-user, three-JD development evidence cannot establish these outcomes. |
+| Automatic acceptance of source, inventory, Skill, assessment, or JD interpretations | Structured output and parser confidence do not create user truth or mastery authority. |
+| A second inventory, fact ledger, parser path, graph authority, validator, or scoring engine | Would create divergent truth and invalidate correction, custody, and evaluation semantics. |
+| Graph database, vector database, embeddings-first mastery inference, generic agent framework, or speculative parser/provider dependency | No confirmed v1.1 requirement needs these; add only after a measured, corpus-specific gap. |
+| Multi-user SaaS, authentication, billing, production web UI, or graph visualization | Delivery infrastructure and polish do not test the core hypothesis. |
+| Upload, synchronization, telemetry, or cloud processing of private career/JD material | No external-transfer boundary is authorized for this local validation milestone. |
+
+The table defines only the v1.1 hypothesis experiment. The separately authorized
+application product includes tailored materials, browser filling/upload and
+label/archive after durable mail ingestion. It follows APP-01–18. No final Submit
+is automated. Research scoring and the fixed three-JD corpus remain independent.
+
+## Acceptance evidence
+
+INV-01, INV-06 and INV-07 use the [independent local MVP verification](phases/07-career-source-custody-and-private-workspace/07-VERIFICATION-2026-10-07.md). INV-02–05 use the exact private user acceptance, complete coverage and retained seal, reverified on 2026-10-08. Personal identifiers and fingerprints remain private. The [delivery record](../docs/interview-delivery-2026-10-08.md) records successor and adapter tests. These checkboxes establish the accepted research cutoff only. Explicit new or corrected career facts are saved directly with source/history under APP-04. Using a successor as a formally accepted research input retains its research review; no capability is inferred.
 
 ## Traceability
 
-Every v1 requirement maps to exactly one roadmap phase. Deferred v2 requirements are intentionally not mapped.
+Every active v1.1 requirement maps to exactly one roadmap phase. Future requirements and out-of-scope items remain unmapped.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| VAL-01 | Phase 1 | Pending |
-| VAL-02 | Phase 1 | Pending |
-| OSS-01 | Phase 1 | Pending |
-| MOD-01 | Phase 2 | Pending |
-| MOD-02 | Phase 2 | Pending |
-| MOD-03 | Phase 2 | Pending |
-| MOD-04 | Phase 2 | Pending |
-| MOD-05 | Phase 2 | Pending |
-| MOD-06 | Phase 2 | Pending |
-| MOD-07 | Phase 2 | Pending |
-| FIX-01 | Phase 2 | Pending |
-| FIX-02 | Phase 2 | Pending |
-| AUD-01 | Phase 3 | Pending |
-| AUD-02 | Phase 3 | Pending |
-| AUD-03 | Phase 3 | Pending |
-| AUD-04 | Phase 3 | Pending |
-| AUD-05 | Phase 3 | Pending |
-| ASS-01 | Phase 4 | Pending |
-| ASS-02 | Phase 4 | Pending |
-| ASS-03 | Phase 4 | Pending |
-| ASS-04 | Phase 4 | Pending |
-| AGG-01 | Phase 4 | Pending |
-| AGG-02 | Phase 4 | Pending |
-| AGG-03 | Phase 4 | Pending |
-| AGG-04 | Phase 4 | Pending |
-| JD-01 | Phase 5 | Pending |
-| JD-02 | Phase 5 | Pending |
-| JD-03 | Phase 5 | Pending |
-| JD-04 | Phase 5 | Pending |
-| EVAL-01 | Phase 5 | Pending |
-| EVAL-02 | Phase 5 | Pending |
-| EVAL-03 | Phase 5 | Pending |
-| EVAL-04 | Phase 5 | Pending |
-| EVAL-05 | Phase 5 | Pending |
-| EVAL-06 | Phase 6 | Pending |
-| DEC-01 | Phase 6 | Pending |
-| DEC-02 | Phase 6 | Pending |
+| INV-01 | Phase 7 | Verified, local MVP |
+| INV-02 | Phase 8 | Accepted research baseline; research successor acceptance separate from direct fact updates |
+| INV-03 | Phase 8 | Accepted research baseline; research successor acceptance separate from direct fact updates |
+| INV-04 | Phase 8 | Accepted research baseline; research successor acceptance separate from direct fact updates |
+| INV-05 | Phase 8 | Accepted research baseline; research successor acceptance separate from direct fact updates |
+| INV-06 | Phase 7 | Verified, local MVP |
+| INV-07 | Phase 7 | Verified, local MVP |
+| GRF-01 | Phase 9 | Implemented; quality and real review pending |
+| GRF-02 | Phase 9 | Implemented; quality and real review pending |
+| GRF-03 | Phase 10 | Pending |
+| GRF-04 | Phase 11 | Pending |
+| GRF-05 | Phase 10 | Pending |
+| GRF-06 | Phase 10 | Pending |
+| GRF-07 | Phase 10 | Pending |
+| GRF-08 | Phase 11 | Pending |
+| GRF-09 | Phase 11 | Pending |
+| GRF-10 | Phase 9 | Implemented; quality and real review pending |
+| JD-01 | Phase 12 | Pending |
+| JD-05 | Phase 12 | Pending |
+| JD-06 | Phase 12 | Pending |
+| JD-07 | Phase 12 | Pending |
+| JD-08 | Phase 13 | Pending |
+| JD-09 | Phase 13 | Pending |
+| JD-10 | Phase 13 | Pending |
+| EVAL-01 | Phase 13 | Pending |
+| EVAL-02 | Phase 13 | Pending |
+| EVAL-03 | Phase 13 | Pending |
+| EVAL-04 | Phase 14 | Pending |
+| EVAL-05 | Phase 14 | Pending |
+| EVAL-06 | Phase 13 | Pending |
+| DEC-01 | Phase 14 | Pending |
+| DEC-02 | Phase 14 | Pending |
 
 **Coverage:**
-- v1 requirements: 37 total
-- Mapped to phases: 37
-- Unmapped: 0 ✓
+
+- v1.1 requirements: 32 total
+- Mapped to phases: 32
+- Unmapped: 0
+- Duplicate mappings: 0
 
 ---
-*Requirements defined: 2026-07-30*
-*Last updated: 2026-07-30 after roadmap traceability mapping*
+*Requirements defined: 2026-08-28*
+*Research evidence updated: 2026-10-08. Product requirements aligned: 2026-10-20. Inventory requirements reflect the accepted baseline and linked-successor implementation. Phase 9 real review and Phase 10 personal calibration remain open. Requirement IDs and phase mappings remain unchanged.*

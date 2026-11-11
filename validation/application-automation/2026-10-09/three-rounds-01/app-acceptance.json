@@ -1,0 +1,12 @@
+{
+  "autofill_handoff": "verified-review-only",
+  "signature": "verified",
+  "signature_after_document_reads": "verified",
+  "relocation": "passed",
+  "bundled_runtime": "passed",
+  "application_create_edit_export": "passed",
+  "evidence_graph_protocol": "passed",
+  "host_csrf_guards": "passed",
+  "parent_eof_shutdown": "passed",
+  "personal_data_used": false
+}

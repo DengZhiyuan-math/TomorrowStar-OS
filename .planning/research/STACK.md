@@ -1,254 +1,228 @@
 # Stack Research
 
-**Domain:** Local-first Career Evidence Graph core-hypothesis validation
-**Researched:** 2026-07-30
-**Confidence:** MEDIUM overall — HIGH for upstream-code findings; MEDIUM for fast-moving package versions
+**Domain:** v1.1 full-career evidence graph and real-JD validation
+**Researched:** 2026-08-28
+**Confidence:** HIGH for retaining the current stack; MEDIUM for deferred provider/parser choices
 
 ## Executive Recommendation
 
-Build a small packaged Python 3.13 application that can be run from the command line and imported by tests. Use Pydantic for every persisted domain object and every LLM boundary, plain JSON/JSONL files for state and reproducible fixtures, and pytest for deterministic and opt-in model-backed evaluations. Put the model behind a narrow project-owned protocol so the provider, model, and structured-output transport can be selected during implementation without changing the domain model.
+**Add no runtime or development dependency for v1.1.** Keep Python 3.13.14, Pydantic
+2.13.4, schema-versioned JSON/JSONL, pytest 9.1.1, Ruff 0.16.0, and uv exactly as
+currently pinned. The repository already contains the required primitives: frozen
+strict models, canonical JSON and SHA-256 identity, create-only bundles, atomic
+replacement, resumable audit state, provider-neutral decision ports, reviewed-user-truth
+admission, raw-JD hash/span custody, and deterministic comparison.
 
-This stack is intentionally smaller than every pinned application upstream. The validation target is the chain `Grill-Me → Contribution–Skill assessment → user Skill graph → usefulness against a small JD set`; it does not justify FastAPI, React/Next.js, MongoDB, SQLAlchemy, a graph database, a vector database, queues, authentication, or document export.
+Implement the milestone by adding project-owned contracts and adapters, not libraries:
 
-The six pinned repositories remain source references, not runtime dependencies. Reuse only a read-only slice of MIND's data and possibly a few provenance-tracked deterministic file helpers. Adapt the interview, state, contract, and evaluation patterns into this project's distinct model. Treat résumé presentation code as later inspiration. Reject upstream scoring semantics that infer capability from résumé keywords, GitHub activity, ontology relations, or unconstrained LLM judgments.
+1. A full-career inventory manifest and canonical graph snapshot composed from the
+   existing Experience, Contribution, Evidence, Skill, audit, and assessment records.
+2. A small source-adapter protocol for heterogeneous evidence, with native adapters only
+   for formats actually present in the user-confirmed corpus.
+3. A JD extraction port following the existing recorded/fake/opt-in-live audit pattern.
+   Pydantic supplies the output schema; a human review remains the sole acceptance step.
+4. A reusable private-workspace store hardened to directories mode 0700 and files mode
+   0600, while preserving symlink/hardlink checks, fsync, hashes, and create-only history.
+5. A stdlib-plus-pytest evaluation runner that materializes the frozen charter, case
+   assignments, repetitions, judgments, and final decision as immutable JSON artifacts.
+
+This is a codebase-derived recommendation: no inspected v1.1 requirement needs
+concurrency, graph queries beyond bounded in-memory indexes, general document conversion,
+provider switching at runtime, or statistical tooling.
 
 ## Recommended Stack
 
 ### Core Technologies
 
-| Technology | Version | Purpose | Why Recommended | Confidence |
-|------------|---------|---------|-----------------|------------|
-| CPython | `3.13.14` via `.python-version`; project range `>=3.13,<3.14` | Runtime for domain models, CLI workflow, adapters, and evaluation harness | It is a current bugfix-supported line and is the strongest common baseline in the pinned code: CV Market Learning Planner targets 3.13 and Resume Matcher requires 3.13+. Python 3.14.6 is newer, but Hiring Agent contains a Python 3.14 protobuf workaround; adopting 3.14 adds compatibility risk with no validation benefit. | MEDIUM |
-| Pydantic | `2.13.4` | Strict domain contracts, JSON serialization, validation, JSON Schema for model output | Tabiya Compass, Hiring Agent, and Resume Matcher independently use Pydantic v2 at extraction/evaluation boundaries. The project needs explicit `Experience`, `Contribution`, `Evidence`, `Skill`, `ContributionSkillAssessment`, `UserSkillAssessment`, and `JDRequirement` contracts more than it needs an application framework. | MEDIUM |
-| Python standard library | Python 3.13 | `pathlib`, `json`, `datetime`, `uuid`, `hashlib`, `argparse`, `typing.Protocol` | Covers the validation project's persistence, IDs, CLI, input hashing, and provider abstraction without dependencies. Plain files are inspectable and versionable, which is essential for calibration work. | HIGH |
-| JSON + JSONL workspace | Schema-versioned; no external package | Current snapshots, append-only audit events, golden fixtures, model-call records, and JD cases | Directly supports reproducibility and provenance. It adapts CV Market Learning Planner's current/history separation without inheriting its learning-plan domain or requiring a database. | HIGH |
-| Project-owned `LLMClient` protocol | Local interface; provider SDK selected per phase | Structured completion request/response boundary | Hiring Agent's `LLMProvider` protocol demonstrates the useful seam. Keep the provider/model choice unfrozen; tests use a fake/recorded implementation. Do not make LiteLLM, Gemini, OpenAI, or an agent framework part of the domain. | HIGH |
+| Technology | Version | Purpose in v1.1 | Why Recommended | Confidence |
+|------------|---------|-----------------|-----------------|------------|
+| CPython | Keep 3.13.14 and `>=3.13,<3.14` | Inventory composition, source adapters, private stores, graph projection, JD/evaluation runners | `pathlib`, `json`, `hashlib`, `os`, `stat`, `tempfile`, `subprocess`, `statistics`, and `typing.Protocol` cover every new infrastructure need. | HIGH |
+| Pydantic | Keep 2.13.4 | Strict status records, inventory/graph manifests, extraction proposals, review decisions, evaluation outputs, JSON Schema | The installed dependency already provides strict validation, frozen models, validators, serialization, and JSON Schema. Do not introduce a second contract system. | HIGH |
+| Canonical JSON + JSONL | Existing schema-versioned format | Authoritative snapshots, append-only events, source manifests, review history, accepted JD packets, evaluation evidence | Existing hashing and storage code makes these artifacts inspectable, replayable, diffable, and local. The v1.1 corpus is bounded and single-user. | HIGH |
+| In-memory indexes over canonical records | Project code; no package | Traverse Experience → Contribution → Skill and compute coverage/status projections | Dictionaries and tuples are sufficient for the real corpus and exactly three JDs; persist records, not a second graph engine. | HIGH |
+
+### New Project-Owned Seams
+
+| Seam | Implementation | Integration point | Authority rule |
+|------|----------------|-------------------|----------------|
+| `CareerSourceAdapter` protocol | Return raw-source identity plus non-authoritative candidate records from one declared source type | New v1.1 ingestion module; reuse hash/store helpers | An adapter can propose inventory items and evidence links, never mastery or confirmation. |
+| `RecordedCareerSourceAdapter` | Load checked, local JSON/text proposals for deterministic replay | Mirror `RecordedDecisionPort` in `audit/decision.py` | Default implementation for tests and reproducible runs. |
+| `JDExtractionPort` protocol | Convert exact raw JD bytes plus a Pydantic schema into a recorded proposal | Insert before `prepare_jd_intake` in `jd.py` | Extraction cannot correct, accept, compare, or mutate the user graph. |
+| `RecordedJDExtractionPort` | Reopen an exact input-hash/prompt-hash/schema-hash/model-config-hash response | Reuse formal-run and canonical-bundle patterns | Default offline implementation and replay authority. |
+| Optional live JD adapter | One adapter for the provider selected during implementation | Follow the fake/recorded/opt-in-live pattern in `audit/decision.py` | Pin one SDK or CLI version only after selection; retain raw response and model/config identity. |
+| `PrivateEvidenceStore` | Shared stdlib create-only/atomic store with 0700 directories and 0600 files | Extract from `validation/store.py`, `audit/store.py`, and `JDIntakeStore` without duplicating engines | Public status APIs expose identifiers/counts/hashes only; source text stays below `.career-evidence/`. |
+
+### Domain Contract Additions
+
+Use new schema-versioned Pydantic records that reference existing entity IDs and hashes;
+do not rewrite sealed v1 records.
+
+| Contract | Required role | Implementation note |
+|----------|---------------|---------------------|
+| Full-career inventory manifest | Records cutoff time, declared source set, every known item, and coverage status | Use explicit status enums/literals; absence is not confirmation. |
+| Source envelope | Binds raw bytes/hash, origin, capture time, adapter/version, and derived-text hash | Derived text remains a proposal; retain the raw source identity. |
+| Canonical graph snapshot | References exact Experience, Contribution, Evidence, Skill, audit, and admitted-assessment versions | Compute one content hash over canonical ordering; never copy JD-derived fields into it. |
+| Inventory/graph review | Stores item-level confirm/edit/reject/insufficient/unresolved decisions | Create a new immutable review version; do not overwrite prior user truth. |
+| JD extraction proposal and review | Binds each requirement and byte span to one raw JD and item-level correction history | Only explicit user acceptance can create an `AcceptedJDPacket`. |
+| Evaluation run bundle | Binds charter, three accepted JDs, graph hash, baseline, blind assignment, repetitions, judgments, and decision | Separate deterministic metrics from human judgments and model outputs. |
+
+Keep the milestone statuses semantically separate:
+
+- inventory coverage: known, pending, reviewed, excluded-with-reason;
+- responsibility/evidence resolution: resolved, insufficient-evidence,
+  unresolved-responsibility;
+- graph authority: candidate versus confirmed;
+- assessment admission: existing admitted/pending/unverified states.
+
+Do not compress these into one generic `status` whose meaning changes by context.
 
 ### Supporting Libraries
 
-| Library | Version | Purpose | When to Use | Confidence |
-|---------|---------|---------|-------------|------------|
-| pytest | `9.1.1` | Unit, fixture, golden-case, invariant, replay, and opt-in live-model tests | Use from the first phase. Default suite must be deterministic and offline; mark real model calls separately and require explicit credentials/opt-in. | MEDIUM |
-| Ruff | `0.16.0` | Linting and formatting | Pin and configure an explicit rule set because 0.16.0 substantially expanded default rules. Use `target-version = "py313"`. | MEDIUM |
-| Provider SDK | **Unfrozen** | Execute the selected model's structured-output call | Add only after the provider/model experiment is chosen. Implement one adapter plus a fake; do not install a multi-provider abstraction speculatively. | HIGH |
-| `markitdown`, PDF, or DOCX parser | **Deferred** | Convert résumé/evidence documents to text | Add only if the concrete STOA/JD fixture set includes formats that cannot first be represented as UTF-8 Markdown/text/JSON. Document parsing is not part of the hypothesis. | HIGH |
+| Library | Version | Purpose | When to Use |
+|---------|---------|---------|-------------|
+| pytest | Keep 9.1.1 | Deterministic, adversarial, stability, holdout, replication, and store-safety cases | Use built-in parametrization, fixtures, markers, and `tmp_path`; no plugin is required. |
+| Ruff | Keep 0.16.0 | Lint/format new modules | Keep the current `py313` target and rule set. |
+| Provider SDK | **Do not add yet** | Optional live structured extraction | Add exactly one pinned SDK only after a phase selects a provider and proves that the existing CLI/recorded seam is insufficient. |
+| PDF/DOCX parser | **Do not add yet** | Optional text derivation from a concrete source format | Add one format-specific parser only if the confirmed source inventory contains that format and human-supplied UTF-8 extraction would invalidate the evaluation. |
 
-### Development Tools
+### Development and Evaluation Tools
 
-| Tool | Version | Purpose | Notes |
-|------|---------|---------|-------|
-| uv | `0.12.0` | Python installation, environment, dependency groups, lockfile, commands | Commit `pyproject.toml`, `.python-version`, and `uv.lock`. Use `uv run --locked` in verification. uv 0.12 creates a packaged `src/` layout by default, which is appropriate because tests must import the core. |
-| Git submodules | Pinned commits listed below | Exact upstream source and license baseline | Keep upstreams unchanged under `references/upstream/`; record local adaptations separately. |
-| pyproject.toml dependency groups | PEP 735 form | Keep runtime dependencies separate from test/lint tools | Put pytest and Ruff in `[dependency-groups].dev`; do not publish them as runtime dependencies. |
+| Tool | Purpose | Notes |
+|------|---------|-------|
+| Existing uv lockfile | Reproducible environment | No dependency update is part of v1.1 stack work. |
+| Existing pytest suite | Offline contract and workflow evidence | Keep live/provider tests opt-in under the existing markers. |
+| Python `statistics`, `csv`, and deterministic ordering | Small empirical result summaries | Three JDs and a frozen case matrix do not justify pandas, NumPy, scikit-learn, or an experiment platform. |
+| Content-addressed JSON bundles | Blind assignment, repetitions, reviewer results, final decision | Freeze before execution and verify hashes on reopen. |
 
-## Minimal Project Shape
+## Integration With the Current Codebase
 
-```text
-pyproject.toml
-.python-version
-uv.lock
-src/career_evidence/
-  domain/          # strict Pydantic entities and schema migrations
-  grill/           # question policy, transcript state, extraction boundaries
-  ontology/        # internal Skill model + read-only MIND adapter
-  assessment/      # assessment records; formula remains replaceable
-  jd/              # small JD parsing and comparison boundary
-  providers/       # LLMClient protocol, fake/replay adapter, chosen live adapter
-  workspace/       # JSON/JSONL persistence, hashing, snapshots, provenance
-  cli.py
-tests/
-  fixtures/
-  golden/
-  unit/
-  integration/
-  evals/           # opt-in live-model checks
-validation_workspace/
-  input/
-  current/
-  history/
-  events/
-  reports/
-```
-
-Keep the core as pure functions over validated models wherever possible. The CLI orchestrates the same functions that tests call. Persist every state transition after validation, with `schema_version`, stable IDs, timestamps, upstream/model configuration, input hashes, and assessment basis.
+| Current component | v1.1 action |
+|-------------------|-------------|
+| `validation/models.py::StrictModel` | Reuse unchanged. It already sets `extra="forbid"` and `frozen=True`; continue using tuples/frozen children because Pydantic freezing is shallow. |
+| `validation/hashing.py` | Reuse canonical JSON and SHA-256 for inventory, graph, source, proposal, review, and evaluation identities. |
+| `validation/store.py` | Extract one reusable private-bundle primitive; add explicit permission verification without changing old sealed artifacts. |
+| `audit/store.py` | Reuse its 0700-root, regular-file, single-link, fsync, and atomic-replace checks. |
+| `audit/decision.py` | Reuse the provider-neutral Protocol plus fake/recorded/opt-in-live adapter pattern for source/JD extraction. |
+| `domain/models.py` | Add v1.1 manifest/status/review contracts that reference existing v1 entities; avoid widening old literals in ways that reinterpret sealed evidence. |
+| `domain/fixtures.py` | Leave the fixed STOA fixture boundary intact. Build a separate full-career registry/composer rather than generalizing STOA constants into a second authority. |
+| `assessment.py` | Preserve the existing rule that only admitted, reviewed-user-truth assessments contribute mastery. Inventory completeness cannot bypass admission. |
+| `jd.py` | Keep raw source, size/Unicode checks, proposal custody, immutable acceptance, and read-only comparison. Add extraction and item-review before the current prepare/accept boundary. |
+| `.gitignore` | Keep `/.career-evidence/` excluded. Tests must prove public CLI output and error messages never echo private source text. |
 
 ## Installation
 
 ```bash
-# Toolchain and packaged project
-uv python install 3.13.14
-uv python pin 3.13.14
-uv init --package
+# No pyproject.toml or uv.lock change is recommended.
+uv sync --locked
 
-# Runtime
-uv add "pydantic==2.13.4"
-
-# Development
-uv add --dev "pytest==9.1.1" "ruff==0.16.0"
-
-# Reproducibility and verification
-uv lock
+# Existing verification tools are sufficient.
 uv run --locked pytest
 uv run --locked ruff check .
-uv run --locked ruff format --check .
 ```
-
-Add the chosen provider SDK in the phase that implements live model calls, then regenerate and commit `uv.lock`. The command above is a target setup, not authorization to overwrite an existing project scaffold.
-
-## Exact Upstream Reuse Decisions
-
-### Tabiya Compass — pinned `8470bea7f68d0990898f441a12bbb6a261a0ef34` (MIT)
-
-| Classification | Exact upstream file or component | Decision and local use |
-|----------------|----------------------------------|------------------------|
-| **Adapt** | `backend/app/agent/skill_explorer_agent/_responsibilities_extraction_tool.py` | Preserve the separation between sentence decomposition and responsibility classification, especially `responsibilities`, `non_responsibilities`, and `other_peoples_responsibilities`. Extend locally to explicit user/team/other-person/Codex-assisted/third-party attribution and attach results to Contributions. |
-| **Adapt** | `backend/app/agent/collect_experiences_agent/collect_experiences_agent.py` | Preserve separate conversation, structured extraction, and transition-decision passes. Replace its work-type loop with Contribution coverage and evidence/mastery coverage. |
-| **Adapt** | `backend/app/agent/collect_experiences_agent/_transition_decision_tool.py` | Copy the pattern of deterministic guards overriding invalid LLM transition decisions. Local guards must prevent completion while required Contribution–Skill assessment fields, responsibility attribution, or assessment basis are missing. |
-| **Adapt** | `backend/app/agent/collect_experiences_agent/_types.py` | Preserve strict validated state and the semantic distinction between “not asked” and “asked but declined.” Do not reuse the employment-specific fields as the local Experience model. |
-| **Inspired-by** | `backend/app/application_state.py`; `backend/app/store/json_application_state_store.py` | Use explicit state/store interfaces and resumability, but implement a much smaller file workspace rather than Tabiya's aggregated multi-agent application state. |
-| **Adapt** | `backend/evaluation_tests/collect_experiences_agent/`; `backend/evaluation_tests/skill_explorer_agent/` | Use scripted-user cases, simulated-user cases only as optional evals, loop detection, and extraction tests. Local goldens must target Contribution grounding and score-anchor evidence. |
-| **Reject** | `frontend-new/`, Mongo/Motor stores, Firebase, Gemini-specific LLM infrastructure, `features/skills_ranking/`, fixed `WorkType` taxonomy | These are production/application or occupation-ranking concerns and would distort the validation model. |
-
-### Matt Pocock Skills — pinned `2ab958093e83e0ec752e6c1c5932da465bf23e0c` (MIT)
-
-| Classification | Exact upstream file or component | Decision and local use |
-|----------------|----------------------------------|------------------------|
-| **Adapt** | `skills/productivity/grilling/SKILL.md` | Preserve one question at a time and “inspect facts from available artifacts before asking.” Local question choice must be driven by unresolved Contribution evidence and capability anchors, not generic decision-tree completion. |
-| **Adapt** | `skills/engineering/grill-with-docs/SKILL.md`; `skills/engineering/domain-modeling/` | Preserve a canonical vocabulary and explicit domain decisions as they stabilize. Store vocabulary changes as versioned artifacts rather than relying on transcript memory. |
-| **Reject** | Literal “relentless” tone, mandatory recommended answer for every question, and “do not act until shared understanding” as a universal state rule | Career assessment needs psychologically safe questioning, neutral capability probes, skip/uncertainty handling, and resumability. The user is supplying evidence, not approving an engineering plan. |
-| **Reject** | Plain chat transcript as the source of truth | The transcript is evidence/audit history. Validated Experience, Contribution, Evidence, Skill, and assessment records are canonical. |
-
-### MIND Tech Ontology — pinned `2367527d1a2f5665f595d6e0518294cc69dfb0fe` (MIT)
-
-| Classification | Exact upstream file or component | Decision and local use |
-|----------------|----------------------------------|------------------------|
-| **Reuse** | `__aggregated_skills.json`, `__aggregated_concepts.json`, and only the needed source slices under `skills/*.json` and `concepts/*.json` | Use as a version-pinned, read-only normalization snapshot behind an adapter. Preserve upstream IDs/names where available and record the pinned commit on normalized matches. Start with only skills observed in STOA and the JD fixtures. |
-| **Adapt** | `skills/programming_languages.json` and analogous category files | Build a deterministic alias/case/misspelling index from `name` and `synonyms`; keep candidate matches reviewable. |
-| **Inspired-by** | `technicalDomains`, `conceptualAspects`, tasks, and architectural relations | Retain as descriptive metadata or question-generation hints only. They must never establish user mastery. |
-| **Reject** | `skills.py` class hierarchy as the internal model; `impliesKnowingSkills` and `impliesKnowingConcepts` as mastery propagation | The local Skill entity should remain small. Ontology implication is not evidence that this user can perform a skill and cannot alter mastery. |
-
-### CV Market Learning Planner — pinned `ea507847c7a42a1a54becc853fadd15506479b38` (MIT)
-
-| Classification | Exact upstream file or component | Decision and local use |
-|----------------|----------------------------------|------------------------|
-| **Reuse or adapt narrowly** | `scripts/workspace_model.py`: `ensure_dir`, JSON read/write helpers, UTC timestamps | These small deterministic helpers may be copied with attribution if doing so is cheaper than rewriting and local tests cover atomicity/encoding. Add atomic replacement and schema validation before writes. |
-| **Adapt** | `scripts/run_cycle.py`: `snapshot_current_analysis`; `references/schemas.md`: `analysis/current` versus `analysis/history` | Snapshot current validated artifacts before a new calibration run; keep history immutable and append audit events in JSONL. |
-| **Adapt** | `tests/test_skill_refactor.py` | Reuse the pattern of building complete deterministic fixtures and running helpers as subprocesses. Replace learning-level cases with mastery-anchor, no-inflation, attribution, and JD-usefulness cases. |
-| **Reject** | `ABSTRACT_LEVELS`, learning-plan/exercise schemas, HTML plan rendering, daily tasks, and gap scoring | Gap planning is outside this validation project, and its fixed levels are not the accepted 0–100 mastery anchors. |
-
-### Hiring Agent — pinned `70fd3ea9aa74d8f76519ec643a99f9871003e70d` (MIT)
-
-| Classification | Exact upstream file or component | Decision and local use |
-|----------------|----------------------------------|------------------------|
-| **Adapt** | `models.py`: `LLMProvider` protocol, Pydantic contracts, `build_scores_model`, `build_evaluation_model` | Preserve provider isolation and schema-constrained structured output. Use explicit local models instead of dynamically creating the core mastery model; dynamic models are acceptable only for JD-specific evaluation rubrics. |
-| **Adapt** | `score.py`: validated cache loading and stage-specific cache files | Cache by hash of input, prompt/schema version, provider, model, and settings. Never key only by filename. Invalid or stale cache entries must fail closed or be ignored with an audit record. |
-| **Inspired-by** | `roles.py` and `roles/software_engineering_intern/role.json` | Represent each JD fixture as versioned structured expectations and evaluation criteria, but do not turn role weights into user mastery. |
-| **Reject** | `evaluator.py` LLM-generated category scores as final truth; `github.py`; résumé/GitHub/blog concatenation in `score.py`; permissive transform fallbacks in `transform.py` | Capability must be grounded in audited Contributions. GitHub activity, résumé content, or a parser fallback cannot bypass Grill-Me, evidence confidence, calibration, or human review. |
-| **Reject** | `google-generativeai==0.4.0` and the full `requirements.txt` as a dependency baseline | The Google package line is legacy relative to current provider SDKs, and the upstream dependency set includes PDF and formatting concerns outside this hypothesis. |
-
-### Resume Matcher — pinned `ad7754c8b2c3ecee21314ee0b49b0e07d89e3e09` (Apache-2.0)
-
-| Classification | Exact upstream file or component | Decision and local use |
-|----------------|----------------------------------|------------------------|
-| **Inspired-by now; adapt later** | `apps/backend/tests/evals/golden/cases.py`, `tests/evals/test_tailoring_eval.py` | Use paired good/bad golden cases, deterministic structural scorers, and separately marked opt-in model judges. Current cases should evaluate Skill normalization, Contribution selection, mismatch explanations, and truthfulness—not résumé prose. |
-| **Adapt** | `apps/backend/tests/unit/test_prompt_guardrails.py` | Lock critical prompt invariants in tests: no fabrication, no inferred mastery from ontology/JD keywords, no hidden responsibility transfer, and gaps are not capabilities. |
-| **Inspired-by** | `apps/backend/app/services/parser.py` | Its “LLM extraction followed by deterministic repair and Pydantic validation” pattern is useful if document parsing becomes necessary. Do not add MarkItDown during initial text/JSON fixture work. |
-| **Reject for this project** | `apps/backend/app/database.py`, FastAPI backend, SQLAlchemy/SQLite persistence, frontend, tailoring/refinement services, Playwright/PDF pipeline | These solve multi-record application and résumé-output workflows that are explicitly deferred. |
-| **Reject as source of truth** | `apps/backend/app/schemas/models.py` flat résumé-facing `Experience`/`Project`/skills schema | It lacks the required unified Experience → Contribution → Skill relationships and separate mastery, centrality, and confidence semantics. |
-
-## Reuse Classification Summary
-
-| Upstream | Reuse | Adapt | Inspired-by | Reject |
-|----------|-------|-------|-------------|--------|
-| Tabiya Compass | None wholesale | Interview/extraction/transition separation; responsibility classification; eval cases | Resumable store interfaces | UI, deployment, Gemini/Mongo/Firebase, work taxonomy, occupation ranking |
-| Matt Pocock Skills | None verbatim by default | One-question flow, inspect-before-ask, vocabulary discipline | Domain-document workflow | Relentless tone, generic plan approval, transcript-only state |
-| MIND Tech Ontology | Pinned JSON data slice | Alias index and reviewable normalization | Descriptive relations as question hints | Class hierarchy and implication-to-mastery |
-| CV Market Learning Planner | Small deterministic helpers with attribution | Current/history workspace and fixture patterns | Append-only operational discipline | Learning/gap/exercise product |
-| Hiring Agent | None wholesale | Pydantic/provider/caching/rubric boundaries | Role configurations | Résumé/GitHub-derived mastery and uncalibrated final scores |
-| Resume Matcher | None in initial core | Prompt guard tests; later parsing/tailoring patterns | Golden eval split and later presentation/export | Full stack, flat source model, database/UI/export now |
-
-## Integration and License Rules
-
-1. Keep every upstream submodule at its recorded commit. Do not import it as a runtime package or edit inside the submodule.
-2. For each copied or adapted artifact, add a provenance record containing upstream repository URL, exact commit, source path, license, classification (`reuse`, `adapt`, `inspired-by`, `reject`), local destination, and a short divergence note.
-3. For MIT code or substantial data copied from Tabiya Compass, Matt Pocock Skills, MIND Tech Ontology, CV Market Learning Planner, or Hiring Agent, retain the upstream copyright and permission notice in the distributed source or third-party notices.
-4. MIND data reused in a shipped snapshot is licensed material, not merely an idea. Include its MIT notice and pinned revision with the local data slice.
-5. Resume Matcher is Apache-2.0. If code is copied or modified later, retain the license, preserve relevant notices, mark modified files, and include attribution/NOTICE handling required by Apache-2.0. For this validation project, prefer pattern-level inspiration and independently written tests so no Apache-derived runtime code is needed.
-6. “Inspired-by” means reimplement the general pattern against local requirements without copying expressive code or prompt text. Still cite the upstream source in design/provenance notes.
-7. Every adaptation needs a local test expressing the distinct product constraint—for example, ontology implications cannot raise mastery, and transition completion cannot bypass Contribution grounding.
 
 ## Alternatives Considered
 
-| Recommended | Alternative | When to Use Alternative |
-|-------------|-------------|-------------------------|
-| Python 3.13 packaged CLI/library | Python 3.14 | Move after the chosen provider SDK and all locked dependencies pass the full suite on 3.14; there is no hypothesis-level feature requiring it now. |
-| Pydantic models | Dataclasses + hand-written validation | Only if Pydantic becomes a measured performance or packaging problem; that is unlikely at validation scale. |
-| JSON/JSONL workspace | SQLite | Introduce SQLite when concurrent writes, transactional cross-record updates, or query volume become concrete requirements. Preserve exportable versioned JSON fixtures regardless. |
-| Plain relationship records | Neo4j or another graph database | Introduce a graph store only after real query patterns exceed simple indexed in-memory traversal and the model has stabilized. |
-| Project-owned provider protocol + one SDK | LiteLLM or an agent framework | Use a multi-provider layer only when a validated experiment requires switching several providers at runtime and the maintenance cost is justified. |
-| Stdlib `argparse` CLI | Typer/Rich | Add only if interactive operator use becomes a material bottleneck; the first workflow can be driven by simple commands and files. |
-| Text/Markdown/JSON fixtures | PDF/DOCX parsing | Add parsers only when fixture provenance requires original documents and manual text extraction would invalidate the experiment. |
-| Explicit pure orchestration | LangGraph or workflow engine | Adopt only if resumable branching, concurrency, and checkpoint recovery become complex enough that the home-grown state machine is demonstrably failing. |
+| Recommended | Alternative | Use the alternative only when |
+|-------------|-------------|-------------------------------|
+| Canonical JSON/JSONL bundles | stdlib SQLite | Concurrent writers, transactional updates spanning several authoritative records, or measured indexed-query pressure become real requirements. |
+| In-memory graph indexes | Neo4j, RDF store, NetworkX | A measured query cannot be expressed or performed acceptably over the bounded canonical records. No such query exists in v1.1. |
+| Project-owned extraction Protocol | LangChain, LangGraph, LlamaIndex, PydanticAI | Orchestration complexity is demonstrated beyond the current explicit state machines and custody boundaries. |
+| One selected adapter | LiteLLM or multi-provider router | Runtime provider switching becomes a tested product requirement, not an experiment convenience. |
+| Exact aliases plus human review | Embeddings/vector search | Deterministic normalization recall is empirically insufficient and a reviewable embedding candidate process is specified. |
+| Format-specific adapter after inventory | Universal document-conversion stack | The accepted corpus contains several unavoidable formats and conversion fidelity is itself validated. |
+| pytest plus stdlib metrics | evaluation SaaS/framework | The frozen protocol requires scale, collaboration, or metrics not representable in small checked-in fixtures and immutable local bundles. |
 
 ## What NOT to Use
 
-| Avoid | Why | Use Instead |
-|-------|-----|-------------|
-| FastAPI, React/Next.js, or a multi-user web UI | Adds API/auth/UI state before the assessment model is validated | Importable Python core plus CLI and inspectable reports |
-| Graph database | The graph is small and its semantics are still being calibrated | Pydantic relationship records and in-memory indexes |
-| Vector database / embeddings-first skill matcher | Obscures normalization decisions and complicates reproducibility | Deterministic alias matching plus reviewable model-assisted candidates |
-| MongoDB, PostgreSQL, SQLAlchemy, or TinyDB | No concurrency or scale requirement; migrations would distract from schema calibration | Schema-versioned JSON/JSONL workspace |
-| Full agent framework | Hides transitions that must be audited and tested | Explicit state machine and narrow provider port |
-| Generic LLM-generated final score | Violates anchor integrity and calibration requirements | Evidence-bearing Contribution–Skill assessments plus replaceable, tested aggregation |
-| Ontology implication propagation | “X implies Y” is not evidence this user can do Y | Use relations only to suggest follow-up questions |
-| GitHub/repository keywords as mastery | Confuses artifact presence with personal responsibility and capability | Attribute evidence to Contributions and verify through Grill-Me |
-| Full résumé generator, tailoring UI, PDF export, gap sprint, learning planner | Explicitly outside the core-hypothesis validation | JD expectation fixtures and usefulness evaluation only |
-| Wholesale copying of any upstream architecture | Upstreams solve different products and contain incompatible semantics | Provenance-tracked, test-backed local adaptations |
+| Avoid in v1.1 | Why | Use Instead |
+|---------------|-----|-------------|
+| Any new dependency by default | No inspected requirement has a capability gap in the current stack. | Extend current Pydantic models, stdlib stores, Protocols, and pytest fixtures. |
+| Neo4j, RDFLib, NetworkX, or another graph authority | Creates a second representation and migration/synchronization problem while semantics are still being validated. | One canonical JSON graph snapshot plus in-memory indexes. |
+| SQLite, PostgreSQL, MongoDB, SQLAlchemy, or an ORM | The milestone is single-user, bounded, and create-mostly; database migrations add no hypothesis evidence. | Content-addressed JSON/JSONL. |
+| Vector database, embeddings-first matching, or RAG pipeline | Obscures exact Skill normalization and can convert semantic similarity into false capability evidence. | Deterministic aliases, explicit candidates, and human review. |
+| LangChain, LangGraph, LlamaIndex, PydanticAI, or a generic agent framework | Hides transitions and provenance that must remain independently testable. | Explicit workflow functions and narrow Protocol ports. |
+| Provider SDK or multi-provider abstraction before provider selection | Prematurely freezes a vendor and expands the lockfile without validating a need. | Recorded adapter first; add one pinned live adapter after selection. |
+| MarkItDown, unstructured, OCR, PDF, or DOCX packages preemptively | Source heterogeneity does not prove format-parsing necessity; parsers add supply-chain and fidelity risks. | Hash raw bytes, accept UTF-8/JSON now, and add one adapter only for an observed format. |
+| pandas, NumPy, scikit-learn, notebooks as authority, or an experiment platform | The three-JD evaluation is small; these add serialization and reproducibility surfaces. | pytest, `statistics`, canonical JSON, and frozen manifests. |
+| FastAPI, React, desktop GUI, authentication stack, or cloud service | Multi-user delivery is outside the milestone and increases privacy exposure. | Local CLI and inspectable private artifacts. |
+| Cloud object storage, external telemetry, or automatic source upload | Full-career records and raw JDs are private; remote transfer is not required for the hypothesis. | Local gitignored storage and redacted/count-only public status. |
+| Application-level cryptography added casually | File encryption needs key lifecycle, recovery, and platform threat-model decisions; a package alone does not solve them. | Enforce local permissions now; if encryption-at-rest becomes explicit, research OS-backed encrypted storage/key management as a separate security requirement. |
+| Automatic acceptance of extractor/model output | Structured output proves shape, not truth or user authority. | Immutable proposal → item-level correction → explicit acceptance. |
 
-## Version Compatibility and Pinning
+## Stack Patterns by Variant
 
-| Package or Tool | Compatible With | Notes |
-|-----------------|-----------------|-------|
-| Python `3.13.14` | Pydantic `2.13.4`, pytest `9.1.1`, Ruff `0.16.0` | Pydantic supports Python 3.9+; pinned upstreams demonstrate the ecosystem on Python 3.13. |
-| Pydantic `2.13.4` | Python `>=3.9` officially | Use v2 APIs (`model_validate`, `model_dump`, `ConfigDict`); do not copy deprecated v1-style `class Config` patterns unchanged from older upstream files. |
-| pytest `9.1.1` | Python 3.13 | Prefer native `[tool.pytest]` configuration. Keep live-model tests behind an explicit marker and key/provider gate. |
-| Ruff `0.16.0` | `target-version = "py313"` | Configure selected rule groups explicitly because 0.16.0 changed the default rule set substantially. |
-| uv `0.12.0` | Python 3.13 project and `uv.lock` | Commit the universal lockfile; run CI/verification with `--locked`. Pin uv in CI/tooling because lockfile schema compatibility can change across minor releases. |
-| Provider SDK | Python 3.13 and Pydantic schema output | Select and pin only after a provider experiment. Verify actual structured-output behavior and retries with contract tests. |
+**If the source is UTF-8 text, Markdown, JSON, or a pinned Git object:**
 
-## Decisions Intentionally Left Unfrozen
+- Use a stdlib adapter and retain exact bytes/hash plus a safe locator.
+- Produce candidates only; require item review before confirmation or mastery admission.
 
-- LLM provider, model, SDK, temperature/reasoning settings, and structured-output transport.
-- Exact aggregation formula, confidence gates, score thresholds, and calibration rules.
-- Whether model-assisted normalization is needed beyond deterministic ontology aliases.
-- Whether a live conversational interface is needed beyond the CLI/replay harness.
-- Whether parsing PDF/DOCX source material is necessary for the STOA fixtures.
-- Whether SQLite becomes useful after the validation data model stabilizes.
+**If a confirmed source is PDF, DOCX, image, or another binary format:**
 
-These choices must not be encoded into the domain entities. Record them as versioned run configuration so results remain comparable.
+- Retain and hash the raw file locally first.
+- Record the converter and version and hash derived text.
+- Add one parser only after a corpus-specific fidelity fixture demonstrates necessity.
+
+**If live JD extraction is selected:**
+
+- Implement exactly one adapter behind `JDExtractionPort`.
+- Pin its executable/SDK and record provider, model/snapshot or drift limitation, prompt,
+  schema, settings, raw response, and hashes.
+- Never let the adapter accept requirements or write to the user graph.
+
+**If concurrent authoritative writes or multi-record transactions appear:**
+
+- Re-evaluate stdlib SQLite with explicit transaction policy and JSON export.
+- Until then, retain create-only bundles and atomic current pointers.
+
+**If privacy requirements expand to encryption at rest or synchronization:**
+
+- Stop and perform a separate threat-model and platform-key-management decision.
+- Do not infer permission to upload or encrypt/migrate existing evidence.
+
+## Version Compatibility
+
+| Component | Compatible With | v1.1 rule |
+|-----------|-----------------|-----------|
+| Python 3.13.14 | Current Pydantic, pytest, Ruff, uv lock | Keep the current interpreter and project range; no upgrade is required. |
+| Pydantic 2.13.4 | Existing `StrictModel` contracts | Use v2 `model_validate*`, `model_dump`, validators, and `model_json_schema`; avoid a parallel schema library. |
+| pytest 9.1.1 | Existing Python 3.13 dev group | Built-in parametrization, markers, fixtures, and `tmp_path` cover v1.1 evaluation. |
+| Optional future provider adapter | Python 3.13 plus generated Pydantic schema | Pin and contract-test only after provider selection; successful shape validation does not grant acceptance authority. |
+| Optional future parser | One observed source format | Pin only after raw/derived hash custody and fidelity tests are defined. |
+
+## Evidence and Confidence
+
+| Finding | Basis | Confidence |
+|---------|-------|------------|
+| No new dependency is required | Direct inspection of `pyproject.toml`, `uv.lock`, required domain/JD files, stores, audit ports, and tests | HIGH |
+| Pydantic covers strict/frozen contracts and JSON Schema | Current official Pydantic documentation, cross-checked against `StrictModel` and current models | MEDIUM external / HIGH codebase fit |
+| Python stdlib covers hashing and atomic/create-only local custody | Python 3.13 official `hashlib` and `os` documentation, cross-checked against existing stores | MEDIUM external / HIGH codebase fit |
+| pytest needs no plugin for the frozen evaluation matrix | Official pytest parametrization, fixture, marker, and temporary-directory documentation | MEDIUM |
+| SQLite should remain deferred | Official sqlite3 transaction/locking capabilities compared with the bounded single-user requirements | HIGH recommendation |
+| Local, limited, human-reviewed handling is appropriate | OWASP untrusted-content/file guidance and NIST AI RMF privacy, provenance, oversight, and TEVV guidance | MEDIUM |
 
 ## Sources
 
-### Official/current stack sources
+### Current codebase evidence
 
-- [Python downloads and active release status](https://www.python.org/downloads/) — Python 3.14.6 current; 3.13 remains in bugfix support. **Confidence: MEDIUM**
-- [Pydantic current documentation](https://docs.pydantic.dev/latest/) — v2.13.4, Python 3.9+, JSON Schema capability. **Confidence: MEDIUM**
-- [pytest changelog](https://docs.pytest.org/en/stable/changelog.html) — pytest 9.1.1 and pytest 9 native TOML configuration. **Confidence: MEDIUM**
-- [uv 0.12.0 release](https://github.com/astral-sh/uv/releases/tag/0.12.0) — current release and packaged-project behavior. **Confidence: MEDIUM**
-- [uv project locking and syncing](https://docs.astral.sh/uv/concepts/projects/sync/) and [project layout](https://docs.astral.sh/uv/concepts/projects/layout/) — committed `uv.lock`, automatic sync, and locked runs. **Confidence: MEDIUM**
-- [Ruff 0.16.0 release](https://github.com/astral-sh/ruff/releases/tag/0.16.0) — current release and default-rule expansion. **Confidence: MEDIUM**
-- [Python Packaging User Guide: dependency groups](https://packaging.python.org/en/latest/specifications/dependency-groups/) — standardized development dependency groups. **Confidence: MEDIUM**
+- `pyproject.toml`, `.python-version`, and `uv.lock` — installed versions and complete dependency surface.
+- `src/career_evidence_graph/validation/models.py` — frozen, extra-forbid strict contracts.
+- `src/career_evidence_graph/validation/hashing.py` and `validation/store.py` — canonical bytes, SHA-256, atomic/create-only bundles.
+- `src/career_evidence_graph/audit/decision.py` and `audit/store.py` — provider-neutral ports and private resumable storage.
+- `src/career_evidence_graph/domain/models.py`, `domain/fixtures.py`, and `jd.py` — authority, provenance, JD custody, immutable acceptance, and read-only graph comparison.
 
-### Pinned code sources
+### Current official/primary sources
 
-- `references/README.md` and `git submodule status` — commit and license baseline. **Confidence: HIGH**
-- `references/upstream/tabiya-compass/backend/app/agent/` and `backend/evaluation_tests/` — interview, responsibility, state, transition, and eval patterns. **Confidence: HIGH**
-- `references/upstream/mattpocock-skills/skills/productivity/grilling/SKILL.md` — one-question and inspect-before-ask pattern. **Confidence: HIGH**
-- `references/upstream/mind-tech-ontology/skills.py`, `skills/*.json`, and `concepts/*.json` — ontology data model and implication fields. **Confidence: HIGH**
-- `references/upstream/cv-market-learning-planner/scripts/`, `references/schemas.md`, and `tests/test_skill_refactor.py` — workspace and deterministic fixture patterns. **Confidence: HIGH**
-- `references/upstream/hiring-agent/models.py`, `score.py`, `evaluator.py`, `roles/`, and `requirements.txt` — contracts, provider boundary, caching, role rubrics, and rejected scoring/dependency patterns. **Confidence: HIGH**
-- `references/upstream/resume-matcher/apps/backend/app/` and `apps/backend/tests/` — parser repair, prompt guards, golden evals, persistence, and deferred presentation stack. **Confidence: HIGH**
+- [Pydantic models](https://pydantic.dev/docs/validation/latest/concepts/models/) — validation, extra-field policy, serialization, frozen-model caveat.
+- [Pydantic strict mode](https://pydantic.dev/docs/validation/latest/concepts/strict_mode/) — per-call, field, and model strictness.
+- [Pydantic JSON Schema](https://pydantic.dev/docs/validation/latest/concepts/json_schema/) — `model_json_schema` and standards-compatible schemas.
+- [Python 3.13 hashlib](https://docs.python.org/3.13/library/hashlib.html) — SHA-256 content identity.
+- [Python 3.13 os](https://docs.python.org/3.13/library/os.html) — create/exclusive flags, permissions, symlink controls, fsync, and atomic POSIX replacement.
+- [Python 3.13 sqlite3](https://docs.python.org/3.13/library/sqlite3.html) — transactions, locks, and concurrency considerations used for the deferral gate.
+- [pytest parametrization](https://docs.pytest.org/en/stable/example/parametrize.html) and [pytest temporary directories](https://docs.pytest.org/en/stable/getting-started.html#request-a-unique-temporary-directory-for-functional-tests) — built-in evaluation support.
+- [OWASP File Upload Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html) — allowlists, size limits, restricted storage, and file-processing cautions.
+- [OWASP LLM Prompt Injection Prevention](https://cheatsheetseries.owasp.org/cheatsheets/LLM_Prompt_Injection_Prevention_Cheat_Sheet.html) — untrusted external content, structured separation, least privilege, and human review.
+- [NIST AI RMF Core](https://airc.nist.gov/airmf-resources/airmf/5-sec-core/) — privacy requirements, provenance/TEVV, documented limitations, and human oversight.
 
 ---
-*Stack research for: Career Evidence Graph — Core Hypothesis Validation*
-*Researched: 2026-07-30*
+*Stack research for: Career Evidence Graph v1.1*
+*Researched: 2026-08-28*

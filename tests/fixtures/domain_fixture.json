@@ -1,0 +1,74 @@
+{
+  "schema_version": "career-evidence-fixture/v1",
+  "fixture_notice": "Synthetic contract exercise; not calibrated mastery.",
+  "experiences": [
+    {
+      "id": "experience.synthetic",
+      "experience_type": "project",
+      "title": "Synthetic validation tracer",
+      "contribution_ids": ["contribution.delivery"]
+    }
+  ],
+  "contributions": [
+    {
+      "id": "contribution.delivery",
+      "experience_id": "experience.synthetic",
+      "summary": "A synthetic auditable outcome.",
+      "claim_ids": ["claim.delivery"]
+    }
+  ],
+  "claims": [
+    {
+      "id": "claim.delivery",
+      "contribution_id": "contribution.delivery",
+      "statement": "A synthetic claim with explicit limits.",
+      "responsibility": "user",
+      "assistance": "none",
+      "confirmation_status": "confirmed",
+      "completion_status": "delivered",
+      "limitations": ["Synthetic fixture only."]
+    }
+  ],
+  "evidence": [
+    {
+      "id": "evidence.synthetic",
+      "kind": "acceptance_record",
+      "proof_limit": "recorded_delivery",
+      "repository": "synthetic/repository",
+      "pinned_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "tracked_path": "docs/acceptance.md",
+      "section_locator": "# synthetic-result",
+      "content_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ],
+  "claim_evidence_links": [
+    {
+      "claim_id": "claim.delivery",
+      "evidence_id": "evidence.synthetic",
+      "section_locator": "# synthetic-result"
+    }
+  ],
+  "skills": [{"id": "skill.validation", "name": "Validation"}],
+  "assessments": [
+    {
+      "id": "assessment.validation",
+      "skill_id": "skill.validation",
+      "contribution_id": "contribution.delivery",
+      "lineage": {"source_kind": "contribution", "contribution_id": "contribution.delivery"},
+      "demonstrated_mastery": 0,
+      "skill_centrality": 100,
+      "evidence_confidence": 37,
+      "context": "Synthetic contract fixture.",
+      "duration": {"state": "not_verified"},
+      "basis_claim_ids": ["claim.delivery"],
+      "assessment_status": "partial"
+    }
+  ],
+  "user_skill_views": [
+    {
+      "skill_id": "skill.validation",
+      "assessment_ids": ["assessment.validation"],
+      "fixture_notice": "Non-calibrated test view."
+    }
+  ]
+}

@@ -1,0 +1,102 @@
+--- a/rust/crates/cua-driver-core/src/browser/prepare.rs
++++ b/rust/crates/cua-driver-core/src/browser/prepare.rs
+@@ -510,7 +510,25 @@
+     }
+ }
+ 
+-fn isolated_browser_command(executable: &str, profile: &Path, windowless: bool) -> Command {
++#[cfg(target_os = "macos")]
++fn configure_macos_isolated_browser_command(
++    command: &mut Command,
++    profile_mode: PrepareProfileMode,
++    mock_keychain: Option<&std::ffi::OsStr>,
++) {
++    if profile_mode == PrepareProfileMode::IsolatedNew
++        && mock_keychain == Some(std::ffi::OsStr::new("1"))
++    {
++        command.arg("--use-mock-keychain");
++    }
++}
++
++fn isolated_browser_command(
++    executable: &str,
++    profile: &Path,
++    windowless: bool,
++    _profile_mode: PrepareProfileMode,
++) -> Command {
+     let mut command = Command::new(executable);
+     #[cfg(unix)]
+     {
+@@ -539,6 +557,12 @@
+         let sandbox = linux_browser_sandbox(|name| std::env::var(name).ok());
+         configure_linux_isolated_browser_command(&mut command, native_wayland, sandbox);
+     }
++    #[cfg(target_os = "macos")]
++    configure_macos_isolated_browser_command(
++        &mut command,
++        _profile_mode,
++        std::env::var_os("CUA_E2E_USE_MOCK_KEYCHAIN").as_deref(),
++    );
+     let stderr = if std::env::var_os("CUA_E2E_BROWSER_STDERR").is_some() {
+         Stdio::inherit()
+     } else {
+@@ -922,6 +946,7 @@
+             &executable,
+             &prepared_profile.path,
+             profile_request.windowless,
++            profile_request.mode,
+         );
+         let mut child = self
+             .platform
+@@ -2153,7 +2178,12 @@
+     #[test]
+     fn isolated_launch_uses_a_deterministic_clean_profile() {
+         let profile = Path::new("profile-under-test");
+-        let command = isolated_browser_command("chromium-under-test", profile, false);
++        let command = isolated_browser_command(
++            "chromium-under-test",
++            profile,
++            false,
++            PrepareProfileMode::IsolatedNew,
++        );
+         let args = command
+             .get_args()
+             .map(|arg| arg.to_string_lossy().into_owned())
+@@ -2178,6 +2208,37 @@
+         }
+         #[cfg(target_os = "linux")]
+         assert!(args.iter().any(|arg| arg == "--password-store=basic"));
++    }
++
++    #[cfg(target_os = "macos")]
++    #[test]
++    fn mock_keychain_requires_exact_opt_in_and_new_isolated_profile() {
++        use std::ffi::OsStr;
++        for mode in [
++            PrepareProfileMode::IsolatedNew,
++            PrepareProfileMode::IsolatedNamed,
++        ] {
++            for value in [
++                None,
++                Some(""),
++                Some("0"),
++                Some("true"),
++                Some("01"),
++                Some("1 "),
++                Some("1"),
++            ] {
++                let mut command = Command::new("chromium-under-test");
++                configure_macos_isolated_browser_command(&mut command, mode, value.map(OsStr::new));
++                let args = command.get_args().collect::<Vec<_>>();
++                let expected = mode == PrepareProfileMode::IsolatedNew && value == Some("1");
++                assert_eq!(
++                    args.contains(&OsStr::new("--use-mock-keychain")),
++                    expected,
++                    "mode={mode:?}, value={value:?}"
++                );
++                assert_eq!(args.len(), usize::from(expected), "unexpected browser flag");
++            }
++        }
+     }
+ 
+     #[test]

@@ -1,0 +1,117 @@
+{
+  "plan": {
+    "schema_version": "resume-plan/v1",
+    "application_id": "application-demo-1",
+    "profile": {
+      "name": "Synthetic Candidate",
+      "contacts": [
+        {
+          "label": "demo@example.invalid",
+          "url": "mailto:demo@example.invalid"
+        },
+        {
+          "label": "Website",
+          "url": "https://example.invalid"
+        },
+        {
+          "label": "LinkedIn",
+          "url": "https://www.linkedin.com/in/synthetic-example"
+        }
+      ]
+    },
+    "education": [
+      {
+        "id": "education-demo-1",
+        "institution": "Synthetic University",
+        "qualification": "MSc Computer Science",
+        "status": "in_progress",
+        "start": "2025",
+        "end": "2027 (expected)",
+        "details": []
+      }
+    ],
+    "summary": [],
+    "skills": [],
+    "assignments": [
+      {
+        "schema_version": "experience-assignment/v1",
+        "assignment_revision": "assignment-demo-1",
+        "experience_id": "experience-demo-1",
+        "candidate_id": "candidate-demo-1",
+        "experience": {
+          "schema_version": "experience-facts/v1",
+          "revision": "facts-demo-1",
+          "experience_id": "experience-demo-1",
+          "candidate_id": "candidate-demo-1",
+          "title": "Validation workflow",
+          "organization": "Synthetic R&D Lab",
+          "sources": [
+            {
+              "id": "source-demo-1",
+              "locator": "synthetic:project-note"
+            }
+          ],
+          "facts": [
+            {
+              "id": "fact-demo-1",
+              "text": "Participated in a planned validation workflow.",
+              "source_refs": [
+                "source-demo-1"
+              ],
+              "responsibility": "team",
+              "status": "planned",
+              "scope": "project-demo"
+            },
+            {
+              "id": "fact-demo-2",
+              "text": "The team planned a 95% target for validation_case #1; the target was not measured.",
+              "source_refs": [
+                "source-demo-1"
+              ],
+              "responsibility": "team",
+              "status": "planned",
+              "scope": "project-demo"
+            }
+          ],
+          "role": "Project team member"
+        },
+        "inferences": [],
+        "allowed_fact_refs": [
+          "fact-demo-1",
+          "fact-demo-2"
+        ],
+        "allowed_inference_refs": [],
+        "writing_requirements": [
+          "Keep the planned status and team responsibility."
+        ]
+      }
+    ]
+  },
+  "fragments": [
+    {
+      "schema_version": "experience-writing/v1",
+      "assignment_revision": "assignment-demo-1",
+      "experience_id": "experience-demo-1",
+      "candidate_id": "candidate-demo-1",
+      "status": "complete",
+      "items": [
+        {
+          "id": "item-demo-1",
+          "text": "Participated in planning a validation workflow.",
+          "fact_refs": [
+            "fact-demo-1"
+          ],
+          "inference_refs": []
+        },
+        {
+          "id": "item-demo-2",
+          "text": "Helped the team plan validation_case #1 with a 95% target; execution and measurement remain planned.",
+          "fact_refs": [
+            "fact-demo-2"
+          ],
+          "inference_refs": []
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,183 @@
+"""A small, offline PEP 517 backend for this pure-Python validation package.
+
+Regular wheels contain only package files and standard distribution metadata.
+The PEP 660 editable wheel deliberately differs: it contains one environment-local
+``.pth`` file pointing at ``src``. That local development convenience never enters
+a distributable wheel.
+"""
+
+from __future__ import annotations
+
+import base64
+import gzip
+import hashlib
+import io
+import os
+import tarfile
+import time
+import zipfile
+from collections.abc import Mapping
+from pathlib import Path
+
+_ROOT = Path(__file__).resolve().parent
+_PACKAGE_ROOT = _ROOT / "src" / "career_evidence_graph"
+_DISTRIBUTION = "career_evidence_graph"
+_VERSION = "0.1.0"
+_DIST_INFO = f"{_DISTRIBUTION}-{_VERSION}.dist-info"
+_WHEEL_NAME = f"{_DISTRIBUTION}-{_VERSION}-py3-none-any.whl"
+
+
+def _source_date_epoch() -> tuple[int, int, int, int, int, int]:
+    """Return a ZIP-safe timestamp, honoring SOURCE_DATE_EPOCH when supplied."""
+    epoch = max(int(os.environ.get("SOURCE_DATE_EPOCH", "315532800")), 315532800)
+    return time.gmtime(epoch)[:6]
+
+
+def _metadata() -> bytes:
+    return (
+        "Metadata-Version: 2.1\n"
+        "Name: career-evidence-graph\n"
+        f"Version: {_VERSION}\n"
+        "Summary: Career Evidence Graph core hypothesis validation\n"
+        "Requires-Python: >=3.13,<3.14\n"
+        "Requires-Dist: pydantic (==2.13.4)\n"
+        "Requires-Dist: playwright (==1.63.0)\n"
+        "\n"
+    ).encode()
+
+
+def _wheel_metadata() -> bytes:
+    return (
+        b"Wheel-Version: 1.0\n"
+        b"Generator: career-evidence-graph in-tree backend\n"
+        b"Root-Is-Purelib: true\n"
+        b"Tag: py3-none-any\n"
+        b"\n"
+    )
+
+
+def _entry_points() -> bytes:
+    return b"[console_scripts]\ncareer-evidence = career_evidence_graph.cli:main\n"
+
+
+def _package_files() -> dict[str, bytes]:
+    """Load project source in stable order and exclude build/interpreter by-products."""
+    files: dict[str, bytes] = {}
+    for path in sorted(_PACKAGE_ROOT.rglob("*.py")):
+        relative = path.relative_to(_ROOT / "src").as_posix()
+        files[relative] = path.read_bytes()
+    license_path = _PACKAGE_ROOT / "_vendor" / "JOB_APPLY_LICENSE"
+    files[license_path.relative_to(_ROOT / "src").as_posix()] = license_path.read_bytes()
+    return files
+
+
+def _record_value(contents: bytes) -> tuple[str, str]:
+    digest = (
+        base64.urlsafe_b64encode(hashlib.sha256(contents).digest()).rstrip(b"=").decode("ascii")
+    )
+    return f"sha256={digest}", str(len(contents))
+
+
+def _wheel_contents(*, editable: bool) -> dict[str, bytes]:
+    contents = _package_files()
+    contents[f"{_DIST_INFO}/METADATA"] = _metadata()
+    contents[f"{_DIST_INFO}/WHEEL"] = _wheel_metadata()
+    contents[f"{_DIST_INFO}/entry_points.txt"] = _entry_points()
+    if editable:
+        # This path is intentionally confined to PEP 660 development wheels.
+        contents[f"{_DISTRIBUTION}-editable.pth"] = (str((_ROOT / "src").resolve()) + "\n").encode(
+            "utf-8"
+        )
+    return contents
+
+
+def _add_zip_member(archive: zipfile.ZipFile, name: str, contents: bytes) -> None:
+    info = zipfile.ZipInfo(name, date_time=_source_date_epoch())
+    info.compress_type = zipfile.ZIP_DEFLATED
+    info.external_attr = 0o100644 << 16
+    archive.writestr(info, contents)
+
+
+def _write_wheel(wheel_directory: str, *, editable: bool) -> str:
+    destination = Path(wheel_directory)
+    destination.mkdir(parents=True, exist_ok=True)
+    wheel_path = destination / _WHEEL_NAME
+    contents = _wheel_contents(editable=editable)
+    record_path = f"{_DIST_INFO}/RECORD"
+    record_lines = [",".join((name, *_record_value(contents[name]))) for name in sorted(contents)]
+    record_lines.append(f"{record_path},,")
+    contents[record_path] = ("\n".join(record_lines) + "\n").encode("utf-8")
+    with zipfile.ZipFile(wheel_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for name in sorted(contents):
+            _add_zip_member(archive, name, contents[name])
+    return wheel_path.name
+
+
+def _write_metadata(metadata_directory: str) -> str:
+    destination = Path(metadata_directory) / _DIST_INFO
+    destination.mkdir(parents=True, exist_ok=True)
+    (destination / "METADATA").write_bytes(_metadata())
+    (destination / "WHEEL").write_bytes(_wheel_metadata())
+    (destination / "entry_points.txt").write_bytes(_entry_points())
+    return _DIST_INFO
+
+
+def get_requires_for_build_wheel(config_settings: Mapping[str, object] | None = None) -> list[str]:
+    """Builds are intentionally stdlib-only and work from an empty UV cache."""
+    return []
+
+
+def prepare_metadata_for_build_wheel(
+    metadata_directory: str, config_settings: Mapping[str, object] | None = None
+) -> str:
+    return _write_metadata(metadata_directory)
+
+
+def build_wheel(
+    wheel_directory: str,
+    config_settings: Mapping[str, object] | None = None,
+    metadata_directory: str | None = None,
+) -> str:
+    return _write_wheel(wheel_directory, editable=False)
+
+
+def get_requires_for_build_editable(
+    config_settings: Mapping[str, object] | None = None,
+) -> list[str]:
+    return []
+
+
+def prepare_metadata_for_build_editable(
+    metadata_directory: str, config_settings: Mapping[str, object] | None = None
+) -> str:
+    return _write_metadata(metadata_directory)
+
+
+def build_editable(
+    wheel_directory: str,
+    config_settings: Mapping[str, object] | None = None,
+    metadata_directory: str | None = None,
+) -> str:
+    return _write_wheel(wheel_directory, editable=True)
+
+
+def build_sdist(sdist_directory: str, config_settings: Mapping[str, object] | None = None) -> str:
+    """Produce a deterministic source archive for operators who request one explicitly."""
+    archive_name = f"{_DISTRIBUTION}-{_VERSION}.tar.gz"
+    archive_path = Path(sdist_directory) / archive_name
+    archive_path.parent.mkdir(parents=True, exist_ok=True)
+    members = [Path("pyproject.toml"), Path(__file__).relative_to(_ROOT)]
+    members.extend(Path("src") / name for name in _package_files())
+    with (
+        archive_path.open("wb") as raw_file,
+        gzip.GzipFile(fileobj=raw_file, mode="wb", mtime=315532800) as compressed,
+        tarfile.open(fileobj=compressed, mode="w") as archive,
+    ):
+        for relative in members:
+            contents = (_ROOT / relative).read_bytes()
+            info = tarfile.TarInfo(f"{_DISTRIBUTION}-{_VERSION}/{relative.as_posix()}")
+            info.size = len(contents)
+            info.mode = 0o644
+            info.mtime = 315532800
+            archive.addfile(info, io.BytesIO(contents))
+    return archive_name

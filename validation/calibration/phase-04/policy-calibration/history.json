@@ -1,0 +1,509 @@
+{
+  "activations": [
+    {
+      "activated_policy_version": "policy-04-conservative-70",
+      "activation_hash": "sha256:bcd7c7446c7d7438986ce930debf7cf2e3c5af6e7d3539d8b5175d568b8b856f",
+      "activation_reason": "Use a conservative initial calibration: boundary cases with insufficient evidence confidence remain pending human confirmation rather than being counted immediately.",
+      "comparison_hash": "sha256:ac2630db1076b3a824e28e1e29c9c1cc64cc972a500d2deae5c492ab35d11ea7",
+      "expected_active_pointer": "absent",
+      "limitations": [
+        "This is an initial calibration policy and must be re-evaluated after additional real audited samples accumulate."
+      ],
+      "policy_hash": "sha256:603cfbadcf8bb6ab2163dd0206e844a4b8b3956fe15974da85c028fe75fb6f6b",
+      "prior_policy_version": null,
+      "prior_result_hash": null,
+      "result_hash": "sha256:0992b26cfa0ab76eba631851bf4fc22b1a8213cc30c18492d08d45a7832e0719",
+      "reviewer_id": "zhdeng",
+      "schema_version": "policy-activation/v1"
+    }
+  ],
+  "active_pointer": "sha256:bcd7c7446c7d7438986ce930debf7cf2e3c5af6e7d3539d8b5175d568b8b856f",
+  "comparisons": [
+    {
+      "active_policy_version": null,
+      "baseline_policy_version": "policy-04-baseline-60",
+      "baseline_result_hash": "sha256:6ca2d24c02f75de31331fd99575ae77f15c760c8bc28b51dbfa4bf18418ef030",
+      "candidate_policy_version": "policy-04-conservative-70",
+      "candidate_result_hash": "sha256:0992b26cfa0ab76eba631851bf4fc22b1a8213cc30c18492d08d45a7832e0719",
+      "comparison_hash": "sha256:ac2630db1076b3a824e28e1e29c9c1cc64cc972a500d2deae5c492ab35d11ea7",
+      "input_hashes": [
+        "sha256:5b9cf494e08e97384168ccfa9d4b134ff35bb48d85038de82fcb6a148ce8011d",
+        "sha256:3592600977b6fe54d9817ae9928878d849e791dc64d5ef2ff6a2139ba34ed219",
+        "sha256:7b7e1cf31f4fd5e492ef6a4d774afc4f386cc597a464bef705c7b5f1adc3047e",
+        "sha256:33616b2f6b6e776ce4217a65489dd0328a63f14ef53d786a2bc059fd0888ec25",
+        "sha256:e9494b027e4f1bd66ad9f3fe900ec85a605a9158d48b2a09af1c903f36c947bb",
+        "sha256:ee72ea0e42774333f5dc379940d02fafca214b861c3d49d1266650d35855d793"
+      ],
+      "regressions": [
+        "false-deferral:case-high-mastery-low-confidence",
+        "false-deferral:case-reviewer-disagreement",
+        "false-deferral:case-threshold-equality",
+        "manual-review-required:confidence-60-69",
+        "no-inflation:denied-promotion",
+        "no-inflation:duplicate-support",
+        "no-inflation:incidental-volume"
+      ],
+      "reviewer_disagreements": [
+        "case-high-mastery-low-confidence",
+        "case-reviewer-disagreement"
+      ],
+      "run_variance": 0,
+      "schema_version": "policy-comparison/v1",
+      "skill_deltas": [
+        {
+          "admission_change": false,
+          "band_change": false,
+          "baseline_admission": "admitted",
+          "candidate_admission": "admitted",
+          "case_id": "case-allowed-promotion",
+          "mastery_delta": 0,
+          "schema_version": "skill-policy-delta/v1",
+          "skill_id": "skill.calibration-promotion-allowed"
+        },
+        {
+          "admission_change": false,
+          "band_change": false,
+          "baseline_admission": "pending-confirmation",
+          "candidate_admission": "pending-confirmation",
+          "case_id": "case-assisted-responsibility",
+          "mastery_delta": 0,
+          "schema_version": "skill-policy-delta/v1",
+          "skill_id": "skill.calibration-assisted"
+        },
+        {
+          "admission_change": false,
+          "band_change": false,
+          "baseline_admission": "admitted",
+          "candidate_admission": "admitted",
+          "case_id": "case-cross-skill-evidence-reuse",
+          "mastery_delta": 0,
+          "schema_version": "skill-policy-delta/v1",
+          "skill_id": "skill.calibration-evidence-reuse-a"
+        },
+        {
+          "admission_change": false,
+          "band_change": false,
+          "baseline_admission": "admitted",
+          "candidate_admission": "admitted",
+          "case_id": "case-denied-promotion",
+          "mastery_delta": 0,
+          "schema_version": "skill-policy-delta/v1",
+          "skill_id": "skill.calibration-promotion-denied"
+        },
+        {
+          "admission_change": false,
+          "band_change": false,
+          "baseline_admission": "admitted",
+          "candidate_admission": "admitted",
+          "case_id": "case-high-centrality-low-mastery",
+          "mastery_delta": 0,
+          "schema_version": "skill-policy-delta/v1",
+          "skill_id": "skill.calibration-central-low"
+        },
+        {
+          "admission_change": true,
+          "band_change": false,
+          "baseline_admission": "admitted",
+          "candidate_admission": "pending-confirmation",
+          "case_id": "case-high-mastery-low-confidence",
+          "mastery_delta": 0,
+          "schema_version": "skill-policy-delta/v1",
+          "skill_id": "skill.calibration-high-low-confidence"
+        },
+        {
+          "admission_change": false,
+          "band_change": false,
+          "baseline_admission": "admitted",
+          "candidate_admission": "admitted",
+          "case_id": "case-incidental-volume",
+          "mastery_delta": 0,
+          "schema_version": "skill-policy-delta/v1",
+          "skill_id": "skill.calibration-duplicate"
+        },
+        {
+          "admission_change": false,
+          "band_change": false,
+          "baseline_admission": "admitted",
+          "candidate_admission": "admitted",
+          "case_id": "case-low-centrality-high-mastery",
+          "mastery_delta": 0,
+          "schema_version": "skill-policy-delta/v1",
+          "skill_id": "skill.calibration-low-central-high"
+        },
+        {
+          "admission_change": true,
+          "band_change": false,
+          "baseline_admission": "admitted",
+          "candidate_admission": "pending-confirmation",
+          "case_id": "case-reviewer-disagreement",
+          "mastery_delta": 0,
+          "schema_version": "skill-policy-delta/v1",
+          "skill_id": "skill.calibration-reviewer-disagreement"
+        },
+        {
+          "admission_change": false,
+          "band_change": false,
+          "baseline_admission": "admitted",
+          "candidate_admission": "admitted",
+          "case_id": "case-same-skill-duplicate",
+          "mastery_delta": 0,
+          "schema_version": "skill-policy-delta/v1",
+          "skill_id": "skill.calibration-duplicate"
+        },
+        {
+          "admission_change": false,
+          "band_change": false,
+          "baseline_admission": "pending-confirmation",
+          "candidate_admission": "pending-confirmation",
+          "case_id": "case-self-rating",
+          "mastery_delta": 0,
+          "schema_version": "skill-policy-delta/v1",
+          "skill_id": "skill.calibration-self-rating"
+        },
+        {
+          "admission_change": true,
+          "band_change": false,
+          "baseline_admission": "admitted",
+          "candidate_admission": "pending-confirmation",
+          "case_id": "case-threshold-equality",
+          "mastery_delta": 0,
+          "schema_version": "skill-policy-delta/v1",
+          "skill_id": "skill.calibration-threshold-equality"
+        }
+      ]
+    }
+  ],
+  "runs": [
+    {
+      "case_results": [
+        {
+          "admission_status": "admitted",
+          "band": "anchor-70-79",
+          "calibration_decision": "admit",
+          "case_id": "case-allowed-promotion",
+          "mastery": 70,
+          "regression_labels": [],
+          "reviewer_disagreement": false,
+          "schema_version": "calibration-case-result/v1",
+          "skill_id": "skill.calibration-promotion-allowed"
+        },
+        {
+          "admission_status": "pending-confirmation",
+          "band": "anchor-70-79",
+          "calibration_decision": "defer",
+          "case_id": "case-assisted-responsibility",
+          "mastery": 70,
+          "regression_labels": [],
+          "reviewer_disagreement": false,
+          "schema_version": "calibration-case-result/v1",
+          "skill_id": "skill.calibration-assisted"
+        },
+        {
+          "admission_status": "admitted",
+          "band": "anchor-55-69",
+          "calibration_decision": "admit",
+          "case_id": "case-cross-skill-evidence-reuse",
+          "mastery": 55,
+          "regression_labels": [],
+          "reviewer_disagreement": false,
+          "schema_version": "calibration-case-result/v1",
+          "skill_id": "skill.calibration-evidence-reuse-a"
+        },
+        {
+          "admission_status": "admitted",
+          "band": "anchor-55-69",
+          "calibration_decision": "admit",
+          "case_id": "case-denied-promotion",
+          "mastery": 69,
+          "regression_labels": [
+            "no-inflation:denied-promotion"
+          ],
+          "reviewer_disagreement": false,
+          "schema_version": "calibration-case-result/v1",
+          "skill_id": "skill.calibration-promotion-denied"
+        },
+        {
+          "admission_status": "admitted",
+          "band": "anchor-40-54",
+          "calibration_decision": "admit",
+          "case_id": "case-high-centrality-low-mastery",
+          "mastery": 54,
+          "regression_labels": [],
+          "reviewer_disagreement": false,
+          "schema_version": "calibration-case-result/v1",
+          "skill_id": "skill.calibration-central-low"
+        },
+        {
+          "admission_status": "admitted",
+          "band": "anchor-70-79",
+          "calibration_decision": "admit",
+          "case_id": "case-high-mastery-low-confidence",
+          "mastery": 70,
+          "regression_labels": [
+            "manual-review-required:confidence-60-69"
+          ],
+          "reviewer_disagreement": true,
+          "schema_version": "calibration-case-result/v1",
+          "skill_id": "skill.calibration-high-low-confidence"
+        },
+        {
+          "admission_status": "admitted",
+          "band": "anchor-40-54",
+          "calibration_decision": "admit",
+          "case_id": "case-incidental-volume",
+          "mastery": 40,
+          "regression_labels": [
+            "no-inflation:incidental-volume"
+          ],
+          "reviewer_disagreement": false,
+          "schema_version": "calibration-case-result/v1",
+          "skill_id": "skill.calibration-duplicate"
+        },
+        {
+          "admission_status": "admitted",
+          "band": "anchor-70-79",
+          "calibration_decision": "admit",
+          "case_id": "case-low-centrality-high-mastery",
+          "mastery": 70,
+          "regression_labels": [],
+          "reviewer_disagreement": false,
+          "schema_version": "calibration-case-result/v1",
+          "skill_id": "skill.calibration-low-central-high"
+        },
+        {
+          "admission_status": "admitted",
+          "band": "anchor-70-79",
+          "calibration_decision": "admit",
+          "case_id": "case-reviewer-disagreement",
+          "mastery": 70,
+          "regression_labels": [],
+          "reviewer_disagreement": true,
+          "schema_version": "calibration-case-result/v1",
+          "skill_id": "skill.calibration-reviewer-disagreement"
+        },
+        {
+          "admission_status": "admitted",
+          "band": "anchor-55-69",
+          "calibration_decision": "admit",
+          "case_id": "case-same-skill-duplicate",
+          "mastery": 55,
+          "regression_labels": [
+            "no-inflation:duplicate-support"
+          ],
+          "reviewer_disagreement": false,
+          "schema_version": "calibration-case-result/v1",
+          "skill_id": "skill.calibration-duplicate"
+        },
+        {
+          "admission_status": "pending-confirmation",
+          "band": "anchor-70-79",
+          "calibration_decision": "defer",
+          "case_id": "case-self-rating",
+          "mastery": 70,
+          "regression_labels": [],
+          "reviewer_disagreement": false,
+          "schema_version": "calibration-case-result/v1",
+          "skill_id": "skill.calibration-self-rating"
+        },
+        {
+          "admission_status": "admitted",
+          "band": "anchor-70-79",
+          "calibration_decision": "admit",
+          "case_id": "case-threshold-equality",
+          "mastery": 70,
+          "regression_labels": [],
+          "reviewer_disagreement": false,
+          "schema_version": "calibration-case-result/v1",
+          "skill_id": "skill.calibration-threshold-equality"
+        }
+      ],
+      "input_hashes": [
+        "sha256:5b9cf494e08e97384168ccfa9d4b134ff35bb48d85038de82fcb6a148ce8011d",
+        "sha256:3592600977b6fe54d9817ae9928878d849e791dc64d5ef2ff6a2139ba34ed219",
+        "sha256:7b7e1cf31f4fd5e492ef6a4d774afc4f386cc597a464bef705c7b5f1adc3047e",
+        "sha256:33616b2f6b6e776ce4217a65489dd0328a63f14ef53d786a2bc059fd0888ec25",
+        "sha256:e9494b027e4f1bd66ad9f3fe900ec85a605a9158d48b2a09af1c903f36c947bb",
+        "sha256:ee72ea0e42774333f5dc379940d02fafca214b861c3d49d1266650d35855d793"
+      ],
+      "policy_hash": "sha256:edf5c3d452891922da78e37172d5caa54a5dd052dd45d2420737da54e236b19a",
+      "policy_version": "policy-04-baseline-60",
+      "result_hash": "sha256:6ca2d24c02f75de31331fd99575ae77f15c760c8bc28b51dbfa4bf18418ef030",
+      "run_sequence": 1,
+      "schema_version": "policy-run-result/v1",
+      "policy_snapshot": {
+        "schema_version": "aggregation-policy/v1",
+        "policy_version": "policy-04-baseline-60",
+        "high_mastery_min": 70,
+        "strict_confidence_min": 60,
+        "activation_status": "candidate",
+        "notice": "Unresolved Phase 4 calibration candidate; it is not an active product policy."
+      }
+    },
+    {
+      "case_results": [
+        {
+          "admission_status": "admitted",
+          "band": "anchor-70-79",
+          "calibration_decision": "admit",
+          "case_id": "case-allowed-promotion",
+          "mastery": 70,
+          "regression_labels": [],
+          "reviewer_disagreement": false,
+          "schema_version": "calibration-case-result/v1",
+          "skill_id": "skill.calibration-promotion-allowed"
+        },
+        {
+          "admission_status": "pending-confirmation",
+          "band": "anchor-70-79",
+          "calibration_decision": "defer",
+          "case_id": "case-assisted-responsibility",
+          "mastery": 70,
+          "regression_labels": [],
+          "reviewer_disagreement": false,
+          "schema_version": "calibration-case-result/v1",
+          "skill_id": "skill.calibration-assisted"
+        },
+        {
+          "admission_status": "admitted",
+          "band": "anchor-55-69",
+          "calibration_decision": "admit",
+          "case_id": "case-cross-skill-evidence-reuse",
+          "mastery": 55,
+          "regression_labels": [],
+          "reviewer_disagreement": false,
+          "schema_version": "calibration-case-result/v1",
+          "skill_id": "skill.calibration-evidence-reuse-a"
+        },
+        {
+          "admission_status": "admitted",
+          "band": "anchor-55-69",
+          "calibration_decision": "admit",
+          "case_id": "case-denied-promotion",
+          "mastery": 69,
+          "regression_labels": [
+            "no-inflation:denied-promotion"
+          ],
+          "reviewer_disagreement": false,
+          "schema_version": "calibration-case-result/v1",
+          "skill_id": "skill.calibration-promotion-denied"
+        },
+        {
+          "admission_status": "admitted",
+          "band": "anchor-40-54",
+          "calibration_decision": "admit",
+          "case_id": "case-high-centrality-low-mastery",
+          "mastery": 54,
+          "regression_labels": [],
+          "reviewer_disagreement": false,
+          "schema_version": "calibration-case-result/v1",
+          "skill_id": "skill.calibration-central-low"
+        },
+        {
+          "admission_status": "pending-confirmation",
+          "band": "anchor-70-79",
+          "calibration_decision": "defer",
+          "case_id": "case-high-mastery-low-confidence",
+          "mastery": 70,
+          "regression_labels": [
+            "manual-review-required:confidence-60-69"
+          ],
+          "reviewer_disagreement": true,
+          "schema_version": "calibration-case-result/v1",
+          "skill_id": "skill.calibration-high-low-confidence"
+        },
+        {
+          "admission_status": "admitted",
+          "band": "anchor-40-54",
+          "calibration_decision": "admit",
+          "case_id": "case-incidental-volume",
+          "mastery": 40,
+          "regression_labels": [
+            "no-inflation:incidental-volume"
+          ],
+          "reviewer_disagreement": false,
+          "schema_version": "calibration-case-result/v1",
+          "skill_id": "skill.calibration-duplicate"
+        },
+        {
+          "admission_status": "admitted",
+          "band": "anchor-70-79",
+          "calibration_decision": "admit",
+          "case_id": "case-low-centrality-high-mastery",
+          "mastery": 70,
+          "regression_labels": [],
+          "reviewer_disagreement": false,
+          "schema_version": "calibration-case-result/v1",
+          "skill_id": "skill.calibration-low-central-high"
+        },
+        {
+          "admission_status": "pending-confirmation",
+          "band": "anchor-70-79",
+          "calibration_decision": "defer",
+          "case_id": "case-reviewer-disagreement",
+          "mastery": 70,
+          "regression_labels": [],
+          "reviewer_disagreement": true,
+          "schema_version": "calibration-case-result/v1",
+          "skill_id": "skill.calibration-reviewer-disagreement"
+        },
+        {
+          "admission_status": "admitted",
+          "band": "anchor-55-69",
+          "calibration_decision": "admit",
+          "case_id": "case-same-skill-duplicate",
+          "mastery": 55,
+          "regression_labels": [
+            "no-inflation:duplicate-support"
+          ],
+          "reviewer_disagreement": false,
+          "schema_version": "calibration-case-result/v1",
+          "skill_id": "skill.calibration-duplicate"
+        },
+        {
+          "admission_status": "pending-confirmation",
+          "band": "anchor-70-79",
+          "calibration_decision": "defer",
+          "case_id": "case-self-rating",
+          "mastery": 70,
+          "regression_labels": [],
+          "reviewer_disagreement": false,
+          "schema_version": "calibration-case-result/v1",
+          "skill_id": "skill.calibration-self-rating"
+        },
+        {
+          "admission_status": "pending-confirmation",
+          "band": "anchor-70-79",
+          "calibration_decision": "defer",
+          "case_id": "case-threshold-equality",
+          "mastery": 70,
+          "regression_labels": [],
+          "reviewer_disagreement": false,
+          "schema_version": "calibration-case-result/v1",
+          "skill_id": "skill.calibration-threshold-equality"
+        }
+      ],
+      "input_hashes": [
+        "sha256:5b9cf494e08e97384168ccfa9d4b134ff35bb48d85038de82fcb6a148ce8011d",
+        "sha256:3592600977b6fe54d9817ae9928878d849e791dc64d5ef2ff6a2139ba34ed219",
+        "sha256:7b7e1cf31f4fd5e492ef6a4d774afc4f386cc597a464bef705c7b5f1adc3047e",
+        "sha256:33616b2f6b6e776ce4217a65489dd0328a63f14ef53d786a2bc059fd0888ec25",
+        "sha256:e9494b027e4f1bd66ad9f3fe900ec85a605a9158d48b2a09af1c903f36c947bb",
+        "sha256:ee72ea0e42774333f5dc379940d02fafca214b861c3d49d1266650d35855d793"
+      ],
+      "policy_hash": "sha256:603cfbadcf8bb6ab2163dd0206e844a4b8b3956fe15974da85c028fe75fb6f6b",
+      "policy_version": "policy-04-conservative-70",
+      "result_hash": "sha256:0992b26cfa0ab76eba631851bf4fc22b1a8213cc30c18492d08d45a7832e0719",
+      "run_sequence": 2,
+      "schema_version": "policy-run-result/v1",
+      "policy_snapshot": {
+        "schema_version": "aggregation-policy/v1",
+        "policy_version": "policy-04-conservative-70",
+        "high_mastery_min": 70,
+        "strict_confidence_min": 70,
+        "activation_status": "candidate",
+        "notice": "Unresolved Phase 4 calibration candidate; it is not an active product policy."
+      }
+    }
+  ],
+  "schema_version": "policy-history/v1"
+}

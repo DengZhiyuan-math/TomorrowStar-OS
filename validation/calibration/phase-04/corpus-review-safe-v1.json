@@ -1,0 +1,295 @@
+{
+  "schema_version": "assessment-calibration-corpus/v1",
+  "fixture_path": "validation/fixtures/stoa/v1/known-good.json",
+  "source_manifest_path": "validation/fixtures/stoa/v1/source-manifest.json",
+  "fixture_hash": "sha256:5b9cf494e08e97384168ccfa9d4b134ff35bb48d85038de82fcb6a148ce8011d",
+  "source_manifest_hash": "sha256:3592600977b6fe54d9817ae9928878d849e791dc64d5ef2ff6a2139ba34ed219",
+  "audit_id": "audit-e2e",
+  "contribution_id": "contrib-stoa-authorization-boundary",
+  "audit_snapshot_hash": "sha256:de3668eb06579342c496474f2c7407b4fc04b41a6d3ce8fbb5544503b590e9fe",
+  "conclusion_lineage_hash": "sha256:e5eddd7356c4d0b84e93687d893fffa1d3d300aae9cc033aca3604feec26cfca",
+  "effective_conclusion_hash": "sha256:e9494b027e4f1bd66ad9f3fe900ec85a605a9158d48b2a09af1c903f36c947bb",
+  "negative_controls": [
+    {
+      "skill_id": "skill-stoa-reviewed-fixture",
+      "reason": "Broad reviewed-fixture marker; it is retained as non-scoreable evidence control."
+    }
+  ],
+  "audit_journey": {
+    "probe_plan": {
+      "schema_version": "audit-probe-plan/v1",
+      "contribution_id": "contrib-stoa-authorization-boundary",
+      "areas": [
+        {
+          "schema_version": "audit-probe-area/v1",
+          "area_id": "implementation",
+          "inspected_fact_ids": [
+            "evid-stoa-backend-audit"
+          ],
+          "unverified_capability": "authorization-boundary implementation",
+          "demanding_prompt": "How did you defend the authorization boundary under failure?",
+          "intermediate_prompt": "Which authorization boundary did you implement and check?",
+          "simple_prompt": "Which authorization implementation step did you complete?",
+          "immediately_higher_capability": "independently defending authorization failures"
+        }
+      ]
+    },
+    "decisions": [
+      {
+        "schema_version": "audit-boundary-decision/v1",
+        "question_id": "question-implementation-hard-0-0",
+        "answer": "I chose the authorization boundary and verified its failure behavior.",
+        "outcome": "established",
+        "rationale": "Recorded offline decision establishes the boundary.",
+        "strongest_capability": "implementing and verifying the authorization boundary",
+        "next_higher_not_established": "independently defending authorization failures"
+      }
+    ],
+    "actions": [
+      {
+        "schema_version": "audit-action/v1",
+        "action": "pause"
+      },
+      {
+        "schema_version": "audit-action/v1",
+        "action": "resume"
+      },
+      {
+        "schema_version": "audit-action/v1",
+        "action": "answer",
+        "answer": "I chose the authorization boundary and verified its failure behavior."
+      },
+      {
+        "schema_version": "audit-action/v1",
+        "action": "answer",
+        "answer": "I owned the final design decision."
+      },
+      {
+        "schema_version": "audit-action/v1",
+        "action": "answer",
+        "answer": "No outside assistance."
+      },
+      {
+        "schema_version": "audit-action/v1",
+        "action": "review-entry",
+        "entry_id": "entry-implementation",
+        "decision": "confirm",
+        "reason": "Confirmed the directly audited structured capability.",
+        "reviewer_id": "reviewer"
+      },
+      {
+        "schema_version": "audit-action/v1",
+        "action": "review-conclusion",
+        "decision": "confirm",
+        "reason": "The reviewed conclusion is ready.",
+        "reviewer_id": "reviewer"
+      }
+    ]
+  },
+  "candidate": {
+    "authority_label": "derived-counterfactual",
+    "assessment_id": "assessment-authorization-boundary-verification",
+    "skill_id": "skill.authorization-boundary-verification",
+    "skill_resolution": {
+      "schema_version": "skill-resolution-decision/v1",
+      "decision_id": "resolution-authorization-boundary-verification",
+      "candidate_skill_id": "skill.authorization-boundary-verification",
+      "resolution": "created-specific-skill",
+      "authority_label": "synthetic-calibration",
+      "reviewer_id": "calibration-fixture",
+      "reason": "Synthetic D-03 calibration decision; not reviewed STOA user truth."
+    },
+    "demonstrated_mastery": 60,
+    "skill_centrality": 80,
+    "evidence_confidence": 75,
+    "context": "Synthetic calibration derivation from the confirmed authorization-boundary audit.",
+    "duration": {
+      "schema_version": "duration-evidence/v1",
+      "state": "not_verified"
+    },
+    "basis_claim_ids": [
+      "claim-stoa-authorization-boundary"
+    ],
+    "mastery_anchor_fit": {
+      "schema_version": "mastery-anchor-fit/v1",
+      "anchor_id": "anchor-55-69",
+      "anchor_range": [
+        55,
+        69
+      ],
+      "anchor_text": "Can independently complete common, well-bounded practical tasks",
+      "anchor_basis": "The audited Contribution establishes a bounded authorization implementation and verification capability.",
+      "exact_score_basis": "60 stays inside the independently completing common bounded tasks anchor.",
+      "next_anchor_not_established": "Independently handling complex authorization failures and defending the resulting decisions was not established."
+    },
+    "exact_score_basis": "60 stays inside the independently completing common bounded tasks anchor.",
+    "judgment_basis": {
+      "schema_version": "assessment-judgment-basis/v1",
+      "demonstrated_mastery_basis": "The confirmed audit establishes bounded authorization implementation and verification, without evidence for independently handling complex failures.",
+      "skill_centrality_basis": "The synthetic calibration candidate treats authorization-boundary verification as central to the selected Contribution.",
+      "evidence_confidence_basis": "The synthetic calibration derives confidence from the sealed fixture, completed audit lineage, and retained source limits."
+    }
+  },
+  "calibration_cases": [
+    {
+      "case_id": "case-high-centrality-low-mastery",
+      "skill_id": "skill.calibration-central-low",
+      "coverage": "high-centrality-low-mastery",
+      "authority_label": "derived-counterfactual",
+      "parent_case_id": "audit-e2e",
+      "deterministic_transform": "Change only simulated independent capability to bounded guided work while retaining central context.",
+      "simulated_calibration_input": true,
+      "mastery": 54,
+      "skill_centrality": 99,
+      "evidence_confidence": 99
+    },
+    {
+      "case_id": "case-low-centrality-high-mastery",
+      "skill_id": "skill.calibration-low-central-high",
+      "coverage": "low-centrality-high-mastery",
+      "authority_label": "derived-counterfactual",
+      "parent_case_id": "audit-e2e",
+      "deterministic_transform": "Change only simulated contribution importance while retaining an independently defensible high-anchor capability.",
+      "simulated_calibration_input": true,
+      "mastery": 70,
+      "skill_centrality": 10,
+      "evidence_confidence": 75
+    },
+    {
+      "case_id": "case-high-mastery-low-confidence",
+      "skill_id": "skill.calibration-high-low-confidence",
+      "coverage": "high-mastery-low-confidence",
+      "authority_label": "derived-counterfactual",
+      "parent_case_id": "audit-e2e",
+      "deterministic_transform": "Retain a simulated high-anchor mastery while lowering only confidence to the candidate-policy disagreement interval.",
+      "simulated_calibration_input": true,
+      "mastery": 70,
+      "skill_centrality": 80,
+      "evidence_confidence": 65,
+      "reviewer_disagreement": true,
+      "regression_labels": [
+        "manual-review-required:confidence-60-69"
+      ]
+    },
+    {
+      "case_id": "case-cross-skill-evidence-reuse",
+      "skill_id": "skill.calibration-evidence-reuse-a",
+      "coverage": "cross-skill-evidence-reuse",
+      "authority_label": "derived-counterfactual",
+      "parent_case_id": "audit-e2e",
+      "deterministic_transform": "Reuse one source token across different simulated Skills without treating the reuse as a mastery promotion.",
+      "simulated_calibration_input": true,
+      "mastery": 55,
+      "skill_centrality": 45,
+      "evidence_confidence": 75
+    },
+    {
+      "case_id": "case-same-skill-duplicate",
+      "skill_id": "skill.calibration-duplicate",
+      "coverage": "same-skill-duplicate",
+      "authority_label": "synthetic-negative",
+      "parent_case_id": "audit-e2e",
+      "deterministic_transform": "Duplicate the same simulated Skill support and assert duplicate volume carries no score bonus.",
+      "simulated_calibration_input": true,
+      "mastery": 55,
+      "skill_centrality": 45,
+      "evidence_confidence": 75,
+      "regression_labels": [
+        "no-inflation:duplicate-support"
+      ]
+    },
+    {
+      "case_id": "case-incidental-volume",
+      "skill_id": "skill.calibration-duplicate",
+      "coverage": "incidental-volume",
+      "authority_label": "synthetic-negative",
+      "parent_case_id": "audit-e2e",
+      "deterministic_transform": "Add incidental simulated evidence volume without changing the strongest demonstrated mastery.",
+      "simulated_calibration_input": true,
+      "mastery": 40,
+      "skill_centrality": 5,
+      "evidence_confidence": 75,
+      "regression_labels": [
+        "no-inflation:incidental-volume"
+      ]
+    },
+    {
+      "case_id": "case-self-rating",
+      "skill_id": "skill.calibration-self-rating",
+      "coverage": "self-rating",
+      "authority_label": "synthetic-negative",
+      "parent_case_id": "audit-e2e",
+      "deterministic_transform": "Mark a simulated self-rating as unreviewed D-10 input and require deferral without changing mastery.",
+      "simulated_calibration_input": true,
+      "mastery": 70,
+      "skill_centrality": 50,
+      "evidence_confidence": 90,
+      "d10_override": true
+    },
+    {
+      "case_id": "case-assisted-responsibility",
+      "skill_id": "skill.calibration-assisted",
+      "coverage": "assisted-responsibility",
+      "authority_label": "synthetic-negative",
+      "parent_case_id": "audit-e2e",
+      "deterministic_transform": "Mark simulated unresolved assistance as a D-10 override that remains outside admission.",
+      "simulated_calibration_input": true,
+      "mastery": 70,
+      "skill_centrality": 60,
+      "evidence_confidence": 90,
+      "d10_override": true
+    },
+    {
+      "case_id": "case-allowed-promotion",
+      "skill_id": "skill.calibration-promotion-allowed",
+      "coverage": "allowed-promotion",
+      "authority_label": "derived-counterfactual",
+      "parent_case_id": "audit-e2e",
+      "deterministic_transform": "Provide simulated distinct Contributions, contexts, and immediate-next-anchor behaviors for a separately reviewable promotion.",
+      "simulated_calibration_input": true,
+      "mastery": 70,
+      "skill_centrality": 75,
+      "evidence_confidence": 75
+    },
+    {
+      "case_id": "case-denied-promotion",
+      "skill_id": "skill.calibration-promotion-denied",
+      "coverage": "denied-promotion",
+      "authority_label": "synthetic-negative",
+      "parent_case_id": "audit-e2e",
+      "deterministic_transform": "Omit a required immediate-next-anchor behavior so simulated promotion is denied and baseline mastery remains unchanged.",
+      "simulated_calibration_input": true,
+      "mastery": 69,
+      "skill_centrality": 75,
+      "evidence_confidence": 75,
+      "regression_labels": [
+        "no-inflation:denied-promotion"
+      ]
+    },
+    {
+      "case_id": "case-threshold-equality",
+      "skill_id": "skill.calibration-threshold-equality",
+      "coverage": "threshold-equality",
+      "authority_label": "derived-counterfactual",
+      "parent_case_id": "audit-e2e",
+      "deterministic_transform": "Set exact high-mastery and baseline confidence boundaries to prove inclusive integer comparison semantics.",
+      "simulated_calibration_input": true,
+      "mastery": 70,
+      "skill_centrality": 70,
+      "evidence_confidence": 60
+    },
+    {
+      "case_id": "case-reviewer-disagreement",
+      "skill_id": "skill.calibration-reviewer-disagreement",
+      "coverage": "reviewer-disagreement",
+      "authority_label": "derived-counterfactual",
+      "parent_case_id": "audit-e2e",
+      "deterministic_transform": "Record deterministic simulated reviewer disagreement at the 60-69 confidence boundary without averaging it into a value.",
+      "simulated_calibration_input": true,
+      "mastery": 70,
+      "skill_centrality": 70,
+      "evidence_confidence": 65,
+      "reviewer_disagreement": true
+    }
+  ]
+}

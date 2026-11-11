@@ -1,0 +1,47 @@
+[build-system]
+requires = []
+build-backend = "_career_evidence_build"
+backend-path = ["."]
+
+[project]
+name = "career-evidence-graph"
+version = "0.1.0"
+description = "Career Evidence Graph core hypothesis validation"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+  "playwright==1.63.0",
+  "pydantic==2.13.4",
+]
+
+[project.scripts]
+career-evidence = "career_evidence_graph.cli:main"
+
+[dependency-groups]
+dev = [
+  "pytest==9.1.1",
+  "ruff==0.16.0",
+]
+
+[tool.pytest]
+testpaths = ["tests"]
+addopts = ["-m", "not live and not live_model and not worker_browser"]
+markers = [
+  "live: opt-in tests that may invoke an external model",
+  "live_model: opt-in test that invokes an authenticated model runtime",
+  "worker_browser: opt-in synthetic browser tests; native Cua also requires TS_CUA_NATIVE_TEST=1",
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+extend-exclude = [
+  ".planning",
+  "references/upstream",
+  ".claude/worktrees",
+  "validation/calibration/interview-v2/runs",
+  "src/career_evidence_graph/_vendor/job_apply_store.py",
+  ".scratch/application-worker-stability/review-after-fixes-2026-10-11/test_boundary_review.py", # Immutable review evidence.
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

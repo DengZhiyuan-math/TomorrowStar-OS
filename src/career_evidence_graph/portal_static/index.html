@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <meta name="referrer" content="no-referrer">
+    <title>TomorrowStar · 职业工作台</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/worker.css">
+    <link rel="stylesheet" href="/static/handoff.css">
+    <script src="/static/app.js" defer></script>
+    <script src="/static/application_flow.js" defer></script>
+    <script src="/static/resume_review.js" defer></script>
+    <link rel="stylesheet" href="/static/resume_review.css">
+    <script src="/static/worker.js" defer></script>
+    <script src="/static/handoff.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">跳到主要内容</a>
+    <div class="workspace">
+      <aside class="sidebar" aria-label="工作台导航">
+        <a class="brand" href="#overview" aria-label="TomorrowStar 工作台首页"><span class="brand-mark" aria-hidden="true">TS<span>✦</span></span><span>TomorrowStar<small>职业工作台</small></span></a>
+        <nav class="navigation" aria-label="主要导航">
+          <span class="nav-section-label">日常申请</span>
+          <a href="#flow" data-view="flow" class="nav-item"><span aria-hidden="true">→</span><span id="flow-navigation-label">自动申请</span></a>
+          <a href="#overview" data-view="overview" class="nav-item" aria-current="page"><span aria-hidden="true">◫</span>今日工作</a>
+          <a href="#applications" data-view="applications" class="nav-item"><span aria-hidden="true">▤</span>岗位与进度<span class="nav-count" id="nav-application-count">—</span></a>
+          <a href="#handoff" data-view="handoff" class="nav-item"><span aria-hidden="true">⇄</span>申请交接<span class="nav-tag">Codex</span></a>
+          <span class="nav-section-label nav-section-support">职业准备</span>
+          <a href="#resume-review" data-view="resume-review" class="nav-item"><span aria-hidden="true">▧</span>简历审阅（Prism）</a>
+          <a href="#evidence" data-view="evidence" class="nav-item"><span aria-hidden="true">◇</span>职业证据<span class="nav-count" id="nav-evidence-count">—</span></a>
+          <a href="#interview" data-view="interview" class="nav-item"><span aria-hidden="true">◎</span>项目访谈</a>
+          <a href="#website" data-view="website" class="nav-item"><span aria-hidden="true">↗</span>公开展示</a>
+        </nav>
+        <div class="sidebar-bottom">
+          <div class="connection-title">数据连接</div>
+          <div class="connection" id="applications-connection"><span class="connection-dot"></span>投递记录<span>连接中</span></div>
+          <div class="connection" id="career-connection"><span class="connection-dot"></span>职业证据<span>连接中</span></div>
+        </div>
+      </aside>
+      <main id="main" class="main" tabindex="-1">
+        <header class="topbar">
+          <span class="breadcrumb" hidden><strong id="current-view-label">今日工作</strong></span>
+          <div class="topbar-actions"><button class="button button-quiet icon-button" id="refresh-button" type="button" aria-label="刷新工作台" title="刷新工作台">↻</button><button type="button" id="add-application" class="button button-primary"><span aria-hidden="true">＋</span> 新增投递 <kbd>N</kbd></button></div>
+        </header>
+        <div id="page-notice" class="notice" role="status" hidden></div>
+        <div id="loading-state" class="loading-state" role="status"><span class="loading-mark" aria-hidden="true"></span><strong>正在载入你的工作台</strong><span>连接投递进度与职业证据…</span></div>
+        <div id="page-content" hidden>
+          <section id="view-resume-review" aria-label="LaTeX 简历版本审阅" hidden><div id="resume-review-root"></div></section>
+          <section id="view-flow" aria-labelledby="flow-title" hidden><div id="flow-root"></div></section>
+          <section id="view-website" aria-labelledby="website-title" hidden>
+            <div class="page-heading"><div><div class="eyebrow">PUBLIC PROFILE</div><h1 id="website-title">个人网站的公开内容</h1><p>经历、项目、技能与资料库共享同一份公开内容。技能标签用于导航，能力结论仍需审核。</p></div></div>
+            <div id="website-content" class="panel"><p role="status">正在读取公开内容…</p></div>
+          </section>
+          <section id="view-handoff" aria-label="Codex 单岗位交接" hidden><div id="handoff-root" class="handoff-root"></div></section>
+          <section id="view-overview" aria-labelledby="overview-title">
+            <div class="page-heading"><div><div class="eyebrow" id="today-label">TODAY'S WORKSPACE</div><h1 id="overview-title">从一个岗位，推进下一步。</h1><p id="overview-introduction">邮件推荐、岗位匹配、专用简历和填写自动衔接，完成后通知你最终确认。</p></div><span class="workspace-local"><span class="live-dot" aria-hidden="true"></span> 本机工作台</span></div>
+            <section class="workflow-focus" aria-labelledby="workflow-title">
+              <div class="workflow-focus-main">
+                <div class="workflow-focus-copy"><div class="eyebrow">CURRENT APPLICATION</div><span class="workflow-state" id="workflow-state">正在读取申请进度</span><h2 id="workflow-title">读取当前任务…</h2><p id="workflow-description">根据已保存的状态，找到需要你处理的下一步。</p><div class="workflow-focus-actions"><a href="#flow" class="button button-primary" id="workflow-primary">查看自动申请 <span aria-hidden="true">→</span></a><a href="#applications" class="text-link">浏览岗位与进度 ↗</a></div></div>
+                <aside class="workflow-note"><span class="workflow-note-symbol" aria-hidden="true">⇄</span><strong id="workflow-note-title">自动衔接，按岗位推进</strong><p id="workflow-note-description">系统整理岗位与资料，生成材料并填写。完成后到原申请页面最终确认。</p><span id="workflow-note-path">收录 → 匹配 → 简历 → 填写 → 最终确认</span></aside>
+              </div>
+              <ol class="workflow-path" aria-label="申请主流程">
+                <li data-workflow-step="0"><span class="workflow-number">01</span><div><strong>收录岗位</strong><span>邮件、网页或粘贴 JD</span></div></li>
+                <li data-workflow-step="1"><span class="workflow-number">02</span><div><strong>自动匹配</strong><span>复用已保存的个人资料</span></div></li>
+                <li data-workflow-step="2"><span class="workflow-number">03</span><div><strong>自动生成简历</strong><span>生成并检查岗位材料</span></div></li>
+                <li data-workflow-step="3"><span class="workflow-number">04</span><div><strong>填写并上传</strong><span>继续当前岗位</span></div></li>
+                <li data-workflow-step="4"><span class="workflow-number">05</span><div><strong>原页确认提交</strong><span>最终 Submit 由你操作</span></div></li>
+              </ol>
+            </section>
+            <div class="stats-grid" id="overview-stats"></div>
+            <div class="overview-grid">
+              <section class="panel action-panel" aria-labelledby="action-title"><div class="panel-heading"><div><div class="eyebrow">NEXT ACTIONS</div><h2 id="action-title">接下来要做的</h2></div><span class="small-label" id="action-count"></span></div><div id="action-queue"></div></section>
+              <section class="panel pipeline-panel" aria-labelledby="pipeline-title"><div class="panel-heading"><div><div class="eyebrow">APPLICATION PIPELINE</div><h2 id="pipeline-title">投递概览</h2></div></div><div id="pipeline-summary"></div><a href="#applications" class="panel-footer-link">管理求职进度 <span aria-hidden="true">→</span></a></section>
+              <section class="panel recent-panel" aria-labelledby="recent-title"><div class="panel-heading"><div><div class="eyebrow">APPLICATIONS</div><h2 id="recent-title">最近记录</h2></div><a class="text-link" href="#applications">全部记录 →</a></div><div id="recent-applications"></div></section>
+              <section class="panel evidence-intro" aria-labelledby="evidence-intro-title"><div class="eyebrow">YOUR CAREER, WITH EVIDENCE</div><span class="evidence-symbol" aria-hidden="true">◇</span><h2 id="evidence-intro-title">让经历支持每一次选择</h2><p>查看项目与贡献的原始依据，再将相关证据关联到具体岗位。</p><div class="evidence-summary" id="evidence-summary"></div><a href="#evidence" class="button button-secondary">浏览职业证据 <span aria-hidden="true">↗</span></a></section>
+            </div>
+            <a href="#interview" class="interview-entry"><div><span class="eyebrow">PREPARE WITH EVIDENCE</span><h2>为下一次面试，讲清楚真实贡献。</h2><p>先查阅项目资料，再准备项目介绍、技术深挖与举一反三。</p></div><span>准备项目访谈 <span aria-hidden="true">→</span></span></a>
+          </section>
+          <section id="view-applications" aria-labelledby="applications-title" hidden>
+            <div class="page-heading"><div><div class="eyebrow">APPLICATIONS</div><h1 id="applications-title">岗位与进度</h1><p>粘贴 JD 或岗位链接，系统整理保存后继续。</p></div><a href="/api/export.csv" download class="button button-secondary" id="export-button">导出 CSV <span aria-hidden="true">↓</span></a></div>
+            <div class="filter-bar"><label class="search-field"><span aria-hidden="true">⌕</span><input id="application-search" type="search" placeholder="搜索公司、岗位、备注…" aria-label="搜索投递记录"><kbd>/</kbd></label><label class="filter-select"><span>状态</span><select id="status-filter" aria-label="筛选投递状态"><option value="">全部状态</option></select></label><label class="filter-select"><span>方向</span><select id="track-filter" aria-label="筛选求职方向"><option value="">全部方向</option></select></label></div>
+            <div class="application-screening-controls"><label class="filter-select"><span>投递分流</span><select id="route-filter" aria-label="筛选投递方式"><option value="">全部方式</option><option value="manual">人工精准投递</option><option value="batch">批量投递</option><option value="review">未评估</option><option value="hold">暂缓投递</option><option value="excluded">暂不进入投递</option></select></label><label class="filter-select"><span>候选</span><select id="screening-filter" aria-label="筛选岗位可用性"><option value="">全部记录</option><option value="target">AI / 量化候选</option><option value="worker">实验自动化可准备</option><option value="review">条件待确认</option><option value="manual">需直达链接或平台适配</option><option value="excluded">暂不进入批次</option></select></label><label class="filter-select"><span>排序</span><select id="application-sort" aria-label="岗位排序"><option value="recent">最近记录</option><option value="screening">筛选优先</option></select></label><p>来源信息整理后自动保存。未知评价保留为未评估；最终提交由你在原申请网站操作。</p></div>
+            <div class="results-heading"><span id="application-result-count"></span><div><button type="button" class="button button-secondary" id="worker-prepare-selection" hidden>准备填表批次</button><label class="action-toggle"><input type="checkbox" id="action-only"> 只看待办</label></div></div>
+            <div class="panel application-list-panel"><div class="application-table-scroll"><table class="application-table"><thead><tr><th scope="col">公司 / 岗位</th><th scope="col">状态</th><th scope="col">方向</th><th scope="col">下一步</th><th scope="col">截止日期</th><th scope="col"><span class="sr-only">详情</span></th></tr></thead><tbody id="application-list"></tbody></table></div><div id="applications-empty" hidden></div></div>
+          </section>
+          <section id="worker-root" class="worker-root" aria-label="实验自动化助手" hidden></section>
+          <section id="view-evidence" aria-labelledby="evidence-title" hidden>
+            <div class="page-heading"><div><div class="eyebrow">CAREER CONNECTIONS</div><h1 id="evidence-title">职业证据</h1><p>按类别浏览经历库，展开查看每段经历。</p></div><div class="evidence-view-switch" role="group" aria-label="职业证据视图"><button type="button" class="button button-secondary" id="show-evidence-table" aria-pressed="true">▤ 经历表格</button><button type="button" class="button button-secondary" id="show-evidence-library" aria-pressed="false">◇ 文档列表</button></div></div>
+            <div id="evidence-table-view"><div class="filter-bar"><label class="search-field"><span aria-hidden="true">⌕</span><input id="experience-search" type="search" placeholder="搜索经历、机构或技能…" aria-label="搜索经历"><kbd>/</kbd></label></div><div class="results-heading"><span id="experience-result-count"></span><span class="small-label">点击类别标题可折叠</span></div><div id="experience-table" aria-label="按类别分组的经历表格"></div></div>
+            <div id="evidence-library-view" hidden>
+            <div class="evidence-boundary"><span aria-hidden="true">◇</span><p>资料中的关联用于检索与回忆，不会自动形成能力评分。</p></div>
+            <div class="filter-bar"><label class="search-field"><span aria-hidden="true">⌕</span><input id="evidence-search" type="search" placeholder="搜索项目或文档名称…" aria-label="搜索职业证据"><kbd>/</kbd></label><label class="filter-select"><span>类型</span><select id="evidence-kind-filter" aria-label="筛选证据类型"><option value="">全部类型</option></select></label><label class="filter-select"><span>状态</span><select id="evidence-status-filter" aria-label="筛选证据审核状态"><option value="">全部状态</option></select></label></div>
+            <div class="results-heading"><span id="evidence-result-count"></span><span class="small-label">保留来源与审核边界</span></div><div id="evidence-list" class="evidence-grid"></div>
+            </div>
+          </section>
+          <section id="view-interview" aria-labelledby="interview-title" hidden>
+            <div class="page-heading"><div><div class="eyebrow">PROJECT INTERVIEW</div><h1 id="interview-title">项目访谈</h1><p>从清晰介绍，到技术理解，再到相似问题中的运用。</p></div><span class="kind-badge">当前：准备阶段</span></div>
+            <div class="interview-status"><strong>先准备，再问答</strong><p>资料查看与问题计划检查已可用。正式问答和评分将在问题质量试运行、适配与校准验收后开放。</p></div>
+            <section class="panel interview-context" aria-labelledby="interview-context-title"><div><h2 id="interview-context-title">先查看项目资料</h2><p>复用来源和既有回答，明确本人、团队与工具的工作范围。</p></div><label class="search-field interview-source-search"><span aria-hidden="true">⌕</span><input type="search" id="interview-evidence-search" placeholder="按项目名称或来源路径搜索…" aria-label="搜索访谈资料"><kbd>/</kbd></label><div class="interview-context-actions"><label class="sr-only" for="interview-evidence">选择项目资料</label><select id="interview-evidence"><option value="">请选择项目资料</option></select><button type="button" id="interview-open-evidence" class="button button-secondary" disabled>查看原始资料 ↗</button></div><p id="interview-evidence-note" class="small-label">资料用于理解上下文，不会自动形成能力评分。</p></section>
+            <div class="interview-layers" role="group" aria-label="浏览访谈层次">
+              <button type="button" class="interview-layer" data-interview-layer="0" aria-pressed="true"><span class="interview-step">01 · 项目介绍</span><strong>能否快速讲清楚？</strong><span>目标、内容、技术主线与本人贡献</span></button>
+              <button type="button" class="interview-layer" data-interview-layer="1" aria-pressed="false"><span class="interview-step">02 · 技术深挖</span><strong>技术细节禁得住问吗？</strong><span>机制、选择、验证与能力边界</span></button>
+              <button type="button" class="interview-layer" data-interview-layer="2" aria-pressed="false"><span class="interview-step">03 · 举一反三</span><strong>换个条件，还能应用吗？</strong><span>相似问题、变化的假设与验证方案</span></button>
+            </div>
+            <section class="panel interview-layer-detail" aria-labelledby="interview-layer-title"><div class="panel-heading"><div><div class="eyebrow">QUESTION LOGIC</div><h2 id="interview-layer-title">项目介绍</h2></div><label id="interview-difficulty-label" class="filter-select" hidden><span>预览难度</span><select id="interview-difficulty" aria-label="预览问题难度"><option value="hard">深入</option><option value="intermediate">中等</option><option value="simple">基础</option></select></label></div><div class="interview-detail-body"><p id="interview-layer-description"></p><h3>回答前明确观察什么</h3><ul id="interview-layer-criteria"></ul><p id="interview-layer-boundary" class="interview-boundary"></p><div id="interview-plan-preview" hidden></div></div></section>
+            <div class="interview-rules"><p><strong>这是能力考察。</strong> 可以查阅材料。不记得标签、精确数值或旧措辞，不代表能力不足。</p><p><strong>一次一个问题。</strong> 深挖与迁移各自有难度阶梯；三层不是三个难度等级。</p><p><strong>评分回到具体贡献与技能。</strong> 分别保留各层证据，不平均成项目分数。假设场景的推理不等于已完成的新成果。</p></div>
+            <details id="interview-plan-tools" class="panel interview-tools"><summary>检查已有问题计划<span>选择本机文件，只读检查并预览</span></summary><div class="interview-tool-body"><p>尚无计划时，先查看上面的三层逻辑与项目资料。已有准备文件时，可在这里检查结构与来源引用。</p><form id="interview-plan-form"><div class="interview-form-grid"><label>问题计划（JSON）<input type="file" id="interview-plan-file" accept=".json,application/json" required></label><label>已查阅事实（JSON）<input type="file" id="interview-facts-file" accept=".json,application/json" required></label><label class="span-two">对应的经历标识<input type="text" id="interview-experience-id" required maxlength="200" autocomplete="off" placeholder="填写准备文件对应的经历标识"></label></div><div class="interview-tool-actions"><button type="submit" id="interview-check-plan" class="button button-primary">检查并预览计划</button><button type="button" id="interview-clear-plan" class="button button-secondary">清除本次预览</button></div></form><div id="interview-plan-result" class="notice" role="status" hidden></div><p class="small-label">文件仅发送到本机工作台供本次检查，不保存文件或回答，不调用模型。结构通过不等于经历验收、问题质量通过或评分许可。</p></div></details>
+            <details id="interview-protocol" class="panel interview-tools"><summary>查看完整流程规范<span>系统当前的生成、评估与评分规则</span></summary><pre id="interview-protocol-content">展开后载入流程规范。</pre><button type="button" id="interview-protocol-retry" class="button button-secondary" hidden>重新载入规范</button></details>
+          </section>
+          <footer class="page-footer"><span>TomorrowStar · 下一步，从这里开始</span><span class="keyboard-help"><kbd>/</kbd> 搜索 <span>·</span> <kbd>N</kbd> 新增投递</span></footer>
+        </div>
+      </main>
+    </div>
+    <dialog id="source-intake-dialog" class="application-dialog" aria-labelledby="source-intake-title">
+      <form id="source-intake-form">
+        <div class="dialog-header"><div><div class="eyebrow">JOB SOURCE</div><h2 id="source-intake-title">粘贴 JD 或岗位链接</h2><p>系统在后台读取、整理并保存岗位信息。</p></div><button type="button" id="close-source-intake" class="button button-quiet close-button" aria-label="关闭岗位整理">×</button></div>
+        <div class="dialog-body">
+          <label class="jd-label" for="source-intake-input">JD 原文或岗位链接<textarea id="source-intake-input" rows="10" maxlength="200000" required placeholder="粘贴完整 JD，或 https://… 岗位页面链接"></textarea></label>
+          <p class="small-label">保留原文与来源。未提供的信息会标为未知；整理和保存不会开始申请。</p>
+          <div id="source-intake-status" class="notice" role="status" hidden></div>
+          <div id="source-intake-result" hidden></div>
+        </div>
+        <div class="dialog-footer"><button type="button" id="source-intake-recheck" class="button button-secondary" hidden>读取已保存状态</button><button type="submit" id="source-intake-submit" class="button button-primary">自动整理并保存</button></div>
+      </form>
+    </dialog>
+    <dialog id="application-dialog" class="application-dialog" aria-labelledby="application-dialog-title">
+      <form id="application-form">
+        <div class="dialog-header"><div><div class="eyebrow" id="application-dialog-eyebrow">NEW APPLICATION</div><h2 id="application-dialog-title">新增投递</h2><p id="application-dialog-subtitle">先记录机会，之后随时补充。</p></div><button class="button button-quiet close-button" type="button" id="close-application" aria-label="关闭投递详情">×</button></div>
+        <div class="dialog-body">
+          <div id="form-notice" class="notice" role="alert" hidden></div><button type="button" id="load-latest" class="button button-secondary conflict-button" hidden>载入最新版本</button>
+          <section id="application-summary" class="form-section" aria-label="已保存岗位信息"></section>
+          <section class="form-section" id="application-flow-entry" hidden><h3>岗位处理</h3><p>使用已保存的 JD 继续此岗位。</p><button type="button" id="open-application-flow" class="button button-primary">进入单岗位工作台 →</button><div id="flow-entry-notice" class="notice" role="status" hidden></div></section>
+          <details id="application-corrections" class="jd-details"><summary>更正记录或更新进度<span>已有信息无需重新填写</span></summary>
+          <section class="form-section" aria-labelledby="role-section-title"><h3 id="role-section-title">岗位信息</h3><div class="form-grid"><label>公司 <span class="required-marker">*</span><input name="company" required maxlength="200" autocomplete="organization" placeholder="公司名称"></label><label>岗位 <span class="required-marker">*</span><input name="role_title" required maxlength="300" placeholder="职位名称"></label><label>求职方向<input name="track" maxlength="120" list="track-options" placeholder="例如：软件工程 / 量化研究"><datalist id="track-options"></datalist></label><label>工作地点<input name="location" maxlength="200" placeholder="城市 / 远程"></label><label class="span-two">岗位链接<input name="url" type="text" inputmode="url" maxlength="2000" placeholder="https://…"><a id="open-job-link" class="field-link" target="_blank" rel="noopener noreferrer" hidden>打开岗位页面 ↗</a></label></div></section>
+          <section class="form-section" aria-labelledby="strategy-title"><h3 id="strategy-title">投递前评价</h3><p>核对 JD、相关经历、公司和薪资后保存。高价值机会单独精准准备；资料关联本身不能证明岗位匹配。</p><div class="form-grid">
+            <label>JD 匹配<select name="jd_match"><option value="">待核对</option><option value="strong">高匹配</option><option value="possible">有相关性，存在差距</option><option value="weak">匹配较低</option></select></label>
+            <label>相关经历证据<select name="evidence_match"><option value="">待核对</option><option value="direct">有直接相关证据</option><option value="transferable">有可迁移证据</option><option value="missing">证据不足</option></select></label>
+            <label>个人优先意愿<select name="personal_priority"><option value="">待核对</option><option value="high">重点争取</option><option value="normal">常规机会</option><option value="low">低优先</option></select></label>
+            <label>目标公司<select name="target_company"><option value="">待核对</option><option value="target">我的目标公司</option><option value="normal">常规公司</option></select></label>
+            <label>薪资吸引力<select name="compensation_priority"><option value="">未知 / 待核对</option><option value="exceptional">已核对：超高薪资</option><option value="normal">已核对：常规薪资</option></select></label>
+            <label>投递方式<select name="application_strategy"><option value="">按以上评价分流</option><option value="manual">人工精准投递</option><option value="batch">批量投递</option><option value="hold">暂缓投递</option></select></label>
+            <label class="span-two">评价依据<textarea name="strategy_notes" rows="3" maxlength="20000" placeholder="JD 的关键要求、相关贡献与责任归属、目标公司原因、薪资范围和来源；也可记录手动分流原因。"></textarea></label>
+          </div><p id="strategy-result" class="small-label"></p><p class="small-label">薪资以你核对的币种、地区和总报酬为准。未知值不视为普通薪资。手动选择可覆盖建议；重复投递、已过期和明确资格冲突仍会拦截。</p></section>
+          <section class="form-section" id="application-automation" aria-labelledby="automation-title" hidden><h3 id="automation-title">交给 Codex 填表</h3><p>选择一个 Lever 或 Greenhouse 岗位，使用已确认的资料填写。最后由你检查并提交。</p><button type="button" id="open-codex-handoff" class="button button-primary">进入持久 Codex 交接 →</button> <button type="button" id="prepare-automation" class="button button-secondary">查看只读任务提示</button><div id="automation-notice" class="notice" role="status" hidden></div><div id="automation-result" hidden><label class="jd-label">复制到启用了 Job Apply 的 Codex 对话<textarea id="automation-prompt" rows="8" readonly spellcheck="false" aria-label="Codex 填表任务"></textarea></label><button type="button" id="copy-automation" class="button button-secondary">复制任务</button><p class="small-label">此处仅预览旧版只读提示。请使用持久 Codex 交接完成领取、回读、人工复核及回执记录。</p></div></section>
+          <section class="form-section" aria-labelledby="progress-section-title"><h3 id="progress-section-title">当前进度</h3><div class="form-grid"><label>投递状态<select name="status" required></select></label><label>投递日期<input name="application_date" type="date"></label><label>截止 / 跟进日期<input name="deadline" type="text" maxlength="2000" placeholder="YYYY-MM-DD，或原记录的跟进时间"></label><label>下一步行动<textarea name="next_action" rows="2" maxlength="20000" placeholder="例如：周五前完成笔试"></textarea></label><label class="span-two action-toggle"><input name="needs_action" type="checkbox">需要我行动<span class="small-label">加入总览待办，方便集中跟进</span></label><label class="span-two">备注<textarea name="notes" rows="3" maxlength="20000" placeholder="沟通记录、联系人、面试准备要点…"></textarea></label></div></section>
+          <section class="form-section" aria-labelledby="links-section-title"><div class="form-section-heading"><div><h3 id="links-section-title">关联职业证据</h3><p>选择与岗位相关的项目或贡献，方便准备和回顾。</p></div><span id="selected-evidence-count" class="small-label">已选 0 项</span></div><div id="selected-evidence-chips" class="linked-chips"></div><label class="evidence-picker-search"><input id="evidence-picker-search" type="search" placeholder="搜索可关联的证据…" aria-label="搜索可关联证据"></label><div id="evidence-picker" class="evidence-picker"></div></section>
+          <details class="jd-details" id="application-jd-editor"><summary>职位描述（JD）<span>粘贴完整岗位要求，集中保存</span></summary><label class="jd-label"><span class="sr-only">职位描述 JD</span><textarea name="job_description" rows="8" maxlength="200000" placeholder="在这里粘贴职位描述…"></textarea></label></details>
+          <details class="original-details" id="original-details" hidden><summary>查看原始投递笔记<span>保留已有记录的完整上下文</span></summary><pre id="original-content"></pre></details>
+          </details>
+        </div>
+        <div class="dialog-footer"><span id="save-hint" class="small-label">保存到本机投递记录</span><div><button type="button" class="button button-secondary" id="cancel-application">取消</button><button type="submit" class="button button-primary" id="save-application">保存投递</button></div></div>
+      </form>
+    </dialog>
+    <dialog id="evidence-dialog" class="evidence-dialog" aria-labelledby="evidence-dialog-title"><div class="dialog-header"><div><div class="eyebrow">CAREER EVIDENCE</div><h2 id="evidence-dialog-title">证据详情</h2><div id="evidence-dialog-meta" class="evidence-meta"></div></div><button class="button button-quiet close-button" type="button" id="close-evidence" aria-label="关闭证据详情">×</button></div><div class="dialog-body"><div id="evidence-content" class="evidence-content"></div><div id="evidence-linked-applications"></div></div><div class="dialog-footer"><span class="small-label">原始记录 · 审核状态以来源为准</span><div class="interview-tool-actions"><button type="button" class="button button-secondary" id="prepare-evidence-interview">用于访谈准备 →</button><button type="button" class="button button-secondary" id="evidence-done">完成</button></div></div></dialog>
+    <dialog id="confirmation-dialog" class="confirmation-dialog" aria-labelledby="confirmation-title" aria-describedby="confirmation-message"><form method="dialog"><div class="confirmation-body"><h2 id="confirmation-title">确认放弃修改</h2><p id="confirmation-message"></p></div><div class="dialog-footer"><button value="cancel" class="button button-secondary" autofocus>保留输入</button><button value="continue" class="button button-primary" id="confirmation-continue">放弃并继续</button></div></form></dialog>
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  </body>
+</html>

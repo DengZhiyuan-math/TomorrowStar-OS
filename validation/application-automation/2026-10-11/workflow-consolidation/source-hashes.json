@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-11",
+  "final_source_sha256": {
+    "src/career_evidence_graph/application_worker.py": "18674c22d0e2da7b0019587fdabaea4fe73b1810d79c8ef7c5674afe353c22dc",
+    "src/career_evidence_graph/application_worker_browser.py": "166f3d9daeb3cc5c4625f026c420d9440c2160f81ce8f60fa3cc94523ff4c587",
+    "src/career_evidence_graph/ashby_drafts.py": "9c9e55b2b81cf892465c802e21911447fa0dbcd77377517d95ced65510549829",
+    "src/career_evidence_graph/hosted_ats.py": "eef46d2c1f06ab09b3f679cd9d1b5f29558a1bb8e4ae3fffebfb4021f454a4c8",
+    "src/career_evidence_graph/application_automation.py": "4f394ff1942e7802e989b20837d7536eaf5b377fcef71d86b33740bf26d93e38",
+    "src/career_evidence_graph/application_resume.py": "603e4cc62cbc156152bd9e9ccab0d170afe057ec028feedc055d0639f3c5ca43",
+    "src/career_evidence_graph/job_screening.py": "4a3708b1417e51690b794338117b63e3a71afa5589839b539d6849f4280cea84",
+    "src/career_evidence_graph/career_portal.py": "0493a13b99881674a095f89e51cb79b3cb3aabb6a7fdee9fbaa7019e5a29239a",
+    "src/career_evidence_graph/portal_static/worker.js": "5665f3e7773220fa6193d2682a714e1cbde1c2aa195455c54bd9473540a84346",
+    "src/career_evidence_graph/ats_forms.py": "25b5f990e1f511425c45d0b2c124c5d7bd4bafb78099100dd21faf726c365723",
+    "tests/test_generic_worker.py": "39e8190c9393bd8f764f17e5d3c170bce375a6a881f27302c6997faaad27995d",
+    "tests/test_ashby_drafts.py": "a790cc8de784db879f3bf60b123d33ab619da1f97a614a298368a551356a1776",
+    "tests/test_lever_worker_browser.py": "aea24d2605ca36c03563726c6623de77a197255ec8df89401fd02e88d28e9f94",
+    "tests/test_application_worker.py": "56775e42a2015fd544f93fa90b122973584b4dcd76a26426265df1853f98f0f0",
+    "tests/test_greenhouse_worker_browser.py": "dd995f5e75c44792aa3d195b50b4339d694e1886103b031c80a27324966494f9",
+    "tests/test_hosted_ats.py": "84b339dfa150fa014718ac1176a1c909d9f63dcff40b9e90737ce2cff33e4575",
+    "tests/test_application_resume.py": "fdf5fa93d360687567be21e32f81d0671880739f14fd2c7a75048227cc195d34"
+  }
+}

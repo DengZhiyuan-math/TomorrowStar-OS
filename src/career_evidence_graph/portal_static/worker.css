@@ -1,0 +1,24 @@
+.worker-root { margin: 30px 0; scroll-margin-top: 24px; }
+.worker-heading { display: flex; gap: 16px; justify-content: space-between; align-items: center; flex-wrap: wrap; }
+.worker-heading h2 { margin: 5px 0; }
+.worker-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+.worker-banner { padding: 14px 18px; margin: 16px 0; background: #f7f2dc; border-radius: 10px; color: #5c542c; }
+.worker-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 20px; }
+.worker-column { min-width: 0; }
+.worker-column > h3 { font-size: 16px; margin: 10px 0 18px; }
+.worker-card { background: var(--surface, white); border: 1px solid #deded6; border-radius: 12px; padding: 20px; margin: 0 0 16px; overflow-wrap: anywhere; }
+.worker-card h4 { margin: 0 0 8px; font-size: 16px; }
+.worker-card p { line-height: 1.6; margin: 8px 0; }
+.worker-card label { display: block; margin: 14px 0; font-size: 13px; }
+.worker-card label input:not([type=checkbox]), .worker-card label select, .worker-card label textarea { display: block; width: 100%; margin-top: 6px; box-sizing: border-box; padding: 9px; border: 1px solid #c9cec4; border-radius: 6px; background: white; font: inherit; }
+.worker-card label:has(input[type=checkbox]) { display: flex; gap: 8px; align-items: center; }
+.worker-error { color: #9c3030; }
+.worker-muted { color: #667365; font-size: 13px; }
+.worker-evidence { padding: 4px 12px; margin: 12px 0; border-left: 3px solid #667365; background: #f5f7f2; }
+.worker-library { margin-top: 20px; }
+.worker-library summary { cursor: pointer; font-weight: 600; padding: 15px 0; }
+.worker-status { display: inline-block; padding: 4px 9px; border-radius: 5px; background: #edf1e8; font-size: 12px; }
+.worker-record-choice { width: 17px; height: 17px; margin-right: 12px; vertical-align: middle; }
+.application-title-button { vertical-align: middle; }
+@media(max-width: 850px) { .worker-grid { grid-template-columns: 1fr; } .worker-card { padding: 16px; } }
+@media(max-width: 620px) { .worker-root { scroll-margin-top: 150px; } }

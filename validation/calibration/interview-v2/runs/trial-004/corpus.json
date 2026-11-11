@@ -1,0 +1,252 @@
+{
+  "schema_version": "interview-calibration-corpus/v1",
+  "authority": "synthetic-only",
+  "reference_basis": "Frozen protocol and accepted observable mastery anchors; synthetic reference labels are not expert-labelled personal samples.",
+  "attempts": 3,
+  "cases": [
+    {
+      "case_id": "alternative",
+      "question": {
+        "schema_version": "audit-question/v1",
+        "id": "question-alternative",
+        "reason": "Inspect the declared freshness contract.",
+        "prompt": "How would your design prevent cached data from violating the freshness contract?",
+        "area": "technical-design",
+        "status": "unanswered",
+        "area_id": null,
+        "difficulty": "hard",
+        "inspection_reference": "synthetic.md#cache",
+        "follow_up_count": 0,
+        "turn": "capability",
+        "capability_area_id": null,
+        "evaluation_criteria": [
+          "Explain a valid freshness mechanism and its limitation."
+        ],
+        "question_layer": "project-depth"
+      },
+      "answer": "I would use a version token bound to the data. A changed token makes the old entry invalid; token checks cost a read.",
+      "inspected_context": "The user designed the cache protocol; authorship of implementation is unassessed.",
+      "expected_route": "capability",
+      "expected_outcome": "established",
+      "expected_anchor_id": null
+    },
+    {
+      "case_id": "partial",
+      "question": {
+        "schema_version": "audit-question/v1",
+        "id": "question-partial",
+        "reason": "Inspect the declared freshness contract.",
+        "prompt": "How would your design prevent cached data from violating the freshness contract?",
+        "area": "technical-design",
+        "status": "unanswered",
+        "area_id": null,
+        "difficulty": "hard",
+        "inspection_reference": "synthetic.md#cache",
+        "follow_up_count": 0,
+        "turn": "capability",
+        "capability_area_id": null,
+        "evaluation_criteria": [
+          "Explain a valid freshness mechanism and its limitation."
+        ],
+        "question_layer": "project-depth"
+      },
+      "answer": "Caching makes reads fast.",
+      "inspected_context": "No invalidation mechanism or bounded task performance has been demonstrated.",
+      "expected_route": "capability",
+      "expected_outcome": "incomplete",
+      "expected_anchor_id": null
+    },
+    {
+      "case_id": "assisted-design",
+      "question": {
+        "schema_version": "audit-question/v1",
+        "id": "question-assisted-design",
+        "reason": "Inspect the declared freshness contract.",
+        "prompt": "How would your design prevent cached data from violating the freshness contract?",
+        "area": "technical-design",
+        "status": "unanswered",
+        "area_id": null,
+        "difficulty": "hard",
+        "inspection_reference": "synthetic.md#cache",
+        "follow_up_count": 0,
+        "turn": "capability",
+        "capability_area_id": null,
+        "evaluation_criteria": [
+          "Explain a valid freshness mechanism and its limitation."
+        ],
+        "question_layer": "project-depth"
+      },
+      "answer": "I designed a version-token check. The coding agent implemented it. A stale token invalidates the entry, and the check adds a read.",
+      "inspected_context": "The contribution is design, not independent coding.",
+      "expected_route": "capability",
+      "expected_outcome": "established",
+      "expected_anchor_id": null
+    },
+    {
+      "case_id": "denied-ownership",
+      "question": {
+        "schema_version": "audit-question/v1",
+        "id": "question-denied-ownership",
+        "reason": "Inspect the declared freshness contract.",
+        "prompt": "How would your design prevent cached data from violating the freshness contract?",
+        "area": "technical-design",
+        "status": "unanswered",
+        "area_id": null,
+        "difficulty": "hard",
+        "inspection_reference": "synthetic.md#cache",
+        "follow_up_count": 0,
+        "turn": "capability",
+        "capability_area_id": null,
+        "evaluation_criteria": [
+          "Explain a valid freshness mechanism and its limitation."
+        ],
+        "question_layer": "project-depth"
+      },
+      "answer": "I did not design or implement this. Another person did.",
+      "inspected_context": "Repository presence is documentary context only.",
+      "expected_route": "attribution",
+      "expected_outcome": "attribution-signal",
+      "expected_anchor_id": null
+    },
+    {
+      "case_id": "context-request",
+      "question": {
+        "schema_version": "audit-question/v1",
+        "id": "question-context-request",
+        "reason": "Inspect the declared freshness contract.",
+        "prompt": "How would your design prevent cached data from violating the freshness contract?",
+        "area": "technical-design",
+        "status": "unanswered",
+        "area_id": null,
+        "difficulty": "hard",
+        "inspection_reference": "synthetic.md#cache",
+        "follow_up_count": 0,
+        "turn": "capability",
+        "capability_area_id": null,
+        "evaluation_criteria": [
+          "Explain a valid freshness mechanism and its limitation."
+        ],
+        "question_layer": "project-depth"
+      },
+      "answer": "Please explain what the version-token label means before I answer.",
+      "inspected_context": "This is a context request, not a capability answer.",
+      "expected_route": "request-context",
+      "expected_outcome": null,
+      "expected_anchor_id": null
+    },
+    {
+      "case_id": "transfer-only",
+      "question": {
+        "schema_version": "audit-question/v1",
+        "id": "question-transfer-only",
+        "reason": "Inspect the declared freshness contract.",
+        "prompt": "How would you adapt the freshness design if the workload grows?",
+        "area": "technical-design",
+        "status": "unanswered",
+        "area_id": null,
+        "difficulty": "hard",
+        "inspection_reference": "synthetic.md#cache",
+        "follow_up_count": 0,
+        "turn": "capability",
+        "capability_area_id": null,
+        "evaluation_criteria": [
+          "Explain a valid freshness mechanism and its limitation."
+        ],
+        "question_layer": "transfer",
+        "changed_condition": "The workload grows."
+      },
+      "answer": "Under a larger workload I would batch token validation. I have not implemented this changed-condition design.",
+      "inspected_context": "This is hypothetical transfer reasoning and does not establish a completed practical task.",
+      "expected_route": "capability",
+      "expected_outcome": "established",
+      "expected_anchor_id": null
+    },
+    {
+      "case_id": "overview-only",
+      "question": {
+        "schema_version": "audit-question/v1",
+        "id": "question-overview-only",
+        "reason": "Inspect the declared freshness contract.",
+        "prompt": "How would you introduce the project and your role?",
+        "area": "project-overview",
+        "status": "unanswered",
+        "area_id": null,
+        "difficulty": "hard",
+        "inspection_reference": "synthetic.md#cache",
+        "follow_up_count": 0,
+        "turn": "capability",
+        "capability_area_id": null,
+        "evaluation_criteria": [
+          "Describe the project and role accurately."
+        ],
+        "question_layer": "project-overview"
+      },
+      "answer": "The project accelerates reads through a cache. My role was design; implementation was assisted.",
+      "inspected_context": "Project introduction does not establish technical mastery.",
+      "expected_route": "capability",
+      "expected_outcome": "established",
+      "expected_anchor_id": null
+    },
+    {
+      "case_id": "bounded-task",
+      "question": {
+        "schema_version": "audit-question/v1",
+        "id": "question-bounded-task",
+        "reason": "Inspect the declared freshness contract.",
+        "prompt": "How would your design prevent cached data from violating the freshness contract?",
+        "area": "technical-design",
+        "status": "unanswered",
+        "area_id": null,
+        "difficulty": "hard",
+        "inspection_reference": "synthetic.md#cache",
+        "follow_up_count": 0,
+        "turn": "capability",
+        "capability_area_id": null,
+        "evaluation_criteria": [
+          "Explain a valid freshness mechanism and its limitation."
+        ],
+        "question_layer": "project-depth"
+      },
+      "answer": "I independently fixed stale-cache reads using a version token, demonstrated stale rejection in a retained test, and delivered the bounded change with routine documentation.",
+      "inspected_context": "Synthetic reviewer observations confirm independent completion of a common bounded task; no complex-system or repeated-context responsibility is observed.",
+      "expected_route": "capability",
+      "expected_outcome": "established",
+      "expected_anchor_id": "anchor-55-69"
+    },
+    {
+      "case_id": "module-responsibility",
+      "question": {
+        "schema_version": "audit-question/v1",
+        "id": "question-module-responsibility",
+        "reason": "Inspect the declared freshness contract.",
+        "prompt": "How would your design prevent cached data from violating the freshness contract?",
+        "area": "technical-design",
+        "status": "unanswered",
+        "area_id": null,
+        "difficulty": "hard",
+        "inspection_reference": "synthetic.md#cache",
+        "follow_up_count": 0,
+        "turn": "capability",
+        "capability_area_id": null,
+        "evaluation_criteria": [
+          "Explain a valid freshness mechanism and its limitation."
+        ],
+        "question_layer": "project-depth"
+      },
+      "answer": "I owned the cache module design, integration, incident handling and maintenance; retained observations show I diagnosed a stale-read incident, defended token versus TTL trade-offs, verified the repair, and maintained the module.",
+      "inspected_context": "Synthetic reviewer observations verify full-module responsibility, failures, trade-offs and maintenance. Multiple real contexts and guiding others are not established.",
+      "expected_route": "capability",
+      "expected_outcome": "established",
+      "expected_anchor_id": "anchor-80-89"
+    }
+  ],
+  "generation": {
+    "experience_id": "exp-synthetic-cache",
+    "contribution_id": "contrib-synthetic-cache-design",
+    "fact": {
+      "evidence_id": "evidence-synthetic-cache",
+      "source_locator": "synthetic.md#cache",
+      "statement": "A synthetic user designed cache freshness through version tokens. A coding agent implemented the module. The contract rejects entries when tokens change. The design trade-off is an extra token read. No production operation or repeated-context responsibility is established."
+    }
+  }
+}

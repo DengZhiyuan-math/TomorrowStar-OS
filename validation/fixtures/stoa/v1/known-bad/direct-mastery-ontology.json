@@ -1,0 +1,1 @@
+{"base_fixture_hash":"sha256:f393c1034a6d604ae915a18dac3bd206ce146e9c050b4e938048eb10a6378242","case_id":"direct-mastery-ontology","expected_code":"assessment.direct-source-forbidden","operations":[{"kind":"direct-mastery-ontology","schema_version":"fixture-mutation-operation/v1"}],"schema_version":"fixture-mutation-case/v1"}

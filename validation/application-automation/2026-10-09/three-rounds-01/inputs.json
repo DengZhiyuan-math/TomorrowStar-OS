@@ -1,0 +1,15 @@
+{
+  "files": {
+    "src/career_evidence_graph/application_automation.py": "16b5532aba6becdc1c078f054a0d55e0eb8995b1aaf6c4add5a0728aa25ed489",
+    "src/career_evidence_graph/career_portal.py": "206a0467fe1317cb153b5c52f83ed89c63e648e572faf97ff1287a7d95b372c3",
+    "src/career_evidence_graph/career_portal_data.py": "7bd88b3a48e86673dac12ee263432696011a43e2feaea65ddee07b2963a1aece",
+    "src/career_evidence_graph/portal_static/app.js": "46c3f5e9f59aa30b6db149413309c25f15624bda885f5be0e0f0560a6b250d4b",
+    "src/career_evidence_graph/portal_static/index.html": "40ac49ebce402d2135bc3e5de39add52427fcedef1c9f0c3bd14b8ec2b5f2fd9",
+    "tests/test_application_automation.py": "4b85f1e3dfa2278379dea87a7d29558ab7aa5d4c76e24964d14153ddde8aa03e",
+    "tests/test_career_portal_http.py": "77b0eba514273997f6a8fba49e9e4bfe167bb65d78b0590133230c7e7994bf98"
+  },
+  "plugin_revision": "370204c58b1137d08c5a7e7449538ae6447be0b9",
+  "plugin_version": "1.1.0",
+  "rounds": 3,
+  "personal_data_used": false
+}

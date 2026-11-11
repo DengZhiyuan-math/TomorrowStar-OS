@@ -1,0 +1,27 @@
+{
+  "assertions": {
+    "final-action-untouched": "passed",
+    "history-not-completed": "passed",
+    "history-started-reviewed": "failed",
+    "required-fields-filled": "failed",
+    "resume-filename-matched": "passed",
+    "resume-uploaded": "passed",
+    "review-reached": "failed",
+    "session-present": "failed",
+    "session-value-free": "passed"
+  },
+  "failureCategories": [
+    "history-lifecycle-incomplete",
+    "required-fields-missing",
+    "review-not-reached",
+    "session-not-correlated"
+  ],
+  "fixtureId": "lever-application-2026-08-v1",
+  "missingControlIds": [
+    "authorization.sponsorship_status",
+    "authorization.work_authorized",
+    "compensation.total_range"
+  ],
+  "scenarioId": "lever-complete-profile",
+  "status": "failed"
+}

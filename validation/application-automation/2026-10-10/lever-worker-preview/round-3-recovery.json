@@ -1,0 +1,36 @@
+{
+  "mode": "synthetic_independent_worker",
+  "round": "round-3-recovery",
+  "checks": [
+    "single_execution_lock",
+    "note_revision_conflict",
+    "sync_only_retry",
+    "explicit_recheck",
+    "restart_pauses_without_reupload",
+    "control_lease_loss",
+    "cancellation",
+    "zero_final_actions"
+  ],
+  "result": "passed",
+  "worker_pid": 85700,
+  "jobs": [
+    {
+      "company": "Synthetic 1",
+      "status": "filling",
+      "reason": "",
+      "file_sha256": "60ccd4f529b0482e4ae45aa30603e6263c963417e3c81ea9de3c35c5aa883495",
+      "sync_error": ""
+    },
+    {
+      "company": "Synthetic 0",
+      "status": "needs_recheck",
+      "reason": "worker_restarted",
+      "file_sha256": "2c55ffadc6c2e71dd35ba6c493ee878fad1362df17c827a1e15e55acdbc3aa14",
+      "sync_error": ""
+    }
+  ],
+  "uploaded_files": 2,
+  "automatic_final_submissions": 0,
+  "model_calls": 0,
+  "real_ats_calls": 0
+}

@@ -1,0 +1,6 @@
+PASS local Markdown link targets
+PASS final source hashes
+PASS served worker.js equals checkout
+PASS primary batch paused; no pending commands
+PASS no new manual submission or receipt
+PASS current draft and existing applied statuses retained

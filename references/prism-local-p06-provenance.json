@@ -1,0 +1,36 @@
+{
+  "upstream_revision": "e33657e0abd1073ed7f933a371c42c656e59dd7e",
+  "upstream_license": "MIT",
+  "external_checkout_modified": true,
+  "files": [
+    {
+      "path": "prism_local/build.py",
+      "before_sha256": "6a7087ffa72c432569e9711379309b8c018398dbc65cac9e60fe880262ee0cb0",
+      "after_sha256": "04781772526758f808d42692266b8fb08402743f8d483573ab0ecbc5d35b0839"
+    },
+    {
+      "path": "prism_local/project.py",
+      "before_sha256": "22922a7adc141d0cc813496a1230ba486acfa388792b503e06f5b59a54e3ad9a",
+      "after_sha256": "aa40c994d42ceae48fd8d3ff3c3b5acb93405ffb5f419e3ad461419256e68c34"
+    },
+    {
+      "path": "prism_local/server.py",
+      "before_sha256": "4dd69becfab80123c8fdf274294b3304df75dacaa9f61b770da2af42066cb1ec",
+      "after_sha256": "79c316885db0521e8c9e5711ef9995385c95415bf853ac96de19070481e7a05b"
+    },
+    {
+      "path": "prism_local/build_results.py",
+      "before_sha256": null,
+      "after_sha256": "77467fb046d951220c72b2c651a7036e7be011386e3b5e88b34ef0c58864e739"
+    },
+    {
+      "path": "tests/test_build_results.py",
+      "before_sha256": null,
+      "after_sha256": "7ba028e4b58ce9c773a7b50a8c79d61d6dd48151c95f159bd547e2e79de7c71c"
+    }
+  ],
+  "upstream_repository": "https://github.com/DengZhiyuan-math/prism-local",
+  "classification": "adapt",
+  "patch_sha256": "1a1617db1dbf9643381b6fe606d1266dac10b8bba9ea4ba77b0e01a6e51dee3a",
+  "local_divergence": "Persistent native build-result receipts, read-only result endpoint, hash-conditional source save; no compiler replacement or installed-service restart."
+}

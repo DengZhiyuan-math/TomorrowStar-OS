@@ -1,0 +1,49 @@
+% Synthetic example. Replace fixed identity and education only in a private copy.
+\documentclass[10pt,a4paper]{article}
+\usepackage[margin=18mm]{geometry}
+\usepackage[hidelinks]{hyperref}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{2pt}
+% BEGIN TOMORROWSTAR EXPERIENCE META
+\newcommand{\TomorrowStarExperienceMeta}[4]{%
+  \begingroup
+  \setbox0=\hbox{{\small #4}}%
+  \if\relax\detokenize{#4}\relax
+    \dimen0=\linewidth
+  \else
+    \dimen0=\dimexpr\linewidth-\wd0-1em\relax
+  \fi
+  \noindent
+  \begin{minipage}[t]{\dimen0}
+    \raggedright
+    \if\relax\detokenize{#2}\relax\else\textit{#2}\fi
+    \if\relax\detokenize{#1}\relax\else
+      \if\relax\detokenize{#2}\relax\else\enspace\textbar{}\enspace\fi
+      #1%
+    \fi
+    \if\relax\detokenize{#3}\relax\else
+      \if\relax\detokenize{#1#2}\relax\else\enspace\textbar{}\enspace\fi
+      #3%
+    \fi
+  \end{minipage}\hfill\mbox{\small #4}\par\nopagebreak[4]%
+  \endgroup
+}
+% END TOMORROWSTAR EXPERIENCE META
+\pagestyle{plain}
+\begin{document}
+{\Large\bfseries Fixed Applicant}\par
+\href{mailto:applicant@example.invalid}{applicant@example.invalid}
+\enspace\textbar{}\enspace
+\href{https://example.invalid/profile}{LinkedIn}\par
+\begingroup\large\bfseries
+%% TOMORROWSTAR_HEADLINE %%
+\endgroup
+%% TOMORROWSTAR_SUMMARY %%
+\section*{Education}
+Fixed University\hfill Recorded dates\par
+Recorded degree, in progress\par
+\section*{Experience}
+%% TOMORROWSTAR_EXPERIENCES %%
+\section*{Technical Skills}
+%% TOMORROWSTAR_SKILLS %%
+\end{document}

@@ -1,0 +1,263 @@
+{
+  "authority": "synthetic-model-trial-only",
+  "passed": false,
+  "results": [
+    {
+      "attempt": 1,
+      "case_id": "alternative",
+      "route": "capability",
+      "outcome": "established",
+      "anchor": null,
+      "failures": [],
+      "critical": false
+    },
+    {
+      "attempt": 1,
+      "case_id": "partial",
+      "route": "capability",
+      "outcome": "incomplete",
+      "anchor": null,
+      "failures": [],
+      "critical": false
+    },
+    {
+      "attempt": 1,
+      "case_id": "assisted-design",
+      "route": "capability",
+      "outcome": "established",
+      "anchor": null,
+      "failures": [],
+      "critical": false
+    },
+    {
+      "attempt": 1,
+      "case_id": "denied-ownership",
+      "route": "attribution",
+      "outcome": null,
+      "anchor": null,
+      "failures": [
+        "capability-boundary-mismatch"
+      ],
+      "critical": false
+    },
+    {
+      "attempt": 1,
+      "case_id": "context-request",
+      "route": "request-context",
+      "outcome": null,
+      "anchor": null,
+      "failures": [],
+      "critical": false
+    },
+    {
+      "attempt": 1,
+      "case_id": "transfer-only",
+      "route": "capability",
+      "outcome": "established",
+      "anchor": null,
+      "failures": [],
+      "critical": false
+    },
+    {
+      "attempt": 1,
+      "case_id": "overview-only",
+      "route": "capability",
+      "outcome": "established",
+      "anchor": null,
+      "failures": [],
+      "critical": false
+    },
+    {
+      "attempt": 1,
+      "case_id": "bounded-task",
+      "route": "capability",
+      "outcome": "established",
+      "anchor": "anchor-55-69",
+      "failures": [],
+      "critical": false
+    },
+    {
+      "attempt": 1,
+      "case_id": "module-responsibility",
+      "route": "capability",
+      "outcome": "established",
+      "anchor": "anchor-80-89",
+      "failures": [],
+      "critical": false
+    },
+    {
+      "attempt": 2,
+      "case_id": "alternative",
+      "route": "capability",
+      "outcome": "established",
+      "anchor": null,
+      "failures": [],
+      "critical": false
+    },
+    {
+      "attempt": 2,
+      "case_id": "partial",
+      "route": "capability",
+      "outcome": "incomplete",
+      "anchor": null,
+      "failures": [],
+      "critical": false
+    },
+    {
+      "attempt": 2,
+      "case_id": "assisted-design",
+      "route": "capability",
+      "outcome": "established",
+      "anchor": null,
+      "failures": [],
+      "critical": false
+    },
+    {
+      "attempt": 2,
+      "case_id": "denied-ownership",
+      "route": "attribution",
+      "outcome": null,
+      "anchor": null,
+      "failures": [
+        "capability-boundary-mismatch"
+      ],
+      "critical": false
+    },
+    {
+      "attempt": 2,
+      "case_id": "context-request",
+      "route": "request-context",
+      "outcome": null,
+      "anchor": null,
+      "failures": [],
+      "critical": false
+    },
+    {
+      "attempt": 2,
+      "case_id": "transfer-only",
+      "route": "capability",
+      "outcome": "established",
+      "anchor": null,
+      "failures": [],
+      "critical": false
+    },
+    {
+      "attempt": 2,
+      "case_id": "overview-only",
+      "route": "capability",
+      "outcome": "established",
+      "anchor": null,
+      "failures": [],
+      "critical": false
+    },
+    {
+      "attempt": 2,
+      "case_id": "bounded-task",
+      "route": "capability",
+      "outcome": "established",
+      "anchor": "anchor-55-69",
+      "failures": [],
+      "critical": false
+    },
+    {
+      "attempt": 2,
+      "case_id": "module-responsibility",
+      "route": "capability",
+      "outcome": "established",
+      "anchor": "anchor-80-89",
+      "failures": [],
+      "critical": false
+    },
+    {
+      "attempt": 3,
+      "case_id": "alternative",
+      "route": "capability",
+      "outcome": "established",
+      "anchor": null,
+      "failures": [],
+      "critical": false
+    },
+    {
+      "attempt": 3,
+      "case_id": "partial",
+      "route": "capability",
+      "outcome": "incomplete",
+      "anchor": null,
+      "failures": [],
+      "critical": false
+    },
+    {
+      "attempt": 3,
+      "case_id": "assisted-design",
+      "route": "capability",
+      "outcome": "established",
+      "anchor": null,
+      "failures": [],
+      "critical": false
+    },
+    {
+      "attempt": 3,
+      "case_id": "denied-ownership",
+      "route": "attribution",
+      "outcome": null,
+      "anchor": null,
+      "failures": [
+        "capability-boundary-mismatch"
+      ],
+      "critical": false
+    },
+    {
+      "attempt": 3,
+      "case_id": "context-request",
+      "route": "request-context",
+      "outcome": null,
+      "anchor": null,
+      "failures": [],
+      "critical": false
+    },
+    {
+      "attempt": 3,
+      "case_id": "transfer-only",
+      "route": "capability",
+      "outcome": "established",
+      "anchor": null,
+      "failures": [],
+      "critical": false
+    },
+    {
+      "attempt": 3,
+      "case_id": "overview-only",
+      "route": "capability",
+      "outcome": "established",
+      "anchor": null,
+      "failures": [],
+      "critical": false
+    },
+    {
+      "attempt": 3,
+      "case_id": "bounded-task",
+      "route": "capability",
+      "outcome": "established",
+      "anchor": "anchor-55-69",
+      "failures": [],
+      "critical": false
+    },
+    {
+      "attempt": 3,
+      "case_id": "module-responsibility",
+      "route": "capability",
+      "outcome": "established",
+      "anchor": "anchor-80-89",
+      "failures": [],
+      "critical": false
+    }
+  ],
+  "unstable_cases": [],
+  "critical_failure_count": 0,
+  "personal_scoring_authorized": false,
+  "corpus_hash": "sha256:b0af18ad417f5650c8b06f034738697150d0cd5f69fdaa9e7f1b47901bf81196",
+  "generation_attempts": 3,
+  "generation_errors": [],
+  "question_semantic_review": "required on retained plans",
+  "real_user_expert_calibration": "pending"
+}

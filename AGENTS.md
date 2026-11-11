@@ -1,18 +1,62 @@
-<!-- GSD:project-start source:PROJECT.md -->
+# Repository guide
+
+Start at [README.md](README.md) for the harness, workflow and personal-data map.
+Current product behavior is defined by [APP-01–18](docs/single-job-flow.md), with
+work ordered by [the development plan](docs/development-plan.md). Research scope
+is defined by `.planning/PROJECT.md`; research gates do not block ordinary applications.
+Active workflow navigation is in [docs/workflows.md](docs/workflows.md).
+Keep personal records in the explicit separate private workspace described by
+[docs/data-boundaries.md](docs/data-boundaries.md). Use checkout launchers for tests
+and CLI operations. Preserve uncommitted work and historical fixture paths.
+
+Choose the smallest mature solution in this order: skip unnecessary work;
+reuse repository code; use the standard library; use native platform/framework
+capabilities; reuse installed dependencies; prefer one clear line; only then
+write the minimum custom implementation. Avoid duplicate abstractions and
+speculative dependencies.
+
+## Native App identity and permissions
+
+Keep one installed App: `~/Applications/TomorrowStar.app`, with bundle ID
+`dev.tomorrowstar.desktop`. Reuse the pinned private signing identity; never create
+another `.app`, rotate its certificate, fall back to ad-hoc signing, or reset TCC
+as a routine development step. Use `macos/main_app.py` for checked maintenance
+and `macos/check_main_permissions.py` for actual host permissions. Follow
+[CONVENTIONS.md](CONVENTIONS.md) and [the App workflow](docs/macos-app.md).
+Request user action only when actual missing host capabilities block the current operation.
+Do not turn diagnostic checks, package/version proofs or repeated permission checks
+into daily application approvals. Final Submit remains manual.
+
+<!-- GSD:project-start source:.planning/PROJECT.md -->
 
 ## Project
 
-**Career Evidence Graph — Core Hypothesis Validation**
+**TomorrowStar OS — Local Automatic Applications and Career Evidence Research**
 
-This is the first validation project for an agentic, skill-graph-based résumé generation and career-gap system. It tests whether a Grill-Me workflow can accurately audit what a user understands and can independently explain, implement, reproduce, defend, or operate within their real experiences, then turn those findings into stable skill assessments that are useful when comparing the user with a small set of job descriptions.
+The current application product follows [APP-01–18](docs/single-job-flow.md).
+Email recommendations enter a persistent sequential queue; no active job
+concurrency is planned. Existing facts are reused from the two libraries.
+Important missing facts, conflicts and unknown results stop the current job;
+only mail ingestion continues while waiting. User edits are retained and one
+Continue resumes remaining steps. Explicit career corrections are saved directly
+with history. Ordinary materials, filling and upload require no repeated approval;
+final Submit is manual. Use [the development plan](docs/development-plan.md).
 
-The broader product will use this reusable skill-oriented career graph to dynamically select and rewrite relevant experiences for tailored résumés and to propose evidence-producing gap-closing work. Those downstream product loops remain central to the product vision, but this project deliberately stops at validating the Grill-Me → skill graph → JD usefulness hypothesis before building the complete pipeline.
+**Independent research scope:**
+
+The v1.0 foundation received a partial closeout; it did not empirically validate
+the complete hypothesis. The active v1.1 milestone validates a user-confirmed
+full-career graph against exactly three user-supplied real JDs. Grill-Me audits
+what the user can explain, implement, reproduce, defend or operate within bounded
+Contributions before reviewed Skill assessments can inform career decisions.
+
+The broader product will use this reusable skill-oriented career graph to dynamically select and rewrite relevant experiences for tailored résumés and to propose evidence-producing gap-closing work. Those downstream product loops remain central to the product vision, but the research milestone stops at validating the Grill-Me → skill graph → JD usefulness hypothesis. This does not postpone the separately authorized application product.
 
 **Core Value:** Accurately determine what the user can genuinely do within specific contributions and convert that understanding into skill scores and graph relationships that are useful for JD-relevant career decisions.
 
 ### Constraints
 
-- **Validation scope**: Prove the Grill-Me → Contribution–Skill assessment → user Skill graph → JD usefulness hypothesis with STOA and a small JD set before implementing the full product pipeline.
+- **Validation scope**: Prove the Grill-Me → Contribution–Skill assessment → user Skill graph → JD usefulness hypothesis with a user-confirmed full-career inventory and exactly three user-supplied real JDs for research claims. Application product work proceeds independently. STOA remains the foundation fixture.
 - **Assessment semantics**: Every user-level score evaluates one specific Skill; unrelated capabilities must not be hidden as generic subdimensions of that score.
 - **Audit granularity**: Contribution is the minimum auditable fact unit; Experience alone cannot produce a Skill score.
 - **Score separation**: Mastery, evidence confidence, verified duration, context, and JD match must retain different meanings.
@@ -21,11 +65,60 @@ The broader product will use this reusable skill-oriented career graph to dynami
 - **Decision timing**: Formula details, confidence gates, calibration rules, and implementation boundaries are phase-level decisions to validate with fixtures rather than assumptions to freeze during initialization.
 - **Open-source provenance**: Reused or adapted code and patterns must identify their upstream repository, pinned revision, license, and local divergence.
 
+### Interview and Assessment Protocol
+
+Follow the [project protocol](.planning/PROJECT.md#interview-and-assessment-protocol)
+and [question-generation and scoring pipeline](docs/question-scoring-pipeline.md).
+Use three ordered layers: project overview, project depth, then transfer to a
+related problem with an explicit changed condition. Layer and difficulty are
+different concepts; depth and transfer each have their own difficulty ladder.
+Declare evaluation criteria before the answer and ask one focused question at a time.
+Preserve each layer's conclusions separately. Score only reviewed Contribution–Skill
+relationships. Do not average layers or treat transfer reasoning as completed work
+or repeated responsibility in real contexts. Reuse prior answers and preserve
+user, team, other-person, coding-agent and third-party attribution.
+
+### Grill-Me Recall Policy
+
+Grill-Me assesses the user's capability and reviews their real work; it is not a memory test.
+Before asking, retrieve and preserve relevant document labels, source locators, prior answers, and
+artifact context. Explain unfamiliar labels in the question and use them to ground a concrete,
+one-at-a-time capability prompt. A user not recalling a label, exact wording, or a project detail
+is not negative capability evidence and must not cause an otherwise relevant Contribution to be
+excluded. Record the resulting uncertainty explicitly, then assess only what the user can
+actually explain, implement, reproduce, defend, or operate.
+
+### Resume Content Policy
+
+Education is fixed documentary information. Reuse applicable confirmed institutions,
+degrees, dates, status and details. Do not rewrite or omit it for JD relevance, or
+ask the user to confirm unchanged recorded facts again. Resolve actual source
+conflicts separately; do not infer an awarded degree from an in-progress record.
+
+Select and order evidenced skills and work experience for the current JD. Adapt
+their wording and emphasis without inventing skills, proficiency, results or
+responsibility, or turning planned work into completed work.
+
+Keep AI assistance, coding-agent attribution and editor/tool-use provenance in
+internal evidence records. Do not put these disclosures in the employer-facing
+resume. Preserve actual team and collaborator responsibility in the wording.
+Relevant technical skills and project technologies remain valid resume content.
+Reuse recorded facts without repeated interviews. Ask only about important unresolved
+conflicts or substantive choices. Automatic materials use APP-07, including checks
+and preservation of user edits; no routine draft/PDF acceptance is required.
+Research or optional artifact acceptance binds its own source/PDF and does not
+perform final Submit.
+
 <!-- GSD:project-end -->
 
 <!-- GSD:stack-start source:research/STACK.md -->
 
 ## Technology Stack
+
+The tables below retain the original stack research. Installed dependency pins
+are defined by `pyproject.toml` and `uv.lock`; current implementation boundaries
+are in `ARCHITECTURE.md`. Historical recommendations do not require adding an
+unused provider protocol, event log or framework.
 
 ## Executive Recommendation
 
@@ -220,14 +313,16 @@ The broader product will use this reusable skill-oriented career graph to dynami
 
 ## Conventions
 
-Conventions not yet established. Will populate as patterns emerge during development.
+See [CONVENTIONS.md](CONVENTIONS.md) for current checkout commands, synthetic
+testing, privacy boundaries and minimal-change rules.
 <!-- GSD:conventions-end -->
 
 <!-- GSD:architecture-start source:ARCHITECTURE.md -->
 
 ## Architecture
 
-Architecture not yet mapped. Follow existing patterns found in the codebase.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for module ownership, entrypoints, storage
+and the separation between implemented harness contracts and milestone acceptance.
 <!-- GSD:architecture-end -->
 
 <!-- GSD:skills-start source:skills/ -->
@@ -236,26 +331,3 @@ Architecture not yet mapped. Follow existing patterns found in the codebase.
 
 No project skills found. Add skills to any of: `.claude/skills/`, `.agents/skills/`, `.cursor/skills/`, `.github/skills/`, or `.codex/skills/` with a `SKILL.md` index file.
 <!-- GSD:skills-end -->
-
-<!-- GSD:workflow-start source:GSD defaults -->
-
-## GSD Workflow Enforcement
-
-Before using Edit, Write, or other file-changing tools, start work through a GSD command so planning artifacts and execution context stay in sync.
-
-Use these entry points:
-
-- `$gsd-quick` for small fixes, doc updates, and ad-hoc tasks
-- `$gsd-debug` for investigation and bug fixing
-- `$gsd-execute-phase` for planned phase work
-
-Do not make direct repo edits outside a GSD workflow unless the user explicitly asks to bypass it.
-<!-- GSD:workflow-end -->
-
-<!-- GSD:profile-start -->
-
-## Developer Profile
-
-> Profile not yet configured. Run `$gsd-profile-user` to generate your developer profile.
-> This section is managed by `generate-claude-profile` -- do not edit manually.
-<!-- GSD:profile-end -->

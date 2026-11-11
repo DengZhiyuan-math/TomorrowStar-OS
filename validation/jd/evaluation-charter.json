@@ -1,0 +1,39 @@
+{
+  "schema_version": "jd-evaluation-charter/v1",
+  "charter_version": "phase-05-content-free-v1",
+  "case_inventory": {
+    "EVAL-01": [
+      "accepted-packet-score-route-trace",
+      "evidence-strong-customization-trace",
+      "ordinary-standard-route-trace",
+      "low-match-abandon-trace",
+      "unchanged-jd-priority-counterfactual"
+    ],
+    "EVAL-02": [
+      "invalid-utf8-and-unsafe-controls",
+      "oversize-before-write",
+      "source-span-and-proposal-tampering",
+      "prompt-like-source-inertness",
+      "stale-graph-and-detached-lineage-blocking"
+    ]
+  },
+  "attempts_per_case": 3,
+  "route_scenarios": [
+    "evidence-strong-customized",
+    "ordinary-standard-resume",
+    "low-match-abandon",
+    "unchanged-jd-priority-counterfactual"
+  ],
+  "baseline": {
+    "flat_resume_arm": "when-supplied",
+    "fallback": "sorted-exact-skill-name-keyword-overlap",
+    "boundary": "Baseline output is comparison evidence only and cannot establish capability."
+  },
+  "blind_review": {
+    "opaque_ab_assignment": "frozen-before-reviewer-execution",
+    "record": "One development-only independent review records disagreement and adjudication."
+  },
+  "criteria": ["EVAL-04", "EVAL-05"],
+  "zero_critical_fabricated_capability_claims": true,
+  "limitation": "This development evaluation does not establish application, interview, offer, hiring, or employment effectiveness."
+}

@@ -1,0 +1,1 @@
+No external API integration: Phase 04 uses only the existing offline Python domain, local CLI, Pydantic validation, and JSON workspace; it adds no API, SDK, network service, webhook, OAuth flow, or provider call.

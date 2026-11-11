@@ -1,288 +1,269 @@
 # Feature Research
 
-**Domain:** Contribution-grounded career capability assessment and JD comparison  
-**Project:** Career Evidence Graph — Core Hypothesis Validation  
-**Researched:** 2026-07-30  
-**Confidence:** HIGH for project scope and pinned-upstream precedents; MEDIUM for proposed validation thresholds until calibrated on STOA
+**Domain:** User-authoritative career inventory, evidence-governed Skill graph, and real-JD hypothesis validation
+**Project:** Career Evidence Graph — v1.1 Full Career Graph and Real JD Validation
+**Researched:** 2026-08-28
+**Confidence:** HIGH for project boundaries and acceptance behavior; MEDIUM for external product and governance analogues
 
-## Scope Boundary
+## Executive Recommendation
 
-This milestone must validate one loop:
+Build v1.1 as a sequence of user- and evaluator-visible acceptance checkpoints, not as a graph expansion project:
 
-```text
-STOA Experience
-  → distinguishable Contributions
-  → artifact-aware, one-question-at-a-time Grill-Me audits
-  → Contribution–Skill assessments
-  → stable user Skill assessments
-  → structured comparison with a small JD set
-  → human-reviewed usefulness and calibration findings
-```
+1. account for every known career item as of a recorded cutoff and obtain an explicit user seal;
+2. materialize one canonical, status-aware graph in which unresolved content remains visible but non-authoritative;
+3. admit mastery only through the already implemented reviewed Contribution–Skill path;
+4. obtain exactly three user-selected raw JDs, correct every extracted requirement against its source, and seal each accepted packet immutably; and
+5. run the already frozen evaluation protocol and issue the evidence-backed decision even when the result is partial or negative.
 
-The final product still has two core downstream outputs:
+The graph is an internal source of reviewed user truth. The milestone outcome is whether that truth is useful for JD-relevant career decisions. A visually complete graph, a high match score, or a polished report is not the outcome.
 
-1. dynamically select and rewrite relevant Experiences and Contributions into a truthful, JD-tailored résumé; and
-2. propose evidence-producing gap-closing work, then reassess the completed work.
+## Existing Capability vs New Work
 
-Those outputs remain visible in the roadmap, but neither belongs in the current implementation. This validation should produce only the minimum interfaces and fixtures needed to show that the assessed graph could support them later.
+Do not reimplement the v1.0 foundation. Extend it only where the real full-career and real-JD workflow requires new behavior.
+
+| Capability | v1.0 status | v1.1 feature decision |
+|---|---|---|
+| Strict `Experience → Contribution → Skill`, with Evidence supporting Contribution | Existing | Reuse unchanged; broaden the data from the sealed STOA fixture to the user's confirmed career inventory |
+| Artifact-aware, one-question audit with pause/resume and separate responsibility/assistance rounds | Existing | Reuse per Contribution; add scheduling and coverage over the full inventory, not a second interview engine |
+| Immutable conclusion and assessment review lineage | Existing | Reuse as the only route from audited Contribution to score-eligible assessment |
+| Anchor-aware, no-inflation aggregation | Existing | Reuse; pending, evidence-insufficient, or responsibility-unresolved items must never enter it |
+| Content-free, source-bound JD packet and read-only graph comparison | Existing foundation | Add real raw-JD interpretation, item-level correction, whole-packet acceptance, and exactly-three corpus custody |
+| Frozen deterministic/adversarial/stability/human/blind evaluation charter | Existing contract | Execute it on the sealed real graph and three JDs; retain every failure, disagreement, and limitation |
+| Full-career inventory completeness and user cutoff seal | Missing | New P1 feature |
+| One canonical graph containing both authoritative and unresolved known content | Missing | New P1 feature |
+| Status-aware JD uncertainty | Missing | New P1 feature: unreviewed or unresolved evidence must produce uncertainty, not fabricated capability or an automatic zero |
+| Evidence-backed `supported` / `partially-supported` / `rejected` decision | Missing | New P1 milestone terminus; `rejected` blocks expansion |
+
+## Authority and Status Semantics
+
+The requested labels must not become one overloaded lifecycle enum. The same item can be a confirmed career fact and still have insufficient evidence or unresolved personal responsibility. Surface a simple primary status to the user, but retain separate authority axes underneath.
+
+| Visible state | User meaning | Evaluator meaning | Mastery effect |
+|---|---|---|---|
+| `pending` | This known item is recorded but still needs decomposition, audit, correction, or review | Coverage is explicit; the next required action and blocker are named | None |
+| `confirmed` | The user confirms that the Experience, Contribution, Evidence reference, or candidate Skill belongs in the inventory as represented | Establishes inventory authority only; it is not an assessment review | None by itself |
+| `insufficient-evidence` | The item remains part of career history, but available material cannot support the claimed capability boundary | Must preserve what is missing and what was checked | None; JD use is `uncertain` / `missing-evidence`, not positive support |
+| `unresolved-responsibility` | The work exists, but user/team/other-person/agent/third-party responsibility is not resolved | Attribution gate is incomplete and must fail closed | None; never borrow team or tool work into user mastery |
+| `reviewed` | A human reviewed attribution, anchor fit, all three assessment judgments, and the complete basis | Eligible for the existing admission policy and immutable review lineage | May establish mastery only if admitted |
+
+Two consequences are non-negotiable:
+
+- Inventory completeness can be confirmed while some items remain pending or unresolved. “Complete” means all known items are accounted for as of the cutoff, not that every item is proven or scored.
+- Absence of a reviewed assessment is not a mastery score of zero. A relevant pending or unresolved item must keep a JD judgment uncertain; only reviewed evidence can support a positive claim, and only reviewed evidence below a requirement boundary can justify a capability shortfall.
 
 ## Feature Landscape
 
-### Table Stakes for Core Validation
+### Table Stakes (Required for v1.1)
 
-Missing any item below prevents a meaningful test of the stated hypothesis.
-
-| Observable behavior | Why required now | Complexity | Acceptance signal |
+| Feature | Why expected | Complexity | Acceptance-oriented behavior |
 |---|---|---:|---|
-| Represent STOA as one `Experience` containing multiple distinguishable `Contribution` records, with `Evidence` supporting Contributions | Whole-experience scoring is explicitly invalid; Contribution is the smallest auditable fact unit | MEDIUM | Every assessed Skill relationship resolves to exactly one Contribution; no test fixture can create a Skill assessment directly from an Experience |
-| Inspect supplied artifacts before questioning | Questions should test what cannot be established from code, commits, documents, deployments, or other evidence instead of asking the user to restate inspectable facts | MEDIUM | Audit trace records which artifacts were inspected and why each remaining question was necessary; an artifact-answerable golden question is rejected |
-| Ask one focused question per turn and preserve resumable Q/A state | A deep audit needs usable pacing, non-repetition, and an inspectable reasoning trail | MEDIUM | Every audit turn contains at most one decision-bearing question; interrupted STOA audits resume without losing prior questions, answers, or extracted facts; repeated-question fixture fails |
-| Challenge vague claims with concrete implementation, explanation, reproduction, defense, debugging, or operating probes | “Worked on X” is not evidence of capability | HIGH | Each audited Contribution reaches an explicit supported capability boundary or is marked unresolved/provisional; vague language alone never creates a mastery claim |
-| Separate the user’s work, team/other-person work, non-responsibilities, Codex-assisted work, and third-party work | Responsibility attribution is necessary for truthful assessment | HIGH | Attribution fixtures classify mixed-person statements correctly; changing a Contribution from user-owned to assisted/other-owned changes its admissible assessment; no borrowed responsibility supports user mastery |
-| Extract specific Skills only after grounding them in an audited Contribution | Credentials, titles, repositories, and ontology edges do not establish mastery | MEDIUM | Every extracted Skill has a Contribution link and an assessment basis; a skill mentioned only in an Experience title, résumé list, or repository dependency remains unassessed |
-| Preserve the three separate Contribution–Skill signals | `demonstrated_mastery`, `skill_centrality`, and `evidence_confidence` answer different questions | MEDIUM | Schema requires all three 0–100 values plus context, duration, and assessment basis; fixtures prove that high confidence or high centrality can coexist with low mastery |
-| Use the agreed observable mastery anchors | A 0–100 number without capability semantics cannot be calibrated | HIGH | Human reviewers can point to the observable anchor condition supporting the assigned band; no assessment enters a higher band without evidence for that band’s behavior |
-| Aggregate Contribution evidence into one relatively stable user score per specific Skill without quantity inflation | The project needs a reusable Skill graph, not a pile of relationship scores | HIGH | Duplicating or adding incidental low-level Contributions does not move a Skill into a higher anchor band; a multi-context increase is allowed only when the combined evidence visibly satisfies the higher anchor |
-| Keep mastery separate from confidence, duration, recency, context, and JD match | The same user capability must not change meaning with documentation volume or target role | HIGH | Re-running the same graph against different JDs leaves mastery unchanged while match, relevance, and selected evidence can change |
-| Parse a small representative JD set into structured Skill expectations | Usefulness cannot be tested against unstructured keyword counts alone | MEDIUM | Each JD fixture records required/preferred status, expected capability or responsibility where stated, context, and source text span; reviewers can trace every expectation to the JD |
-| Produce evidence-bearing JD comparisons | The graph must explain supported, partial, unsupported, and uncertain matches | MEDIUM | Every comparison result cites relevant Contribution–Skill assessments and keeps confidence visible; unsupported keywords cannot become positive matches |
-| Preserve a versioned audit and calibration record | Non-deterministic assessments need reproducible inputs, outputs, and review history | MEDIUM | Each run records fixture version, prompt/model/config version, upstream baseline, structured output, reviewer decision, disagreement, and adjudication without overwriting prior runs |
-| Run deterministic, golden-case, adversarial, repeated-run, and human-review evaluation | A passing happy path does not establish reliability | HIGH | Known-good and known-bad fixtures both behave as designed; all structural invariants pass; repeated runs remain within the accepted stability envelope; human adjudication is complete before the hypothesis is accepted |
+| Declared source and cutoff manifest | “Full career” is otherwise an untestable claim | MEDIUM | Records cutoff time, included source snapshots, hashes/locators, declared unavailable sources, and the user's scope statement |
+| All-known-item inventory review | Users must be able to see omissions and incorrect merges before the graph becomes authoritative | HIGH | Every discovered or user-added item is confirmed, corrected, split, merged with lineage, or retained with an explicit blocker; no silent drop is allowed |
+| Coverage by supported Experience type | A resume alone commonly omits projects, research, publications, teaching, open source, or earlier work | MEDIUM | Coverage report accounts for employment, project, research, publication, education, teaching, open-source, internship, and related history, including explicit “none known” responses |
+| User confirmation seal | The system cannot declare someone else's career inventory complete | HIGH — USER BLOCKING | User reviews final counts and unresolved states, adds missing items, and signs the exact inventory hash and cutoff; later changes create a new version |
+| One canonical status-aware graph | Downstream comparison needs one identity and lineage for every known item, not separate reviewed and unreviewed truth stores | HIGH | Stable IDs and merge/split/revision lineage prevent duplicates; reviewed and unresolved nodes are queryable in one snapshot |
+| Review-only mastery projection | The graph must remain complete without inflating capability | HIGH | Aggregated Skill mastery reads only admitted, substantively reviewed Contribution–Skill assessments; status-only and candidate edges are excluded deterministically |
+| Status-aware uncertainty in JD comparison | Pending evidence is unknown, not proof of absence | HIGH | A JD requirement touching only pending, insufficient-evidence, or unresolved-responsibility content returns `uncertain` with the precise missing review/evidence/attribution reason |
+| Full-career audit work queue | Reviewing every Contribution in one uninterrupted session would block the user | MEDIUM | Prioritizes unresolved items needed by the three JDs while retaining complete coverage; pause/resume and “why this is next” are visible |
+| Exactly three user-selected raw JDs | The empirical test requires real source authority and a bounded corpus | HIGH — USER BLOCKING | System accepts neither two nor four; selection belongs to the user; exact UTF-8 source bytes, source identity, hash, and acquisition metadata are retained privately |
+| Source-bound JD requirement proposal | A parsed requirement without a reconstructable source is not reviewable | HIGH | Every item links to a valid source span/hash and separates explicit text from reviewer-supplied interpretation; prompt-like JD text remains inert data |
+| Item-level JD correction | Extraction errors must be correctable before scoring | HIGH — USER BLOCKING | User can edit fields, split/merge items, add omitted requirements, and mark false requirements; original proposal and every correction remain in lineage |
+| Immutable whole-JD acceptance | Evaluation inputs must not change after results are visible | MEDIUM — USER BLOCKING | Each corrected packet receives explicit whole-packet acceptance bound to raw-source and proposal hashes; any later change creates a new packet and invalidates dependent runs |
+| Sealed three-JD evaluation corpus | Evaluators need to prove which graph and JDs were tested | MEDIUM | Corpus manifest binds one canonical graph hash, exactly three accepted packet hashes, charter version, policy/configuration versions, and baseline assignment |
+| Frozen evaluation execution | Happy-path output is insufficient evidence | HIGH | Runs deterministic, adversarial, three-attempt stability, human, blind-baseline, holdout/leave-one-out, and feasible minimal replication checks exactly as preregistered |
+| Decision ledger and limitations | The milestone must close with an empirical decision, including a negative one | HIGH | Records gate-by-gate evidence, critical failures, disagreements/adjudication, deviations, and the frozen `supported` / `partially-supported` / `rejected` result |
 
-### Hypothesis-Testing Differentiators
+### Differentiators (Core Value)
 
-These are not general polish. They are the behaviors that make this system different from a résumé parser, self-rating tool, ontology browser, or keyword matcher.
-
-| Differentiator | Value proposition | Complexity | Observable proof |
+| Feature | Value proposition | Complexity | Observable proof |
 |---|---|---:|---|
-| Contribution-first grilling that finds the user’s capability boundary | Converts a career claim into a defensible statement of what the user can independently explain, implement, reproduce, defend, debug, or operate | HIGH | For each selected STOA Contribution, the audit produces both a strongest-supported capability statement and a next-higher capability claim that was not established |
-| Evidence sensitivity rather than evidence theater | Artifact quantity should not masquerade as capability; evidence changes credibility only where it supports responsibility and performance | HIGH | Removing decisive evidence lowers confidence or makes the assessment provisional; adding irrelevant files or duplicate evidence does not raise mastery |
-| Explicit separation of mastery, centrality, and confidence | Prevents “important to the project,” “well documented,” and “high skill” from collapsing into one opaque score | MEDIUM | Counterexample fixtures cover high-centrality/low-mastery, low-centrality/high-mastery, and high-mastery/low-confidence cases and retain the distinctions end-to-end |
-| Anchor-aware cross-Contribution aggregation | Repeated advanced responsibility can establish a higher band, while many weak uses cannot | HIGH | A multi-context golden case advances only when the collection demonstrates the higher anchor; a numerical pile-up case remains at the lower band |
-| Stable capability with JD-specific relevance | Makes one reusable graph useful for multiple target roles | MEDIUM | Across at least three meaningfully different JD fixtures, mastery stays fixed while the comparison selects different Contributions, explains different gaps, and changes match judgments |
-| Capability-based comparison that beats a flat keyword baseline | Demonstrates actual career usefulness, not merely graph correctness | HIGH | In blinded human review, graph-based comparison is preferred to or materially corrects the flat keyword baseline on a pre-registered majority of JD cases, with zero critical fabricated capability claims |
-| Calibratable explanations and explicit disagreement | Turns human review into model improvement evidence rather than an informal thumbs-up | MEDIUM | Reviewers independently label assessment basis, anchor fit, confidence, and JD usefulness; disagreements are categorized and adjudicated; calibration changes are versioned and re-run against all golden cases |
+| Completeness with truthful unknowns | Builds a reusable career record without pretending every career fact is already auditable | HIGH | User can seal all-known-item coverage while unresolved items remain visible and excluded from mastery |
+| Separate inventory, assessment, and admission authority | Prevents a user confirmation, parser confidence, or reviewer action from silently becoming a Skill score | HIGH | Tests show `confirmed ≠ reviewed ≠ admitted`; only the final authority path changes mastery |
+| Uncertainty-preserving matching | Avoids the common error “not in the reviewed graph, therefore cannot do it” | HIGH | Counterfactual pending/unresolved records change a requirement from unsupported to uncertain without creating positive support |
+| Immutable raw-JD interpretation | Makes each requirement disputable and reproducible instead of treating model extraction as the JD | HIGH | Reviewer can reconstruct each accepted item from the exact raw bytes and trace every correction from proposal to acceptance |
+| Same truthful graph, three different relevance views | Tests whether a reusable capability graph helps across real roles | MEDIUM | Each JD may change selected Contributions, gaps, and route while graph and mastery hashes remain unchanged |
+| A product hypothesis allowed to fail | Prevents roadmap momentum or UI polish from substituting for evidence | HIGH | The finalizer emits the frozen negative or partial result when gates fail and blocks unsupported expansion claims |
 
-## Observable Core-Hypothesis Acceptance Gates
+### Anti-Features (Do Not Build)
 
-The milestone should be accepted only if all gates pass. Numeric tolerances for agreement and score variance should be pre-registered after a small pilot, not chosen after viewing final results.
-
-### Gate 1 — Structural integrity
-
-- 100% of Contribution–Skill assessments contain a valid `contribution_id`, `skill_id`, the three separate scores, context, duration, and explicit assessment basis.
-- 0 Skill assessments originate solely from Experience metadata, credentials, repository presence, ontology implication, or JD keywords.
-- 0 user-mastery claims rely on work attributed to another person or an unqualified automation/tool contribution.
-- All values validate against the agreed schema and all source links resolve within the fixture.
-
-### Gate 2 — Audit quality on STOA
-
-- Every selected STOA Contribution has a reviewed responsibility boundary and at least one inspected or user-supplied evidence item, or is explicitly marked as lacking evidence.
-- Every Grill-Me conclusion states what capability was established, what was not established, and why.
-- No audit asks multiple decision-bearing questions in one turn, repeats an already answered question, or asks for a fact already available in inspected artifacts.
-- A human reviewer can reconstruct each assessment from the preserved Q/A and evidence without relying on hidden chain-of-thought.
-
-### Gate 3 — Score semantics
-
-- High evidence confidence never automatically produces high mastery.
-- High Skill centrality never automatically produces high mastery.
-- Weak confidence keeps a high-mastery judgment provisional rather than silently lowering or legitimizing it.
-- Duplicate and incidental-Contribution counterfactuals never cross a higher mastery anchor.
-- A combined-Contribution case crosses a band only when reviewers agree the combined observable behavior satisfies that higher anchor.
-
-### Gate 4 — Reliability and calibration
-
-- Run each critical golden and adversarial case at least three times under the same versioned configuration.
-- The supported mastery band remains stable across repeated runs; any material variance is surfaced rather than averaged away.
-- Known-bad cases are rejected, including borrowed responsibility, unsupported skill inference, duplicate-evidence inflation, high-confidence/low-mastery confusion, and prompt-injected evidence.
-- At least two human review passes are completed for ambiguous or high-impact assessments. Reviewer disagreement is preserved, categorized, and adjudicated; the LLM is not the final arbiter.
-- Calibration changes improve or preserve all previously passing golden cases; regressions block acceptance.
-
-### Gate 5 — JD usefulness
-
-- Use a small but contrasting JD set, recommended minimum three: one closely aligned with STOA, one adjacent role, and one role containing attractive but unsupported requirements.
-- Changing only the JD changes relevance, evidence selection, and gap explanation, but never the underlying user mastery score.
-- Every positive match identifies the concrete Contributions and assessment basis that support it; every partial/unsupported match explains the missing capability or evidence.
-- A blinded reviewer compares the graph-based output with a simple flat résumé/keyword baseline using a fixed rubric: relevance, truthfulness, decision usefulness, and traceability.
-- The graph-based result must win or materially correct the baseline on a pre-registered majority of cases and must produce zero critical fabrications. A tie on relevance is acceptable only if traceability or gap accuracy is materially better.
-
-### Gate 6 — Decision outcome
-
-The hypothesis is **supported** only if the graph is both reliable enough to calibrate and useful for JD decisions. It is:
-
-- **supported** when all structural, truthfulness, counterfactual, calibration, and usefulness gates pass;
-- **partially supported** when Contribution auditing is reliable but JD usefulness is not yet better than the baseline, or vice versa; and
-- **rejected for expansion** when assessments cannot be traced, repeated, responsibility-separated, or kept semantically stable.
-
-No résumé-generation or Gap Sprint phase should begin merely because the data model or demo UI works.
-
-## Later Product Milestones — Visible but Deferred
-
-| Later feature | Product role | Dependency on this validation | Why deferred |
+| Anti-feature | Why requested | Why problematic | Required alternative |
 |---|---|---|---|
-| Dynamic JD-tailored résumé generation | **Core final-product output:** select the most relevant Experiences/Contributions and truthfully rewrite them for each JD | Stable Skill graph, evidence-backed JD comparison, provenance-preserving selection | Building narrative generation before validating assessment usefulness risks optimizing polished output over truth |
-| Tailored résumé human review, diff, layouts, and PDF/DOCX export | Lets the user inspect changes and produce an application artifact | Truthful dynamic résumé generation | Presentation and export do not test the current hypothesis |
-| Evidence-producing Gap Sprints | Converts reachable gaps into bounded work that can create new evidence | Reliable gap identification and anchor semantics | A gap plan is unsafe if the baseline assessment is not calibrated |
-| Post-sprint Grill-Me and graph reassessment | Closes the learn/build/evidence loop | Gap Sprint artifacts plus stable versioned reassessment | Requires longitudinal comparison beyond the initial STOA validation |
-| Broader career ingestion | Adds employment, projects, research, publications, education, teaching, open source, internships, and other Experiences | Proven model and scalable ingestion contracts | Entire-career modeling inflates fixture and review scope |
-| Large ontology adapter and normalization coverage | Improves aliases, concepts, domains, tasks, and cross-source interoperability | Stable internal Skill semantics | Ontology coverage must not define or propagate user mastery |
-| Persistent multi-cycle career workspace | Stores current state, historical snapshots, reviews, gaps, work artifacts, and progress | Proven artifacts and versioning rules | Current milestone needs only a minimal reproducible validation record |
-| Multi-user product UI and accounts | Makes the workflow usable as a service | Stable workflow and privacy/security design | A complex frontend does not validate the assessment hypothesis |
+| Resume-as-complete-career import | Fast bootstrap | Resumes are selective artifacts and can omit older or non-targeted work | Treat each resume as one declared source; require category coverage and user addition/confirmation |
+| Automatic “full career” declaration | Removes a user checkpoint | Completeness is unknowable without the subject's scope and cutoff authority | Seal “all known items as of cutoff,” with explicit unavailable sources and unresolved states |
+| One universal status field | Appears simpler | Collapses confirmed existence, evidence sufficiency, responsibility, review, and admission; valid combinations become impossible | Preserve separate authority axes and derive the visible work state |
+| Bulk accept for inventory or JD extraction | Saves clicks | One bad merge or requirement can contaminate the canonical graph or evaluation | Require item review plus one hash-bound whole-artifact confirmation |
+| Scoring pending or unresolved nodes as zero | Produces total coverage | Confuses missing review with missing capability and biases the JD result | Return uncertainty/missing evidence and keep mastery absent |
+| Letting unreviewed claims contribute a discounted score | Feels nuanced | Any nonzero contribution launders an unreviewed claim into mastery | Exclude it completely until the existing review/admission path succeeds |
+| Skill propagation from JD wording, résumé wording, ontology adjacency, repository presence, or title | Fills sparse graphs | None proves personal capability or responsibility | Use these only to propose audit candidates and follow-up questions |
+| Choosing the three JDs for the user | Creates a tidy experiment | Allows cherry-picking and removes source authority | User selects exactly three; system records the selection without substituting examples |
+| Re-parsing a live URL during evaluation | Keeps postings current | The source can disappear or change after acceptance | Evaluate retained raw bytes; a changed posting is a new source/version |
+| Silent correction of an accepted JD | Keeps workflow moving | Rewrites experimental input after results are known | Create a new immutable packet and rerun all dependent evaluation |
+| One composite career/JD score | Easy headline | Mixes stable mastery with confidence, context, duration, and target-specific relevance | Keep these values separate and report requirement-level judgments and limitations |
+| Averaging away a critical fabrication or unstable run | Preserves a good mean | Hides exactly the truthfulness failure the milestone tests | Treat the frozen critical-fabrication rule as a hard failure and report each attempt |
+| Graph explorer as the milestone goal | Visually persuasive | Can consume the phase while proving neither completeness nor JD usefulness | Use inspectable reports/CLI views sufficient for review; defer graph visualization |
+| Hiring, interview, offer, or employment-effectiveness claim | Makes results sound commercially strong | The three-JD development evaluation cannot establish these outcomes | State only the bounded core-hypothesis result and its generalization limits |
 
-## Anti-Features and Explicit Exclusions
+## Acceptance Behavior by Actor
 
-| Anti-feature / exclusion | Why it is tempting | Why it is harmful now | Required alternative |
+| Checkpoint | User must be able to | Evaluator must be able to | Blocking condition |
 |---|---|---|---|
-| Full résumé compiler in this milestone | Produces a visible, impressive demo | Expands scope and can hide weak assessment behind good prose | Emit structured JD comparison and selected evidence only; keep résumé generation as the next core product output |
-| Experience-, credential-, title-, or repository-level mastery inference | Fast and easy to automate | Confuses association with demonstrated capability | Require an audited Contribution and explicit assessment basis |
-| Keyword match percentage as the success metric | Easy to compute and familiar from résumé tools | Measures textual overlap, not capability, truthfulness, centrality, or confidence | Compare structured JD expectations with assessed Skills and cite Contributions |
-| Ontology `impliesKnowingSkills` propagation into user mastery | Rapidly fills the graph | Creates unsupported capability claims | Use ontology relations only for normalization/discovery; independently assess every user Skill |
-| One composite “skill score” mixing mastery, evidence, duration, relevance, and recency | Produces a single sortable number | Makes the score target-dependent and uninterpretable | Keep user mastery stable and expose other signals separately |
-| Arithmetic accumulation into expert bands | Makes aggregation straightforward | Many weak uses can manufacture expertise | Use anchor-aware aggregation with explicit higher-band evidence |
-| Opaque LLM final scores | Reduces implementation effort | Cannot be calibrated, audited, or defended | Store structured assessment basis, evidence links, version, counterfactual tests, and human review |
-| GitHub activity or artifact volume as privileged proof | Appears objective and plentiful | Activity may be team-owned, generated, irrelevant, or not representative of understanding | Inspect artifacts as supporting evidence and verify ownership/capability through Contribution grilling |
-| Freezing the final formula before fixtures | Creates premature decisiveness | Encodes untested assumptions and encourages tuning to the first example | Validate candidate rules against golden and adversarial cases; version calibration decisions |
-| Graph database, large-scale ontology ingestion, or event-driven infrastructure | Sounds architecturally aligned with a “graph product” | Adds operational complexity before the internal model is stable | Use the smallest inspectable local representation that supports tests |
-| Automated applications, recruiter tooling, job-site automation, application tracker, cover letters, or generic interview prep | Adjacent to résumé products | Unrelated to the first hypothesis and distracts from assessment validity | Keep explicitly outside this project |
+| Inventory proposal | Inspect sources and every proposed item; add, edit, split, merge, or flag uncertainty | Reconcile source candidates to final IDs and see no unexplained omission | Any source candidate lacks a disposition or any supported Experience category lacks a user response |
+| Inventory seal | Confirm the exact snapshot and cutoff without being forced to resolve every unknown | Verify signature/reviewer, counts, hash, and unresolved-state summary | No explicit user confirmation or snapshot changed after confirmation |
+| Assessment readiness | See why a Contribution is pending and pause/resume its existing audit | Prove unresolved/evidence-insufficient items never entered aggregation | Any mastery result cites a non-reviewed or detached assessment |
+| JD selection | Supply and identify exactly three real JDs | Verify corpus count, distinct source hashes, and user-selection record | Count is not exactly three or a source is synthetic/substituted without disclosure |
+| JD item review | Correct every interpreted field with adjacent source context | Reconstruct spans, proposal, corrections, and reviewer decisions | Missing/invalid span, unreviewed item, or silent model repair |
+| JD acceptance | Accept each corrected packet as a whole | Verify immutable acceptance against raw and proposal hashes | Accepted bytes differ from reviewed bytes or an accepted packet was overwritten |
+| Evaluation | Provide only scheduled reviews; not be asked to change truth to improve results | Reproduce every run, see all attempts, blind assignment, baseline, disagreements, and holdouts | Graph/JD/charter drift, hidden exclusion, missing attempt, or unsealed review |
+| Decision | See a plain explanation of what is supported, what failed, and what remains uncertain | Reapply frozen decision rules mechanically and enumerate blockers | Decision label cannot be regenerated from retained gate evidence |
 
 ## Feature Dependencies
 
 ```text
-[Pinned provenance baseline]
-          │
-          ├──> [STOA Experience/Contribution/Evidence fixture]
-          │             │
-          │             ├──> [artifact inspection]
-          │             └──> [responsibility attribution]
-          │                           │
-          └───────────────────────────┴──> [one-question Contribution Grill-Me]
-                                                   │
-                                                   └──> [Contribution–Skill assessment]
-                                                              │
-                                  [mastery anchors] ───────────┤
-                                                              └──> [stable user Skill aggregation]
-                                                                          │
-[small structured JD fixtures] ────────────────────────────────────────────┤
-                                                                          └──> [evidence-bearing JD comparison]
-                                                                                      │
-[golden/adversarial fixtures + human calibration] ────────────────────────────────────┘
-                                                                                      │
-                                                                                      └──> [core-hypothesis decision]
-                                                                                                │
-                                                                                                ├──> [dynamic tailored résumé]
-                                                                                                └──> [Gap Sprint loop]
+[Declared career sources + cutoff]
+              │
+              v
+[All-known-item proposal] ──> [item correction / split / merge / missing-item add]
+              │                                      │
+              └──────────────────────────────────────┘
+                                                     v
+                                      [user-confirmed inventory seal]
+                                                     │
+                                                     v
+                                      [canonical status-aware graph]
+                                         │                       │
+                                         │                       └──> pending / insufficient /
+                                         │                            unresolved stay non-scoring
+                                         v
+                              [existing Contribution audit]
+                                         │
+                                         v
+                              [existing assessment review]
+                                         │
+                                         v
+                              [review-only mastery projection]
+
+[Raw JD 1] ─┐
+[Raw JD 2] ─┼──> [source-bound proposals] ──> [item correction] ──> [three immutable packets]
+[Raw JD 3] ─┘                                                               │
+                                                                            │
+[frozen charter + sealed graph] ─────────────────────────────────────────────┘
+                                      │
+                                      v
+ [deterministic + adversarial + stability + human + blind + holdout evaluation]
+                                      │
+                                      v
+                 [supported / partially-supported / rejected decision]
 ```
 
 ### Dependency Notes
 
-- **Artifact inspection and responsibility attribution precede mastery judgment:** otherwise the audit can reward facts already visible in files or work performed by others.
-- **Contribution–Skill assessments precede user aggregation:** direct Experience-to-Skill aggregation violates the project model.
-- **Mastery anchors precede aggregation:** the aggregation rule must implement capability semantics, not invent them.
-- **Structured JDs and stable user Skills are independent inputs:** JD parsing must not mutate the capability record.
-- **Human calibration is part of validation, not a post-launch enhancement:** the project cannot accept its own automated labels as ground truth.
-- **Dynamic résumé generation and Gap Sprints depend on a supported hypothesis:** both are downstream consumers of the graph and should not be used to prove it retrospectively.
+- **Inventory proposal precedes canonicalization:** merging first can erase omissions and responsibility distinctions.
+- **Inventory seal precedes evaluation readiness:** the system must know the coverage denominator before claiming a full-career graph.
+- **Complete inventory does not require complete mastery:** explicit unresolved states prevent an endless audit from blocking the experiment while keeping uncertainty truthful.
+- **Assessment review precedes mastery projection:** existing admission and aggregation code remains the sole score authority.
+- **All three JD packets must be accepted before any final evaluation output:** otherwise the corpus can be tuned after results are visible.
+- **The evaluation reads but never writes the graph:** any graph change requires a new graph snapshot and full rerun.
+- **Decision finalization follows human/blind review and adjudication:** automated checks cannot substitute for the frozen usefulness criteria.
 
-## Validation MVP Definition
+## v1.1 MVP Definition
 
 ### Launch With
 
-- [ ] One representative STOA Experience decomposed into enough distinct Contributions to exercise different responsibility, mastery, centrality, and confidence cases.
-- [ ] Artifact-aware, one-question-at-a-time Contribution Grill-Me with resumable Q/A history.
-- [ ] Explicit attribution for user, team/other-person, assisted, and third-party work.
-- [ ] Structured Contribution–Skill assessments with context, duration, and assessment basis.
-- [ ] Anchor-aware user Skill aggregation with anti-inflation counterfactuals.
-- [ ] A small, contrasting structured JD fixture set and evidence-bearing comparisons.
-- [ ] Deterministic invariants, golden good/bad cases, adversarial cases, three-run stability checks, and documented human calibration.
-- [ ] A baseline comparison showing whether the graph improves JD decisions over flat keyword matching.
+- [ ] One user-confirmed, hash-bound inventory of all known career items as of a recorded cutoff, including explicit source/category coverage and unresolved states.
+- [ ] One canonical graph containing every confirmed and unresolved known item with stable identity and revision lineage.
+- [ ] A deterministic review-only mastery projection using the existing audit, assessment, admission, and no-inflation aggregation paths.
+- [ ] A status-aware comparison rule that treats pending, insufficient-evidence, and unresolved-responsibility content as uncertainty rather than capability or zero mastery.
+- [ ] Exactly three user-selected raw JDs with source-bound proposals, item-level correction, and immutable whole-packet acceptance.
+- [ ] One sealed evaluation corpus binding the graph, three JDs, policies/configuration, baseline assignment, and frozen charter.
+- [ ] Complete deterministic, adversarial, stability, human, blind-baseline, holdout/leave-one-out, and feasible replication evidence.
+- [ ] One reproducible final decision with blockers, limitations, deviations, and no hiring-outcome claim.
 
-### Add After Validation
+### Add Only After This Decision
 
-- [ ] Dynamic JD-tailored résumé generation — first downstream product phase after assessment usefulness is supported.
-- [ ] Provenance-preserving résumé review/diff and export — add after truthful narrative selection and rewriting work.
-- [ ] Gap Sprint generation and reassessment — add after gap judgments are calibrated.
-- [ ] Additional Experience types and larger JD coverage — add when new cases expose a model limitation, not for completeness theater.
+- [ ] Dynamic JD-tailored résumé selection and rewriting — only if the decision supports a scoped expansion, with every claim traced to reviewed Contributions.
+- [ ] Human résumé wording review, diff, layout, and export — after truthful selection/rewriting exists.
+- [ ] Evidence-producing gap work and post-work reassessment — after gap judgments and graph usefulness are supported.
+- [ ] More JDs or additional users — only to test a named generalization gap, not to rescue the preregistered three-JD result.
 
 ### Future Consideration
 
-- [ ] Large ontology ingestion and richer graph relations.
-- [ ] Multi-user SaaS, account system, and complex interactive UI.
-- [ ] Full longitudinal career workspace and progress views.
+- [ ] Continuous LinkedIn/GitHub/portfolio synchronization and arbitrary document ingestion.
+- [ ] Multi-user SaaS, authentication, billing, recruiter/employer workflows, or applicant ranking.
+- [ ] Large skill-ontology ingestion, embeddings-first inference, graph database, or interactive graph explorer.
+- [ ] Job application automation, job-board scraping, cover letters, generic interview prep, and application tracking.
+- [ ] Claims about interview, offer, hiring, employment, or long-term career outcomes.
 
-## Prioritization Matrix
+## Feature Prioritization Matrix
 
-| Feature | Validation value | Implementation cost | Priority |
+| Feature | User value | Implementation cost | Priority |
 |---|---:|---:|---:|
-| STOA Contribution/Evidence fixture | HIGH | MEDIUM | P1 |
-| Artifact-aware Contribution Grill-Me | HIGH | HIGH | P1 |
-| Responsibility attribution | HIGH | HIGH | P1 |
-| Structured Contribution–Skill assessment | HIGH | MEDIUM | P1 |
-| Anchor-aware aggregation and anti-inflation tests | HIGH | HIGH | P1 |
-| Structured small-JD comparison | HIGH | MEDIUM | P1 |
-| Golden/adversarial/repeated-run/human calibration harness | HIGH | HIGH | P1 |
-| Blinded comparison against keyword baseline | HIGH | MEDIUM | P1 |
-| Dynamic JD-tailored résumé generation | HIGH final-product value, LOW current validation value | HIGH | P2 |
-| Gap Sprint and reassessment | HIGH final-product value, LOW current validation value | HIGH | P2 |
-| Export/templates/UI polish | MEDIUM | HIGH | P3 |
-| Large ontology or graph infrastructure | LOW now | HIGH | P3 |
+| Source/cutoff manifest and coverage ledger | HIGH | MEDIUM | P1 |
+| Item correction and user inventory seal | HIGH | HIGH | P1 |
+| Canonical status-aware graph | HIGH | HIGH | P1 |
+| Review-only mastery projection | HIGH | MEDIUM | P1 |
+| Status-aware JD uncertainty | HIGH | HIGH | P1 |
+| Exactly-three raw-JD intake and selection custody | HIGH | MEDIUM | P1 |
+| Item-level JD correction and immutable acceptance | HIGH | HIGH | P1 |
+| Sealed real-input evaluation runner | HIGH | HIGH | P1 |
+| Human/blind review and decision finalizer | HIGH | HIGH | P1 |
+| Full-career audit prioritization view | MEDIUM | MEDIUM | P1; needed to avoid user blockage |
+| Dynamic résumé generation | HIGH downstream | HIGH | P2 after supported expansion |
+| Gap Sprint and reassessment | HIGH downstream | HIGH | P2 after supported expansion |
+| Graph visualization or production UI | LOW for validation | HIGH | P3 |
 
-## Exact Upstream Precedents
+## Competitor and Precedent Analysis
 
-| Category | Upstream precedent | What to adapt | What not to inherit |
+External pages establish interface expectations, not efficacy. Vendor-reported interview or hiring outcomes were not used as evidence.
+
+| Precedent | Publicly emphasized behavior | Useful expectation | v1.1 approach |
 |---|---|---|---|
-| One-question grilling | `references/upstream/mattpocock-skills/skills/productivity/grilling/SKILL.md` | One question at a time; inspect the environment for facts; let the human decide unresolved judgments | Generic planning-interview semantics or an unstructured transcript as the data model |
-| Responsibility boundaries | `references/upstream/tabiya-compass/backend/app/agent/experience/experience_entity.py` and `.../skill_explorer_agent/_responsibilities_extraction_tool.py` | Separate responsibilities, non-responsibilities, and other people’s responsibilities | Treat responsibilities as equivalent to Skills or mastery |
-| Attribution fixtures | `references/upstream/tabiya-compass/backend/evaluation_tests/skill_explorer_agent/_responsibilities_extraction_tool_test.py` | Known-answer cases for mixed pronouns, manager decisions, and other-person work; repeated LLM evaluation | The upstream’s broad experience-level granularity |
-| Resumable interview state | `references/upstream/tabiya-compass/backend/app/agent/skill_explorer_agent/skill_explorer_agent.py` | Preserve questions, answers, explored units, and resumable state | Experience-level Q/A as a substitute for Contribution audit records |
-| Coverage and stopping | `references/upstream/tabiya-compass/backend/app/agent/skill_explorer_agent/_conversation_llm.py` | Skip covered topics, avoid repeat questions, clarify contradictions, stop on disengagement | Its deliberate avoidance of deep specifics; this project must probe concrete Contribution capability |
-| Structured extraction and role rubrics | `references/upstream/hiring-agent/models.py`, `roles.py`, and `evaluator.py` | Pydantic output contracts, role-specific categories, evidence required for each judgment | LLM-generated résumé scores as calibrated mastery |
-| Versioned career workspace | `references/upstream/cv-market-learning-planner/scripts/run_cycle.py` and `scripts/update_progress.py` | Separate current state from history; append reviews; deterministic file preparation | Exercise generation, fixed learning levels, or free-form gap scoring in this milestone |
-| JD keyword baseline | `references/upstream/resume-matcher/docs/agent/features/jd-match.md` | Use its keyword extraction/match concept only as a deliberately weak comparison baseline | Match percentage as capability or success |
-| Golden and adversarial evaluation | `references/upstream/resume-matcher/apps/backend/tests/evals/golden/cases.py`, `scorers.py`, `test_scorers.py`, and `test_tailoring_eval.py` | Good/bad fixtures, deterministic truthfulness invariants, semantic rubric layer | Letting an LLM judge replace human calibration |
-| Later résumé interaction and export | `references/upstream/resume-matcher/docs/agent/features/enrichment.md`, `resume-templates.md`, and builder components | Later: additive review, diff, layouts, export, JD-aware presentation | A flat master résumé or presentation model as the source of truth |
+| Europass | Broad personal profile of experiences, projects, achievements, skills, and documents; user selects a subset for each CV | Maintain one broad career inventory and derive role-specific views later | Add explicit cutoff/completeness seal, Contribution granularity, review states, and mastery authority |
+| LinkedIn Profile | User adds/edits/deletes Experiences and associates Skills with them | Item-level user control and contextual Skill association are table stakes | Preserve correction but do not let association establish mastery |
+| Teal | Master résumé, duplicated role-specific versions, pasted-JD keyword/skill matching | Users expect a broad source and job-specific selection | Keep résumé generation deferred; evaluate a reviewed career graph rather than résumé wording |
+| Huntr | Extracts JD keywords/responsibilities/qualifications and lets users accept, edit, or ignore AI suggestions with explanations | Fine-grained correction and explanation are expected in AI-assisted career tools | Review requirement items against exact source spans, then immutably accept the whole packet before scoring |
+| Jobscan | Compares résumé text and JD text for hard/soft skill match | A simple, reproducible text baseline is familiar | Use only as the frozen weak baseline; never treat text overlap as capability |
+| W3C PROV / Web Annotation | Models derivation, revision, attribution, primary source, and source segment selectors | Lineage and source anchoring should survive transformation | Use project-native hashes/versions/spans; do not add RDF infrastructure |
+| NIST AI RMF / APA / OSF | Repeatable documented evaluation, human oversight, relevant conditions, preregistered decisions | Evaluation evidence and human authority must be fixed before conclusions | Execute the existing charter and retain negative outcomes, variance, and disagreement |
 
-## Competitive/Precedent Comparison
+## Research Flags for Planning
 
-| Capability | Pinned upstream pattern | Limitation for this project | Required project behavior |
-|---|---|---|---|
-| Experience exploration | Tabiya Compass extracts and classifies responsibilities from resumable conversation | Experience-level and occupation/skill linking do not establish mastery | Audit distinguishable Contributions and assess each Skill relationship |
-| Relentless clarification | Matt Pocock Skills asks one question at a time and inspects artifacts first | Produces shared understanding, not a career evidence model | Persist structured assessment entities and observable capability boundaries |
-| Career-gap planning | CV Market Learning Planner compares CV evidence with market demand and preserves history | CV-level evidence and planning artifacts are too coarse for current truth claims | Ground every gap in calibrated Skill evidence and Contribution assessments |
-| Role scoring | Hiring Agent uses structured, evidence-bearing role rubrics | Final LLM scores are not a validated user mastery model | Keep stable mastery separate from role/JD match and require human calibration |
-| JD matching/tailoring | Resume Matcher highlights keywords and tests truthful tailoring with golden cases | Keyword coverage is not capability; tailoring is downstream | Use keywords only as baseline; compare structured expectations with assessed capability |
-
-## Human Review and Calibration Contract
-
-- Human review is mandatory for ambiguous, high-band, low-confidence, responsibility-disputed, and hypothesis-decision cases.
-- Reviewers see source Evidence, audit Q/A, structured assessments, and anchor definitions; they do not need hidden model reasoning.
-- Review dimensions are separate: responsibility correctness, Skill specificity, mastery-anchor fit, centrality, evidence confidence, aggregation validity, and JD usefulness.
-- Reviewers first judge independently. Disagreements are recorded before adjudication to expose ambiguous rubrics and unstable cases.
-- Calibration changes are versioned and re-run against the full golden/adversarial set.
-- An LLM judge may triage or apply a rubric, but it cannot be the sole reference label for the same system’s assessment quality.
-
-## Research Gaps to Resolve During Planning
-
-- Select the exact STOA Contributions and evidence artifacts that span enough assessment cases without expanding into full career modeling.
-- Pilot the review rubric, then pre-register acceptable reviewer agreement and repeated-run variance thresholds.
-- Decide the minimum internal Skill normalization needed for the JD set; defer broad ontology coverage.
-- Define a simple flat keyword/résumé baseline and blinded comparison protocol before seeing final system outputs.
-- Decide which aggregation candidates enter calibration; do not freeze the final formula in project initialization.
+- **Inventory reconciliation is HIGH complexity:** duplicate Experiences, overlapping projects/employment, sparse old records, and user-added missing items need explicit merge/split lineage. Plan dedicated fixtures before scaling data entry.
+- **Status-aware JD semantics is HIGH complexity:** distinguish missing reviewed evidence from reviewed evidence of a lower capability. This likely requires phase-specific tests around `unsupported`, `uncertain`, `missing-capability`, and `missing-evidence`.
+- **User time is a real blocker:** inventory seal, assessment reviews, selection/acceptance of three JDs, and blind/human evaluation are hard checkpoints. Plan resumable review packets and visible readiness criteria; do not hide them behind automation.
+- **Exactly three means corpus custody, not just a count:** replacement after acceptance must invalidate dependent results and require a full rerun.
+- **Decision rules must remain frozen:** if the current charter lacks a desired numeric threshold, record that limitation instead of adding a post-hoc rule after observing the three JDs.
+- **“Full career” remains bounded:** the only defensible claim is all known items from declared sources as of the user-confirmed cutoff. The evaluation cannot establish universal career completeness or downstream hiring effectiveness.
 
 ## Sources
 
-### Pinned project sources — HIGH confidence
+### Direct project evidence — HIGH confidence
 
-- `.planning/PROJECT.md`
-- `references/README.md`
-- Tabiya Compass at pinned commit `8470bea7f68d0990898f441a12bbb6a261a0ef34`
-- Matt Pocock Skills at pinned commit `2ab958093e83e0ec752e6c1c5932da465bf23e0c`
-- CV Market Learning Planner at pinned commit `ea507847c7a42a1a54becc853fadd15506479b38`
-- Hiring Agent at pinned commit `70fd3ea9aa74d8f76519ec643a99f9871003e70d`
-- Resume Matcher at pinned commit `ad7754c8b2c3ecee21314ee0b49b0e07d89e3e09`
+- `.planning/PROJECT.md` — v1.1 goal, active target features, product boundary, and truthfulness constraints.
+- `.planning/milestones/v1.0-REQUIREMENTS.md` — completed foundation versus deferred real-input evaluation.
+- `validation/jd/evaluation-charter.json` — frozen three-attempt case inventory, baseline, blind-review, critical-fabrication, and limitation contract.
+- `src/career_evidence_graph/domain/models.py` — existing assessment, review, JD source-span, accepted-packet, comparison, and gap semantics.
+- `src/career_evidence_graph/audit/workflow.py` — existing one-question audit, attribution, unresolved/skip behavior, and immutable conclusion review.
+- `src/career_evidence_graph/assessment.py` — existing review/admission authority, no-inflation aggregation, immutable versions, and policy calibration.
+- `src/career_evidence_graph/jd.py` — existing private intake, exact-three readiness checks, reviewed-graph loader, source-bound comparison, graph immutability, and charter loader.
 
-### Cross-checks — MEDIUM confidence
+### Official and primary external cross-checks — MEDIUM confidence
 
-- [Human Evaluation of Large Language Models: A Review and Protocol Selection Framework](https://www.mdpi.com/2673-2688/7/5/174) — supports explicit rubrics, calibration, uncertainty, and human adjudication for consequential evaluation.
-- [A Survey on Evaluation of Large Language Models](https://doi.org/10.1145/3641289) — supports combining task-specific criteria, automatic checks, and human evaluation rather than relying on one metric.
-- [41 CFR § 60-3.15 — Documentation of impact and validity evidence](https://www.law.cornell.edu/cfr/text/41/60-3.15) — cross-check for relating a measured construct to concrete work behavior and documenting validity evidence.
+- [Europass: complete a profile](https://europass.europa.eu/en/how-complete-my-europass-profile), [what Europass is](https://europass.europa.eu/en/what-europass), and [create a CV](https://europass.europa.eu/en/create-europass-cv) — broad editable profile followed by selective CV construction.
+- [LinkedIn Help: manage the Experience section](https://www.linkedin.com/help/linkedin/answer/a593695) — item-level experience editing and Skill association.
+- [Microsoft Research: Guidelines for Human-AI Interaction](https://www.microsoft.com/en-us/research/?p=564561) — efficient correction, scoped uncertainty, explanations, feedback, and visible consequences.
+- [W3C PROV-O](https://www.w3.org/TR/prov-o/) — primary source, derivation, revision, attribution, association, delegation, and invalidation lineage.
+- [W3C Web Annotation Data Model](https://www.w3.org/TR/annotation-model/) — source quote/position selectors and source-state concerns.
+- [NIST AI RMF Core](https://airc.nist.gov/airmf-resources/airmf/5-sec-core/) and [Measure Playbook](https://airc.nist.gov/airmf-resources/playbook/measure/) — documented repeatable TEVV, human oversight, independent/domain review, and operationally relevant evaluation.
+- [APA: Responsible Use of AI in Assessment](https://www.apa.org/science/programs/testing/responsible-ai-assessment) — validity, reliability, transparency, and human oversight in AI-assisted assessment.
+- [OSF: Registrations and Preregistrations](https://help.osf.io/article/330-welcome-to-registrations) — time-stamped read-only plans and predeclared decision criteria.
+- [Wei et al., Human Baselines in Model Evaluations](https://proceedings.mlr.press/v267/wei25s.html) — baseline design and reporting rigor.
+
+### Current product pages — MEDIUM confidence for advertised features only
+
+- [Teal Resume Builder](https://www.tealhq.com/tools/resume-builder) — master résumé, per-role versions, and JD matching.
+- [Huntr Resume Tailor](https://api.huntr.co/product/resume-tailor) — requirement-oriented matching and per-suggestion accept/edit/ignore controls.
+- [Jobscan tutorial](https://www.jobscan.co/jobscan-tutorial) — résumé/JD hard- and soft-skill text matching as a familiar baseline.
 
 ---
-*Feature research for the Career Evidence Graph core-hypothesis validation project.*
+*Feature research for: v1.1 Full Career Graph and Real JD Validation*
+*Researched: 2026-08-28*

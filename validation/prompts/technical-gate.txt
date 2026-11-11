@@ -1,0 +1,1 @@
+Return exactly the JSON object {"status":"ok"}. Do not inspect files or call tools.
