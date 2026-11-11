@@ -480,10 +480,14 @@ def application_country(location):
             # establish a positive jurisdiction or be silently discarded.
             return None
     if not matches:
+        # 2026-11-11, Celonis: "Zürich Metropolitan Area". A well-known city named
+        # anywhere in the location counts, whatever stands around it.
+        text = location.casefold()
         cities = {
-            _CITIES.get(re.sub(r"^\d{4,5}\s+|\s+\d{4,5}$", "", part).casefold())
-            for part in components
-        } - {None}
+            country
+            for city, country in _CITIES.items()
+            if re.search(r"(?<!\w)" + re.escape(city) + r"(?!\w)", text)
+        }
         if len(cities) == 1:
             return cities.pop()
     if len(matches) != 1:

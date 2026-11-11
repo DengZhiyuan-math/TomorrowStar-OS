@@ -1120,6 +1120,10 @@ def test_score_tiers_lean_toward_the_user_near_each_line(upper, review, tier):
         ({"location": "Zurich, London"}, None),
         ({"location": "Zurich", "job_description": "We are based in Zurich."}, "CHE"),
         ({"location": "8048 Zürich, ZH"}, "CHE"),
+        # 2026-11-11, Celonis: the city counts wherever it stands in the location.
+        ({"location": "Zürich Metropolitan Area"}, "CHE"),
+        ({"location": "Greater Munich Metropolitan Area"}, "DEU"),
+        ({"location": "Bay Area"}, None),
         ({"location": "Springfield", "job_description": "We are based in Springfield."}, None),
         # 2026-11-10, Julius Baer: only Indeed's country site named the country.
         (
