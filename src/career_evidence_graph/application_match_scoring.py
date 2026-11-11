@@ -337,9 +337,9 @@ def score_tier(score, *, needs_review=False):
     if score is None or score.get("upper") is None:
         return "approve"
     upper = score["upper"]
-    tier = (
-        "manual" if upper >= 75 else "approve" if upper >= 55 else "auto" if upper >= 15 else "skip"
-    )
+    # 2026-11-11 (user decision): 55-75 no longer waits for approval; it proceeds like
+    # the band below it. A missing score or a model disagreement still asks.
+    tier = "manual" if upper >= 75 else "auto" if upper >= 15 else "skip"
     if needs_review and tier in {"auto", "skip"}:
         tier = "approve"
     return tier

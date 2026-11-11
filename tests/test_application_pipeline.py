@@ -1083,8 +1083,10 @@ def test_a_qualification_conflict_names_the_hard_conditions_not_met(environment)
         (14.9, False, "skip"),
         (15, False, "auto"),
         (54.9, False, "auto"),
-        (55, False, "approve"),
-        (74.9, False, "approve"),
+        # 2026-11-11: 55-75 proceeds without asking; a model disagreement still asks.
+        (55, False, "auto"),
+        (74.9, False, "auto"),
+        (60, True, "approve"),
         (75, False, "manual"),
         (10, True, "approve"),
         (40, True, "approve"),
