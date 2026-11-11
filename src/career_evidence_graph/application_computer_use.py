@@ -293,19 +293,27 @@ def stage_files(context, folder=None):
     answers = {row.get("question"): row.get("value") for row in context["confirmed_answers"]}
     stem = "_".join(re.findall(r"[A-Za-z0-9]+", str(answers.get("Full name") or "")))
     folder.mkdir(mode=0o700, exist_ok=True)
-    for old in [*folder.glob("*CV.pdf"), *folder.glob("*Cover_Letter.pdf")]:
-        old.unlink()
     staged = dict(context)
+    kept = set()
     for key, suffix in (("resume_path", "CV"), ("cover_letter_path", "Cover_Letter")):
         if context.get(key):
             target = folder / (f"{stem}_{suffix}.pdf" if stem else f"{suffix}.pdf")
-            shutil.copyfile(context[key], target)
+            kept.add(target)
+            # 2026-11-11, Julius Baer: a third fill of one job found the CV in Chrome's
+            # file chooser as an unresolvable reference with Open disabled, after each
+            # fill had deleted and recreated it. An unchanged file now stays as it is
+            # and a changed one is rewritten in place.
+            if not target.exists() or target.read_bytes() != Path(context[key]).read_bytes():
+                shutil.copyfile(context[key], target)
             home = Path.home()
             staged[key] = (
                 "~/" + target.relative_to(home).as_posix()
                 if target.is_relative_to(home)
                 else str(target)
             )
+    for old in [*folder.glob("*CV.pdf"), *folder.glob("*Cover_Letter.pdf")]:
+        if old not in kept:
+            old.unlink()
     return staged
 
 

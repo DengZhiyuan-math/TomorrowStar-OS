@@ -320,3 +320,27 @@ def test_the_helpers_pick_new_options_and_attach_through_the_chooser(tmp_path):
         "key Return",
         "click 238",
     ]
+
+
+def test_a_refill_keeps_the_staged_file_itself_and_rewrites_a_changed_one(tmp_path):
+    """2026-11-11: a recreated CV showed in Chrome's chooser with Open disabled."""
+    from career_evidence_graph.application_computer_use import stage_files
+
+    source = tmp_path / "resume.pdf"
+    source.write_bytes(b"one")
+    folder = tmp_path / "Apply"
+    context = {
+        "resume_path": str(source),
+        "cover_letter_path": None,
+        "confirmed_answers": [{"question": "Full name", "value": "A B"}],
+    }
+    stage_files(context, folder)
+    staged = folder / "A_B_CV.pdf"
+    first = staged.stat()
+    stage_files(context, folder)
+    assert (staged.stat().st_ino, staged.stat().st_mtime_ns) == (first.st_ino, first.st_mtime_ns)
+    source.write_bytes(b"two")
+    (folder / "Old_Name_CV.pdf").write_bytes(b"old")
+    stage_files(context, folder)
+    assert staged.read_bytes() == b"two" and staged.stat().st_ino == first.st_ino
+    assert [path.name for path in folder.iterdir()] == ["A_B_CV.pdf"]
