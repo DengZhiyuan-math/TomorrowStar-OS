@@ -430,6 +430,57 @@ def test_a_closed_posting_leaves_unrecorded_and_easy_apply_with_its_reason(
     assert flow.applications.get_application(skipped[0]["application_id"])["status"] == "drafting"
 
 
+def test_a_removed_or_already_recorded_job_leaves_before_any_analysis(
+    queue_environment, monkeypatch
+):
+    from career_evidence_graph import job_listing_links
+
+    # 2026-11-11 (user decision): before matching, the employer's page is read for a
+    # removal and the records for the same job; neither costs analysis or materials.
+    # An unreadable page is not a removal and goes on.
+    pipeline, flow, _intake, _worker, _reads, _fetches, _messages = queue_environment
+    employer = "https://careers.example.com/jobs/"
+    recorded = flow.applications.create_application(
+        {
+            "company": "Synthetic Labs",
+            "role_title": "Systems Engineer",
+            "url": employer + "10001",
+            "location": "Zurich, Switzerland",
+            "job_description": "Python",
+        }
+    )
+    flow.applications.update_application(
+        recorded["id"], {"status": "applied"}, recorded["revision"]
+    )
+    monkeypatch.setattr(
+        job_listing_links,
+        "posting_status",
+        lambda url, read=None: ("open", employer + url.rstrip("/").rsplit("/", 1)[-1]),
+    )
+    monkeypatch.setattr(job_listing_links, "employer_url", lambda target: target)
+    read = []
+    monkeypatch.setattr(
+        job_listing_links,
+        "posting_gone",
+        lambda url: read.append(url) or url.endswith("10000"),
+    )
+    pipeline.start(request_id="removed")
+    filling = drive(pipeline, "filling")
+    left = {
+        flow.applications.get_application(row["application_id"])["url"]: row
+        for row in filling["items"]
+        if row["status"] in {"skipped", "excluded"}
+    }
+    assert left[employer + "10000"]["reason"] == "posting_not_found"
+    assert left[employer + "10001"]["status"] == "excluded"
+    assert all(row["task_id"] is None for row in left.values())
+    assert read[:3] == [employer + "10000", employer + "10001", employer + "10002"]
+    current = next(row for row in filling["items"] if row["status"] not in {"skipped", "excluded"})
+    assert flow.applications.get_application(current["application_id"])["url"] == (
+        employer + "10002"
+    )
+
+
 def test_an_indeed_apply_job_leaves_the_queue_with_its_reason(queue_environment, monkeypatch):
     from career_evidence_graph import indeed_job_source, job_listing_links
 

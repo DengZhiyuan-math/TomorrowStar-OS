@@ -90,3 +90,19 @@ def test_a_phenom_job_applying_elsewhere_opens_on_that_site():
     onlyfy = "https://example.onlyfy.jobs/job/abc"
     assert links.employer_url(onlyfy, fetch=fetch, read_page=read) == onlyfy
     assert reads == [PHENOM]
+
+
+def test_only_a_page_that_says_so_counts_as_gone():
+    # 2026-11-11: read before matching; an unclear read never removes a job.
+    def fetch(receipt):
+        return lambda url: receipt
+
+    assert links.posting_gone(JOB, fetch=fetch({"acquisition_status": "expired"}))
+    assert not links.posting_gone(JOB, fetch=fetch({"acquisition_status": "login_required"}))
+    assert not links.posting_gone(JOB, fetch=fetch({"error_code": "timeout"}))
+    assert not links.posting_gone(JOB, fetch=fetch({"acquisition_status": "available"}))
+
+    def offline(url):
+        raise OSError
+
+    assert not links.posting_gone(JOB, fetch=offline)

@@ -2440,11 +2440,11 @@ class ApplicationPipeline:
 
         A closed posting is marked closed and an Easy Apply or Indeed Apply one keeps
         its job board; each leaves the queue with its reason. An open one moves to the
-        employer's page.
+        employer's page, and leaves as not found when that page says the job is gone.
         Returns the application to continue with, or None when the job was left.
         """
         from .indeed_job_source import apply_route
-        from .job_listing_links import employer_url, posting_status
+        from .job_listing_links import employer_url, posting_gone, posting_status
 
         listing = application.get("listing_url") or application["url"]
         status, target = posting_status(listing)
@@ -2483,6 +2483,11 @@ class ApplicationPipeline:
             final = employer_url(target)
             if final:
                 changes = {"url": final, "listing_url": listing}
+        # 2026-11-11 (user decision): the employer's page is read before matching, not
+        # first at the fill; a removed job leaves here. The fill still checks again.
+        page = changes.get("url") or application["url"]
+        if reason is None and page != listing and posting_gone(page):
+            reason = "posting_not_found"
         if changes:
             application = self.flow.applications.update_application(
                 application["id"], changes, application["revision"]

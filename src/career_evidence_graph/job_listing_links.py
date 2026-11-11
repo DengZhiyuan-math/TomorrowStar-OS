@@ -83,6 +83,18 @@ def resolve_apply_url(url: str, *, read=None, fetch=fetch_job_source) -> str | N
     return employer_url(target, fetch=fetch) if status == "open" else None
 
 
+def posting_gone(url: str, *, fetch=fetch_job_source) -> bool:
+    """Whether the page itself says the job is gone: 404/410 or its own closed notice.
+
+    Read before matching (2026-11-11) so a removed job costs no analysis or materials.
+    A timeout, a sign-in wall or any other unclear read is not a removal.
+    """
+    try:
+        return fetch(url).get("acquisition_status") == "expired"
+    except (OSError, ValueError):
+        return False
+
+
 def employer_url(target: str, *, fetch=fetch_job_source, read_page=None) -> str | None:
     """Follow LinkedIn's offsite URL to the employer's final page."""
     try:
