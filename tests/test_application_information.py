@@ -529,7 +529,7 @@ def test_material_contacts_use_explicit_unique_country_in_application_location()
     library = {"status": "available", "revision": "source", "records": [record]}
     swiss = material_information_library({"id": "job", "location": "Zurich, Switzerland"}, library)
     explicit = material_information_library({"id": "job", "country": "CHE"}, library)
-    unknown = material_information_library({"id": "job", "location": "Zurich"}, library)
+    unknown = material_information_library({"id": "job", "location": "Springfield"}, library)
     assert swiss["revision"] == explicit["revision"]
     assert swiss["revision"] != unknown["revision"]
 

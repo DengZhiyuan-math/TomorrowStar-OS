@@ -196,6 +196,30 @@ _COUNTRIES = {
 }
 # Explicit country names prevent a second, unsupported country being mistaken for
 # a city. Unrecognized or ambiguous locations stay unresolved, never CHE by default.
+# 2026-11-11 (user decision): a well-known city names its country by itself
+# ("8048 Zürich, ZH", "New York", "Dubai"). Names shared by cities in two countries
+# (Cambridge, Birmingham, Valencia) are left out; an unlisted place stays unresolved.
+_CITY_COUNTRIES = {
+    "CHE": "zürich|zurich|zuerich|genève|geneve|geneva|genf|basel|bern|berne|lausanne|zug|lugano"
+    "|luzern|lucerne|winterthur|st. gallen|st.gallen|sankt gallen|biel|neuchâtel|fribourg"
+    "|schaffhausen|chur|baden|aarau|thun|sion|oerlikon|schlieren|dübendorf|wallisellen|opfikon",
+    "USA": "new york|new york city|nyc|san francisco|los angeles|seattle|boston|chicago|austin"
+    "|san jose|palo alto|mountain view|menlo park|sunnyvale|cupertino|redmond|san diego"
+    "|washington|washington dc|atlanta|denver|houston|dallas|miami|philadelphia|pittsburgh"
+    "|new york metropolitan area|san francisco bay area",
+    "GBR": "london|manchester|edinburgh|oxford|glasgow|bristol|leeds|belfast|cardiff",
+    "DEU": "berlin|munich|münchen|muenchen|hamburg|frankfurt|frankfurt am main|stuttgart"
+    "|cologne|köln|düsseldorf|duesseldorf|heidelberg|karlsruhe|dresden|leipzig|nürnberg"
+    "|nuremberg|bonn|aachen|tübingen|darmstadt",
+    "FRA": "paris|lyon|toulouse|marseille|grenoble|nice|bordeaux|lille|nantes|strasbourg",
+    "CAN": "toronto|montreal|montréal|vancouver|ottawa|calgary|waterloo|edmonton",
+    "OTHER": "dubai|abu dhabi|beijing|shanghai|shenzhen|hangzhou|guangzhou|hong kong|singapore"
+    "|tokyo|osaka|seoul|taipei|bangalore|bengaluru|mumbai|delhi|new delhi|hyderabad|sydney"
+    "|melbourne|amsterdam|rotterdam|eindhoven|brussels|vienna|wien|madrid|barcelona|lisbon"
+    "|milan|milano|rome|stockholm|copenhagen|oslo|helsinki|dublin|warsaw|prague|budapest"
+    "|luxembourg|tel aviv|istanbul|riyadh|doha|são paulo|sao paulo|mexico city",
+}
+_CITIES = {city: country for country, names in _CITY_COUNTRIES.items() for city in names.split("|")}
 _OTHER_COUNTRIES = (
     "Afghanistan",
     "Albania",
@@ -398,6 +422,7 @@ def job_country(record):
 
     2026-11-08, Mistral: the location said only "Zurich", while the job page's
     structured field, kept in the JD as "addressCountry: Switzerland", named one.
+    Last comes the country site of the Indeed listing the job was read from.
     """
     country = application_country(record.get("location"))
     if country is not None:
@@ -408,7 +433,21 @@ def job_country(record):
             r"addressCountry:\s*([^\n,;]+)", str(record.get("job_description") or "")
         )
     }
-    return named.pop() if len(named) == 1 and None not in named else None
+    if len(named) == 1 and None not in named:
+        return named.pop()
+    if named:
+        return None
+    # 2026-11-10, Julius Baer: "8048 Zürich, ZH" named no country, while the job came
+    # from ch.indeed.com; Indeed's country site lists that country's jobs.
+    host = urlsplit(str(record.get("listing_url") or "")).hostname or ""
+    return (
+        _INDEED_SITES.get(host.removesuffix(".indeed.com"))
+        if host.endswith(".indeed.com")
+        else None
+    )
+
+
+_INDEED_SITES = {"ch": "CHE", "de": "DEU", "fr": "FRA", "uk": "GBR", "ca": "CAN"}
 
 
 def application_country(location):
@@ -440,6 +479,13 @@ def application_country(location):
             # A country mentioned in prose or an unrecognized qualifier cannot
             # establish a positive jurisdiction or be silently discarded.
             return None
+    if not matches:
+        cities = {
+            _CITIES.get(re.sub(r"^\d{4,5}\s+|\s+\d{4,5}$", "", part).casefold())
+            for part in components
+        } - {None}
+        if len(cities) == 1:
+            return cities.pop()
     if len(matches) != 1:
         return None
     country = matches.pop()

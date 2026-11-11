@@ -378,7 +378,8 @@ def test_one_grant_drives_email_matching_resume_and_filling_without_ui(environme
     [
         ("Switzerland", "CHE"),
         ("London, United Kingdom", "GBR"),
-        ("Zurich", None),
+        ("Zurich", "CHE"),
+        ("Springfield", None),
         ("Switzerland / France", None),
         ("Remote", None),
         ("Amsterdam, Netherlands", "OTHER"),
@@ -1110,10 +1111,23 @@ def test_score_tiers_lean_toward_the_user_near_each_line(upper, review, tier):
             },
             "CHE",
         ),
-        ({"location": "Zurich", "job_description": "We are based in Zurich."}, None),
+        # 2026-11-11: a well-known city names its country by itself.
+        ({"location": "New York, NY"}, "USA"),
+        ({"location": "Dubai"}, "OTHER"),
+        ({"location": "Beijing"}, "OTHER"),
+        ({"location": "Zurich, London"}, None),
+        ({"location": "Zurich", "job_description": "We are based in Zurich."}, "CHE"),
+        ({"location": "8048 Zürich, ZH"}, "CHE"),
+        ({"location": "Springfield", "job_description": "We are based in Springfield."}, None),
+        # 2026-11-10, Julius Baer: only Indeed's country site named the country.
+        (
+            {"location": "8302 Kloten, ZH", "listing_url": "https://ch.indeed.com/viewjob?jk=1"},
+            "CHE",
+        ),
+        ({"location": "Kloten", "listing_url": "https://www.indeed.com/viewjob?jk=1"}, None),
         (
             {
-                "location": "Zurich",
+                "location": "Springfield",
                 "job_description": "addressCountry: Switzerland\naddressCountry: France",
             },
             None,
