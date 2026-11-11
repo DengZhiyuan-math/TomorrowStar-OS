@@ -191,6 +191,9 @@ alone. Work at a normal pace; wait only for pages to load.
 Fill every field of the application form, across its steps:
 - Use confirmed_answers for contact details and recorded facts; reuse one whose
   question means the same even when worded differently.
+- For a salary expectation, when salary_research is present answer from it and not
+  from a confirmed answer: its low-high range, or one figure near the middle when
+  the field takes a single number, in the currency, period and format the form asks.
 - Write open answers yourself, short and truthful, from career_facts and
   cover_letter_text. Never invent skills, tools, employers, dates, results or
   responsibility. Work whose responsibility is team, other_person, third_party or

@@ -733,6 +733,7 @@ def _assemble(
             from .application_account_check import check_account
             from .application_computer_use import APPLY_FOLDER, open_job_page
             from .application_computer_use import read_confirmations as _read_confirmations
+            from .employer_page_search import research_salary
 
             executable = os.environ.get("TOMORROWSTAR_CODEX_EXECUTABLE")
             computer_use = (
@@ -744,6 +745,8 @@ def _assemble(
                     "open_page": open_job_page,
                     # Whether the application needs an account, beside the match (2026-11-09).
                     "account_check": check_account,
+                    # The salary expectation is looked up for each job (2026-11-11).
+                    "research_salary": research_salary,
                     # The company's confirmation mail records a manual Submit.
                     "confirmations": partial(
                         _read_confirmations, root=Path(worker_root) / "confirmation-mail"

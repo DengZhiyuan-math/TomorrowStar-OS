@@ -160,3 +160,27 @@ def test_a_company_site_indeed_job_keeps_its_verified_employer_page(monkeypatch)
     )
     assert looked == []
     assert indeed_job_source.employer_apply_url({"documentary_fields": {}}) is None
+
+
+def test_salary_is_researched_for_this_job_and_a_broken_answer_is_dropped():
+    from career_evidence_graph.employer_page_search import research_salary
+
+    prompts = []
+    answer = {
+        "currency": "CHF",
+        "low": 110000,
+        "high": 135000,
+        "basis": "Synthetic employer pay for this role in Zurich.",
+        "sources": ["https://pay.example/role", "http://insecure.example/x"],
+    }
+
+    def runner(config, prompt, *, runner, timeout_seconds, allow_non_repository):
+        prompts.append(prompt)
+        return SimpleNamespace(structured_result=answer)
+
+    found = research_salary(FIELDS, JD, runner=runner)
+    assert (found["currency"], found["low"], found["high"]) == ("CHF", 110000, 135000)
+    assert found["sources"] == ["https://pay.example/role"]
+    assert FIELDS["company"] in prompts[0] and "untrusted data" in prompts[0]
+    answer.update(low=200000)
+    assert research_salary(FIELDS, JD, runner=runner) is None

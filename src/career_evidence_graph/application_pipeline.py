@@ -3501,8 +3501,27 @@ class ApplicationPipeline:
         record = {"process": None, "report": None}
         self._computer_use_runs[run_id] = record
 
+        application = self.flow.applications.get_application(task["application_id"])
+        research = self.computer_use.get("research_salary")
+        salary = item.get("salary_research")
+
         def work():
             try:
+                # 2026-11-11 (user decision): the salary expectation follows what this
+                # company and industry pay for the role; looked up once per job.
+                found = salary or (
+                    research
+                    and research(
+                        {
+                            "company": job.get("company", ""),
+                            "title": job.get("role_title", ""),
+                            "location": application.get("location", ""),
+                        },
+                        str(application.get("job_description") or ""),
+                    )
+                )
+                if found:
+                    record["salary_research"] = context["salary_research"] = found
                 record["report"] = run_fill(
                     self.computer_use["executable"],
                     context,
@@ -3548,6 +3567,10 @@ class ApplicationPipeline:
             state["computer_use"],
             report={key: report.get(key) for key in ("status", "summary", "unanswered", "run")},
         )
+        if run.get("salary_research"):
+            for row in state["items"]:
+                if row.get("recommendation_id") == state.get("current_recommendation_id"):
+                    row["salary_research"] = run["salary_research"]
         summary = str(report.get("summary") or "")[:300]
         if report["status"] == "ready_for_review":
             self._stop(

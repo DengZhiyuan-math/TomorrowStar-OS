@@ -1277,6 +1277,38 @@ def test_a_fill_opens_the_page_once_and_uses_short_file_paths(
     assert contexts[0]["resume_path"] == str(tmp_path / "Apply" / "A_B_CV.pdf")
 
 
+def test_a_fill_answers_salary_from_this_jobs_research_looked_up_once(
+    current_pipeline, monkeypatch, tmp_path
+):
+    """2026-11-11: every Swiss job was given the one saved salary range."""
+    from career_evidence_graph import application_computer_use
+
+    pipeline, _flow, _intake, worker = current_pipeline
+    lookups = []
+    salary = {"currency": "CHF", "low": 100000, "high": 120000, "basis": "x", "sources": []}
+    pipeline.computer_use = {
+        "executable": "/bin/codex",
+        "root": tmp_path / "cu",
+        "research_salary": lambda fields, description: lookups.append(fields) or salary,
+    }
+    contexts = []
+
+    def fill(executable, context, root, **options):
+        contexts.append(context)
+        return {"status": "needs_user", "summary": "", "filled": [], "unanswered": ["x"]}
+
+    monkeypatch.setattr(application_computer_use, "run_fill", fill)
+    monkeypatch.setattr(
+        worker.store, "_native_answer_reference", lambda job: {"confirmed_answers": []}
+    )
+    pipeline.start(request_id="start")
+    drive(pipeline, "needs_input")
+    pipeline.continue_current(request_id="retry")
+    drive(pipeline, "needs_input")
+    assert [context["salary_research"] for context in contexts] == [salary, salary]
+    assert len(lookups) == 1 and lookups[0]["company"]
+
+
 def test_a_removed_posting_leaves_the_queue_without_a_click(
     current_pipeline, monkeypatch, tmp_path
 ):
