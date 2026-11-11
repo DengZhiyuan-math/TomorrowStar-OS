@@ -2590,6 +2590,7 @@ class ApplicationPipeline:
                 return
             if state.get("queue_mode") and state.get("id"):
                 self._poll_mail(state)
+                self._admit_pasted_job(state)
             if self._reconcile_cancellation(state):
                 return
             if (
@@ -2623,6 +2624,60 @@ class ApplicationPipeline:
                         "generating_resume" if state["status"] == "preparing" else state["status"]
                     )
                 self._stop(state, "needs_recheck", str(error))
+
+    def _admit_pasted_job(self, state):
+        """Put a job the user pasted next in the queue, ahead of the waiting ones.
+
+        2026-11-11 (user decision): a link pasted into "新增投递" jumps the queue. It
+        is admitted once, right after its save; the current job is not interrupted
+        and a paused queue stays paused.
+        """
+        try:
+            job = self.intake.snapshot().get("job") or {}
+        except (PortalDataError, OSError, ValueError, KeyError, TypeError, AttributeError):
+            return
+        request_id, application_id = job.get("request_id"), job.get("application_id")
+        handled = state.setdefault("pasted_admissions", [])
+        if job.get("status") != "saved" or not application_id or request_id in handled:
+            return
+        handled.append(request_id)
+        if not any(row.get("application_id") == application_id for row in state["items"]):
+            canonical = next(
+                (
+                    row
+                    for row in self.intake.snapshot()["recommendations"]
+                    if (row.get("existing_application") or {}).get("id") == application_id
+                ),
+                None,
+            )
+            recommendation_id = canonical["id"] if canonical else f"application:{application_id}"
+            existing = next(
+                (
+                    row
+                    for row in state["items"]
+                    if row.get("recommendation_id") == recommendation_id
+                ),
+                None,
+            )
+            if existing is not None and existing["status"] == "admitted":
+                state["items"].remove(existing)
+                existing = None
+            if existing is None:
+                waiting = next(
+                    (i for i, row in enumerate(state["items"]) if row["status"] == "admitted"),
+                    len(state["items"]),
+                )
+                state["items"].insert(
+                    waiting,
+                    {
+                        "recommendation_id": recommendation_id,
+                        "application_id": application_id,
+                        "task_id": None,
+                        "status": "admitted",
+                        "score": None,
+                    },
+                )
+        self._save(state)
 
     def _poll_mail(self, state):
         """Capture alone may run while a job waits; source work stays sequential."""

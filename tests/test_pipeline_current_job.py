@@ -1553,3 +1553,33 @@ def test_the_job_list_flags_listed_target_companies(current_pipeline):
     current = pipeline.snapshot()
     item = next(row for row in current["items"] if row.get("task_id") == current["active_task_id"])
     assert item["target_company"] is True
+
+
+def test_a_pasted_job_jumps_ahead_of_the_waiting_ones_once(current_pipeline, monkeypatch):
+    """2026-11-11 (user decision): a link pasted into the workbench goes next."""
+    pipeline, _flow, intake, _worker = current_pipeline
+    snapshot = {
+        "job": {"status": "saved", "request_id": "r1", "application_id": "app-pasted"},
+        "recommendations": [{"id": "rec-pasted", "existing_application": {"id": "app-pasted"}}],
+    }
+    monkeypatch.setattr(intake, "snapshot", lambda: snapshot)
+    current = {"recommendation_id": "rec-now", "status": "pending", "application_id": "a0"}
+    waiting = {"recommendation_id": "rec-old", "status": "admitted", "application_id": None}
+    state = {"items": [dict(current), dict(waiting)]}
+    monkeypatch.setattr(pipeline, "_save", lambda _state: None)
+    pipeline._admit_pasted_job(state)
+    assert [row["recommendation_id"] for row in state["items"]] == [
+        "rec-now",
+        "rec-pasted",
+        "rec-old",
+    ]
+    assert state["items"][1]["application_id"] == "app-pasted"
+    assert state["items"][1]["status"] == "admitted"
+    # Once only: a later skip or completion is not undone by the next poll.
+    state["items"][1]["status"] = "skipped"
+    pipeline._admit_pasted_job(state)
+    assert [row["status"] for row in state["items"]] == ["pending", "skipped", "admitted"]
+    # Unsaved or failed pastes wait.
+    snapshot["job"] = {"status": "failed", "request_id": "r2", "application_id": None}
+    pipeline._admit_pasted_job(state)
+    assert len(state["items"]) == 3
