@@ -2394,6 +2394,8 @@ class ApplicationPipeline:
             "count": count,
             "due": time.time() + MODEL_RESEND_WAIT,
         }
+        if outcome.get("error_code") == "flow_inputs_stale":
+            return f"资料在分析期间有改动，{MODEL_RESEND_WAIT} 秒后按当前资料重新分析。"
         return f"模型调用失败，{MODEL_RESEND_WAIT} 秒后第 {count + 1} 次重试。"
 
     def _resend_when_due(self, state):
@@ -2425,6 +2427,9 @@ class ApplicationPipeline:
     def _stop(self, state, status, message):
         if not state.get("resume_status"):
             self._queue_assertion("stop_without_resume_status", state, ["resume_status"])
+        # The code of an earlier stop is not this stop's reason (2026-11-11).
+        if time.time() - (state.get("last_stop_error") or {}).get("at", 0) > 5:
+            state.pop("last_stop_error", None)
         state.update(control="paused", status=status)
         self._notify(state, status, message)
         self._save(state)

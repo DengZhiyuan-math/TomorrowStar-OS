@@ -117,8 +117,12 @@ def _analysis_outcome(task, *, resendable=False):
     stage = task.get("stages", {}).get("analysis", {})
     legacy_skippable = legacy_analysis_failure(task)
     # The legacy skip policy keeps its original code and exact field set.
+    # 2026-11-11: a library edit during the analysis ends it as stale inputs. That is
+    # an ended, known failure too; its retry reads the current libraries.
+    stale_inputs = task.get("status") == "stale" and stage.get("error_code") == "flow_inputs_stale"
     modern_rejected = bool(
-        task.get("status") == stage.get("status") == "failed"
+        stage.get("status") == "failed"
+        and (task.get("status") == "failed" or stale_inputs)
         and isinstance(stage.get("error_code"), str)
         and isinstance(stage.get("attempt_id"), str)
         and re.fullmatch(r"[a-f0-9]{32}", stage["attempt_id"])
@@ -192,7 +196,7 @@ def _analysis_outcome(task, *, resendable=False):
         "attempt_id": stage.get("attempt_id"),
         "recovery": recovery,
         "legacy_skippable": legacy_skippable,
-        "resendable": status == "rejected" and resendable,
+        "resendable": status == "rejected" and (resendable or stale_inputs),
     }
 
 

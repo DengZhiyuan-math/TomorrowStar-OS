@@ -405,3 +405,33 @@ def test_a_call_without_an_answer_is_continued_three_times_then_waits(tmp_path, 
         pipeline.close()
         flow.close()
         intake.close()
+
+
+def test_an_analysis_ended_by_a_library_edit_is_analyzed_again_by_itself(tmp_path, monkeypatch):
+    from career_evidence_graph import application_pipeline
+
+    # 2026-11-11: saving a career fact while a job was matching ended the analysis as
+    # stale inputs; Continue then refused it as an unknown result and the job was stuck.
+    monkeypatch.setattr(application_pipeline, "MODEL_RESEND_WAIT", 0)
+    pipeline, flow, intake, analysis_calls = _answerless_queue(tmp_path)
+    flow.analysis = None
+
+    def edited_during_analysis(task):
+        analysis_calls.append(task["id"])
+        raise PortalDataError("flow_inputs_stale", "Synthetic library edit", 409)
+
+    flow.callbacks["analysis"] = edited_during_analysis
+    try:
+        pipeline.start(request_id="stale-inputs")
+        state = _until(pipeline, lambda s: len(analysis_calls) == 4 and s["control"] == "paused")
+        task = flow.snapshot()["active_task"]
+        assert task["status"] == "stale"
+        outcome = flow.analysis_outcome(task["id"])
+        assert (outcome["status"], outcome["resendable"]) == ("rejected", True)
+        assert "last_stop_error" not in state
+        pipeline.continue_current(request_id="stale-inputs-continue")
+        _until(pipeline, lambda s: len(analysis_calls) > 4)
+    finally:
+        pipeline.close()
+        flow.close()
+        intake.close()
