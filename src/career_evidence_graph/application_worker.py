@@ -2714,9 +2714,17 @@ class WorkerStore:
                 raise ValueError("changed flow context")
             from .application_flow_store import assemble
 
-            flow = assemble(
-                self.single_flow_root, _read(self.single_flow_root / "flow.json"), read=_read
-            )
+            # 2026-11-11: /api/state assembled the flow (1.1 s) once per bound job and
+            # timed out at 37 s. Task files are immutable per revision, so an unchanged
+            # flow.json assembles to the same record.
+            index_path = self.single_flow_root / "flow.json"
+            key = _file_key(index_path)
+            cached = getattr(self, "_assembled_flow", None)
+            if key is not None and cached is not None and cached[0] == key:
+                flow = cached[1]
+            else:
+                flow = assemble(self.single_flow_root, _read(index_path), read=_read)
+                self._assembled_flow = (key, flow)
             if flow.get("schemaVersion") != 1 or flow.get("applications_root") != str(
                 self.applications.root
             ):

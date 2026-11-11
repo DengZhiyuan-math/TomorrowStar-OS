@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from datetime import date
+from functools import cache
 from urllib.parse import urlsplit
 
 from .application_automation import (
@@ -450,6 +451,21 @@ def job_country(record):
 _INDEED_SITES = {"ch": "CHE", "de": "DEU", "fr": "FRA", "uk": "GBR", "ca": "CAN"}
 
 
+@cache
+def _name_patterns(name):
+    """A country or city name's exact-part and mention patterns, compiled once.
+
+    2026-11-11: with the city lists, every location compiled hundreds of patterns
+    past re's cache, and the workbench's state request took 37 s.
+    """
+    code = name.isascii() and name.isupper()
+    literal = re.escape(name) if code else "(?i:" + re.escape(name) + ")"
+    return (
+        re.compile(r"(?i:remote(?:\s+in)?\s+)?" + literal + r"(?i:\s+remote)?"),
+        re.compile(r"(?<!\w)" + re.escape(name) + r"(?!\w)", 0 if code else re.I),
+    )
+
+
 def application_country(location):
     """Only an explicit unique country in the job location establishes scope."""
     if not isinstance(location, str) or re.search(
@@ -464,15 +480,9 @@ def application_country(location):
     for country, names in labels:
         positive, mentioned = False, False
         for name in names:
-            code = name.isascii() and name.isupper()
-            literal = re.escape(name) if code else "(?i:" + re.escape(name) + ")"
-            positive = positive or any(
-                re.fullmatch(r"(?i:remote(?:\s+in)?\s+)?" + literal + r"(?i:\s+remote)?", part)
-                for part in components
-            )
-            mentioned = mentioned or bool(
-                re.search(r"(?<!\w)" + re.escape(name) + r"(?!\w)", location, 0 if code else re.I)
-            )
+            exact, mention = _name_patterns(name)
+            positive = positive or any(exact.fullmatch(part) for part in components)
+            mentioned = mentioned or bool(mention.search(location))
         if positive:
             matches.add(country)
         elif mentioned:
@@ -484,9 +494,7 @@ def application_country(location):
         # anywhere in the location counts, whatever stands around it.
         text = location.casefold()
         cities = {
-            country
-            for city, country in _CITIES.items()
-            if re.search(r"(?<!\w)" + re.escape(city) + r"(?!\w)", text)
+            country for city, country in _CITIES.items() if _name_patterns(city)[1].search(text)
         }
         if len(cities) == 1:
             return cities.pop()
