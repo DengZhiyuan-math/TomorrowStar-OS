@@ -528,6 +528,28 @@
       for (const text of feedback) given.append(node("li", "flow-muted", text));
       box.append(node("p", "", "已给出的调整意见（重新选材时都会遵循）"), given);
     }
+    // 2026-11-12: experiences this job did not offer can be named into the candidates.
+    if (review.not_offered?.length) {
+      const extra = node("details");
+      extra.append(node("summary", "", `其他经历（本岗位分析未提供给选材，共 ${review.not_offered.length} 段，可点名加入）`));
+      const picks = [];
+      const list = node("ul", "flow-plan-extra");
+      for (const row of review.not_offered) {
+        const label = node("label");
+        const check = node("input");
+        check.type = "checkbox";
+        check.addEventListener("change", () => { add.dataset.blocked = String(!picks.some(([box]) => box.checked)); lock(); });
+        picks.push([check, row.candidate_id]);
+        label.append(check, document.createTextNode(` ${row.title}`));
+        const item = node("li");
+        item.append(label);
+        list.append(item);
+      }
+      const add = button("加入候选并重新选材", () => pipelineAction("continue", { plan_add_experiences: picks.filter(([box]) => box.checked).map(([, id]) => id) }), "flow-plan-add", true);
+      add.dataset.blocked = "true";
+      extra.append(list, node("p", "flow-muted", "加入后会按你的点名重新选材，并保留之前的全部意见。"), add);
+      box.append(extra);
+    }
     // 2026-11-12: the planner answers the latest instruction, including questions.
     if (review.reply) {
       const reply = node("div", "flow-plan-reply");

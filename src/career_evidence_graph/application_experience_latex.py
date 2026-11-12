@@ -304,7 +304,7 @@ def prepare_generation(store, identifier, revision, **request):
     return _save(directory, state)
 
 
-def experience_support(payload):
+def experience_support(payload, added=()):
     """Per delivered experience, the requirements whose matching cites its facts.
 
     Only cited sources count: a requirement also carries retrieved sources the match
@@ -312,7 +312,7 @@ def experience_support(payload):
     """
     support = {
         row["experience_id"]: (row.get("candidate_id") or row["experience"]["candidate_id"], [])
-        for row in payload["content_plan"]["assignments"]
+        for row in [*payload["content_plan"]["assignments"], *added]
     }
     for index, requirement in enumerate(payload["requirements"]):
         quoted = {row.get("source_id") for row in requirement.get("citations") or []}
@@ -346,18 +346,36 @@ PLAN_REPLY_INSTRUCTIONS = (
 )
 
 
-def _feedback_context(state):
-    payload = state["payload"]
-    offered = {row["candidate_id"] for row in payload["content_plan"]["assignments"]}
+def _delivered(state):
+    from .application_experience_content import delivered_plan
+
+    return delivered_plan(state)
+
+
+def not_offered(state):
+    """Library experiences in this job's packet that the planner was not offered."""
+    offered = {row["candidate_id"] for row in _delivered(state)["assignments"]}
     others = {}
-    for row in (payload.get("material_packet") or {}).get("sources", {}).values():
+    for row in (state["payload"].get("material_packet") or {}).get("sources", {}).values():
         context = row.get("record_context") or {}
         candidate = context.get("candidate_id")
-        if candidate and candidate not in offered and context.get("title"):
+        if (
+            candidate
+            and candidate not in offered
+            and context.get("fact_id")
+            and context.get("title")
+        ):
             others.setdefault(candidate, context["title"])
+    return [
+        {"candidate_id": candidate, "title": title}
+        for candidate, title in sorted(others.items(), key=lambda pair: pair[1])
+    ]
+
+
+def _feedback_context(state):
     return {
         "user_plan_feedback": state["plan_feedback"],
-        "experiences_not_offered": sorted(set(others.values())),
+        "experiences_not_offered": sorted({row["title"] for row in not_offered(state)}),
         "user_reply_instructions": PLAN_REPLY_INSTRUCTIONS,
         **({"previous_user_reply": state["plan_reply"]} if state.get("plan_reply") else {}),
     }
@@ -383,8 +401,10 @@ def generation_context(store, identifier):
                 }
                 for row in payload["requirements"]
             ],
-            "content_plan": deepcopy(payload["content_plan"]),
-            "experience_support": experience_support(payload),
+            "content_plan": _delivered(state),
+            "experience_support": experience_support(
+                payload, state.get("user_added_assignments", [])
+            ),
             "headline_required": payload.get("headline_required", False),
             "retained_content": deepcopy(payload.get("retained_content")),
             "retained_source_ids": deepcopy(payload.get("retained_source_ids", [])),
@@ -504,6 +524,37 @@ def wording_is_approved(store, identifier):
     from .application_experience_content import wording_approved
 
     return wording_approved(_load(store, identifier)[1])
+
+
+def experiences_not_offered(store, identifier):
+    return not_offered(_load(store, identifier)[1])
+
+
+@_serialized
+def add_candidates(store, identifier, candidate_ids):
+    """Offer named library experiences to the planner, then plan again with them."""
+    from .application_writing import candidate_assignments
+
+    directory, state = _load(store, identifier)
+    _require_mutable(state)
+    available = {row["candidate_id"]: row["title"] for row in not_offered(state)}
+    if (
+        not _content(state)
+        or state.get("adopted_draft")
+        or not candidate_ids
+        or not set(candidate_ids) <= set(available)
+    ):
+        raise _invalid("只能加入本岗位资料包里尚未提供给选材的经历。")
+    added = candidate_assignments(state["payload"], candidate_ids)
+    state.setdefault("user_added_assignments", []).extend(added)
+    titles = "、".join(available[candidate] for candidate in candidate_ids)
+    earlier = state.get("plan_feedback") or []
+    state["plan_feedback"] = [
+        *([earlier] if isinstance(earlier, str) else earlier),
+        f"用户点名加入候选并希望放进简历：{titles}",
+    ]
+    state["mapping_required"] = True
+    return _save(directory, state)
 
 
 @_serialized

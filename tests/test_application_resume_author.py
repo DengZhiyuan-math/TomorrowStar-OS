@@ -679,3 +679,40 @@ def test_flow_reviews_drafted_bullets_before_generating_the_resume(json_flow):
         True,
     )
     assert all(item["protected"] for item in items[first["experience_id"]])
+
+
+def test_a_named_experience_joins_the_candidates_and_the_resume(json_flow):
+    """2026-11-12, G-Research: STOA was neither selected nor cited, so the user could
+    not get it considered. A named experience is offered from the delivered packet."""
+    from career_evidence_graph import application_experience_latex as generation
+
+    case = json_flow
+    task = start_json_writing(case)
+    identifier = task["experience_handoff"]["id"]
+    # As if the analysis had not offered the second experience.
+    directory, state = generation._load(case.store, identifier)
+    dropped = state["payload"]["content_plan"]["assignments"].pop()
+    state["fixed_inputs_revision"] = generation._fixed_inputs_revision(state)
+    generation._save(directory, state)
+    missing = generation.experiences_not_offered(case.store, identifier)
+    assert dropped["candidate_id"] in {row["candidate_id"] for row in missing}
+
+    generation.add_candidates(case.store, identifier, [dropped["candidate_id"]])
+    context = generation.generation_context(case.store, identifier)
+    assert dropped["candidate_id"] in {
+        row["candidate_id"] for row in context["content_plan"]["assignments"]
+    }
+    assert context["user_plan_feedback"][-1].endswith(dropped["experience"]["title"])
+    assert generation.experiences_not_offered(case.store, identifier) == [
+        row for row in missing if row["candidate_id"] != dropped["candidate_id"]
+    ]
+    with pytest.raises(PortalDataError):
+        generation.add_candidates(case.store, identifier, ["not-in-this-packet"])
+
+    def runner(config, prompt, **kwargs):
+        return response(author_output(json.loads(prompt.split("\n", 1)[1])))
+
+    result = execute_content_generation(case.store, identifier, runner=runner)
+    assert result["kind"] == "draft"
+    plan = generation.generation_state(case.store, identifier)["writing_plan"]
+    assert dropped["candidate_id"] in {row["candidate_id"] for row in plan["assignments"]}

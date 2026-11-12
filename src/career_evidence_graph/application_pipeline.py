@@ -1507,6 +1507,15 @@ class ApplicationPipeline:
                 )
             ):
                 raise PortalDataError("pipeline_request_invalid", "表述修改的格式不能核验。", 409)
+        if action == "continue" and isinstance(payload, dict) and "plan_add_experiences" in payload:
+            expected = {"request_id", "plan_add_experiences"}
+            added = payload["plan_add_experiences"]
+            if (
+                not isinstance(added, list)
+                or not 1 <= len(added) <= 10
+                or any(not isinstance(value, str) or not value for value in added)
+            ):
+                raise PortalDataError("pipeline_request_invalid", "点名加入的经历不能核验。", 409)
         if action == "continue" and isinstance(payload, dict) and "plan_feedback" in payload:
             expected = {"request_id", "plan_feedback"}
             if (
@@ -2111,7 +2120,9 @@ class ApplicationPipeline:
         task = self._task(state)
         item = next(row for row in state["items"] if row.get("task_id") == task["id"])
         feedback = (payload.get("plan_feedback") or "").strip()
-        if feedback:
+        if payload.get("plan_add_experiences"):
+            self.flow.add_resume_candidates(task["id"], list(payload["plan_add_experiences"]))
+        elif feedback:
             self.flow.replan_resume(task["id"], feedback)
         else:
             current = self.flow.resume_plan(task["id"])

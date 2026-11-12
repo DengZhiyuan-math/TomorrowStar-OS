@@ -5749,10 +5749,21 @@ class ApplicationFlowService:
         handoff = task.get("experience_handoff") or {}
         if not handoff.get("id"):
             return None
+        from .application_experience_latex import experiences_not_offered
+
         context = generation_context(self._materials, handoff["id"])
         if context.get("mapping_required") or not context.get("writing_plan"):
             return None
-        return {"plan": context["writing_plan"], "overview": plan_overview(context)}
+        overview = plan_overview(context) | {
+            "not_offered": experiences_not_offered(self._materials, handoff["id"])
+        }
+        return {"plan": context["writing_plan"], "overview": overview}
+
+    def add_resume_candidates(self, task_id, candidate_ids):
+        """Offer named library experiences to the planner and plan again (2026-11-12)."""
+        from .application_experience_latex import add_candidates
+
+        return add_candidates(self._materials, self._handoff_id(task_id), candidate_ids)
 
     def resume_wording_required(self, task):
         """Whether this job's drafted bullets wait for the user (2026-11-12)."""

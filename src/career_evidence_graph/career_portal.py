@@ -73,6 +73,7 @@ _PIPELINE_ROUTES = {
             {"request_id", "reclaim", "handoff_source"},
             {"request_id", "plan_feedback"},
             {"request_id", "wording_changes"},
+            {"request_id", "plan_add_experiences"},
         ),
         _PIPELINE_CURRENT,
         409,

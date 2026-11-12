@@ -589,6 +589,13 @@ def test_a_high_value_job_waits_for_the_resume_plan_and_feedback_plans_again(
         pending.add(task_id)
 
     flow.replan_resume = replan
+    added = []
+
+    def add(task_id, candidate_ids):
+        added.append(candidate_ids)
+        pending.add(task_id)
+
+    flow.add_resume_candidates = add
     pipeline.start(request_id="precision")
     waiting = drive(pipeline, "needs_input")
     assert waiting["wait_reason"] == "resume_plan_review"
@@ -596,6 +603,11 @@ def test_a_high_value_job_waits_for_the_resume_plan_and_feedback_plans_again(
     assert [row["title"] for row in waiting["plan_review"]["chosen"]] == ["exp-a", "exp-b"]
     current = next(row for row in waiting["items"] if row["task_id"] == waiting["active_task_id"])
     assert current["precision_selection"] == ["匹配分达到 75 以上"]
+
+    # 2026-11-12: an experience the job did not offer can be named into the candidates.
+    pipeline.continue_current(request_id="add-stoa", plan_add_experiences=["exp-stoa"])
+    assert drive(pipeline, "needs_input")["wait_reason"] == "resume_plan_review"
+    assert added == [["exp-stoa"]]
 
     pipeline.continue_current(request_id="replan", plan_feedback="Only keep exp-b.")
     # 2026-11-12, G-Research: the restart after a re-plan was lost; with no plan to show
@@ -622,7 +634,7 @@ def test_a_high_value_job_waits_for_the_resume_plan_and_feedback_plans_again(
     assert "worker_batch_id" not in confirmed or confirmed["worker_batch_id"] != "cancelled-batch"
     filling = drive(pipeline, "filling")
     assert "plan_review" not in filling
-    assert len(attempts) == 3
+    assert len(attempts) == 4
 
 
 @pytest.mark.parametrize(("high", "waits"), [(250_000, True), (150_000, False)])

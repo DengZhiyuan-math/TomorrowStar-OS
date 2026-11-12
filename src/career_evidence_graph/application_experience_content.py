@@ -71,6 +71,16 @@ REVIEW_INSTRUCTIONS = (
 )
 
 
+def delivered_plan(state):
+    """The delivered plan plus experiences the user named for this job (2026-11-12).
+
+    The fixed delivery stays untouched; named experiences are kept beside it.
+    """
+    plan = deepcopy(state["payload"]["content_plan"])
+    plan["assignments"] += deepcopy(state.get("user_added_assignments", []))
+    return plan
+
+
 def _save(directory, state):
     from .application_experience_latex import _save as save
 
@@ -109,7 +119,7 @@ def _headline(state, current, retained):
 def configure(store, directory, state, proposed, *, main_writer_id=None):
     """Select and order only delivered canonical experiences and accepted inferences."""
     try:
-        original = _plan(state["payload"]["content_plan"])
+        original = _plan(delivered_plan(state))
         plan = _plan(original if proposed is None else proposed)
         main_writer_id = main_writer_id or state.get("main_writer_id")
         if (any(_global_scopes(plan).values()) or main_writer_id is not None) and (
