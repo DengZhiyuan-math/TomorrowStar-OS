@@ -389,6 +389,12 @@ function renderWorkflow() {
       if (receipts) { label = `${receipts} 份申请待补回执`; title = "提交之后，留下接收来源。"; description = "已提交的申请仍可补录确认页或邮件来源。也可以继续准备下一份任务。"; action = "查看交接与回执"; step = 4; destination = "#handoff"; }
     }
   }
+  // 2026-11-12 (user decision): with automatic applications the current application
+  // card leads the 自动申请 page; 今日工作 lists 今日投递 instead.
+  const card = $("workflow-focus");
+  const flowHeading = document.querySelector("#flow-root > .page-heading");
+  if (automatic && flowHeading && flowHeading.nextElementSibling !== card) flowHeading.after(card);
+  if (!automatic && card.parentElement !== $("view-overview")) $("today-applications").before(card);
   $("workflow-state").textContent = label;
   $("workflow-title").textContent = title;
   $("workflow-description").textContent = description;

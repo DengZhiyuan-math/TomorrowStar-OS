@@ -32,13 +32,17 @@ def _call(store, identifier, role, context, schema, runner, allow_calls, admit_c
     )
 
 
-def _plan_choices_schema(full):
-    """The planner returns only its choices; delivered assignments are never retyped."""
+def _plan_choices_schema(full, *, reply=False, count=5):
+    """The planner returns only its choices; delivered assignments are never retyped.
+
+    With the user's feedback it also answers that feedback in user_reply (2026-11-12).
+    """
     properties = full["properties"]
     return {
         "type": "object",
         "additionalProperties": False,
         "properties": {
+            **({"user_reply": {"type": "string"}} if reply else {}),
             **{
                 key: properties[key]
                 for key in ("headline", "summary", "skills")
@@ -46,8 +50,9 @@ def _plan_choices_schema(full):
             },
             "assignments": {
                 "type": "array",
-                # 2026-11-10: a résumé keeps 3 to 5 experiences (the prompt says which).
-                "maxItems": 5,
+                # 2026-11-10: a résumé keeps 3 to 5 experiences (the prompt says which);
+                # the user's own selection may keep more (2026-11-12).
+                "maxItems": max(5, count),
                 "items": {
                     "type": "object",
                     "additionalProperties": False,
@@ -62,17 +67,23 @@ def _plan_choices_schema(full):
     }
 
 
-def _expanded_plan(original, choices):
-    """Rebuild the full plan from delivered assignments in the planner's chosen order."""
+def _expanded_plan(original, choices, *, fixed=False):
+    """Rebuild the full plan from delivered assignments in the planner's chosen order.
+
+    With the user's own selection every delivered assignment stays in its delivered
+    order; the planner only writes the points (2026-11-12).
+    """
     delivered = {row["experience_id"]: row for row in original["assignments"]}
     plan = {key: deepcopy(value) for key, value in original.items() if key != "assignments"}
     plan.update({key: deepcopy(choices[key]) for key in ("summary", "skills") if key in choices})
     if choices.get("headline") is not None:
         plan["headline"] = deepcopy(choices["headline"])
+    written = {row["experience_id"]: row["writing_requirements"] for row in choices["assignments"]}
+    order = list(delivered) if fixed else list(written)
     plan["assignments"] = [
-        delivered[row["experience_id"]]
-        | {"writing_requirements": list(row["writing_requirements"])}
-        for row in choices["assignments"]
+        delivered[eid]
+        | {"writing_requirements": list(written.get(eid, delivered[eid]["writing_requirements"]))}
+        for eid in order
     ]
     return plan
 
@@ -121,6 +132,7 @@ def plan_overview(context):
     2026-11-12 (user decision): a high-match, target-company or high-salary job stops
     after planning so the user confirms which experiences enter and how they are ordered.
     """
+    from .application_writing import DEFAULT_WRITING_REQUIREMENT
 
     def described(row):
         experience = row["experience"]
@@ -138,7 +150,15 @@ def plan_overview(context):
     headline = plan.get("headline")
     return {
         "chosen": [
-            described(row) | {"writing_requirements": list(row["writing_requirements"])}
+            described(row)
+            | {
+                # The fixed writer instruction says nothing to the user (2026-11-12).
+                "writing_requirements": [
+                    text
+                    for text in row["writing_requirements"]
+                    if text != DEFAULT_WRITING_REQUIREMENT
+                ]
+            }
             for row in plan["assignments"]
         ],
         "omitted": [
@@ -149,6 +169,7 @@ def plan_overview(context):
         "headline": headline["text"] if isinstance(headline, dict) else None,
         "summary": [row["text"] for row in plan.get("summary") or []],
         "skills": [row["text"] for row in plan.get("skills") or []],
+        "reply": (context.get("previous_user_reply") or {}).get("text"),
         "feedback": (
             [feedback]
             if isinstance(feedback := context.get("user_plan_feedback"), str)
@@ -182,12 +203,16 @@ def _execute_content_generation(
         return generation.adopt_generation(store, identifier)
     if context.get("mapping_required"):
         original = context["content_plan"]
-        schema = _plan_choices_schema(type(validate_plan(original)).model_json_schema())
+        schema = _plan_choices_schema(
+            type(validate_plan(original)).model_json_schema(),
+            reply="user_plan_feedback" in context,
+            count=len(original["assignments"]),
+        )
         choices, main_writer, call = _call(
             store, identifier, "plan", context, schema, runner, allow_calls, admit_call
         )
         try:
-            plan = _expanded_plan(original, choices)
+            plan = _expanded_plan(original, choices, fixed=bool(context.get("user_selection")))
             repairs = repaired_global_refs(plan)
             if repairs:
                 helper.atomic_write_json(call / "reference-repairs.json", {"repairs": repairs})
@@ -195,10 +220,18 @@ def _execute_content_generation(
             generation.configure_generation(
                 store, identifier, writing_plan=plan, main_writer_id=main_writer
             )
+            if isinstance(choices.get("user_reply"), str) and choices["user_reply"].strip():
+                generation.set_plan_reply(store, identifier, choices["user_reply"].strip())
         except (PortalDataError, ValueError, TypeError, KeyError) as error:
             _rejected(call, error)
     if allow_calls and review_plan is not None:
-        plan = generation.generation_state(store, identifier)["writing_plan"]
+        current = generation.generation_state(store, identifier)
+        plan = current["writing_plan"]
+        # 2026-11-12 (user decision): a high-value job's user first checks each
+        # requirement's evidence and picks the experiences; review_plan(None) says
+        # whether that choice is needed.
+        if not current.get("user_selection") and not review_plan(None):
+            raise _failure("resume_plan_review_required", "简历证据与选材等你确认。")
         if not review_plan(plan):
             raise _failure("resume_plan_review_required", "简历选材和结构等你确认。")
     for _ in range(3):

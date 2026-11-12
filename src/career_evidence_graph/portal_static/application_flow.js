@@ -3,6 +3,8 @@
 (() => {
   const root = $("flow-root");
   if (!root) return;
+  // 2026-11-12 (user decision): the job list is 今日投递 on 今日工作.
+  const today = $("today-applications");
   let flow = null, intake = null, pipeline = null, selectedTask = null, busy = false, observing = false, rendering = false;
   const pipelineRequests = new Map();
   const admissionScope = payload => `admission:${payload.application_id ? "application" : "recommendation"}:${payload.application_id || payload.recommendation_id}`;
@@ -85,8 +87,8 @@
     const prismEditing = ["editing", "finishing", "open_failed"].includes(flow?.active_task?.prism_edit?.status);
     const prismFinishing = flow?.active_task?.prism_edit?.status === "finishing" || !!flow?.active_task?.prism_edit?.opening;
     const manualStages = new Set(["flow-start-analysis", "flow-start-resume", "flow-start-filling", "flow-prepare-worker", "flow-worker-resume", "flow-sync-inputs", "flow-cancel"]);
-    for (const element of root.querySelectorAll("[data-flow-write]")) {
-      const automationControl = element.closest("#flow-automation");
+    for (const element of [...root.querySelectorAll("[data-flow-write]"), ...(today?.querySelectorAll("[data-flow-write]") || [])]) {
+      const automationControl = element.closest("#flow-automation, #today-applications");
       const requiresPaused = element.dataset.flowRequiresPaused === "true";
       const unsavedSource = element.id === "flow-pipeline-start" && (prismEditing || automaticSourceDrafts.has(pipeline?.active_task_id) || [...materialTextDrafts.values()].some(draft => draft.task_id === pipeline?.active_task_id));
       const opportunityControl = element.closest("#flow-opportunities, #flow-intake-settings, #flow-batch-selection, #flow-job-management");
@@ -309,6 +311,10 @@
   let shownStep = "";
   // 2026-11-12: the user's unsent feedback on a high-value job's résumé plan.
   let planFeedback = "";
+  // 2026-11-12: the user's unsent evidence and experience choice, and edited points.
+  let selectionDraft = null;
+  const pointsDrafts = new Map();
+  let pointsKey = "";
   // 2026-11-12: unsent bullet edits and feedback while a résumé's wording is reviewed.
   const wordingDrafts = new Map();
   let wordingCurrent = null;
@@ -334,6 +340,7 @@
     if (renderedPipeline === key) return;
     renderedPipeline = key;
     automation.replaceChildren(node("h2", "", "自动申请流程"));
+    today?.replaceChildren();
     if (automation.hidden) return;
     const labels = { idle: "尚未开始", reading_email: "正在收录推荐邮件", starting_email: "正在启动邮件读取", selecting_job: "正在选择下一个待处理岗位", acquiring_source: "正在取得当前岗位的完整 JD", starting_source: "正在启动当前岗位读取", waiting_for_mail: "正在等待新的推荐邮件", matching: "正在计算当前岗位匹配度", generating_resume: "正在生成并检查完整岗位材料", preparing: "正在准备申请", starting_worker: "正在检查并启动填写", admitting_worker: "正在启动填写", awaiting_native_check: "正在后台检查填写环境", recovering_worker: "正在核验原页面并恢复当前岗位", filling: "正在填写并上传申请材料", ready_for_review: "申请已准备好，请到原网站最终确认", needs_input: "需要补充信息", needs_recheck: "结果待核验，已停止", blocked: "流程已停止，请查看具体原因", paused: "自动流程已暂停", interrupted: "上次流程已中断，进度已保留", expired: "本次运行窗口已结束，进度已保留", no_matches: "本次未取得可处理的完整岗位", complete: "本次处理已完成", unavailable: "自动流程暂不可用" };
     const running = pipeline?.control === "running";
@@ -368,9 +375,10 @@
     if (!reviewingWording) { wordingDrafts.clear(); wordingCurrent = null; }
     // 2026-11-12 (user decision): during plan review Continue only confirms the plan and
     // starts the automatic steps; feedback is sent by its own button in the plan box.
-    const startPipeline = button(reviewingPlan ? "确认选材并继续" : reviewingWording ? "全部确认并继续" : pipeline?.id ? "继续当前岗位" : "开启自动流程", () => pipelineAction(pipeline?.queue_mode ? "continue" : "start"), "flow-pipeline-start");
-    if (!reviewingPlan) planFeedback = "";
-    startPipeline.dataset.blocked = String(!pipeline?.enabled || pipeline.control === "running");
+    const selecting = reviewingPlan && pipeline.plan_review?.stage === "selection";
+    const startPipeline = button(selecting ? "按此选择起草写作要点" : reviewingPlan ? "确认要点并继续" : reviewingWording ? "全部确认并继续" : pipeline?.id ? "继续当前岗位" : "开启自动流程", () => pipelineAction(pipeline?.queue_mode ? "continue" : "start", reviewingPlan ? planContinuePayload() : {}), "flow-pipeline-start");
+    if (!reviewingPlan) { planFeedback = ""; selectionDraft = null; pointsDrafts.clear(); }
+    startPipeline.dataset.blocked = String(!pipeline?.enabled || pipeline.control === "running" || selecting && !selectionFor(pipeline.plan_review).experiences.length);
     const pausePipeline = button("暂停自动流程", () => mutate(async () => {
       pipeline = await api("/api/pipeline/pause", { method: "POST", body: "{}" });
     }, { stopping: true, scope: pipelineScope(), domain: "pipeline" }), "flow-pipeline-pause", true);
@@ -404,19 +412,25 @@
     const handling = [];
     let currentRow = null;
     for (const { item, current } of items) {
-      if (current) currentRow = pipelineRow(item, true);
+      if (current) {
+        currentRow = pipelineRow(item, true, false);
+        const focus = node("ol", "flow-pipeline-items");
+        focus.append(pipelineRow(item, true));
+        automation.append(node("h3", "", "当前岗位"), focus);
+      }
       else if (needsHandling(item)) handling.push(pipelineRow(item, false));
       else {
         const key = item.target_company ? "target" : item.reason === "flow_eligibility_required" ? "mismatch" : scoreBand(item.score) || "unscored";
         groups.find(group => group.key === key).rows.push(pipelineRow(item, false));
       }
     }
-    if (items.length) automation.append(node("h3", "", `本次处理的岗位（${items.length}）`));
-    if (currentRow) { const list = node("ol", "flow-pipeline-items"); list.append(currentRow); automation.append(list); }
+    const listing = today || automation;
+    if (items.length) listing.append(node("h2", "", `今日投递（${items.length}）`));
+    if (currentRow) { const list = node("ol", "flow-pipeline-items"); list.append(currentRow); listing.append(list); }
     for (const group of groups.filter(group => group.rows.length)) {
       const list = node("ol", "flow-pipeline-items");
       list.append(...group.rows);
-      automation.append(node("h4", `flow-pipeline-group tier-${group.key}`, `${group.label}（${group.rows.length}）`), list);
+      listing.append(node("h4", `flow-pipeline-group tier-${group.key}`, `${group.label}（${group.rows.length}）`), list);
     }
     if (handling.length) {
       const folder = node("details", "flow-pipeline-folder");
@@ -425,7 +439,7 @@
       const list = node("ol", "flow-pipeline-items");
       list.append(...handling);
       folder.append(node("summary", "", `需单独处理 · 故障或限制跳过（${handling.length}）`), node("p", "flow-muted", "未取得完整 JD、原页不能核验、仅站内申请等原因，自动流程未能继续。可逐条返回此岗位、补充来源，或自己投递后点“已提交”。"), list);
-      automation.append(folder);
+      listing.append(folder);
     }
     if (pipeline?.active_task_id && !automation.querySelector("#flow-pipeline-current")) automation.append(followButton());
   }
@@ -436,7 +450,7 @@
     const upper = Math.round(score.upper); // the number the row shows
     return upper >= 75 ? "high" : upper >= 55 ? "good" : upper >= 40 ? "fair" : "low";
   }
-  function pipelineRow(item, current) {
+  function pipelineRow(item, current, follow = true) {
     const score = item.score;
     const [badge, tone, reason] = current ? ["当前岗位", "reviewed", ""]
       : item.status === "analysis_failed" ? ["分析未通过", "rejected", "分析结果未通过校验，已保留记录"]
@@ -473,7 +487,8 @@
       const submitted = button("已提交", () => pipelineAction("mark-submitted", { application_id: item.application_id || item.recommendation_id }), "", true);
       row.append(restore, submitted);
     } else if (current && pipeline?.active_task_id) {
-      row.append(followButton());
+      if (follow) row.append(followButton());
+      else { const open = node("a", "button button-secondary", "查看当前岗位 →"); open.href = "#flow"; row.append(open); }
     }
     return row;
   }
@@ -486,52 +501,163 @@
     return open;
   }
 
-  // 2026-11-12 (user decision): a high-match, target-company or high-salary job shows
-  // its chosen experiences, order and global content before any experience is written.
-  function planReview(review) {
+  const describeExperience = row => [row.title, row.role, row.organization, [row.start, row.end].filter(Boolean).join("–")].filter(Boolean).join(" · ");
+  const rerender = () => { renderedPipeline = ""; renderPipeline(); lock(); };
+
+  // 2026-11-12 (user decision): a high-match, target-company or high-salary job first
+  // shows each requirement with its evidence; the user corrects the evidence, then
+  // ticks and orders the experiences directly. No model reinterprets this choice.
+  function selectionFor(review) {
+    const key = JSON.stringify([pipeline?.active_task_id, review]);
+    if (selectionDraft?.key !== key) {
+      selectionDraft = { key, evidence: Object.fromEntries(review.requirements.map(row => [String(row.index), [...row.evidence]])), experiences: [...review.selected] };
+    }
+    return selectionDraft;
+  }
+
+  function selectionReview(review) {
+    const draft = selectionFor(review);
+    const byId = Object.fromEntries(review.experiences.map(row => [row.candidate_id, row]));
     const box = node("section", "flow-plan-review");
-    box.append(node("h3", "", "简历选材与结构"));
+    box.append(node("h3", "", "简历证据与选材"));
     if (review.reasons?.length) box.append(node("p", "flow-muted", `停下的原因：${review.reasons.join("、")}`));
-    const describe = row => [row.title, row.role, row.organization, [row.start, row.end].filter(Boolean).join("–")].filter(Boolean).join(" · ");
-    const chosen = node("ol");
-    for (const row of review.chosen || []) {
-      const entry = node("li", "", describe(row));
-      if (row.writing_requirements?.length) {
-        const points = node("ul");
-        for (const text of row.writing_requirements) points.append(node("li", "flow-muted", text));
-        entry.append(points);
+    box.append(node("p", "", "第一步：核对每条岗位要求的证据。勾掉不成立的，用“添加证据”补上漏掉的经历。"));
+    const requirements = node("ol", "flow-evidence");
+    const importance = { required: "必需", preferred: "加分" };
+    for (const requirement of review.requirements) {
+      const index = String(requirement.index);
+      const entry = node("li");
+      entry.append(node("p", "", requirement.text));
+      entry.append(node("p", "flow-muted", [importance[requirement.importance] || requirement.importance, judgmentLabels[requirement.judgment] || requirement.judgment, requirement.fit_score != null ? `匹配 ${requirement.fit_score}` : ""].filter(Boolean).join(" · ")));
+      const chips = node("div", "flow-evidence-chips");
+      for (const id of draft.evidence[index]) {
+        const label = node("label", "flow-chip");
+        const check = node("input"); check.type = "checkbox"; check.checked = true;
+        check.addEventListener("change", () => { draft.evidence[index] = draft.evidence[index].filter(value => value !== id); rerender(); });
+        label.append(check, document.createTextNode(` ${byId[id]?.title || id}`));
+        chips.append(label);
       }
-      chosen.append(entry);
+      const add = node("select");
+      add.setAttribute("aria-label", `为第 ${requirement.index + 1} 条要求添加证据`);
+      add.append(new Option("＋ 添加证据…", ""));
+      for (const row of review.experiences) if (!draft.evidence[index].includes(row.candidate_id)) add.append(new Option(row.title, row.candidate_id));
+      add.addEventListener("change", () => { if (add.value) { draft.evidence[index].push(add.value); rerender(); } });
+      chips.append(add);
+      entry.append(chips);
+      requirements.append(entry);
     }
-    box.append(node("p", "", `入选经历（按简历中的顺序，共 ${review.chosen?.length || 0} 段）`), chosen);
-    if (review.omitted?.length) {
-      const omitted = node("ul");
-      for (const row of review.omitted) omitted.append(node("li", "flow-muted", describe(row)));
-      box.append(node("p", "", "未选入的经历"), omitted);
+    box.append(requirements);
+    const support = id => review.requirements.filter(row => draft.evidence[String(row.index)].includes(id)).map(row => row.index);
+    box.append(node("p", "", `第二步：勾选放进简历的经历并排序（已选 ${draft.experiences.length} 段，建议 3–5 段）。标签是它支持的要求编号。`));
+    const list = node("ol", "flow-selection");
+    const unchosen = review.experiences.filter(row => !draft.experiences.includes(row.candidate_id));
+    const supported = unchosen.filter(row => support(row.candidate_id).length).sort((a, b) => support(b.candidate_id).length - support(a.candidate_id).length);
+    const others = unchosen.filter(row => !support(row.candidate_id).length);
+    const choiceRow = (row, chosen) => {
+      const id = row.candidate_id;
+      const entry = node("li", chosen ? "is-chosen" : "");
+      const label = node("label");
+      const check = node("input"); check.type = "checkbox"; check.checked = chosen;
+      check.addEventListener("change", () => { draft.experiences = chosen ? draft.experiences.filter(value => value !== id) : [...draft.experiences, id]; rerender(); });
+      label.append(check, document.createTextNode(` ${describeExperience(row)}`));
+      entry.append(label);
+      const tags = support(id);
+      entry.append(node("span", "flow-muted", tags.length ? `  支持 ${tags.map(index => `R${index + 1}`).join(" ")}` : "  没有作为任何要求的证据"));
+      if (chosen) {
+        const at = draft.experiences.indexOf(id);
+        const move = step => () => { const order = [...draft.experiences]; [order[at], order[at + step]] = [order[at + step], order[at]]; draft.experiences = order; rerender(); };
+        const up = button("↑", move(-1), "", true); up.dataset.blocked = String(at === 0); delete up.dataset.flowWrite;
+        const down = button("↓", move(1), "", true); down.dataset.blocked = String(at === draft.experiences.length - 1); delete down.dataset.flowWrite;
+        up.setAttribute("aria-label", "上移"); down.setAttribute("aria-label", "下移");
+        entry.append(up, down);
+      }
+      return entry;
+    };
+    for (const id of draft.experiences) if (byId[id]) list.append(choiceRow(byId[id], true));
+    for (const row of supported) list.append(choiceRow(row, false));
+    box.append(list);
+    if (others.length) {
+      const extra = node("details");
+      extra.append(node("summary", "", `其他经历（没有作为任何要求的证据，共 ${others.length} 段）`));
+      const rest = node("ul", "flow-selection");
+      for (const row of others) rest.append(choiceRow(row, false));
+      extra.append(rest);
+      box.append(extra);
     }
+    box.append(node("p", "flow-muted", "点下方“按此选择起草写作要点”后，系统只为你选的经历、按你的顺序起草每段要强调的要点，再停下来给你直接修改。"));
+    return box;
+  }
+
+  // Second step: the planner's writing points for exactly the user's experiences,
+  // edited directly by the user (2026-11-12, user decision).
+  function pointsReview(review) {
+    const box = node("section", "flow-plan-review");
+    box.append(node("h3", "", "各段经历的写作要点"));
+    if (review.reasons?.length) box.append(node("p", "flow-muted", `停下的原因：${review.reasons.join("、")}`));
+    box.append(node("p", "", "每行一条要点，直接修改即可，保存后按你的文字写作，不再经过模型改写。"));
+    const key = JSON.stringify([pipeline?.active_task_id, review.chosen]);
+    if (pointsKey !== key) { pointsKey = key; pointsDrafts.clear(); }
+    const list = node("ol", "flow-points");
+    for (const row of review.chosen || []) {
+      const entry = node("li");
+      entry.append(node("p", "", describeExperience(row)));
+      const input = node("textarea");
+      const original = (row.writing_requirements || []).join("\n");
+      input.rows = Math.min(8, Math.max(3, (row.writing_requirements || []).length + 1)); input.maxLength = 8000;
+      input.value = pointsDrafts.has(row.experience_id) ? pointsDrafts.get(row.experience_id) : original;
+      input.setAttribute("aria-label", `${row.title} 写作要点`);
+      input.addEventListener("input", () => { if (input.value === original) pointsDrafts.delete(row.experience_id); else pointsDrafts.set(row.experience_id, input.value); lock(); });
+      entry.append(input);
+      list.append(entry);
+    }
+    box.append(list);
     if (review.headline) box.append(node("p", "", `Headline：${review.headline}`));
     for (const [label, rows] of [["Summary", review.summary], ["Skills", review.skills]]) {
       if (!rows?.length) continue;
-      const list = node("ul");
-      for (const text of rows) list.append(node("li", "", text));
-      box.append(node("p", "", label), list);
+      const items = node("ul");
+      for (const text of rows) items.append(node("li", "", text));
+      box.append(node("p", "", label), items);
     }
-    // 2026-11-12: every earlier instruction still applies; list them all, oldest first.
     const feedback = typeof review.feedback === "string" ? [review.feedback] : review.feedback || [];
     if (feedback.length) {
       const given = node("ol");
       for (const text of feedback) given.append(node("li", "flow-muted", text));
-      box.append(node("p", "", "已给出的调整意见（重新选材时都会遵循）"), given);
+      const folded = node("details");
+      folded.append(node("summary", "flow-muted", `已给出的意见（${feedback.length} 条，改写时都会遵循）`), given);
+      box.append(folded);
+    }
+    if (review.reply) {
+      const reply = node("div", "flow-plan-reply");
+      reply.append(node("strong", "", "系统的回复："), node("p", "", review.reply));
+      box.append(reply);
     }
     const input = node("textarea");
-    input.rows = 4; input.maxLength = 4000; input.value = planFeedback;
-    input.placeholder = "要调整就写在这里，例如：去掉某段经历、把某段放到第一、Summary 突出某方向。";
-    input.setAttribute("aria-label", "简历选材调整意见");
-    const replan = button("按意见重新选材", () => pipelineAction("continue", { plan_feedback: planFeedback.trim() }), "flow-plan-replan", true);
+    input.rows = 3; input.maxLength = 4000; input.value = planFeedback;
+    input.placeholder = "也可以写意见让系统改写要点或 Summary，例如：Summary 突出量化研究。";
+    input.setAttribute("aria-label", "写作要点修改意见");
+    const replan = button("按意见改写要点", () => pipelineAction("continue", { plan_feedback: planFeedback.trim() }), "flow-plan-replan", true);
     replan.dataset.blocked = String(!planFeedback.trim());
     input.addEventListener("input", () => { planFeedback = input.value; replan.dataset.blocked = String(!planFeedback.trim()); lock(); });
-    box.append(input, node("p", "flow-muted", "按意见重新选材后会再停下来给你看；选材没问题就点下方的“确认选材并继续”，之后自动生成材料并填写。"), replan);
+    const back = button("返回修改证据与选材", () => pipelineAction("continue", { plan_reselect: true }), "flow-plan-reselect", true);
+    const actions = node("div", "flow-actions");
+    actions.append(replan, back);
+    box.append(input, actions, node("p", "flow-muted", "确认后系统写出各段简历条目，再请你逐段核对表述。"));
     return box;
+  }
+
+  function planReview(review) {
+    return review.stage === "selection" ? selectionReview(review) : pointsReview(review);
+  }
+
+  // What the main button sends while a plan is reviewed: the user's selection, or the
+  // points they edited (an unchanged review sends nothing extra).
+  function planContinuePayload() {
+    const review = pipeline?.plan_review;
+    if (review?.stage === "selection" && selectionDraft) return { plan_selection: { evidence: selectionDraft.evidence, experiences: selectionDraft.experiences } };
+    if (review?.stage === "points" && pointsDrafts.size) {
+      return { plan_points: Object.fromEntries([...pointsDrafts].map(([id, text]) => [id, text.split("\n").map(line => line.trim()).filter(Boolean)])) };
+    }
+    return {};
   }
 
   // 2026-11-12 (user decision): before a high-value résumé is generated, the user reviews
@@ -2244,7 +2370,7 @@
         const replacement = [...focusArea.querySelectorAll("input, textarea, select, button")].find(input => (input.dataset.answerKey || input.id || input.getAttribute("aria-label")) === focusKey);
         if (replacement && !replacement.disabled) { replacement.focus({ preventScroll: true }); if (selection) replacement.setSelectionRange(...selection); }
       }
-      window.dispatchEvent(new CustomEvent("application-flow-state", { detail: { flow, pipeline, readable: { ...readable }, statusText: automation.querySelector('[role="status"]')?.textContent } }));
+      window.dispatchEvent(new CustomEvent("application-flow-state", { detail: { flow, pipeline, readable: { ...readable }, statusText: automation.querySelector('.flow-ticker-text')?.textContent } }));
     }
     finally { rendering = false; }
   }

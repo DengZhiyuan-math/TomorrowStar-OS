@@ -56,7 +56,7 @@
           <section id="view-handoff" aria-label="Codex 单岗位交接" hidden><div id="handoff-root" class="handoff-root"></div></section>
           <section id="view-overview" aria-labelledby="overview-title">
             <div class="page-heading"><div><div class="eyebrow" id="today-label">TODAY'S WORKSPACE</div><h1 id="overview-title">从一个岗位，推进下一步。</h1><p id="overview-introduction">邮件推荐、岗位匹配、专用简历和填写自动衔接，完成后通知你最终确认。</p></div><span class="workspace-local"><span class="live-dot" aria-hidden="true"></span> 本机工作台</span></div>
-            <section class="workflow-focus" aria-labelledby="workflow-title">
+            <section class="workflow-focus" id="workflow-focus" aria-labelledby="workflow-title">
               <div class="workflow-focus-main">
                 <div class="workflow-focus-copy"><div class="eyebrow">CURRENT APPLICATION</div><span class="workflow-state" id="workflow-state">正在读取申请进度</span><h2 id="workflow-title">读取当前任务…</h2><p id="workflow-description">根据已保存的状态，找到需要你处理的下一步。</p><div class="workflow-focus-actions"><a href="#flow" class="button button-primary" id="workflow-primary">查看自动申请 <span aria-hidden="true">→</span></a><a href="#applications" class="text-link">浏览岗位与进度 ↗</a></div></div>
                 <aside class="workflow-note"><span class="workflow-note-symbol" aria-hidden="true">⇄</span><strong id="workflow-note-title">自动衔接，按岗位推进</strong><p id="workflow-note-description">系统整理岗位与资料，生成材料并填写。完成后到原申请页面最终确认。</p><span id="workflow-note-path">收录 → 匹配 → 简历 → 填写 → 最终确认</span></aside>
@@ -69,6 +69,7 @@
                 <li data-workflow-step="4"><span class="workflow-number">05</span><div><strong>原页确认提交</strong><span>最终 Submit 由你操作</span></div></li>
               </ol>
             </section>
+            <section class="panel today-applications" id="today-applications" aria-label="今日投递"></section>
             <div class="stats-grid" id="overview-stats"></div>
             <div class="overview-grid">
               <section class="panel action-panel" aria-labelledby="action-title"><div class="panel-heading"><div><div class="eyebrow">NEXT ACTIONS</div><h2 id="action-title">接下来要做的</h2></div><span class="small-label" id="action-count"></span></div><div id="action-queue"></div></section>

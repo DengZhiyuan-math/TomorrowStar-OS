@@ -544,7 +544,7 @@ def test_a_high_value_job_waits_for_the_resume_plan_and_feedback_plans_again(
         "score_tier",
         lambda score, needs_review=False: tiers.pop(0) if tiers else "auto",
     )
-    plans, feedback, attempts, pending = {}, [], [], set()
+    plans, feedback, attempts, pending, selected = {}, [], [], set(), set()
     original = flow.start
 
     def start(identifier, revision, stage, **_options):
@@ -556,7 +556,12 @@ def test_a_high_value_job_waits_for_the_resume_plan_and_feedback_plans_again(
         )
         pending.discard(identifier)  # The planner runs before any review.
         attempts.append(identifier)
-        if not flow.callbacks["plan_allowed"](identifier, plan):
+        allowed = flow.callbacks["plan_allowed"]
+        if (
+            identifier not in selected
+            and not allowed(identifier, None)
+            or not allowed(identifier, plan)
+        ):
             flow.calls.append((stage, identifier))
             task.update(status="failed")
             task["stages"] = {
@@ -576,9 +581,21 @@ def test_a_high_value_job_waits_for_the_resume_plan_and_feedback_plans_again(
         None
         if task_id in pending
         else {
+            "plan": None,
+            "overview": {
+                "stage": "selection",
+                "requirements": [{"index": 0, "evidence": ["exp-a"]}],
+                "selected": [row["experience_id"] for row in plans[task_id]["assignments"]],
+            },
+        }
+        if task_id not in selected
+        else {
             "plan": plans[task_id],
             "overview": {
-                "chosen": [{"title": row["experience_id"]} for row in plans[task_id]["assignments"]]
+                "stage": "points",
+                "chosen": [
+                    {"title": row["experience_id"]} for row in plans[task_id]["assignments"]
+                ],
             },
         }
     )
@@ -589,13 +606,51 @@ def test_a_high_value_job_waits_for_the_resume_plan_and_feedback_plans_again(
         pending.add(task_id)
 
     flow.replan_resume = replan
+    selections, points = [], []
+
+    def select(task_id, evidence, experiences):
+        selections.append((evidence, experiences))
+        plans[task_id] = {"assignments": [{"experience_id": eid} for eid in experiences]}
+        selected.add(task_id)
+        pending.add(task_id)
+
+    def edit(task_id, changes):
+        points.append(changes)
+        for row in plans[task_id]["assignments"]:
+            row["writing_requirements"] = changes.get(row["experience_id"], [])
+
+    flow.select_resume_experiences = select
+    flow.reopen_resume_selection = selected.discard
+    flow.edit_resume_points = edit
     pipeline.start(request_id="precision")
     waiting = drive(pipeline, "needs_input")
     assert waiting["wait_reason"] == "resume_plan_review"
     assert waiting["plan_review"]["reasons"] == ["匹配分达到 75 以上"]
-    assert [row["title"] for row in waiting["plan_review"]["chosen"]] == ["exp-a", "exp-b"]
+    # 2026-11-12 (user decision): first each requirement's evidence and the experiences.
+    assert waiting["plan_review"]["stage"] == "selection"
     current = next(row for row in waiting["items"] if row["task_id"] == waiting["active_task_id"])
     assert current["precision_selection"] == ["匹配分达到 75 以上"]
+
+    # A review saved before the evidence step: Continue shows the current step instead.
+    state = pipeline._load()
+    state["plan_review"] = {"chosen": [{"title": "exp-a"}]}
+    pipeline._save(state)
+    pipeline.continue_current(request_id="stale-review")
+    assert pipeline.snapshot()["plan_review"]["stage"] == "selection"
+    assert not selected
+
+    chosen = {"evidence": {"0": ["exp-stoa"]}, "experiences": ["exp-stoa", "exp-a"]}
+    pipeline.continue_current(request_id="select", plan_selection=chosen)
+    shown = drive(pipeline, "needs_input")["plan_review"]
+    assert shown["stage"] == "points"
+    assert [row["title"] for row in shown["chosen"]] == ["exp-stoa", "exp-a"]
+    assert selections == [({"0": ["exp-stoa"]}, ["exp-stoa", "exp-a"])]
+    # Going back shows the choice again; Continue there keeps the shown choice.
+    pipeline.continue_current(request_id="reselect", plan_reselect=True)
+    assert drive(pipeline, "needs_input")["plan_review"]["stage"] == "selection"
+    pipeline.continue_current(request_id="keep-selection")
+    assert drive(pipeline, "needs_input")["plan_review"]["stage"] == "points"
+    assert selections[-1] == ({"0": ["exp-a"]}, ["exp-stoa", "exp-a"])
 
     pipeline.continue_current(request_id="replan", plan_feedback="Only keep exp-b.")
     # 2026-11-12, G-Research: the restart after a re-plan was lost; with no plan to show
@@ -617,12 +672,13 @@ def test_a_high_value_job_waits_for_the_resume_plan_and_feedback_plans_again(
         computer_use={"run_id": "cancelled-run", "company": "Synthetic Labs"},
     )
     pipeline._save(state)
-    pipeline.continue_current(request_id="confirm-plan")
+    pipeline.continue_current(request_id="confirm-plan", plan_points={"exp-b": ["Lead."]})
+    assert points == [{"exp-b": ["Lead."]}]
     confirmed = pipeline.snapshot()
     assert "worker_batch_id" not in confirmed or confirmed["worker_batch_id"] != "cancelled-batch"
     filling = drive(pipeline, "filling")
     assert "plan_review" not in filling
-    assert len(attempts) == 3
+    assert len(attempts) == 6
 
 
 @pytest.mark.parametrize(("high", "waits"), [(250_000, True), (150_000, False)])

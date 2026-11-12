@@ -65,6 +65,13 @@ def _unstructured_source_ids(snapshot, packet):
     ]
 
 
+# Every delivered assignment carries this instruction for its writer; the user never
+# needs to read it (2026-11-12).
+DEFAULT_WRITING_REQUIREMENT = (
+    "Write in English. Preserve recorded responsibility, status and scope."
+)
+
+
 def _resume_source_ids(analysis, packet):
     """The sources whose experiences the résumé planner may choose from.
 
@@ -201,9 +208,7 @@ def _content_plan(
             "inferences": derived,
             "allowed_fact_refs": [row["id"] for row in facts["facts"]],
             "allowed_inference_refs": [row["id"] for row in derived],
-            "writing_requirements": [
-                "Write in English. Preserve recorded responsibility, status and scope."
-            ],
+            "writing_requirements": [DEFAULT_WRITING_REQUIREMENT],
         }
         assignment["assignment_revision"] = digest(assignment)
         plan["assignments"].append(assignment)
@@ -211,6 +216,34 @@ def _content_plan(
         return validate_plan(plan).model_dump(mode="json")
     except ValueError as error:
         raise _invalid("内容写作需要固定模板及可定位的结构化经历事实。") from error
+
+
+def candidate_assignments(payload, candidate_ids):
+    """Assignments for library experiences the user names, from the delivered packet.
+
+    2026-11-12, G-Research: STOA was neither selected nor cited, so the planner could
+    not choose it even when asked. The packet holds every experience's facts, so the
+    same plan builder delivers one on request without a new analysis.
+    """
+    packet, content_plan = payload["material_packet"], payload["content_plan"]
+    wanted = set(candidate_ids)
+    sources = [
+        sid
+        for sid, row in packet["sources"].items()
+        if (row.get("record_context") or {}).get("fact_id")
+        and (row.get("record_context") or {}).get("candidate_id") in wanted
+    ]
+    if not sources:
+        raise _invalid("点名的经历在本岗位资料包中没有结构化事实。")
+    plan = _content_plan(
+        {"id": content_plan["application_id"]},
+        {},
+        packet,
+        payload["inference_result"],
+        content_plan["template_revision"],
+        sources,
+    )
+    return plan["assignments"]
 
 
 def _invalid(message="固定写作交付或正文结构不能核验。"):

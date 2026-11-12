@@ -44,7 +44,9 @@ def author_output(request):
     if request["role"] == "plan":
         # The planner returns only its choices; the program rebuilds assignments.
         plan = validate_plan(request["context"]["content_plan"]).model_dump(mode="json")
+        feedback = request["context"].get("user_plan_feedback")
         return {
+            **({"user_reply": "Answered: " + feedback[-1]} if feedback else {}),
             **{key: plan[key] for key in ("headline", "summary", "skills") if key in plan},
             "assignments": [
                 {
@@ -434,19 +436,27 @@ def test_a_reviewed_plan_waits_and_written_feedback_plans_again(json_flow):
         return response(author_output(request))
 
     def review(plan):
-        return digest(plan) in approved
+        # None asks for the evidence and experience choice, tested on its own below.
+        return plan is None or digest(plan) in approved
 
     with pytest.raises(PortalDataError) as waiting:
         execute_content_generation(case.store, identifier, runner=runner, review_plan=review)
     assert waiting.value.code == "resume_plan_review_required"
     assert [row["role"] for row in calls] == ["plan"]
     assert "user_plan_feedback" not in calls[0]["context"]
+    assert "user_reply_instructions" not in calls[0]["context"]
     overview = plan_overview(generation.generation_context(case.store, identifier))
     plan = generation.generation_state(case.store, identifier)["writing_plan"]
     assert [row["experience_id"] for row in overview["chosen"]] == [
         row["experience_id"] for row in plan["assignments"]
     ]
     assert all(row["title"] for row in overview["chosen"])
+    # The fixed writer instruction is not shown to the user (2026-11-12).
+    from career_evidence_graph.application_writing import DEFAULT_WRITING_REQUIREMENT
+
+    assert all(
+        DEFAULT_WRITING_REQUIREMENT not in row["writing_requirements"] for row in overview["chosen"]
+    )
 
     generation.request_replan(case.store, identifier, "Put the newest experience first.")
     with pytest.raises(PortalDataError) as again:
@@ -454,6 +464,11 @@ def test_a_reviewed_plan_waits_and_written_feedback_plans_again(json_flow):
     assert again.value.code == "resume_plan_review_required"
     assert [row["role"] for row in calls] == ["plan", "plan"]
     assert calls[1]["context"]["user_plan_feedback"] == ["Put the newest experience first."]
+    # 2026-11-12: with feedback the planner answers it.
+    assert "user_reply_instructions" in calls[1]["context"]
+    assert plan_overview(generation.generation_context(case.store, identifier))["reply"] == (
+        "Answered: Put the newest experience first."
+    )
     # A later instruction keeps the earlier ones (2026-11-12: "remove ARC" was lost).
     generation.request_replan(case.store, identifier, "Keep at most four experiences.")
     with pytest.raises(PortalDataError):
@@ -490,7 +505,9 @@ def test_flow_continues_a_reviewed_plan_through_its_unadopted_handoff(json_flow)
         return response({"supported": True, "reason": "Synthetic sources preserved."})
 
     case.store.model_runner = runner
-    case.flow.callbacks["plan_allowed"] = lambda task_id, plan: digest(plan) in approved
+    case.flow.callbacks["plan_allowed"] = lambda task_id, plan: (
+        plan is not None and digest(plan) in approved
+    )
     task = case.flow.create(case.job["id"], case.job["revision"])
     case.flow.start(task["id"], task["revision"], "analysis")
     task = wait_for(case.flow, task["id"], lambda row: row["status"] == "analysis_ready")
@@ -498,14 +515,35 @@ def test_flow_continues_a_reviewed_plan_through_its_unadopted_handoff(json_flow)
         task["id"], task["revision"], project_root=str(case.project), main="main.tex"
     )
     case.flow.start(task["id"], task["revision"], "resume")
-    waiting = wait_for(
-        case.flow,
-        task["id"],
-        lambda row: row["stages"]["resume"].get("error_code") == "resume_plan_review_required",
-    )
+
+    def stopped(row, attempt=None):
+        resume = row["stages"]["resume"]
+        return resume.get("error_code") == "resume_plan_review_required" and (
+            resume.get("attempt_id") != attempt
+        )
+
+    waiting = wait_for(case.flow, task["id"], stopped)
     progress = case.flow.progress(task["id"])
     assert progress["wait_reason"] == "resume_plan_review" and progress["can_continue"]
+    # First the evidence and experience choice, then the drafted points.
+    shown = case.flow.resume_plan(task["id"])
+    assert shown["plan"] is None and shown["overview"]["stage"] == "selection"
+    case.flow.select_resume_experiences(
+        task["id"],
+        {str(row["index"]): row["evidence"] for row in shown["overview"]["requirements"]},
+        shown["overview"]["selected"],
+    )
+    case.flow.continue_preparation(
+        task["id"],
+        waiting["revision"],
+        request_id="confirm-selection",
+        expected_attempt_id=waiting["stages"]["resume"]["attempt_id"],
+    )
+    waiting = wait_for(
+        case.flow, task["id"], lambda row: stopped(row, waiting["stages"]["resume"]["attempt_id"])
+    )
     plan = case.flow.resume_plan(task["id"])
+    assert plan["overview"]["stage"] == "points"
     approved.add(digest(plan["plan"]))
     case.flow.continue_preparation(
         task["id"],
@@ -664,3 +702,98 @@ def test_flow_reviews_drafted_bullets_before_generating_the_resume(json_flow):
         True,
     )
     assert all(item["protected"] for item in items[first["experience_id"]])
+
+
+def test_the_user_checks_evidence_picks_experiences_and_edits_points(json_flow):
+    """2026-11-12 (user decision), G-Research: the analysis cited a few experiences per
+    requirement, so STOA never reached the planner. A high-value job's user corrects each
+    requirement's evidence, picks and orders the experiences, then edits the points."""
+    from career_evidence_graph import application_experience_latex as generation
+    from career_evidence_graph.application_writing import DEFAULT_WRITING_REQUIREMENT
+    from career_evidence_graph.validation.hashing import record_digest as digest
+
+    case = json_flow
+    task = start_json_writing(case)
+    identifier = task["experience_handoff"]["id"]
+    # As if the analysis had not offered the second experience.
+    directory, state = generation._load(case.store, identifier)
+    dropped = state["payload"]["content_plan"]["assignments"].pop()
+    kept = state["payload"]["content_plan"]["assignments"][0]
+    state["fixed_inputs_revision"] = generation._fixed_inputs_revision(state)
+    generation._save(directory, state)
+    calls, approved = [], set()
+
+    def runner(config, prompt, **kwargs):
+        request = json.loads(prompt.split("\n", 1)[1])
+        calls.append(request)
+        return response(author_output(request))
+
+    def review(plan):
+        return plan is not None and digest(plan) in approved
+
+    def run():
+        return execute_content_generation(case.store, identifier, runner=runner, review_plan=review)
+
+    with pytest.raises(PortalDataError) as waiting:
+        run()
+    assert waiting.value.code == "resume_plan_review_required"
+    shown = generation.plan_review(case.store, identifier)
+    assert shown["plan"] is None
+    overview = shown["overview"]
+    assert overview["stage"] == "selection"
+    assert overview["selected"] == [kept["candidate_id"]]
+    # Every packet experience can be chosen, including one the analysis left out.
+    assert dropped["candidate_id"] in {row["candidate_id"] for row in overview["experiences"]}
+    assert overview["requirements"]
+
+    evidence = {str(row["index"]): row["evidence"] for row in overview["requirements"]}
+    evidence["0"] = [dropped["candidate_id"]]
+    chosen = [dropped["candidate_id"], kept["candidate_id"]]
+    with pytest.raises(PortalDataError):
+        generation.select_experiences(case.store, identifier, evidence, ["not-in-this-packet"])
+    generation.select_experiences(case.store, identifier, evidence, chosen)
+    with pytest.raises(PortalDataError) as points:
+        run()
+    assert points.value.code == "resume_plan_review_required"
+    context = calls[-1]["context"]
+    assert calls[-1]["role"] == "plan"
+    assert [row["candidate_id"] for row in context["content_plan"]["assignments"]] == chosen
+    assert context["user_selection"]["experiences"] == chosen
+    assert [
+        row["requirement"] for row in context["experience_support"][dropped["experience_id"]]
+    ] == [0]
+    shown = generation.plan_review(case.store, identifier)
+    assert shown["overview"]["stage"] == "points"
+    assert [row["experience_id"] for row in shown["overview"]["chosen"]] == [
+        dropped["experience_id"],
+        kept["experience_id"],
+    ]
+
+    # The user's own points are kept as written; no model call.
+    before = len(calls)
+    generation.edit_plan_points(
+        case.store, identifier, {dropped["experience_id"]: ["Lead with the method.", " "]}
+    )
+    assert len(calls) == before
+    plan = generation.plan_review(case.store, identifier)["plan"]
+    assert plan["assignments"][0]["writing_requirements"] == [
+        DEFAULT_WRITING_REQUIREMENT,
+        "Lead with the method.",
+    ]
+    assert generation.plan_review(case.store, identifier)["overview"]["chosen"][0][
+        "writing_requirements"
+    ] == ["Lead with the method."]
+
+    # Going back shows the last choice; choosing it again does not plan again.
+    generation.reopen_selection(case.store, identifier)
+    again = generation.plan_review(case.store, identifier)["overview"]
+    assert again["stage"] == "selection" and again["selected"] == chosen
+    assert again["requirements"][0]["evidence"] == [dropped["candidate_id"]]
+    generation.select_experiences(case.store, identifier, evidence, chosen)
+    assert generation.plan_review(case.store, identifier)["plan"] == plan
+
+    approved.add(digest(plan))
+    assert run()["kind"] == "draft"
+    assert [row["role"] for row in calls].count("plan") == 2
+    final = generation.generation_state(case.store, identifier)["writing_plan"]
+    assert [row["candidate_id"] for row in final["assignments"]] == chosen
