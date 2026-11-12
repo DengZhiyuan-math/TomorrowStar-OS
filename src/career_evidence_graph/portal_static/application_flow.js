@@ -361,10 +361,9 @@
     const actions = node("div", "flow-actions");
     // A flow saved before the queue (no queue_mode) resumes through start.
     const reviewingPlan = !running && pipeline?.wait_reason === "resume_plan_review";
-    const startPipeline = button(pipeline?.id ? "继续当前岗位" : "开启自动流程", () => {
-      const feedback = reviewingPlan ? planFeedback.trim() : "";
-      return pipelineAction(pipeline?.queue_mode ? "continue" : "start", feedback ? { plan_feedback: feedback } : {});
-    }, "flow-pipeline-start");
+    // 2026-11-12 (user decision): during plan review Continue only confirms the plan and
+    // starts the automatic steps; feedback is sent by its own button in the plan box.
+    const startPipeline = button(reviewingPlan ? "确认选材并继续" : pipeline?.id ? "继续当前岗位" : "开启自动流程", () => pipelineAction(pipeline?.queue_mode ? "continue" : "start"), "flow-pipeline-start");
     if (!reviewingPlan) planFeedback = "";
     startPipeline.dataset.blocked = String(!pipeline?.enabled || pipeline.control === "running");
     const pausePipeline = button("暂停自动流程", () => mutate(async () => {
@@ -514,10 +513,12 @@
     if (review.feedback) box.append(node("p", "flow-muted", `上次的调整意见：${review.feedback}`));
     const input = node("textarea");
     input.rows = 4; input.maxLength = 4000; input.value = planFeedback;
-    input.placeholder = "确认就直接点“继续当前岗位”。要调整就写在这里，例如：去掉某段经历、把某段放到第一、Summary 突出某方向。";
+    input.placeholder = "要调整就写在这里，例如：去掉某段经历、把某段放到第一、Summary 突出某方向。";
     input.setAttribute("aria-label", "简历选材调整意见");
-    input.addEventListener("input", () => { planFeedback = input.value; });
-    box.append(input);
+    const replan = button("按意见重新选材", () => pipelineAction("continue", { plan_feedback: planFeedback.trim() }), "flow-plan-replan", true);
+    replan.dataset.blocked = String(!planFeedback.trim());
+    input.addEventListener("input", () => { planFeedback = input.value; replan.dataset.blocked = String(!planFeedback.trim()); lock(); });
+    box.append(input, node("p", "flow-muted", "按意见重新选材后会再停下来给你看；选材没问题就点下方的“确认选材并继续”，之后自动生成材料并填写。"), replan);
     return box;
   }
 
