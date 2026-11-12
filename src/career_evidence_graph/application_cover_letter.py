@@ -20,7 +20,7 @@ from pydantic import Field
 
 from ._vendor import job_apply_store as helper
 from .application_resume_content import Contract, Text
-from .application_resume_render import _ESCAPES, SYMBOLS, _text, symbol_escapes
+from .application_resume_render import _ESCAPES, SYMBOLS, SYMBOLS_V1, _text, symbol_escapes
 from .career_portal_data import PortalDataError
 from .material_author import AUTHOR, author_call, record_rejection
 from .validation.hashing import record_digest as digest
@@ -32,11 +32,14 @@ END_OPENING = "% END LETTER OPENING"
 ROLE_TITLE_SLOT = r"\LetterRoleTitle{}"
 # v4 maps body symbols (π, ₀, —, …) to TeX like the résumé renderer. Earlier
 # renderers wrote them literally; their saved sources are re-rendered unchanged.
-RENDERER_REVISION = "cover-letter-renderer/v4"
+# v5 (2026-11-12) also maps the Latin-1 signs an 8-bit T1 font prints wrongly (· as ů).
+RENDERER_REVISION = "cover-letter-renderer/v5"
+SYMBOL_RENDERERS = {RENDERER_REVISION: "v2", "cover-letter-renderer/v4": "v1"}
 LEGACY_RENDERER_REVISIONS = (
     "cover-letter-renderer/v1",
     "cover-letter-renderer/v2",
     "cover-letter-renderer/v3",
+    "cover-letter-renderer/v4",
 )
 WRITER_INSTRUCTIONS = (
     "Write only the variable cover-letter BODY: job-specific motivation and experience-based "
@@ -294,16 +297,18 @@ def render_cover_letter(content, template, *, application=None, renderer=RENDERE
         raise ValueError("letter template contains existing body content")
     greeting, closing = _fixed_text(prefix, suffix)
     start, end = prefix.find(BEGIN_OPENING), prefix.find(END_OPENING)
-    if renderer == RENDERER_REVISION and 0 <= start < end:
+    table = SYMBOL_RENDERERS.get(renderer)
+    if table and 0 <= start < end:
         # 2026-11-11: a role title with "–" reached the 8-bit font raw and failed the
         # PDF. The fixed opening maps symbols like the body; the plain text keeps them.
-        opening = "".join(SYMBOLS.get(char, char) for char in prefix[start:end])
+        symbols = SYMBOLS if table == "v2" else SYMBOLS_V1
+        opening = "".join(symbols.get(char, char) for char in prefix[start:end])
         prefix = prefix[:start] + opening + prefix[end:]
     pieces, ranges = [prefix], {}
     for row in content["paragraphs"]:
         pieces.append("% LETTER PARAGRAPH " + row["id"] + " BEGIN\n")
         first = sum(map(len, pieces))
-        with symbol_escapes(renderer == RENDERER_REVISION):
+        with symbol_escapes(True if table == "v2" else table or False):
             pieces.append(_text(row["text"]))
         ranges[row["id"]] = [first, sum(map(len, pieces))]
         pieces.append("\n% LETTER PARAGRAPH " + row["id"] + " END\n\n")

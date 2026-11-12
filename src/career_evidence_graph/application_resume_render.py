@@ -59,8 +59,9 @@ _ESCAPES = {
 }
 # Templates use 8-bit fonts; these characters have no glyph there and vanish. Renders
 # that write one carry SYMBOLS_SUFFIX, so earlier saved renders still verify.
-SYMBOLS_SUFFIX = "+symbols/v1"
-SYMBOLS = {
+SYMBOLS_SUFFIX = "+symbols/v2"
+LEGACY_SYMBOLS_SUFFIX = "+symbols/v1"
+SYMBOLS_V1 = {
     "\u2014": "---",
     "\u2013": "--",
     "\u2018": "`",
@@ -94,24 +95,69 @@ SYMBOLS = {
         for command in [name.replace("amda", "ambda")]
     },
 }
+# 2026-11-12: a headline's "·" printed as "ů" without any warning. Below 256 an 8-bit T1
+# font is indexed by the code point itself, and T1 differs from Latin-1 at these slots.
+T1_MISRENDERED = frozenset(
+    [chr(code) for code in range(0x80, 0xC0)] + ["\u00d7", "\u00df", "\u00f7", "\u00ff"]
+)
+SYMBOLS = {
+    **SYMBOLS_V1,
+    "\u00a0": "~",
+    "\u00a1": r"\textexclamdown{}",
+    "\u00a2": r"\textcent{}",
+    "\u00a3": r"\pounds{}",
+    "\u00a4": r"\textcurrency{}",
+    "\u00a5": r"\textyen{}",
+    "\u00a6": r"\textbrokenbar{}",
+    "\u00a7": r"\S{}",
+    "\u00a8": r"\textasciidieresis{}",
+    "\u00a9": r"\textcopyright{}",
+    "\u00aa": r"\textordfeminine{}",
+    "\u00ab": r"\guillemotleft{}",
+    "\u00ac": r"\textlnot{}",
+    "\u00ad": r"\-",
+    "\u00ae": r"\textregistered{}",
+    "\u00af": r"\textasciimacron{}",
+    "\u00b0": r"\textdegree{}",
+    "\u00b4": r"\textasciiacute{}",
+    "\u00b5": r"\textmu{}",
+    "\u00b6": r"\P{}",
+    "\u00b7": r"\textperiodcentered{}",
+    "\u00ba": r"\textordmasculine{}",
+    "\u00bb": r"\guillemotright{}",
+    "\u00bc": r"\textonequarter{}",
+    "\u00bd": r"\textonehalf{}",
+    "\u00be": r"\textthreequarters{}",
+    "\u00bf": r"\textquestiondown{}",
+    "\u00df": r"\ss{}",
+    "\u00f7": r"\ensuremath{\div}",
+    "\u00ff": r"\"{y}",
+}
+_TABLES = {"v1": SYMBOLS_V1, "v2": SYMBOLS}
 
 
 _symbols = ContextVar("resume_symbols", default=None)
 
 
 @contextmanager
-def symbol_escapes(enabled: bool = True):
-    """Within this block, text escapes also map SYMBOLS; yields the characters mapped."""
+def symbol_escapes(enabled: bool | str = True):
+    """Within this block, text escapes also map symbols; yields the characters mapped.
+
+    ``True`` maps the current table, ``"v1"`` the table of earlier saved renders.
+    """
     used: list[str] = []
-    token = _symbols.set(used if enabled else None)
+    table = _TABLES["v2" if enabled is True else enabled] if enabled else None
+    token = _symbols.set((used, table) if table else None)
     try:
         yield used
     finally:
         _symbols.reset(token)
 
 
-def symbols_for(renderer_revision: str | None) -> bool:
-    """Whether a saved render used the symbol escapes."""
+def symbols_for(renderer_revision: str | None) -> bool | str:
+    """The symbol table a saved render used: True (current), "v1" or False."""
+    if renderer_revision and renderer_revision.endswith(LEGACY_SYMBOLS_SUFFIX):
+        return "v1"
     return bool(renderer_revision and renderer_revision.endswith(SYMBOLS_SUFFIX))
 
 
@@ -119,12 +165,12 @@ def _text(value: str) -> str:
     # A single pass prevents generated escape sequences from being re-escaped.
     if any((ord(char) < 32 and char not in "\r\n\t") or ord(char) == 127 for char in value):
         raise ValueError("resume text contains unsupported control characters")
-    used = _symbols.get()
+    used, table = _symbols.get() or (None, {})
     pieces = []
     for char in value.replace("\r\n", "\n").replace("\r", "\n"):
-        if used is not None and char in SYMBOLS:
+        if char in table:
             used.append(char)
-            pieces.append(SYMBOLS[char])
+            pieces.append(table[char])
         else:
             pieces.append(_ESCAPES.get(char, char))
     return "".join(pieces)
@@ -148,7 +194,7 @@ def _link(label: str, url: str | None) -> str:
 
 def _item(item: dict[str, Any]) -> str:
     links = item["links"]
-    used = _symbols.get()
+    used = (_symbols.get() or (None,))[0]
     if used is not None and len(links) == 1 and links[0]["label"].strip() == item["text"].strip():
         # A link labelled with the item's own text is the item (same versioned render).
         used.append("link")
@@ -294,7 +340,8 @@ def render_resume(
         rendered = _render(content, template_revision, template)
     if not used:
         return rendered
-    return replace(rendered, renderer_revision=rendered.renderer_revision + SYMBOLS_SUFFIX)
+    suffix = LEGACY_SYMBOLS_SUFFIX if symbols == "v1" else SYMBOLS_SUFFIX
+    return replace(rendered, renderer_revision=rendered.renderer_revision + suffix)
 
 
 def _render(content, template_revision, template):

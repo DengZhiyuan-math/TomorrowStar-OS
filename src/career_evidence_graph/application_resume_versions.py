@@ -130,8 +130,17 @@ class TectonicCompiler:
             if run.returncode != 0 or not pdf.is_file():
                 raise PortalDataError("resume_export_failed", "PDF 编译失败，源与旧终稿保留。", 409)
             raw = pdf.read_bytes()
+            source = main.read_text(encoding="utf-8", errors="replace")
         # A glyph missing from the font silently drops text from the PDF.
-        missing = sorted(set(re.findall(r"could not represent character \"(.)\"", log)))
+        missing = set(re.findall(r"could not represent character \"(.)\"", log))
+        # 2026-11-12: an 8-bit T1 font prints these with another glyph (· as ů) and warns
+        # of nothing; a source that loads a Unicode font through fontspec is not affected.
+        if "{fontspec}" not in source:
+            from .application_resume_render import T1_MISRENDERED
+
+            prose = "\n".join(re.sub(r"(?<!\\)%.*", "", line) for line in source.splitlines())
+            missing |= set(prose) & T1_MISRENDERED
+        missing = sorted(missing)
         diagnostics = [
             {"severity": "error", "message": f"missing glyph {char!r}"} for char in missing
         ]
