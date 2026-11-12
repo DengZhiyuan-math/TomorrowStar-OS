@@ -541,3 +541,31 @@ def test_an_experience_a_requirement_cites_is_a_planner_candidate():
     assert _resume_source_ids(analysis, packet) == ["selected", "cited"]
     assert _resume_source_ids({"requirements": analysis["requirements"]}, packet) is None
     assert _resume_source_ids({**analysis, "selected_source_ids": []}, packet) == []
+
+
+def test_material_prompts_leave_out_data_volume(json_flow):
+    """2026-11-12 (user decision): no "5,773-candidate comparison" or "129 trades"."""
+    from career_evidence_graph import application_experience_latex as generation
+    from career_evidence_graph.application_cover_letter import (
+        WRITER_INSTRUCTIONS as LETTER_INSTRUCTIONS,
+    )
+    from career_evidence_graph.application_experience_content import (
+        REVIEW_INSTRUCTIONS,
+        WRITER_INSTRUCTIONS,
+    )
+    from career_evidence_graph.application_resume_content import DATA_VOLUME_RULE
+
+    task = start_json_writing(json_flow)
+    planner = generation.generation_context(json_flow.store, task["experience_handoff"]["id"])
+    for instructions in (
+        WRITER_INSTRUCTIONS,
+        REVIEW_INSTRUCTIONS,
+        LETTER_INSTRUCTIONS,
+        planner["instructions"],
+    ):
+        assert DATA_VOLUME_RULE in instructions
+    assert "numbers" not in " ".join(
+        text
+        for row in planner["content_plan"]["assignments"]
+        for text in row["writing_requirements"]
+    )

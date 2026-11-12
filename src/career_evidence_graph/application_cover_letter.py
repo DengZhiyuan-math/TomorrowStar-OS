@@ -19,7 +19,7 @@ from uuid import uuid4
 from pydantic import Field
 
 from ._vendor import job_apply_store as helper
-from .application_resume_content import Contract, Text
+from .application_resume_content import DATA_VOLUME_RULE, Contract, Text
 from .application_resume_render import _ESCAPES, SYMBOLS, SYMBOLS_V1, _text, symbol_escapes
 from .career_portal_data import PortalDataError
 from .material_author import AUTHOR, author_call, record_rejection
@@ -53,7 +53,9 @@ WRITER_INSTRUCTIONS = (
     "when necessary. An experience may span multiple paragraphs. Explain its problem, "
     "personal responsibility, technical method, relevant constraints and decisions, "
     "validation and actual result. Do not expand a compressed resume or invent rationale, "
-    "tradeoffs, numbers, company facts or personal motivation. Assume readers understand "
+    "tradeoffs, numbers, company facts or personal motivation. "
+    + DATA_VOLUME_RULE
+    + "Assume readers understand "
     "normal industry terminology; explain only necessary internal context. Demonstrate "
     "strengths through facts; avoid mechanical lessons-learned summaries and repeated "
     "adjectives. Finish the substantive argument without a courtesy closing or invitation "
