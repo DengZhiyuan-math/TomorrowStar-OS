@@ -177,6 +177,7 @@ def _public(state):
             "main_writer_id",
             # The author runner keeps one reviewer through rewrites (2026-11-08).
             "final_reviewer_id",
+            "user_selection",
         )
         if key in state
     }
@@ -304,23 +305,37 @@ def prepare_generation(store, identifier, revision, **request):
     return _save(directory, state)
 
 
-def experience_support(payload, added=()):
-    """Per delivered experience, the requirements whose matching cites its facts.
+def _cited_evidence(payload):
+    """Per requirement index, the experiences whose facts the match cited.
 
     Only cited sources count: a requirement also carries retrieved sources the match
     did not use (Harmattan AI, 2026-11-10).
     """
+    evidence = {}
+    for index, requirement in enumerate(payload["requirements"]):
+        quoted = {row.get("source_id") for row in requirement.get("citations") or []}
+        evidence[str(index)] = list(
+            dict.fromkeys(
+                source["candidate_id"]
+                for source in requirement.get("sources") or []
+                if source.get("source_id") in quoted and source.get("candidate_id")
+            )
+        )
+    return evidence
+
+
+def experience_support(payload, added=(), evidence=None):
+    """Per delivered experience, the requirements it supports.
+
+    The match's citations, or the user's own evidence once they reviewed it.
+    """
+    evidence = evidence or _cited_evidence(payload)
     support = {
         row["experience_id"]: (row.get("candidate_id") or row["experience"]["candidate_id"], [])
         for row in [*payload["content_plan"]["assignments"], *added]
     }
     for index, requirement in enumerate(payload["requirements"]):
-        quoted = {row.get("source_id") for row in requirement.get("citations") or []}
-        cited = {
-            source.get("candidate_id")
-            for source in requirement.get("sources") or []
-            if source.get("source_id") in quoted
-        }
+        cited = set(evidence.get(str(index), []))
         for candidate, rows in support.values():
             if candidate in cited:
                 rows.append(
@@ -334,14 +349,13 @@ def experience_support(payload, added=()):
 
 
 # 2026-11-12, G-Research: the user asked twice "为什么没有考虑STOA呢?" and saw no
-# answer; STOA was not even offered to the planner. With feedback, the planner also
-# answers it and knows which library experiences were not offered for this job.
+# answer. With feedback, the planner also answers it.
 PLAN_REPLY_INSTRUCTIONS = (
     "Also return user_reply: a short answer, in the language of the user's latest "
     "instruction, that responds to that instruction directly. Say what you changed and "
-    "why; answer a question as a question. If it names an experience listed in "
-    "experiences_not_offered, explain that this job's analysis neither selected it nor "
-    "cited it as evidence for any requirement, so it cannot be chosen at this step. "
+    "why; answer a question as a question. When user_selection is present, the user "
+    "chose the experiences and their order themselves: if the instruction asks to add, "
+    "remove or reorder experiences, tell them to use 返回修改证据与选材. "
     "Do not invent facts about any experience."
 )
 
@@ -352,33 +366,72 @@ def _delivered(state):
     return delivered_plan(state)
 
 
-def not_offered(state):
-    """Library experiences in this job's packet that the planner was not offered."""
-    offered = {row["candidate_id"] for row in _delivered(state)["assignments"]}
-    others = {}
-    for row in (state["payload"].get("material_packet") or {}).get("sources", {}).values():
+def _packet_experiences(payload):
+    """Every library experience with structured facts in this job's packet."""
+    found = {}
+    for row in (payload.get("material_packet") or {}).get("sources", {}).values():
         context = row.get("record_context") or {}
         candidate = context.get("candidate_id")
-        if (
-            candidate
-            and candidate not in offered
-            and context.get("fact_id")
-            and context.get("title")
-        ):
-            others.setdefault(candidate, context["title"])
-    return [
-        {"candidate_id": candidate, "title": title}
-        for candidate, title in sorted(others.items(), key=lambda pair: pair[1])
+        if candidate and context.get("fact_id") and context.get("title"):
+            found.setdefault(
+                candidate,
+                {"candidate_id": candidate}
+                | {
+                    key: context.get(key)
+                    for key in ("title", "role", "organization", "start", "end")
+                },
+            )
+    return found
+
+
+def selection_overview(state):
+    """What a high-value job's user reviews first (2026-11-12, user decision).
+
+    Each requirement with the experiences that support it, every experience of this
+    job's packet, and the planner's suggested experiences in order. The user edits the
+    evidence, then picks and orders the experiences directly.
+    """
+    payload = state["payload"]
+    experiences = _packet_experiences(payload)
+    chosen = state.get("user_selection") or state.get("previous_selection") or {}
+    evidence = chosen.get("evidence") or _cited_evidence(payload)
+    selected = chosen.get("experiences") or [
+        row["candidate_id"] for row in (state.get("writing_plan") or {}).get("assignments", [])
     ]
+    return {
+        "stage": "selection",
+        "requirements": [
+            {
+                "index": index,
+                "text": requirement.get("text", ""),
+                "importance": requirement.get("importance"),
+                "judgment": requirement.get("judgment"),
+                "fit_score": requirement.get("fit_score"),
+                "evidence": [c for c in evidence.get(str(index), []) if c in experiences],
+            }
+            for index, requirement in enumerate(payload["requirements"])
+        ],
+        "experiences": sorted(experiences.values(), key=lambda row: row["title"]),
+        "selected": [candidate for candidate in selected if candidate in experiences],
+    }
 
 
 def _feedback_context(state):
     return {
         "user_plan_feedback": state["plan_feedback"],
-        "experiences_not_offered": sorted({row["title"] for row in not_offered(state)}),
         "user_reply_instructions": PLAN_REPLY_INSTRUCTIONS,
         **({"previous_user_reply": state["plan_reply"]} if state.get("plan_reply") else {}),
     }
+
+
+def _planned(state):
+    """The delivered plan the planner sees: the user's chosen experiences in their order."""
+    plan = _delivered(state)
+    selection = state.get("user_selection")
+    if selection:
+        rows = {row["candidate_id"]: row for row in plan["assignments"]}
+        plan["assignments"] = [rows[candidate] for candidate in selection["experiences"]]
+    return plan
 
 
 def generation_context(store, identifier):
@@ -401,9 +454,11 @@ def generation_context(store, identifier):
                 }
                 for row in payload["requirements"]
             ],
-            "content_plan": _delivered(state),
+            "content_plan": _planned(state),
             "experience_support": experience_support(
-                payload, state.get("user_added_assignments", [])
+                payload,
+                state.get("user_added_assignments", []),
+                (state.get("user_selection") or {}).get("evidence"),
             ),
             "headline_required": payload.get("headline_required", False),
             "retained_content": deepcopy(payload.get("retained_content")),
@@ -442,7 +497,13 @@ def generation_context(store, identifier):
             + " When user_plan_feedback is present, it lists the user's own instructions, oldest"
             + " first, about which delivered experiences to keep, their order and the global"
             + " content. Follow all of them over the selection rules above; a later instruction"
-            + " refines an earlier one only where they conflict. Cite only delivered references.",
+            + " refines an earlier one only where they conflict. Cite only delivered references."
+            # 2026-11-12 (user decision): the user picks a high-value job's experiences.
+            + " When user_selection is present, the user chose these experiences and this order"
+            + " from their own review of each requirement's evidence: keep every delivered"
+            + " assignment in the delivered order and only write its writing_requirements and"
+            + " the global content. This overrides the selection rules and any earlier"
+            + " instruction about which experiences to keep.",
         }
     return {
         **_public(state),
@@ -526,35 +587,109 @@ def wording_is_approved(store, identifier):
     return wording_approved(_load(store, identifier)[1])
 
 
-def experiences_not_offered(store, identifier):
-    return not_offered(_load(store, identifier)[1])
+def plan_review(store, identifier):
+    """What a high-value job's user reviews now, or None while the planner must run.
+
+    First the requirements' evidence and the experiences to keep (stage selection),
+    then the writing points the planner drafted for exactly those (stage points).
+    """
+    from .application_resume_author import plan_overview
+
+    _, state = _load(store, identifier)
+    if (
+        not _content(state)
+        or state.get("adopted_draft")
+        or state.get("mapping_required")
+        or not state.get("writing_plan")
+    ):
+        return None
+    if not state.get("user_selection"):
+        return {"plan": None, "overview": selection_overview(state)}
+    return {
+        "plan": deepcopy(state["writing_plan"]),
+        "overview": plan_overview(generation_context(store, identifier)) | {"stage": "points"},
+    }
 
 
 @_serialized
-def add_candidates(store, identifier, candidate_ids):
-    """Offer named library experiences to the planner, then plan again with them."""
+def select_experiences(store, identifier, evidence, experiences):
+    """Keep the user's evidence and chosen experiences; plan again when they differ.
+
+    2026-11-12, G-Research: the analysis cited only a few experiences per requirement,
+    so STOA never reached the planner and text feedback could not bring it back.
+    """
     from .application_writing import candidate_assignments
 
     directory, state = _load(store, identifier)
     _require_mutable(state)
-    available = {row["candidate_id"]: row["title"] for row in not_offered(state)}
+    payload = state["payload"]
+    known = _packet_experiences(payload)
+    indexes = {str(index) for index in range(len(payload["requirements"]))}
     if (
         not _content(state)
         or state.get("adopted_draft")
-        or not candidate_ids
-        or not set(candidate_ids) <= set(available)
+        or not experiences
+        or len(set(experiences)) != len(experiences)
+        or not set(experiences) <= set(known)
+        or not set(evidence) <= indexes
+        or any(not set(rows) <= set(known) for rows in evidence.values())
     ):
-        raise _invalid("只能加入本岗位资料包里尚未提供给选材的经历。")
-    added = candidate_assignments(state["payload"], candidate_ids)
-    state.setdefault("user_added_assignments", []).extend(added)
-    titles = "、".join(available[candidate] for candidate in candidate_ids)
-    earlier = state.get("plan_feedback") or []
-    state["plan_feedback"] = [
-        *([earlier] if isinstance(earlier, str) else earlier),
-        f"用户点名加入候选并希望放进简历：{titles}",
+        raise _invalid("选材只能使用本岗位资料包里的经历和本岗位的要求。")
+    evidence = {
+        index: list(dict.fromkeys(evidence.get(index, []))) for index in sorted(indexes, key=int)
+    }
+    offered = {row["candidate_id"] for row in _delivered(state)["assignments"]}
+    missing = [candidate for candidate in experiences if candidate not in offered]
+    if missing:
+        state.setdefault("user_added_assignments", []).extend(
+            candidate_assignments(payload, missing)
+        )
+    planned = [
+        row["candidate_id"] for row in (state.get("writing_plan") or {}).get("assignments", [])
     ]
-    state["mapping_required"] = True
+    basis = (state.pop("previous_selection", None) or {}).get("evidence") or _cited_evidence(
+        payload
+    )
+    state["user_selection"] = {"evidence": evidence, "experiences": list(experiences)}
+    if state.get("mapping_required") or planned != list(experiences) or evidence != basis:
+        state["mapping_required"] = True
+        state.pop("plan_reply", None)
     return _save(directory, state)
+
+
+@_serialized
+def reopen_selection(store, identifier):
+    """Show the evidence and experience choice again, keeping the user's last choice."""
+    directory, state = _load(store, identifier)
+    _require_mutable(state)
+    if state.get("user_selection"):
+        state["previous_selection"] = state.pop("user_selection")
+    return _save(directory, state)
+
+
+@_serialized
+def edit_plan_points(store, identifier, points):
+    """Save the user's own writing points; no model reinterprets them (2026-11-12)."""
+    from .application_experience_content import configure
+    from .application_writing import DEFAULT_WRITING_REQUIREMENT
+
+    directory, state = _load(store, identifier)
+    _require_mutable(state)
+    plan = deepcopy(state.get("writing_plan"))
+    if (
+        not _content(state)
+        or state.get("adopted_draft")
+        or state.get("mapping_required")
+        or not plan
+        or not set(points) <= {row["experience_id"] for row in plan["assignments"]}
+    ):
+        raise _invalid("只能修改当前写作计划中入选经历的要点。")
+    for row in plan["assignments"]:
+        if row["experience_id"] in points:
+            texts = [text.strip() for text in points[row["experience_id"]] if text.strip()]
+            row["writing_requirements"] = [DEFAULT_WRITING_REQUIREMENT, *texts]
+    plan.pop("revision", None)
+    return configure(store, directory, state, plan)
 
 
 @_serialized

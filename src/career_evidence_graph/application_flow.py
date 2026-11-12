@@ -349,8 +349,8 @@ def _preparation_progress(task, analysis):
         # for the user before any experience is written.
         status, reason = "waiting", "resume_plan_review"
         message = (
-            "这是重点岗位：简历选了哪些经历、怎么排已列出。要调整就写下意见点“按意见重新选材”；"
-            "没问题就点“确认选材并继续”，系统写出各段条目后再请你逐段核对表述。"
+            "这是重点岗位：先核对每条要求的证据并勾选、排序放进简历的经历，"
+            "再核对每段经历的写作要点；之后系统写出各段条目，请你逐段核对表述。"
         )
         continuation = {"task_id": task["id"], "attempt_id": resume.get("attempt_id")}
     elif (
@@ -5741,29 +5741,27 @@ class ApplicationFlowService:
         return permit is None or permit(task["id"], plan) is True
 
     def resume_plan(self, task_id):
-        """The saved résumé plan and what the user reviews of it, or None."""
-        from .application_experience_latex import generation_context
-        from .application_resume_author import plan_overview
+        """What the user reviews of the résumé plan now, or None while it is planned."""
+        from .application_experience_latex import plan_review
 
-        task = self._task(self._load(), task_id)
-        handoff = task.get("experience_handoff") or {}
-        if not handoff.get("id"):
-            return None
-        from .application_experience_latex import experiences_not_offered
+        handoff = self._task(self._load(), task_id).get("experience_handoff") or {}
+        return plan_review(self._materials, handoff["id"]) if handoff.get("id") else None
 
-        context = generation_context(self._materials, handoff["id"])
-        if context.get("mapping_required") or not context.get("writing_plan"):
-            return None
-        overview = plan_overview(context) | {
-            "not_offered": experiences_not_offered(self._materials, handoff["id"])
-        }
-        return {"plan": context["writing_plan"], "overview": overview}
+    def select_resume_experiences(self, task_id, evidence, experiences):
+        """Keep the user's evidence and experiences for this résumé (2026-11-12)."""
+        from .application_experience_latex import select_experiences
 
-    def add_resume_candidates(self, task_id, candidate_ids):
-        """Offer named library experiences to the planner and plan again (2026-11-12)."""
-        from .application_experience_latex import add_candidates
+        return select_experiences(self._materials, self._handoff_id(task_id), evidence, experiences)
 
-        return add_candidates(self._materials, self._handoff_id(task_id), candidate_ids)
+    def reopen_resume_selection(self, task_id):
+        from .application_experience_latex import reopen_selection
+
+        return reopen_selection(self._materials, self._handoff_id(task_id))
+
+    def edit_resume_points(self, task_id, points):
+        from .application_experience_latex import edit_plan_points
+
+        return edit_plan_points(self._materials, self._handoff_id(task_id), points)
 
     def resume_wording_required(self, task):
         """Whether this job's drafted bullets wait for the user (2026-11-12)."""

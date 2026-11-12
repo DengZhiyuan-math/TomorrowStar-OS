@@ -1507,15 +1507,45 @@ class ApplicationPipeline:
                 )
             ):
                 raise PortalDataError("pipeline_request_invalid", "表述修改的格式不能核验。", 409)
-        if action == "continue" and isinstance(payload, dict) and "plan_add_experiences" in payload:
-            expected = {"request_id", "plan_add_experiences"}
-            added = payload["plan_add_experiences"]
+        if action == "continue" and isinstance(payload, dict) and "plan_selection" in payload:
+            expected = {"request_id", "plan_selection"}
+            chosen = payload["plan_selection"]
+
+            def short(rows):
+                return (
+                    isinstance(rows, list)
+                    and len(rows) <= 40
+                    and all(isinstance(value, str) and 1 <= len(value) <= 200 for value in rows)
+                )
+
             if (
-                not isinstance(added, list)
-                or not 1 <= len(added) <= 10
-                or any(not isinstance(value, str) or not value for value in added)
+                not isinstance(chosen, dict)
+                or set(chosen) != {"evidence", "experiences"}
+                or not short(chosen["experiences"])
+                or not 1 <= len(chosen["experiences"]) <= 12
+                or not isinstance(chosen["evidence"], dict)
+                or len(chosen["evidence"]) > 200
+                or any(not short(rows) for rows in chosen["evidence"].values())
             ):
-                raise PortalDataError("pipeline_request_invalid", "点名加入的经历不能核验。", 409)
+                raise PortalDataError("pipeline_request_invalid", "证据与选材的格式不能核验。", 409)
+        if action == "continue" and isinstance(payload, dict) and "plan_points" in payload:
+            expected = {"request_id", "plan_points"}
+            points = payload["plan_points"]
+            if (
+                not isinstance(points, dict)
+                or not 1 <= len(points) <= 12
+                or any(
+                    not isinstance(rows, list)
+                    or len(rows) > 20
+                    or any(not isinstance(text, str) or len(text) > 2000 for text in rows)
+                    for rows in points.values()
+                )
+            ):
+                raise PortalDataError("pipeline_request_invalid", "写作要点的格式不能核验。", 409)
+        if action == "continue" and isinstance(payload, dict) and "plan_reselect" in payload:
+            expected = {"request_id", "plan_reselect"}
+            if payload["plan_reselect"] is not True:
+                raise PortalDataError("pipeline_request_invalid", "请使用当前岗位操作。", 409)
         if action == "continue" and isinstance(payload, dict) and "plan_feedback" in payload:
             expected = {"request_id", "plan_feedback"}
             if (
@@ -1969,7 +1999,8 @@ class ApplicationPipeline:
             return False
         if item is None or not item.get("precision_selection"):
             return True
-        return item.get("plan_approval") == _plan_key(plan)
+        # None asks whether the user's own evidence and experience choice is needed.
+        return plan is not None and item.get("plan_approval") == _plan_key(plan)
 
     def wording_review_required(self, task_id):
         """A high-value job's drafted bullets wait for the user (2026-11-12)."""
@@ -2120,16 +2151,38 @@ class ApplicationPipeline:
         task = self._task(state)
         item = next(row for row in state["items"] if row.get("task_id") == task["id"])
         feedback = (payload.get("plan_feedback") or "").strip()
-        if payload.get("plan_add_experiences"):
-            self.flow.add_resume_candidates(task["id"], list(payload["plan_add_experiences"]))
+        current = self.flow.resume_plan(task["id"])
+        if current is None:
+            raise PortalDataError(
+                "resume_plan_unavailable", "简历计划尚不能核验，请稍后重试。", 409
+            )
+        if (state.get("plan_review") or {}).get("stage") != current["overview"].get(
+            "stage"
+        ) and "plan_reselect" not in payload:
+            # The panel showed another step (or a review saved before steps existed);
+            # show the current one instead of acting on what the user did not see.
+            self._show_plan(state, task)
+            self._save(state)
+            return
+        if payload.get("plan_reselect"):
+            self.flow.reopen_resume_selection(task["id"])
+        elif current["plan"] is None or "plan_selection" in payload:
+            # 2026-11-12 (user decision): the user's evidence and experiences, or the
+            # shown suggestion when Continue is pressed without changes.
+            shown = current["overview"]
+            chosen = payload.get("plan_selection") or {
+                "evidence": {str(row["index"]): row["evidence"] for row in shown["requirements"]},
+                "experiences": shown["selected"],
+            }
+            self.flow.select_resume_experiences(
+                task["id"], chosen["evidence"], chosen["experiences"]
+            )
         elif feedback:
             self.flow.replan_resume(task["id"], feedback)
         else:
-            current = self.flow.resume_plan(task["id"])
-            if current is None:
-                raise PortalDataError(
-                    "resume_plan_unavailable", "简历计划尚不能核验，请稍后重试。", 409
-                )
+            if payload.get("plan_points"):
+                self.flow.edit_resume_points(task["id"], payload["plan_points"])
+                current = self.flow.resume_plan(task["id"])
             item["plan_approval"] = _plan_key(current["plan"])
         state.pop("plan_review", None)
         self._continue_author(state, payload["request_id"])
