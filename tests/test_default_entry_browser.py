@@ -142,9 +142,17 @@ def test_default_overview_uses_automatic_pipeline_guidance(portal, browser_page,
     expect(page.locator('[aria-label="申请主流程"]')).to_contain_text("自动生成简历")
     expect(page.locator('[data-view="flow"]')).to_contain_text("自动申请")
     expect(page.locator('[data-view="handoff"]')).to_be_hidden()
+    # 2026-11-12 (user decision): 今日工作 lists 今日投递; the current application
+    # card leads the 自动申请 page.
+    expect(page.locator("#today-applications")).to_contain_text("今日投递（1）")
+    expect(page.locator("#today-applications")).to_contain_text("Current")
+    expect(page.locator("#view-flow #workflow-focus")).to_have_count(1)
+    page.locator('[data-view="flow"]').click()
+    expect(page.locator("#workflow-focus")).to_be_visible()
     page.locator("#workflow-primary").click()
     expect(page.locator("#view-flow")).to_be_visible()
     expect(page.locator("#flow-automation")).to_contain_text("正在生成并检查完整岗位材料")
+    expect(page.locator("#flow-automation")).to_contain_text("当前岗位")
 
 
 def test_explicit_handoff_keeps_its_existing_overview_guidance(tmp_path, browser_page):

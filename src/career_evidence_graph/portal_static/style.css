@@ -350,3 +350,14 @@
 .flow-wording-experience textarea { width: 100%; box-sizing: border-box; margin-top: 6px; }
 .flow-wording-catalog button { text-align: left; margin: 2px 0; }
 .flow-plan-reply { background: var(--green-soft); border-radius: var(--radius); padding: 8px 12px; margin: 8px 0; }
+.flow-evidence > li { margin: 8px 0; }
+.flow-evidence p { margin: 2px 0; }
+.flow-evidence-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 4px; }
+.flow-chip { border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; }
+.flow-evidence-chips select { max-width: 260px; }
+.flow-selection > li { margin: 4px 0; }
+.flow-selection > li.is-chosen { font-weight: 600; }
+.flow-selection button { padding: 0 8px; margin-left: 4px; min-height: 0; }
+.today-applications { padding: 20px 24px; margin-bottom: 24px; }
+.today-applications:empty { display: none; }
+.today-applications h2 { margin: 0 0 4px; }
