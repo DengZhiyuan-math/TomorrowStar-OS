@@ -3452,6 +3452,18 @@ class ApplicationPipeline:
             progress = self.flow.prepare(task["id"], task["revision"])
             task = progress["task"]
             reason = progress["wait_reason"]
+            if (
+                reason == "resume_plan_review"
+                and progress["continuation"] is not None
+                and self.flow.resume_plan(task["id"]) is None
+            ):
+                # 2026-11-12: a re-plan the user asked for is still pending; the planner
+                # runs first, then the new plan stops for review.
+                state["resume_author_retry"] = progress["continuation"] | {
+                    "request_id": uuid4().hex
+                }
+                self._save(state)
+                return
             if progress["status"] in {"waiting", "needs_recheck", "failed", "cancelled"}:
                 state.update(resume_status="generating_resume", wait_reason=reason)
                 if reason == "resume_plan_review":

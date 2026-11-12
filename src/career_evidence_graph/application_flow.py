@@ -6107,6 +6107,8 @@ class ApplicationFlowService:
                         "resume_author_failed",
                         "resume_author_no_answer",
                         "resume_latex_invalid",
+                        # 2026-11-12: a reviewed plan resumes its own unadopted handoff.
+                        "resume_plan_review_required",
                     }
                     and retry
                 )
