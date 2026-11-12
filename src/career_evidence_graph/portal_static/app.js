@@ -354,7 +354,10 @@ function renderWorkflow() {
     description = readable ? pipeline?.notification?.message || "系统自动衔接岗位读取、匹配、简历、填写与上传。需要补充信息或最终确认时会通知你。" : "已保存的岗位和进度保留。进入自动申请读取最新状态。";
     action = pipeline?.active_task_id ? "查看当前岗位与材料" : "查看自动申请";
     destination = "#flow";
-    step = readable ? ({ matching: 1, generating_resume: 2, preparing: 2, starting_worker: 3, admitting_worker: 3, filling: 3, ready_for_review: 4 })[pipeline?.status] ?? 0 : -1;
+    // A paused or stopped job keeps the step it stopped in (resume_status), e.g. the
+    // résumé plan review stays on 自动生成简历 (2026-11-12).
+    const stepOf = { matching: 1, generating_resume: 2, preparing: 2, starting_worker: 3, admitting_worker: 3, awaiting_native_check: 3, recovering_worker: 3, filling: 3, ready_for_review: 4 };
+    step = readable ? stepOf[pipeline?.status] ?? stepOf[pipeline?.resume_status] ?? 0 : -1;
   } else if (overviewHandoff?.stale) {
     label = "交接状态待核验"; title = "先核对记录，再继续操作。";
     description = "进入申请交接刷新持久记录。保留原页面与附件，核验后再继续。"; action = "核对交接记录";
