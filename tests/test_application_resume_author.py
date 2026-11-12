@@ -453,13 +453,25 @@ def test_a_reviewed_plan_waits_and_written_feedback_plans_again(json_flow):
         execute_content_generation(case.store, identifier, runner=runner, review_plan=review)
     assert again.value.code == "resume_plan_review_required"
     assert [row["role"] for row in calls] == ["plan", "plan"]
-    assert calls[1]["context"]["user_plan_feedback"] == "Put the newest experience first."
+    assert calls[1]["context"]["user_plan_feedback"] == ["Put the newest experience first."]
+    # A later instruction keeps the earlier ones (2026-11-12: "remove ARC" was lost).
+    generation.request_replan(case.store, identifier, "Keep at most four experiences.")
+    with pytest.raises(PortalDataError):
+        execute_content_generation(case.store, identifier, runner=runner, review_plan=review)
+    assert calls[2]["context"]["user_plan_feedback"] == [
+        "Put the newest experience first.",
+        "Keep at most four experiences.",
+    ]
+    assert plan_overview(generation.generation_context(case.store, identifier))["feedback"] == [
+        "Put the newest experience first.",
+        "Keep at most four experiences.",
+    ]
 
     approved.add(digest(generation.generation_state(case.store, identifier)["writing_plan"]))
     result = execute_content_generation(case.store, identifier, runner=runner, review_plan=review)
     assert result["kind"] == "draft"
     roles = [row["role"] for row in calls]
-    assert roles.count("plan") == 2
+    assert roles.count("plan") == 3
     assert len([role for role in roles if role.startswith("experience-")]) == 2
 
 
@@ -502,3 +514,30 @@ def test_flow_continues_a_reviewed_plan_through_its_unadopted_handoff(json_flow)
         expected_attempt_id=waiting["stages"]["resume"]["attempt_id"],
     )
     assert wait_for(case.flow, task["id"], lambda row: row["status"] == "draft_ready")
+
+
+def test_an_experience_a_requirement_cites_is_a_planner_candidate():
+    """2026-11-12, G-Research: Volatility Wins backed five requirements, but the
+    analysis's own selection left it out, so the planner never saw it."""
+    from career_evidence_graph.application_writing import _resume_source_ids
+
+    def fact(candidate):
+        return {"record_context": {"fact_id": "f", "candidate_id": candidate}}
+
+    packet = {
+        "sources": {
+            "selected": fact("exp-a"),
+            "cited": fact("exp-volatility"),
+            "context-only": {"record_context": {}},
+        }
+    }
+    analysis = {
+        "selected_source_ids": ["selected"],
+        "requirements": [
+            {"source_ids": ["cited", "selected"]},
+            {"source_ids": ["context-only"]},
+        ],
+    }
+    assert _resume_source_ids(analysis, packet) == ["selected", "cited"]
+    assert _resume_source_ids({"requirements": analysis["requirements"]}, packet) is None
+    assert _resume_source_ids({**analysis, "selected_source_ids": []}, packet) == []

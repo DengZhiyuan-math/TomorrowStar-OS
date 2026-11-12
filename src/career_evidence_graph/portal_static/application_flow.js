@@ -510,7 +510,13 @@
       for (const text of rows) list.append(node("li", "", text));
       box.append(node("p", "", label), list);
     }
-    if (review.feedback) box.append(node("p", "flow-muted", `上次的调整意见：${review.feedback}`));
+    // 2026-11-12: every earlier instruction still applies; list them all, oldest first.
+    const feedback = typeof review.feedback === "string" ? [review.feedback] : review.feedback || [];
+    if (feedback.length) {
+      const given = node("ol");
+      for (const text of feedback) given.append(node("li", "flow-muted", text));
+      box.append(node("p", "", "已给出的调整意见（重新选材时都会遵循）"), given);
+    }
     const input = node("textarea");
     input.rows = 4; input.maxLength = 4000; input.value = planFeedback;
     input.placeholder = "要调整就写在这里，例如：去掉某段经历、把某段放到第一、Summary 突出某方向。";

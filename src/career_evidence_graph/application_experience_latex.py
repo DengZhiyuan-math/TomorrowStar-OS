@@ -363,9 +363,7 @@ def generation_context(store, identifier):
                 payload.get("retained_omitted_experience_ids", [])
             ),
             **(
-                {"user_plan_feedback": state["plan_feedback"]}
-                if state.get("plan_feedback")
-                else {}
+                {"user_plan_feedback": state["plan_feedback"]} if state.get("plan_feedback") else {}
             ),
             "instructions": MAIN_INSTRUCTIONS
             + " Select and order delivered assignments; write global content as JSON only."
@@ -390,9 +388,10 @@ def generation_context(store, identifier):
             + " Keep protected human headline wording or its retained omission."
             + " When headline_required is false, omit headline; the old template has no slot."
             # 2026-11-12: the user reviews a high-value job's plan and may ask for changes.
-            + " When user_plan_feedback is present, it is the user's own instruction about"
-            + " which delivered experiences to keep, their order and the global content; follow"
-            + " it over the selection rules above, still citing only delivered references.",
+            + " When user_plan_feedback is present, it lists the user's own instructions, oldest"
+            + " first, about which delivered experiences to keep, their order and the global"
+            + " content. Follow all of them over the selection rules above; a later instruction"
+            + " refines an earlier one only where they conflict. Cite only delivered references.",
         }
     return {
         **_public(state),
@@ -429,7 +428,9 @@ def request_replan(store, identifier, feedback):
     if not _content(state) or state.get("adopted_draft"):
         raise _invalid("只有尚未采用的内容写作计划可以按意见重新选材。")
     state["mapping_required"] = True
-    state["plan_feedback"] = feedback
+    # 2026-11-12, G-Research: a second instruction replaced "remove ARC", which came back.
+    earlier = state.get("plan_feedback") or []
+    state["plan_feedback"] = [*([earlier] if isinstance(earlier, str) else earlier), feedback]
     return _save(directory, state)
 
 

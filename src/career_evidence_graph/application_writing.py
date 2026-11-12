@@ -65,6 +65,27 @@ def _unstructured_source_ids(snapshot, packet):
     ]
 
 
+def _resume_source_ids(analysis, packet):
+    """The sources whose experiences the résumé planner may choose from.
+
+    2026-11-12, G-Research: Volatility Wins supported five requirements, yet the
+    analysis's separate selection left it out, so the planner never saw it. An
+    experience a requirement cites as evidence is a candidate too; the planner still
+    keeps 3 to 5.
+    """
+    selected = analysis.get("selected_source_ids")
+    if not selected:
+        # No selection means every delivered experience is already a candidate.
+        return selected
+    cited = [
+        sid
+        for row in analysis.get("requirements", [])
+        for sid in row.get("source_ids") or []
+        if ((packet["sources"].get(sid) or {}).get("record_context") or {}).get("fact_id")
+    ]
+    return list(dict.fromkeys([*selected, *cited]))
+
+
 def _content_plan(
     application, snapshot, packet, inferences, template_revision, resume_source_ids=None
 ):
@@ -342,7 +363,7 @@ def prepare_fixed_generation(store, identifier, revision, request):
             packet,
             inferences,
             digest(original),
-            analysis.get("selected_source_ids"),
+            _resume_source_ids(analysis, packet),
         )
     retained = request.get("retained_draft")
     if retained is not None:
@@ -442,13 +463,14 @@ def prepare_fixed_generation(store, identifier, revision, request):
                     continue
                 retained_sources[sid] = deepcopy(source)
             if retained_sources:
+                merged = {"sources": {**packet["sources"], **retained_sources}}
                 content_plan = _content_plan(
                     application,
                     snapshot,
-                    {"sources": {**packet["sources"], **retained_sources}},
+                    merged,
                     inferences,
                     digest(original),
-                    analysis.get("selected_source_ids"),
+                    _resume_source_ids(analysis, merged),
                 )
                 retained_order = {
                     row["id"]: index for index, row in enumerate(retained_content["experiences"])
