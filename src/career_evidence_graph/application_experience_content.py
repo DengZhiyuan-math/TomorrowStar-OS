@@ -315,9 +315,14 @@ def wording(state):
     return result
 
 
-def wording_approved(state):
+def wording_approved(state, experience_id=None):
+    """Whether every experience's bullets (or one experience's) are confirmed as shown."""
     current = wording(state)
-    return current is not None and state.get("wording_approved") == current
+    if current is None:
+        return False
+    approved = state.get("wording_approved") or {}
+    ids = [experience_id] if experience_id is not None else list(current)
+    return all(approved.get(eid) == current.get(eid) for eid in ids)
 
 
 def _apply_wording(state, content):
@@ -360,7 +365,8 @@ def revise_wording(directory, state, experience_id, *, feedback=None, items=None
                 edits.pop(item_id, None)
             else:
                 edits[item_id] = text.strip()
-    state.pop("wording_approved", None)
+    # Only this experience needs confirming again (2026-11-12: one at a time).
+    (state.get("wording_approved") or {}).pop(experience_id, None)
     state.pop("review", None)
     state.pop("candidate_sha256", None)
     state.pop("content_revision", None)
@@ -368,11 +374,16 @@ def revise_wording(directory, state, experience_id, *, feedback=None, items=None
     return _save(directory, state)
 
 
-def approve_wording(directory, state):
+def approve_wording(directory, state, experience_id=None):
+    """Confirm one experience's bullets as shown, or all of them."""
     current = wording(state)
     if current is None:
         raise _invalid("经历尚未全部写好，不能确认表述。")
-    state["wording_approved"] = current
+    if experience_id is not None and experience_id not in current:
+        raise _invalid("只能确认已写好的入选经历。")
+    approved = state.setdefault("wording_approved", {})
+    for eid in [experience_id] if experience_id is not None else list(current):
+        approved[eid] = current[eid]
     return _save(directory, state)
 
 

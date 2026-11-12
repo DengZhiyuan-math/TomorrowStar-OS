@@ -1494,7 +1494,8 @@ class ApplicationPipeline:
                     or not isinstance(change, dict)
                     or len(change) != 1
                     or not (
-                        isinstance(change.get("feedback"), str)
+                        change.get("confirm") is True
+                        or isinstance(change.get("feedback"), str)
                         and 0 < len(change["feedback"].strip()) <= 4000
                         or isinstance(change.get("items"), dict)
                         and all(
@@ -1984,12 +1985,20 @@ class ApplicationPipeline:
         }
 
     def _review_wording(self, state, payload):
-        """Continue confirms the bullets; per-experience feedback or edits revise them first."""
+        """Confirm, edit or rewrite one experience at a time; go on once all are confirmed.
+
+        2026-11-12 (user decision): the user sees the chosen experiences first, then
+        checks each one's wording in turn. A plain Continue confirms them all.
+        """
         task = self._task(state)
         changes = payload.get("wording_changes")
+        rewrite = False
         if changes:
             for experience_id, change in changes.items():
-                if "feedback" in change:
+                if change.get("confirm") is True:
+                    self.flow.approve_resume_wording(task["id"], experience_id)
+                elif "feedback" in change:
+                    rewrite = True
                     self.flow.revise_resume_wording(
                         task["id"], experience_id, feedback=change["feedback"].strip()
                     )
@@ -1999,6 +2008,12 @@ class ApplicationPipeline:
                     )
         else:
             self.flow.approve_resume_wording(task["id"])
+        current = None if rewrite else self.flow.resume_wording(task["id"])
+        if current is not None and not all(row.get("confirmed") for row in current["experiences"]):
+            # Still waiting on other experiences: show the updated wording, stay stopped.
+            self._show_wording(state, task)
+            self._save(state)
+            return
         state.pop("wording_review", None)
         self._continue_author(state, payload["request_id"])
 

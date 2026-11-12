@@ -5782,10 +5782,10 @@ class ApplicationFlowService:
             items=items,
         )
 
-    def approve_resume_wording(self, task_id):
+    def approve_resume_wording(self, task_id, experience_id=None):
         from .application_experience_latex import approve_wording
 
-        return approve_wording(self._materials, self._handoff_id(task_id))
+        return approve_wording(self._materials, self._handoff_id(task_id), experience_id)
 
     def replan_resume(self, task_id, feedback):
         """Ask the planner again with the user's instruction before any writing."""
