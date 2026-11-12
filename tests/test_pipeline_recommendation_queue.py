@@ -544,7 +544,7 @@ def test_a_high_value_job_waits_for_the_resume_plan_and_feedback_plans_again(
         "score_tier",
         lambda score, needs_review=False: tiers.pop(0) if tiers else "auto",
     )
-    plans, feedback, attempts = {}, [], []
+    plans, feedback, attempts, pending = {}, [], [], set()
     original = flow.start
 
     def start(identifier, revision, stage, **_options):
@@ -552,6 +552,7 @@ def test_a_high_value_job_waits_for_the_resume_plan_and_feedback_plans_again(
             return original(identifier, revision, stage)
         task = flow.tasks[identifier]
         plan = plans.setdefault(identifier, {"assignments": ["exp-a", "exp-b"]})
+        pending.discard(identifier)  # The planner runs before any review.
         attempts.append(identifier)
         if not flow.callbacks["plan_allowed"](identifier, plan):
             flow.calls.append((stage, identifier))
@@ -569,14 +570,19 @@ def test_a_high_value_job_waits_for_the_resume_plan_and_feedback_plans_again(
         return original(identifier, revision, stage)
 
     flow.start = start
-    flow.resume_plan = lambda task_id: {
-        "plan": plans[task_id],
-        "overview": {"chosen": [{"title": eid} for eid in plans[task_id]["assignments"]]},
-    }
+    flow.resume_plan = lambda task_id: (
+        None
+        if task_id in pending
+        else {
+            "plan": plans[task_id],
+            "overview": {"chosen": [{"title": eid} for eid in plans[task_id]["assignments"]]},
+        }
+    )
 
     def replan(task_id, text):
         feedback.append(text)
         plans[task_id] = {"assignments": ["exp-b"]}
+        pending.add(task_id)
 
     flow.replan_resume = replan
     pipeline.start(request_id="precision")
@@ -588,6 +594,11 @@ def test_a_high_value_job_waits_for_the_resume_plan_and_feedback_plans_again(
     assert current["precision_selection"] == ["匹配分达到 75 以上"]
 
     pipeline.continue_current(request_id="replan", plan_feedback="Only keep exp-b.")
+    # 2026-11-12, G-Research: the restart after a re-plan was lost; with no plan to show
+    # yet, the queue restarts planning instead of stopping with nothing to review.
+    state = pipeline._load()
+    assert state.pop("resume_author_retry", None) is not None
+    pipeline._save(state)
     again = drive(pipeline, "needs_input")
     assert feedback == ["Only keep exp-b."]
     assert again["wait_reason"] == "resume_plan_review"
@@ -599,6 +610,7 @@ def test_a_high_value_job_waits_for_the_resume_plan_and_feedback_plans_again(
     state.update(
         worker_batch_id="cancelled-batch",
         transmission_authorization={"task_id": "cancelled-task"},
+        computer_use={"run_id": "cancelled-run", "company": "Synthetic Labs"},
     )
     pipeline._save(state)
     pipeline.continue_current(request_id="confirm-plan")

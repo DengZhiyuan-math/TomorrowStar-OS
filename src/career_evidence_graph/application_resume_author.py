@@ -149,7 +149,11 @@ def plan_overview(context):
         "headline": headline["text"] if isinstance(headline, dict) else None,
         "summary": [row["text"] for row in plan.get("summary") or []],
         "skills": [row["text"] for row in plan.get("skills") or []],
-        "feedback": context.get("user_plan_feedback"),
+        "feedback": (
+            [feedback]
+            if isinstance(feedback := context.get("user_plan_feedback"), str)
+            else list(feedback or [])
+        ),
     }
 
 

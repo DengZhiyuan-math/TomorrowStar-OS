@@ -453,11 +453,91 @@ def test_a_reviewed_plan_waits_and_written_feedback_plans_again(json_flow):
         execute_content_generation(case.store, identifier, runner=runner, review_plan=review)
     assert again.value.code == "resume_plan_review_required"
     assert [row["role"] for row in calls] == ["plan", "plan"]
-    assert calls[1]["context"]["user_plan_feedback"] == "Put the newest experience first."
+    assert calls[1]["context"]["user_plan_feedback"] == ["Put the newest experience first."]
+    # A later instruction keeps the earlier ones (2026-11-12: "remove ARC" was lost).
+    generation.request_replan(case.store, identifier, "Keep at most four experiences.")
+    with pytest.raises(PortalDataError):
+        execute_content_generation(case.store, identifier, runner=runner, review_plan=review)
+    assert calls[2]["context"]["user_plan_feedback"] == [
+        "Put the newest experience first.",
+        "Keep at most four experiences.",
+    ]
+    assert plan_overview(generation.generation_context(case.store, identifier))["feedback"] == [
+        "Put the newest experience first.",
+        "Keep at most four experiences.",
+    ]
 
     approved.add(digest(generation.generation_state(case.store, identifier)["writing_plan"]))
     result = execute_content_generation(case.store, identifier, runner=runner, review_plan=review)
     assert result["kind"] == "draft"
     roles = [row["role"] for row in calls]
-    assert roles.count("plan") == 2
+    assert roles.count("plan") == 3
     assert len([role for role in roles if role.startswith("experience-")]) == 2
+
+
+@pytest.mark.parametrize("json_flow", [{"automatic_resume_author": True}], indirect=True)
+def test_flow_continues_a_reviewed_plan_through_its_unadopted_handoff(json_flow):
+    """2026-11-12, G-Research: the re-plan was saved, but Flow refused to restart the
+    résumé stage because its handoff was not adopted yet."""
+    from career_evidence_graph.validation.hashing import record_digest as digest
+
+    case = json_flow
+    approved = set()
+
+    def runner(config, prompt, **kwargs):
+        if "automatic-authors" in config.workspace.parts:
+            return response(author_output(json.loads(prompt.split("\n", 1)[1])))
+        return response({"supported": True, "reason": "Synthetic sources preserved."})
+
+    case.store.model_runner = runner
+    case.flow.callbacks["plan_allowed"] = lambda task_id, plan: digest(plan) in approved
+    task = case.flow.create(case.job["id"], case.job["revision"])
+    case.flow.start(task["id"], task["revision"], "analysis")
+    task = wait_for(case.flow, task["id"], lambda row: row["status"] == "analysis_ready")
+    task = case.flow.prepare_automatic_materials(
+        task["id"], task["revision"], project_root=str(case.project), main="main.tex"
+    )
+    case.flow.start(task["id"], task["revision"], "resume")
+    waiting = wait_for(
+        case.flow,
+        task["id"],
+        lambda row: row["stages"]["resume"].get("error_code") == "resume_plan_review_required",
+    )
+    progress = case.flow.progress(task["id"])
+    assert progress["wait_reason"] == "resume_plan_review" and progress["can_continue"]
+    plan = case.flow.resume_plan(task["id"])
+    approved.add(digest(plan["plan"]))
+    case.flow.continue_preparation(
+        task["id"],
+        waiting["revision"],
+        request_id="confirm-plan",
+        expected_attempt_id=waiting["stages"]["resume"]["attempt_id"],
+    )
+    assert wait_for(case.flow, task["id"], lambda row: row["status"] == "draft_ready")
+
+
+def test_an_experience_a_requirement_cites_is_a_planner_candidate():
+    """2026-11-12, G-Research: Volatility Wins backed five requirements, but the
+    analysis's own selection left it out, so the planner never saw it."""
+    from career_evidence_graph.application_writing import _resume_source_ids
+
+    def fact(candidate):
+        return {"record_context": {"fact_id": "f", "candidate_id": candidate}}
+
+    packet = {
+        "sources": {
+            "selected": fact("exp-a"),
+            "cited": fact("exp-volatility"),
+            "context-only": {"record_context": {}},
+        }
+    }
+    analysis = {
+        "selected_source_ids": ["selected"],
+        "requirements": [
+            {"source_ids": ["cited", "selected"]},
+            {"source_ids": ["context-only"]},
+        ],
+    }
+    assert _resume_source_ids(analysis, packet) == ["selected", "cited"]
+    assert _resume_source_ids({"requirements": analysis["requirements"]}, packet) is None
+    assert _resume_source_ids({**analysis, "selected_source_ids": []}, packet) == []

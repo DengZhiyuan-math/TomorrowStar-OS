@@ -743,6 +743,9 @@ class ApplicationPipeline:
             if action == "continue":
                 # One Continue consumes the edit stop; its journal path stays unchanged.
                 state.pop("material_edit_gate", None)
+                # 2026-11-12: a cancelled task's Computer Use record sent this Continue to
+                # the old fill, which refused it, before the current job's wait was read.
+                self._drop_stale_execution(state)
             if action == "submitted" or action == "continue" and state.get("computer_use"):
                 if not state.get("computer_use"):
                     raise PortalDataError(
@@ -3449,6 +3452,18 @@ class ApplicationPipeline:
             progress = self.flow.prepare(task["id"], task["revision"])
             task = progress["task"]
             reason = progress["wait_reason"]
+            if (
+                reason == "resume_plan_review"
+                and progress["continuation"] is not None
+                and self.flow.resume_plan(task["id"]) is None
+            ):
+                # 2026-11-12: a re-plan the user asked for is still pending; the planner
+                # runs first, then the new plan stops for review.
+                state["resume_author_retry"] = progress["continuation"] | {
+                    "request_id": uuid4().hex
+                }
+                self._save(state)
+                return
             if progress["status"] in {"waiting", "needs_recheck", "failed", "cancelled"}:
                 state.update(resume_status="generating_resume", wait_reason=reason)
                 if reason == "resume_plan_review":
