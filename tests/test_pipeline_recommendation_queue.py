@@ -551,7 +551,9 @@ def test_a_high_value_job_waits_for_the_resume_plan_and_feedback_plans_again(
         if stage != "resume":
             return original(identifier, revision, stage)
         task = flow.tasks[identifier]
-        plan = plans.setdefault(identifier, {"assignments": ["exp-a", "exp-b"]})
+        plan = plans.setdefault(
+            identifier, {"assignments": [{"experience_id": "exp-a"}, {"experience_id": "exp-b"}]}
+        )
         pending.discard(identifier)  # The planner runs before any review.
         attempts.append(identifier)
         if not flow.callbacks["plan_allowed"](identifier, plan):
@@ -575,13 +577,15 @@ def test_a_high_value_job_waits_for_the_resume_plan_and_feedback_plans_again(
         if task_id in pending
         else {
             "plan": plans[task_id],
-            "overview": {"chosen": [{"title": eid} for eid in plans[task_id]["assignments"]]},
+            "overview": {
+                "chosen": [{"title": row["experience_id"]} for row in plans[task_id]["assignments"]]
+            },
         }
     )
 
     def replan(task_id, text):
         feedback.append(text)
-        plans[task_id] = {"assignments": ["exp-b"]}
+        plans[task_id] = {"assignments": [{"experience_id": "exp-b"}]}
         pending.add(task_id)
 
     flow.replan_resume = replan
@@ -631,3 +635,97 @@ def test_researched_pay_from_200k_chf_makes_a_job_high_value(queue_environment, 
     if waits:
         assert reasons == ["薪资上限约 250,000 CHF"]
     assert pipeline._precision_reasons({"recommendation_id": "r2"}, "auto") == []
+
+
+def test_a_high_value_job_waits_for_its_bullets_and_revises_one_experience(
+    queue_environment, monkeypatch
+):
+    """2026-11-12 (user decision): the drafted bullets are reviewed with the user before
+    the résumé is generated; feedback or edits revise one experience, Continue confirms."""
+    from career_evidence_graph import application_pipeline
+
+    pipeline, flow, _intake, _worker, _reads, _fetches, _messages = queue_environment
+    tiers = ["manual"]
+    monkeypatch.setattr(
+        application_pipeline,
+        "score_tier",
+        lambda score, needs_review=False: tiers.pop(0) if tiers else "auto",
+    )
+    plan = {"assignments": [{"experience_id": "exp-a"}]}
+    bullets = {"exp-a": [{"id": "a1", "text": "Built the thing at scale."}]}
+    revisions, approved, attempts = [], [], []
+    original = flow.start
+
+    def start(identifier, revision, stage, **_options):
+        if stage != "resume":
+            return original(identifier, revision, stage)
+        attempts.append(identifier)
+        task = flow.tasks[identifier]
+        blocked = (
+            "resume_plan_review_required"
+            if not flow.callbacks["plan_allowed"](identifier, plan)
+            else "resume_wording_review_required"
+            if flow.callbacks["wording_review_required"](identifier) and not approved
+            else None
+        )
+        if blocked:
+            flow.calls.append((stage, identifier))
+            task.update(status="failed")
+            task["stages"] = {
+                "resume": {
+                    "status": "failed",
+                    "error_code": blocked,
+                    "attempt_id": f"attempt-{len(attempts)}",
+                }
+            }
+            task["revision"] += "v"
+            return deepcopy(task)
+        task.pop("stages", None)
+        return original(identifier, revision, stage)
+
+    def revise(task_id, experience_id, *, feedback=None, items=None):
+        revisions.append((experience_id, feedback, items))
+        if items:
+            bullets[experience_id] = [{"id": key, "text": text} for key, text in items.items()]
+
+    flow.start = start
+    flow.resume_plan = lambda task_id: {"plan": plan, "overview": {"chosen": []}}
+    flow.resume_wording = lambda task_id: {
+        "experiences": [
+            {"experience_id": eid, "title": eid, "items": items, "feedback": []}
+            for eid, items in bullets.items()
+        ]
+    }
+    flow.revise_resume_wording = revise
+    flow.approve_resume_wording = lambda task_id: approved.append(task_id)
+    pipeline.start(request_id="wording")
+    assert drive(pipeline, "needs_input")["wait_reason"] == "resume_plan_review"
+    pipeline.continue_current(request_id="confirm-plan")
+    waiting = drive(pipeline, "needs_input")
+    assert waiting["wait_reason"] == "resume_wording_review"
+    assert waiting["wording_review"]["experiences"][0]["items"][0]["text"] == (
+        "Built the thing at scale."
+    )
+    assert waiting["wording_review"]["reasons"] == ["匹配分达到 75 以上"]
+
+    pipeline.continue_current(
+        request_id="rewrite-a",
+        wording_changes={"exp-a": {"feedback": "Name the method instead."}},
+    )
+    assert drive(pipeline, "needs_input")["wait_reason"] == "resume_wording_review"
+    pipeline.continue_current(
+        request_id="edit-a",
+        wording_changes={"exp-a": {"items": {"a1": "Designed the estimator."}}},
+    )
+    edited = drive(pipeline, "needs_input")
+    assert edited["wording_review"]["experiences"][0]["items"][0]["text"] == (
+        "Designed the estimator."
+    )
+    assert revisions == [
+        ("exp-a", "Name the method instead.", None),
+        ("exp-a", None, {"a1": "Designed the estimator."}),
+    ]
+    assert not approved
+    pipeline.continue_current(request_id="confirm-wording")
+    filling = drive(pipeline, "filling")
+    assert approved and "wording_review" not in filling

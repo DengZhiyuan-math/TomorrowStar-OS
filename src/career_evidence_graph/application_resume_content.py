@@ -295,6 +295,8 @@ def assignment_schema(assignment):
 MAX_EXPERIENCE_ITEMS = 3
 # 2026-11-12 (user decision): "a 5,773-candidate comparison" and "a covered sample of
 # 129 trades" read as padding. Material says what was done and found, not how much.
+# A bullet the user edited while reviewing a high-value résumé's wording (2026-11-12).
+WORDING_EDIT_SOURCE = "user-wording-review"
 DATA_VOLUME_RULE = (
     "Do not state how much data or how many samples, candidates, trades, networks, models, "
     "events or items a piece of work covered (for example a 5,773-candidate comparison or "

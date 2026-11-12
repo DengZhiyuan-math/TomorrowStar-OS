@@ -346,3 +346,5 @@
 @media (max-width:720px){.experience-table thead{display:none}.experience-table tr{display:block;border-top:1px solid var(--line);padding:8px 0}.experience-table td{display:block;border:0;padding:2px 16px}}
 .flow-plan-review { border: 1px solid var(--line); border-radius: var(--radius); background: var(--white); padding: 12px 16px; margin: 12px 0; }
 .flow-plan-review textarea { width: 100%; box-sizing: border-box; margin-top: 8px; }
+.flow-wording-experience { border-top: 1px solid var(--line); padding-top: 10px; margin-top: 10px; }
+.flow-wording-experience textarea { width: 100%; box-sizing: border-box; margin-top: 6px; }

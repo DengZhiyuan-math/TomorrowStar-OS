@@ -353,6 +353,18 @@ def _preparation_progress(task, analysis):
             "没问题就点“确认选材并继续”，之后自动生成材料并填写。"
         )
         continuation = {"task_id": task["id"], "attempt_id": resume.get("attempt_id")}
+    elif (
+        resume.get("status") == "failed"
+        and resume.get("error_code") == "resume_wording_review_required"
+    ):
+        # 2026-11-12 (user decision): the drafted bullets wait for the user before the
+        # résumé is assembled, reviewed and generated.
+        status, reason = "waiting", "resume_wording_review"
+        message = (
+            "这是重点岗位：每段经历写进简历的条目已列出。可以逐段写意见让系统只重写这一段，"
+            "或直接改文字后保存；都满意后点“确认表述并继续”，才生成简历并填写。"
+        )
+        continuation = {"task_id": task["id"], "attempt_id": resume.get("attempt_id")}
     elif letter["status"] == "failed" and letter.get("error_code") in LETTER_CONTINUATIONS:
         # The letter's writing call fails and continues exactly as a résumé author call.
         status, reason = "waiting", "resume_author_input_required"
@@ -1178,6 +1190,7 @@ class ApplicationFlowService:
                     handoff,
                     admit_call=lambda: self.resume_call_allowed(task),
                     review_plan=lambda plan: self.resume_plan_allowed(task, plan),
+                    review_wording=lambda: self.resume_wording_required(task),
                 )
                 if allow_calls
                 else resumes.reconcile_generation(handoff)
@@ -1207,6 +1220,7 @@ class ApplicationFlowService:
                 automatic_author=automatic_author,
                 admit_call=lambda: self.resume_call_allowed(task),
                 review_plan=lambda plan: self.resume_plan_allowed(task, plan),
+                review_wording=lambda: self.resume_wording_required(task),
             )
             return (
                 result
@@ -5740,6 +5754,39 @@ class ApplicationFlowService:
             return None
         return {"plan": context["writing_plan"], "overview": plan_overview(context)}
 
+    def resume_wording_required(self, task):
+        """Whether this job's drafted bullets wait for the user (2026-11-12)."""
+        permit = self.callbacks.get("wording_review_required")
+        return permit is not None and permit(task["id"]) is True
+
+    def _handoff_id(self, task_id):
+        handoff = self._task(self._load(), task_id).get("experience_handoff") or {}
+        if not handoff.get("id"):
+            raise PortalDataError("resume_wording_unavailable", "当前岗位没有简历写作交付。", 409)
+        return handoff["id"]
+
+    def resume_wording(self, task_id):
+        """The drafted bullets the user reviews, or None while drafting."""
+        from .application_experience_latex import wording_review
+
+        return wording_review(self._materials, self._handoff_id(task_id))
+
+    def revise_resume_wording(self, task_id, experience_id, *, feedback=None, items=None):
+        from .application_experience_latex import revise_wording
+
+        return revise_wording(
+            self._materials,
+            self._handoff_id(task_id),
+            experience_id,
+            feedback=feedback,
+            items=items,
+        )
+
+    def approve_resume_wording(self, task_id):
+        from .application_experience_latex import approve_wording
+
+        return approve_wording(self._materials, self._handoff_id(task_id))
+
     def replan_resume(self, task_id, feedback):
         """Ask the planner again with the user's instruction before any writing."""
         from .application_experience_latex import request_replan
@@ -6109,6 +6156,7 @@ class ApplicationFlowService:
                         "resume_latex_invalid",
                         # 2026-11-12: a reviewed plan resumes its own unadopted handoff.
                         "resume_plan_review_required",
+                        "resume_wording_review_required",
                     }
                     and retry
                 )
