@@ -1184,7 +1184,7 @@ def _rendered_content(plan, *, template=None):
 
 
 def _validate_content_scope(content, writing_plan, retained=None, *, protected_scopes=None):
-    from .application_resume_content import validate_content, validate_plan
+    from .application_resume_content import WORDING_EDIT_SOURCE, validate_content, validate_plan
 
     raw_plan = {key: value for key, value in writing_plan.items() if key != "revision"}
     if "revision" in writing_plan and writing_plan["revision"] != digest(raw_plan):
@@ -1252,7 +1252,15 @@ def _validate_content_scope(content, writing_plan, retained=None, *, protected_s
     for section, items in sections.items():
         facts, inferences = allowed[section]
         for index, item in enumerate(items):
-            if item["origin"] == "human":
+            if item["origin"] == "human" and item.get("edit_source") == WORDING_EDIT_SOURCE:
+                # 2026-11-12: a bullet the user edited in the wording review before
+                # generation; it still cites only this experience's delivered facts.
+                if not item["protected"] or (
+                    not set(item["fact_refs"]) <= facts
+                    or not set(item["inference_refs"]) <= inferences
+                ):
+                    raise ValueError("Reviewed human wording is unprotected or out of scope")
+            elif item["origin"] == "human":
                 if protected.get((section, index)) != item:
                     raise ValueError("Protected human content or position differs")
             elif (

@@ -437,6 +437,67 @@ def request_replan(store, identifier, feedback):
     return _save(directory, state)
 
 
+def wording_review(store, identifier):
+    """The drafted bullets and global content a user reviews before generation."""
+    from .application_experience_content import wording
+
+    _, state = _load(store, identifier)
+    current = wording(state) if _content(state) and not state["mapping_required"] else None
+    if current is None:
+        return None
+    plan = state["writing_plan"]
+    headline = plan.get("headline")
+    edits = state.get("wording_edits", {})
+    return {
+        "experiences": [
+            {
+                "experience_id": row["experience_id"],
+                **{
+                    key: row["experience"].get(key)
+                    for key in ("title", "role", "organization", "start", "end")
+                },
+                "items": [
+                    item | {"edited": item["id"] in edits.get(row["experience_id"], {})}
+                    for item in current[row["experience_id"]]
+                ],
+                "feedback": list(state.get("wording_feedback", {}).get(row["experience_id"], [])),
+            }
+            for row in plan["assignments"]
+        ],
+        "headline": headline["text"] if isinstance(headline, dict) else None,
+        "summary": [row["text"] for row in plan.get("summary") or []],
+        "skills": [row["text"] for row in plan.get("skills") or []],
+    }
+
+
+def wording_is_approved(store, identifier):
+    from .application_experience_content import wording_approved
+
+    return wording_approved(_load(store, identifier)[1])
+
+
+@_serialized
+def revise_wording(store, identifier, experience_id, *, feedback=None, items=None):
+    from .application_experience_content import revise_wording as revise
+
+    directory, state = _load(store, identifier)
+    _require_mutable(state)
+    if not _content(state) or state.get("adopted_draft") or (feedback is None) == (items is None):
+        raise _invalid("只能对尚未采用的经历给出一条意见或一组修改。")
+    return revise(directory, state, experience_id, feedback=feedback, items=items)
+
+
+@_serialized
+def approve_wording(store, identifier):
+    from .application_experience_content import approve_wording as approve
+
+    directory, state = _load(store, identifier)
+    _require_mutable(state)
+    if not _content(state) or state.get("adopted_draft"):
+        raise _invalid("只有尚未采用的内容写作可以确认表述。")
+    return approve(directory, state)
+
+
 @_serialized
 def configure_generation(
     store,

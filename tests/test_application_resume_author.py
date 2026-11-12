@@ -569,3 +569,89 @@ def test_material_prompts_leave_out_data_volume(json_flow):
         for row in planner["content_plan"]["assignments"]
         for text in row["writing_requirements"]
     )
+
+
+@pytest.mark.parametrize("json_flow", [{"automatic_resume_author": True}], indirect=True)
+def test_flow_reviews_drafted_bullets_before_generating_the_resume(json_flow):
+    """2026-11-12 (user decision): drafted bullets wait for the user; feedback rewrites
+    one experience, edits stay as protected human wording, then the résumé is adopted."""
+    from career_evidence_graph import application_experience_latex as generation
+
+    case = json_flow
+    requests = []
+
+    def runner(config, prompt, **kwargs):
+        if "automatic-authors" in config.workspace.parts:
+            request = json.loads(prompt.split("\n", 1)[1])
+            requests.append(request)
+            return response(author_output(request))
+        return response({"supported": True, "reason": "Synthetic sources preserved."})
+
+    case.store.model_runner = runner
+    case.flow.callbacks["wording_review_required"] = lambda task_id: True
+    task = case.flow.create(case.job["id"], case.job["revision"])
+    case.flow.start(task["id"], task["revision"], "analysis")
+    task = wait_for(case.flow, task["id"], lambda row: row["status"] == "analysis_ready")
+    task = case.flow.prepare_automatic_materials(
+        task["id"], task["revision"], project_root=str(case.project), main="main.tex"
+    )
+    case.flow.start(task["id"], task["revision"], "resume")
+
+    def stopped(row):
+        return row["stages"]["resume"].get("error_code") == "resume_wording_review_required"
+
+    waiting = wait_for(case.flow, task["id"], stopped)
+    assert case.flow.progress(task["id"])["wait_reason"] == "resume_wording_review"
+    assert "review" not in [row["role"] for row in requests]
+    review = case.flow.resume_wording(task["id"])
+    first, second = review["experiences"]
+    case.flow.revise_resume_wording(
+        task["id"], first["experience_id"], feedback="Name the method instead."
+    )
+    before = len(requests)
+    case.flow.continue_preparation(
+        task["id"],
+        waiting["revision"],
+        request_id="rewrite-first",
+        expected_attempt_id=waiting["stages"]["resume"]["attempt_id"],
+    )
+    waiting = wait_for(
+        case.flow,
+        task["id"],
+        lambda row: (
+            stopped(row)
+            and row["stages"]["resume"]["attempt_id"] != waiting["stages"]["resume"]["attempt_id"]
+        ),
+    )
+    rewritten = [row for row in requests[before:] if row["role"].startswith("experience-")]
+    assert len(rewritten) == 1
+    assert rewritten[0]["context"]["user_feedback"] == ["Name the method instead."]
+    item = second["items"][0]
+    case.flow.revise_resume_wording(
+        task["id"], second["experience_id"], items={item["id"]: "Hand-written bullet."}
+    )
+    edited = case.flow.resume_wording(task["id"])["experiences"][1]["items"][0]
+    assert edited == {"id": item["id"], "text": "Hand-written bullet.", "edited": True}
+    case.flow.approve_resume_wording(task["id"])
+    case.flow.continue_preparation(
+        task["id"],
+        waiting["revision"],
+        request_id="confirm-wording",
+        expected_attempt_id=waiting["stages"]["resume"]["attempt_id"],
+    )
+    assert wait_for(case.flow, task["id"], lambda row: row["status"] == "draft_ready")
+    from career_evidence_graph.application_experience_content import output
+
+    state = generation._load(case.store, waiting["experience_handoff"]["id"])[1]
+    assert state.get("adopted_draft")
+    items = {
+        experience["id"]: experience["items"]
+        for experience in output(state)["resume_content"]["experiences"]
+    }
+    hand = items[second["experience_id"]][0]
+    assert (hand["text"], hand["origin"], hand["protected"]) == (
+        "Hand-written bullet.",
+        "human",
+        True,
+    )
+    assert all(item["protected"] for item in items[first["experience_id"]])

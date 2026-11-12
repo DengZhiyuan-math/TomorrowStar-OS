@@ -158,7 +158,14 @@ def plan_overview(context):
 
 
 def _execute_content_generation(
-    store, identifier, *, runner=None, allow_calls=True, admit_call=None, review_plan=None
+    store,
+    identifier,
+    *,
+    runner=None,
+    allow_calls=True,
+    admit_call=None,
+    review_plan=None,
+    review_wording=None,
 ):
     """Run missing authors, then the existing semantic review and adoption Interfaces.
 
@@ -227,6 +234,15 @@ def _execute_content_generation(
             if submitted.get("fragment_status", {}).get(eid) == "needs_material":
                 raise _failure("resume_author_material_required", "简历经历需要补充重要事实。")
         state = generation.generation_state(store, identifier)
+        # 2026-11-12 (user decision): a high-value job's drafted bullets wait for the
+        # user before the résumé is assembled, reviewed and generated.
+        if (
+            allow_calls
+            and review_wording is not None
+            and review_wording()
+            and not generation.wording_is_approved(store, identifier)
+        ):
+            raise _failure("resume_wording_review_required", "简历表述等你确认。")
         if state.get("review", {}).get("passed"):
             return generation.adopt_generation(store, identifier)
         generation.assemble_generation(store, identifier)
@@ -276,7 +292,14 @@ def _execute_content_generation(
 
 
 def execute_content_generation(
-    store, identifier, *, runner=None, allow_calls=True, admit_call=None, review_plan=None
+    store,
+    identifier,
+    *,
+    runner=None,
+    allow_calls=True,
+    admit_call=None,
+    review_plan=None,
+    review_wording=None,
 ):
     """Execute or reconcile the existing content handoff; finished calls never repeat."""
     try:
@@ -287,6 +310,7 @@ def execute_content_generation(
             allow_calls=allow_calls,
             admit_call=admit_call,
             review_plan=review_plan,
+            review_wording=review_wording,
         )
     except PortalDataError:
         raise

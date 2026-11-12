@@ -93,6 +93,22 @@ ACCOUNT_CHECK_WAIT = 120
 # 2026-11-12 (user decision): a job whose researched yearly pay reaches this stops for
 # the user's review of the résumé plan, like a high match or a target company.
 HIGH_SALARY_CHF = 200_000
+
+
+def _plan_key(plan):
+    """What a user confirms in a résumé plan: the chosen experiences, order and points.
+
+    The automatic review may later patch summary or skills; that must not ask for the
+    plan again (2026-11-12).
+    """
+    return digest(
+        [
+            [row["experience_id"], list(row.get("writing_requirements") or [])]
+            for row in plan.get("assignments") or []
+        ]
+    )
+
+
 # How long a finished match waits for its salary research.
 SALARY_RESEARCH_WAIT = 180
 # How often the queue reads recommendation mail while it waits (2026-11-08: every
@@ -199,6 +215,7 @@ class ApplicationPipeline:
         # Flow consults this permit from the first tick, so register it before the thread.
         flow.callbacks["preparation_allowed"] = self.preparation_allowed
         flow.callbacks["plan_allowed"] = self.plan_allowed
+        flow.callbacks["wording_review_required"] = self.wording_review_required
         self._thread = None
         if self._owner:
             self._thread = threading.Thread(
@@ -1447,7 +1464,13 @@ class ApplicationPipeline:
                     "at": time.time(),
                 }
             )
-            for key in ("wait_reason", "resume_status", "plan_review", *self.STALE_EXECUTION_KEYS):
+            for key in (
+                "wait_reason",
+                "resume_status",
+                "plan_review",
+                "wording_review",
+                *self.STALE_EXECUTION_KEYS,
+            ):
                 state.pop(key, None)
             self._preparation_serial += 1
             state.update(
@@ -1460,6 +1483,29 @@ class ApplicationPipeline:
         expected = {"request_id", "application_id"} if action == "return" else {"request_id"}
         if action == "continue" and isinstance(payload, dict) and "reclaim" in payload:
             expected = {"request_id", "reclaim", "handoff_source"}
+        if action == "continue" and isinstance(payload, dict) and "wording_changes" in payload:
+            expected = {"request_id", "wording_changes"}
+            changes = payload["wording_changes"]
+            if (
+                not isinstance(changes, dict)
+                or not changes
+                or any(
+                    not isinstance(eid, str)
+                    or not isinstance(change, dict)
+                    or len(change) != 1
+                    or not (
+                        isinstance(change.get("feedback"), str)
+                        and 0 < len(change["feedback"].strip()) <= 4000
+                        or isinstance(change.get("items"), dict)
+                        and all(
+                            isinstance(text, str) and len(text) <= 2000
+                            for text in change["items"].values()
+                        )
+                    )
+                    for eid, change in changes.items()
+                )
+            ):
+                raise PortalDataError("pipeline_request_invalid", "表述修改的格式不能核验。", 409)
         if action == "continue" and isinstance(payload, dict) and "plan_feedback" in payload:
             expected = {"request_id", "plan_feedback"}
             if (
@@ -1572,6 +1618,11 @@ class ApplicationPipeline:
                     self._drop_stale_execution(state)
                     receipt["status"] = "complete"
                     self._review_plan(state, payload)
+                    return self.snapshot()
+                if state.get("wait_reason") == "resume_wording_review":
+                    self._drop_stale_execution(state)
+                    receipt["status"] = "complete"
+                    self._review_wording(state, payload)
                     return self.snapshot()
                 if state.get("wait_reason") in {
                     "cover_letter_result_unknown",
@@ -1908,7 +1959,48 @@ class ApplicationPipeline:
             return False
         if item is None or not item.get("precision_selection"):
             return True
-        return item.get("plan_approval") == digest(plan)
+        return item.get("plan_approval") == _plan_key(plan)
+
+    def wording_review_required(self, task_id):
+        """A high-value job's drafted bullets wait for the user (2026-11-12)."""
+        try:
+            with self.flow.applications.write_lock():
+                item = next(
+                    (row for row in self._load()["items"] if row.get("task_id") == task_id), None
+                )
+        except (PortalDataError, OSError, ValueError):
+            return True
+        return bool(item and item.get("precision_selection"))
+
+    def _show_wording(self, state, task):
+        """Keep the bullets the user reviews in the queue state the panel reads."""
+        item = next(row for row in state["items"] if row.get("task_id") == task["id"])
+        try:
+            current = self.flow.resume_wording(task["id"])
+        except (PortalDataError, OSError, ValueError, KeyError):
+            current = None
+        state["wording_review"] = current and current | {
+            "reasons": list(item.get("precision_selection") or [])
+        }
+
+    def _review_wording(self, state, payload):
+        """Continue confirms the bullets; per-experience feedback or edits revise them first."""
+        task = self._task(state)
+        changes = payload.get("wording_changes")
+        if changes:
+            for experience_id, change in changes.items():
+                if "feedback" in change:
+                    self.flow.revise_resume_wording(
+                        task["id"], experience_id, feedback=change["feedback"].strip()
+                    )
+                else:
+                    self.flow.revise_resume_wording(
+                        task["id"], experience_id, items=change["items"]
+                    )
+        else:
+            self.flow.approve_resume_wording(task["id"])
+        state.pop("wording_review", None)
+        self._continue_author(state, payload["request_id"])
 
     def _precision_reasons(self, item, tier):
         """Why this job's résumé plan waits for the user; None while salary is pending."""
@@ -2012,7 +2104,7 @@ class ApplicationPipeline:
                 raise PortalDataError(
                     "resume_plan_unavailable", "简历计划尚不能核验，请稍后重试。", 409
                 )
-            item["plan_approval"] = digest(current["plan"])
+            item["plan_approval"] = _plan_key(current["plan"])
         state.pop("plan_review", None)
         self._continue_author(state, payload["request_id"])
 
@@ -2098,6 +2190,7 @@ class ApplicationPipeline:
             "notification",
             "computer_use",
             "plan_review",
+            "wording_review",
         )
         if state.get("computer_use"):
             # Stops a Computer Use fill that is still running for this job.
@@ -3452,11 +3545,13 @@ class ApplicationPipeline:
             progress = self.flow.prepare(task["id"], task["revision"])
             task = progress["task"]
             reason = progress["wait_reason"]
-            if (
+            pending = (
                 reason == "resume_plan_review"
-                and progress["continuation"] is not None
                 and self.flow.resume_plan(task["id"]) is None
-            ):
+                or reason == "resume_wording_review"
+                and self.flow.resume_wording(task["id"]) is None
+            )
+            if pending and progress["continuation"] is not None:
                 # 2026-11-12: a re-plan the user asked for is still pending; the planner
                 # runs first, then the new plan stops for review.
                 state["resume_author_retry"] = progress["continuation"] | {
@@ -3468,6 +3563,8 @@ class ApplicationPipeline:
                 state.update(resume_status="generating_resume", wait_reason=reason)
                 if reason == "resume_plan_review":
                     self._show_plan(state, task)
+                if reason == "resume_wording_review":
+                    self._show_wording(state, task)
                 no_answer = (
                     progress["resume"].get("error_code") == "resume_author_no_answer"
                     or progress["letter"].get("error_code") == "letter_generation_no_answer"

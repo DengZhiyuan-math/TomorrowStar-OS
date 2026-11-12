@@ -16,6 +16,7 @@ from .application_full_latex import _invalid
 from .application_resume_content import (
     DATA_VOLUME_RULE,
     MAX_EXPERIENCE_ITEMS,
+    WORDING_EDIT_SOURCE,
     apply_content_patch,
     assemble_content,
     assignment_schema,
@@ -44,7 +45,9 @@ WRITER_INSTRUCTIONS = (
     "Leave out long identifiers such as full commit hashes. "
     "Keep AI, coding-agent and tool assistance out of the wording; it stays in internal "
     "records. Keep real team and collaborator responsibility. "
-    "Do not reinterpret the JD, rescore, retrieve libraries, or change another experience."
+    "Do not reinterpret the JD, rescore, retrieve libraries, or change another experience. "
+    "When user_feedback is present, it lists the user's own instructions for this "
+    "experience, oldest first; follow all of them, revising previous_fragment."
 )
 REVIEW_INSTRUCTIONS = (
     "Perform the single semantic review of this resume content JSON. "
@@ -213,11 +216,19 @@ def writer_context(state, experience_id):
         # then claimed human provenance, which validation rightly refuses. The
         # schema also pins this assignment's identity and allowed references.
         "output_schema": assignment_schema(assignment),
-        "previous_fragment": deepcopy(state["fragments"].get(experience_id)),
+        "previous_fragment": deepcopy(
+            state["fragments"].get(experience_id)
+            or state.get("wording_previous", {}).get(experience_id)
+        ),
         "retained_items": deepcopy((previous_experience or {}).get("items", [])),
         "retained_structure_protected": experience_id
         in state["payload"].get("retained_protected_scopes", []),
         "review_feedback": deepcopy(state.get("writer_feedback", {}).get(experience_id)),
+        **(
+            {"user_feedback": list(state["wording_feedback"][experience_id])}
+            if state.get("wording_feedback", {}).get(experience_id)
+            else {}
+        ),
     }
 
 
@@ -261,6 +272,7 @@ def output(state):
             [fragment["content_fragment"] for fragment in state["fragments"].values()],
         )
         retained = _retained(state, _plan(state["writing_plan"]))
+        _apply_wording(state, content)
         headline = _headline(state, content.get("headline"), retained)
         if headline:
             content["headline"] = headline
@@ -282,6 +294,86 @@ def output(state):
     except (ValueError, TypeError, KeyError) as exc:
         raise _invalid("经历 JSON 缺失、需补充资料或版本不符，不能静默省略。") from exc
     return {"resume_content": content}
+
+
+# 2026-11-12 (user decision): a high-value job's bullets are reviewed with the user
+# before the résumé is generated. Edits become protected human wording; confirmed
+# wording is protected so the automatic review cannot silently change it.
+def wording(state):
+    """Each assigned experience's bullets as the user reviews them, in plan order."""
+    edits = state.get("wording_edits", {})
+    result = {}
+    for assignment in state["writing_plan"]["assignments"]:
+        eid = assignment["experience_id"]
+        fragment = (state["fragments"].get(eid) or {}).get("content_fragment") or {}
+        if fragment.get("status") != "complete":
+            return None
+        result[eid] = [
+            {"id": item["id"], "text": edits.get(eid, {}).get(item["id"], item["text"])}
+            for item in fragment["items"]
+        ]
+    return result
+
+
+def wording_approved(state):
+    current = wording(state)
+    return current is not None and state.get("wording_approved") == current
+
+
+def _apply_wording(state, content):
+    edits, approved = state.get("wording_edits", {}), state.get("wording_approved") or {}
+    for experience in content["experiences"]:
+        fragment = state["fragments"][experience["id"]]["content_fragment"]["items"]
+        confirmed = {row["id"]: row["text"] for row in approved.get(experience["id"], [])}
+        for item, source in zip(experience["items"], fragment, strict=True):
+            text = edits.get(experience["id"], {}).get(source["id"])
+            if text is not None:
+                item.update(
+                    text=text, origin="human", edit_source=WORDING_EDIT_SOURCE, protected=True
+                )
+            elif confirmed.get(source["id"]) == item["text"]:
+                item["protected"] = True
+    content["revision"] = content_revision(content)
+
+
+def revise_wording(directory, state, experience_id, *, feedback=None, items=None):
+    """Rewrite one experience from the user's feedback, or keep their edited bullets."""
+    if experience_id not in (wording(state) or {}):
+        raise _invalid("只能修改已写好的入选经历。")
+    if feedback is not None:
+        history = state.setdefault("wording_feedback", {}).setdefault(experience_id, [])
+        history.append(feedback)
+        state.setdefault("wording_previous", {})[experience_id] = state["fragments"].pop(
+            experience_id
+        )
+        state.get("wording_edits", {}).pop(experience_id, None)
+    else:
+        fragment = state["fragments"][experience_id]["content_fragment"]["items"]
+        known = {item["id"]: item["text"] for item in fragment}
+        if not isinstance(items, dict) or not items or not set(items) <= set(known):
+            raise _invalid("修改的条目须属于这段经历。")
+        if any(not isinstance(text, str) or not text.strip() for text in items.values()):
+            raise _invalid("修改后的条目不能为空。")
+        edits = state.setdefault("wording_edits", {}).setdefault(experience_id, {})
+        for item_id, text in items.items():
+            if text.strip() == known[item_id]:
+                edits.pop(item_id, None)
+            else:
+                edits[item_id] = text.strip()
+    state.pop("wording_approved", None)
+    state.pop("review", None)
+    state.pop("candidate_sha256", None)
+    state.pop("content_revision", None)
+    state["status"] = "writing_required"
+    return _save(directory, state)
+
+
+def approve_wording(directory, state):
+    current = wording(state)
+    if current is None:
+        raise _invalid("经历尚未全部写好，不能确认表述。")
+    state["wording_approved"] = current
+    return _save(directory, state)
 
 
 def _retain_items(current, previous, *, locked=False):
