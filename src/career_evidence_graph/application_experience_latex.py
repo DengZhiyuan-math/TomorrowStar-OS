@@ -24,6 +24,7 @@ from .application_full_latex import (
 )
 from .application_input_binding import configuration_current, configuration_revision
 from .application_prism import archive_sources
+from .application_resume_content import DATA_VOLUME_RULE
 from .career_portal_data import PortalDataError
 from .validation.hashing import record_digest as digest
 
@@ -385,7 +386,9 @@ def generation_context(store, identifier):
             + " Research or Data Science), grounded in delivered fact_refs or inference_refs."
             + " It describes the application's career focus, never an invented current job title,"
             + " credential, seniority or proficiency. Do not default to AI/ML for unrelated jobs."
-            + " Keep protected human headline wording or its retained omission."
+            + " Keep protected human headline wording or its retained omission. "
+            + DATA_VOLUME_RULE
+            + "This applies to summary, skills and writing_requirements."
             + " When headline_required is false, omit headline; the old template has no slot."
             # 2026-11-12: the user reviews a high-value job's plan and may ask for changes.
             + " When user_plan_feedback is present, it lists the user's own instructions, oldest"

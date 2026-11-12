@@ -14,6 +14,7 @@ from copy import deepcopy
 from ._vendor import job_apply_store as helper
 from .application_full_latex import _invalid
 from .application_resume_content import (
+    DATA_VOLUME_RULE,
     MAX_EXPERIENCE_ITEMS,
     apply_content_patch,
     assemble_content,
@@ -29,7 +30,9 @@ from .validation.hashing import record_digest as digest
 WRITER_INSTRUCTIONS = (
     "Return one experience-writing/v1 JSON object for this assignment. "
     "Write only this experience from the delivered facts and accepted inferences. "
-    "Keep roles, numbers, responsibility and status. Use per-item fact_refs or inference_refs. "
+    "Keep roles, result numbers, responsibility and status. "
+    + DATA_VOLUME_RULE
+    + "Use per-item fact_refs or inference_refs. "
     "Use needs_material with located requests for missing facts. "
     "Items are the bullets under this experience's heading; the program already prints its "
     "title, organization, role, location and dates, so never repeat them as items. "
@@ -46,7 +49,8 @@ WRITER_INSTRUCTIONS = (
 REVIEW_INSTRUCTIONS = (
     "Perform the single semantic review of this resume content JSON. "
     "Trust the delivered facts and accepted inferences. Check scope, focus, duplication, "
-    "contradictions and clarity. Return a resume-content-patch/v1 text or links patch for "
+    "contradictions and clarity. " + DATA_VOLUME_RULE + "Patch out any such data-volume wording. "
+    "Return a resume-content-patch/v1 text or links patch for "
     "small located changes, or return only affected experience IDs for substantial rewriting. "
     "Review the headline as job-specific career positioning supported by delivered facts; "
     "it must not invent employment, seniority, qualifications or proficiency. "

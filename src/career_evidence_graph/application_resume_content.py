@@ -293,6 +293,14 @@ def assignment_schema(assignment):
 # 2026-11-10: a research experience came back with six long bullets; the user asked for
 # a cap of three. Writers choose the strongest points for the job and merge related ones.
 MAX_EXPERIENCE_ITEMS = 3
+# 2026-11-12 (user decision): "a 5,773-candidate comparison" and "a covered sample of
+# 129 trades" read as padding. Material says what was done and found, not how much.
+DATA_VOLUME_RULE = (
+    "Do not state how much data or how many samples, candidates, trades, networks, models, "
+    "events or items a piece of work covered (for example a 5,773-candidate comparison or "
+    "a sample of 129 trades); say what was done and what it showed. A result measure such "
+    "as a percentage change may stay. "
+)
 
 
 class ExperienceFragment(Contract):

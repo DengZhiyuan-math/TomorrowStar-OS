@@ -202,7 +202,7 @@ def _content_plan(
             "allowed_fact_refs": [row["id"] for row in facts["facts"]],
             "allowed_inference_refs": [row["id"] for row in derived],
             "writing_requirements": [
-                "Write in English. Preserve recorded responsibility, status, numbers and scope."
+                "Write in English. Preserve recorded responsibility, status and scope."
             ],
         }
         assignment["assignment_revision"] = digest(assignment)
