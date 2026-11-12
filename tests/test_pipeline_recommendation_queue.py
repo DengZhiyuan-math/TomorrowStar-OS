@@ -599,6 +599,7 @@ def test_a_high_value_job_waits_for_the_resume_plan_and_feedback_plans_again(
     state.update(
         worker_batch_id="cancelled-batch",
         transmission_authorization={"task_id": "cancelled-task"},
+        computer_use={"run_id": "cancelled-run", "company": "Synthetic Labs"},
     )
     pipeline._save(state)
     pipeline.continue_current(request_id="confirm-plan")

@@ -743,6 +743,9 @@ class ApplicationPipeline:
             if action == "continue":
                 # One Continue consumes the edit stop; its journal path stays unchanged.
                 state.pop("material_edit_gate", None)
+                # 2026-11-12: a cancelled task's Computer Use record sent this Continue to
+                # the old fill, which refused it, before the current job's wait was read.
+                self._drop_stale_execution(state)
             if action == "submitted" or action == "continue" and state.get("computer_use"):
                 if not state.get("computer_use"):
                     raise PortalDataError(
