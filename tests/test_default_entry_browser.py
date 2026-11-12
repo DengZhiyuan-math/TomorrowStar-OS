@@ -115,6 +115,34 @@ def test_manual_job_open_uses_admission_and_keeps_viewing_current_job(portal, br
     assert state["current_recommendation_id"] == "current"
 
 
+def test_a_paused_job_shows_the_step_it_stopped_in(portal, browser_page):
+    """2026-11-12: G-Research waited at the résumé plan review, yet 01 收录岗位 was lit."""
+    from playwright.sync_api import expect
+
+    page = browser_page
+    state = pipeline_state(
+        id="pipeline-one",
+        current_recommendation_id="current",
+        control="paused",
+        status="needs_input",
+        resume_status="generating_resume",
+        wait_reason="resume_plan_review",
+        items=[{"recommendation_id": "current", "company": "Current", "role_title": "Engineer"}],
+    )
+    page.route("**/api/pipeline/state", lambda route: route.fulfill(json=state))
+    page.route(
+        "**/api/flow/state",
+        lambda route: route.fulfill(
+            json={"enabled": True, "mode": "application", "tasks": [], "active_task": None}
+        ),
+    )
+    page.goto(portal.origin + "/#flow")
+    expect(page.locator("[data-workflow-step][aria-current=step]")).to_have_attribute(
+        "data-workflow-step", "2"
+    )
+    expect(page.locator("[data-workflow-step].is-complete")).to_have_count(2)
+
+
 @pytest.mark.parametrize("fragment", ["", "#overview"], ids=["bare", "overview"])
 def test_default_overview_uses_automatic_pipeline_guidance(portal, browser_page, fragment):
     from playwright.sync_api import expect
