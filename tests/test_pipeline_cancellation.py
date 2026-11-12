@@ -346,6 +346,10 @@ def test_redo_starts_a_cancelled_current_job_as_a_new_task(cancellable_pipeline)
     redone = pipeline.redo_current(request_id="redo-cancelled")
     assert redone["control"] == "running" and redone["status"] == "matching"
     assert redone["active_task_id"] is None
+    # 2026-11-12: the cancelled task's Worker batch and authorization stayed after a redo.
+    assert not {"worker_batch_id", "transmission_authorization", "computer_use"} & {
+        key for key, value in redone.items() if value
+    }
     assert worker.store.path.read_bytes() == before
     assert pipeline.redo_current(request_id="redo-cancelled")["status"] == "matching"
 

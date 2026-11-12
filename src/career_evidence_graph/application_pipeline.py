@@ -1430,6 +1430,8 @@ class ApplicationPipeline:
                 "score_decision",
                 "analysis_attempt_id",
                 "task_revision",
+                "precision_selection",
+                "plan_approval",
             ):
                 item.pop(key, None)
             item.update(task_id=None, status="pending", score=None, fresh_job_brief=True)
@@ -1442,7 +1444,7 @@ class ApplicationPipeline:
                     "at": time.time(),
                 }
             )
-            for key in ("wait_reason", "resume_status"):
+            for key in ("wait_reason", "resume_status", "plan_review", *self.STALE_EXECUTION_KEYS):
                 state.pop(key, None)
             self._preparation_serial += 1
             state.update(
@@ -1563,6 +1565,11 @@ class ApplicationPipeline:
                     )
                 self._save(state)
             elif action == "continue":
+                if state.get("wait_reason") == "resume_plan_review":
+                    self._drop_stale_execution(state)
+                    receipt["status"] = "complete"
+                    self._review_plan(state, payload)
+                    return self.snapshot()
                 if state.get("wait_reason") in {
                     "cover_letter_result_unknown",
                     "material_result_unknown",
@@ -1613,9 +1620,6 @@ class ApplicationPipeline:
                         state.pop("resume_status", None)
                         state.update(control="running", status="matching", notification=None)
                         self._save(state)
-                        return self.snapshot()
-                    if state.get("wait_reason") == "resume_plan_review":
-                        self._review_plan(state, payload)
                         return self.snapshot()
                     if state.get("wait_reason") == "resume_author_input_required":
                         # The user's own Continue starts a fresh run of automatic resends.
@@ -1968,6 +1972,29 @@ class ApplicationPipeline:
         state["plan_review"] = current and current["overview"] | {
             "reasons": list(item.get("precision_selection") or [])
         }
+
+    # A cancelled task's execution fields; a redo or a new task never inherits them.
+    STALE_EXECUTION_KEYS = (
+        "transmission_authorization",
+        "worker_batch_id",
+        "worker_runtime_id",
+        "computer_use",
+        "resume_author_retry",
+        "cover_letter_resume_status",
+        "pending_optional_cover_letter",
+    )
+
+    def _drop_stale_execution(self, state):
+        """Drop execution fields left by another (cancelled) task of this queue.
+
+        2026-11-12: after G-Research was cancelled and redone, the old task's Worker
+        batch stayed, so Continue on the new task's plan review took the Worker path
+        and did nothing.
+        """
+        owner = (state.get("transmission_authorization") or {}).get("task_id")
+        if owner is not None and owner != state.get("active_task_id"):
+            for key in self.STALE_EXECUTION_KEYS:
+                state.pop(key, None)
 
     def _review_plan(self, state, payload):
         """Continue approves the shown plan; written feedback plans again first."""

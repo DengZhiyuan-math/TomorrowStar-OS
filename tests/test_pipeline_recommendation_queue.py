@@ -593,7 +593,17 @@ def test_a_high_value_job_waits_for_the_resume_plan_and_feedback_plans_again(
     assert again["wait_reason"] == "resume_plan_review"
     assert [row["title"] for row in again["plan_review"]["chosen"]] == ["exp-b"]
 
+    # 2026-11-12: a redone job kept the cancelled task's Worker batch, so this Continue
+    # took the Worker path and did nothing.
+    state = pipeline._load()
+    state.update(
+        worker_batch_id="cancelled-batch",
+        transmission_authorization={"task_id": "cancelled-task"},
+    )
+    pipeline._save(state)
     pipeline.continue_current(request_id="confirm-plan")
+    confirmed = pipeline.snapshot()
+    assert "worker_batch_id" not in confirmed or confirmed["worker_batch_id"] != "cancelled-batch"
     filling = drive(pipeline, "filling")
     assert "plan_review" not in filling
     assert len(attempts) == 3
