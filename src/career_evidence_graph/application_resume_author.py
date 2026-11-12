@@ -115,8 +115,46 @@ def _rejected(directory, error):
     raise _failure("resume_author_failed", "简历作者输出未通过程序核验，已保留原响应。") from error
 
 
+def plan_overview(context):
+    """The chosen and omitted experiences and global content the user reviews.
+
+    2026-11-12 (user decision): a high-match, target-company or high-salary job stops
+    after planning so the user confirms which experiences enter and how they are ordered.
+    """
+
+    def described(row):
+        experience = row["experience"]
+        return {
+            "experience_id": row["experience_id"],
+            "title": experience.get("title", ""),
+            "role": experience.get("role"),
+            "organization": experience.get("organization"),
+            "start": experience.get("start"),
+            "end": experience.get("end"),
+        }
+
+    plan = context["writing_plan"]
+    chosen = {row["experience_id"] for row in plan["assignments"]}
+    headline = plan.get("headline")
+    return {
+        "chosen": [
+            described(row) | {"writing_requirements": list(row["writing_requirements"])}
+            for row in plan["assignments"]
+        ],
+        "omitted": [
+            described(row)
+            for row in context["content_plan"]["assignments"]
+            if row["experience_id"] not in chosen
+        ],
+        "headline": headline["text"] if isinstance(headline, dict) else None,
+        "summary": [row["text"] for row in plan.get("summary") or []],
+        "skills": [row["text"] for row in plan.get("skills") or []],
+        "feedback": context.get("user_plan_feedback"),
+    }
+
+
 def _execute_content_generation(
-    store, identifier, *, runner=None, allow_calls=True, admit_call=None
+    store, identifier, *, runner=None, allow_calls=True, admit_call=None, review_plan=None
 ):
     """Run missing authors, then the existing semantic review and adoption Interfaces.
 
@@ -148,6 +186,10 @@ def _execute_content_generation(
             )
         except (PortalDataError, ValueError, TypeError, KeyError) as error:
             _rejected(call, error)
+    if allow_calls and review_plan is not None:
+        plan = generation.generation_state(store, identifier)["writing_plan"]
+        if not review_plan(plan):
+            raise _failure("resume_plan_review_required", "简历选材和结构等你确认。")
     for _ in range(3):
         state = generation.generation_state(store, identifier)
         for experience in state["experiences"]:
@@ -230,12 +272,17 @@ def _execute_content_generation(
 
 
 def execute_content_generation(
-    store, identifier, *, runner=None, allow_calls=True, admit_call=None
+    store, identifier, *, runner=None, allow_calls=True, admit_call=None, review_plan=None
 ):
     """Execute or reconcile the existing content handoff; finished calls never repeat."""
     try:
         return _execute_content_generation(
-            store, identifier, runner=runner, allow_calls=allow_calls, admit_call=admit_call
+            store,
+            identifier,
+            runner=runner,
+            allow_calls=allow_calls,
+            admit_call=admit_call,
+            review_plan=review_plan,
         )
     except PortalDataError:
         raise

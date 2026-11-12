@@ -170,6 +170,7 @@ def test_salary_is_researched_for_this_job_and_a_broken_answer_is_dropped():
         "currency": "CHF",
         "low": 110000,
         "high": 135000,
+        "yearly_high_chf": 135000,
         "basis": "Synthetic employer pay for this role in Zurich.",
         "sources": ["https://pay.example/role", "http://insecure.example/x"],
     }
@@ -180,6 +181,7 @@ def test_salary_is_researched_for_this_job_and_a_broken_answer_is_dropped():
 
     found = research_salary(FIELDS, JD, runner=runner)
     assert (found["currency"], found["low"], found["high"]) == ("CHF", 110000, 135000)
+    assert found["yearly_high_chf"] == 135000 and "Swiss francs" in prompts[0]
     assert found["sources"] == ["https://pay.example/role"]
     assert FIELDS["company"] in prompts[0] and "untrusted data" in prompts[0]
     answer.update(low=200000)

@@ -341,6 +341,18 @@ def _preparation_progress(task, analysis):
                 "简历写作的模型输出未通过程序核验，已保留原响应和完成片段；点继续会重新核验或重写。"
             )
             continuation = {"task_id": task["id"], "attempt_id": resume.get("attempt_id")}
+    elif (
+        resume.get("status") == "failed"
+        and resume.get("error_code") == "resume_plan_review_required"
+    ):
+        # 2026-11-12 (user decision): a high-value job's chosen experiences and order wait
+        # for the user before any experience is written.
+        status, reason = "waiting", "resume_plan_review"
+        message = (
+            "这是重点岗位：简历选了哪些经历、怎么排已列出。确认就点继续；"
+            "要调整就写下意见再点继续，会按意见重新选材后再请你确认。"
+        )
+        continuation = {"task_id": task["id"], "attempt_id": resume.get("attempt_id")}
     elif letter["status"] == "failed" and letter.get("error_code") in LETTER_CONTINUATIONS:
         # The letter's writing call fails and continues exactly as a résumé author call.
         status, reason = "waiting", "resume_author_input_required"
@@ -1163,7 +1175,9 @@ class ApplicationFlowService:
         def execute_generation(handoff, task, *, allow_calls=True):
             return (
                 resumes.execute_generation(
-                    handoff, admit_call=lambda: self.resume_call_allowed(task)
+                    handoff,
+                    admit_call=lambda: self.resume_call_allowed(task),
+                    review_plan=lambda plan: self.resume_plan_allowed(task, plan),
                 )
                 if allow_calls
                 else resumes.reconcile_generation(handoff)
@@ -1192,6 +1206,7 @@ class ApplicationFlowService:
                 complete_materials=complete_materials,
                 automatic_author=automatic_author,
                 admit_call=lambda: self.resume_call_allowed(task),
+                review_plan=lambda plan: self.resume_plan_allowed(task, plan),
             )
             return (
                 result
@@ -5705,6 +5720,35 @@ class ApplicationFlowService:
                 return permit(task["id"]) is True if permit is not None else True
         except (OSError, ValueError, KeyError, TypeError, helper.StoreError, PortalDataError):
             return False
+
+    def resume_plan_allowed(self, task, plan):
+        """Whether the user's review lets this résumé plan be written (2026-11-12)."""
+        permit = self.callbacks.get("plan_allowed")
+        return permit is None or permit(task["id"], plan) is True
+
+    def resume_plan(self, task_id):
+        """The saved résumé plan and what the user reviews of it, or None."""
+        from .application_experience_latex import generation_context
+        from .application_resume_author import plan_overview
+
+        task = self._task(self._load(), task_id)
+        handoff = task.get("experience_handoff") or {}
+        if not handoff.get("id"):
+            return None
+        context = generation_context(self._materials, handoff["id"])
+        if context.get("mapping_required") or not context.get("writing_plan"):
+            return None
+        return {"plan": context["writing_plan"], "overview": plan_overview(context)}
+
+    def replan_resume(self, task_id, feedback):
+        """Ask the planner again with the user's instruction before any writing."""
+        from .application_experience_latex import request_replan
+
+        task = self._task(self._load(), task_id)
+        handoff = task.get("experience_handoff") or {}
+        if not handoff.get("id"):
+            raise PortalDataError("resume_plan_unavailable", "当前岗位没有可调整的简历计划。", 409)
+        return request_replan(self._materials, handoff["id"], feedback)
 
     def recheck_resume_author(self, task_id, task_revision):
         with self.applications.write_lock():

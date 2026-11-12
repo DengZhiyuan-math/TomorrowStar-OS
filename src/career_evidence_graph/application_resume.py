@@ -818,15 +818,17 @@ class ApplicationResumeStore:
             "resume_html_retired", "HTML 简历已停用，请使用 LaTeX 简历模板。", 410
         )
 
-    def execute_generation(self, handoff, *, admit_call=None):
+    def execute_generation(self, handoff, *, admit_call=None, review_plan=None):
         """Continue saved JSON authors; reuse results and retain unknown effects."""
-        return self._run_generation(handoff, allow_calls=True, admit_call=admit_call)
+        return self._run_generation(
+            handoff, allow_calls=True, admit_call=admit_call, review_plan=review_plan
+        )
 
     def reconcile_generation(self, handoff):
         """Adopt verifiable saved author results without starting model calls."""
         return self._run_generation(handoff, allow_calls=False)
 
-    def _run_generation(self, handoff, *, allow_calls, admit_call=None):
+    def _run_generation(self, handoff, *, allow_calls, admit_call=None, review_plan=None):
         from .application_resume_author import execute_content_generation
 
         handoff = deepcopy(handoff)
@@ -838,6 +840,7 @@ class ApplicationResumeStore:
                 runner=self.model_runner,
                 allow_calls=allow_calls,
                 admit_call=admit_call,
+                review_plan=review_plan,
             )
         except Exception as error:
             error.experience_handoff = handoff if isinstance(handoff, dict) else {"id": handoff}
@@ -882,6 +885,7 @@ class ApplicationResumeStore:
         complete_materials,
         automatic_author=False,
         admit_call=None,
+        review_plan=None,
     ):
         """Prepare or recover material through its saved input and version owners.
 
@@ -909,7 +913,9 @@ class ApplicationResumeStore:
                         "flow_materials_mismatch", "写作任务与本岗位固定交付不符。", 409
                     )
                 result = (
-                    self.execute_generation(fixed["handoff"], admit_call=admit_call)
+                    self.execute_generation(
+                        fixed["handoff"], admit_call=admit_call, review_plan=review_plan
+                    )
                     if automatic_author
                     and fixed["handoff"].get("generation_contract") == "content-writing/v1"
                     else adopt_generation(self, handoff["id"])
@@ -987,7 +993,9 @@ class ApplicationResumeStore:
                     and result.get("kind") == "experience_handoff"
                     and result.get("generation_contract") == "content-writing/v1"
                 ):
-                    result = self.execute_generation(result, admit_call=admit_call)
+                    result = self.execute_generation(
+                        result, admit_call=admit_call, review_plan=review_plan
+                    )
             if (
                 result.get("application_id") != task["application_id"]
                 or result.get("analysis_binding", {}).get("analysis_id") != task["analysis_id"]

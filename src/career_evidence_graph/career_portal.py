@@ -64,10 +64,15 @@ _PIPELINE_ROUTES = {
     "start": ("start", ({"request_id"},), _PIPELINE_START, 400),
     "capture": ("capture_mail", ({"request_id"},), _PIPELINE_START, 400),
     "pause": ("pause", (set(),), _PIPELINE_START, 400),
-    # Continue may carry the user's explicit reclaim of a page handed to them.
+    # Continue may carry the user's explicit reclaim of a page handed to them, or their
+    # feedback on a high-value job's résumé plan (2026-11-12).
     "continue": (
         "continue_current",
-        ({"request_id"}, {"request_id", "reclaim", "handoff_source"}),
+        (
+            {"request_id"},
+            {"request_id", "reclaim", "handoff_source"},
+            {"request_id", "plan_feedback"},
+        ),
         _PIPELINE_CURRENT,
         409,
     ),

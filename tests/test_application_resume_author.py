@@ -414,3 +414,50 @@ def test_the_planner_keeps_at_most_five_experiences():
 
     schema = _plan_choices_schema({"properties": {}})
     assert schema["properties"]["assignments"]["maxItems"] == 5
+
+
+def test_a_reviewed_plan_waits_and_written_feedback_plans_again(json_flow):
+    """2026-11-12 (user decision): a high-value job's chosen experiences and order wait
+    for the user before any experience is written; written feedback plans again."""
+    from career_evidence_graph import application_experience_latex as generation
+    from career_evidence_graph.application_resume_author import plan_overview
+    from career_evidence_graph.validation.hashing import record_digest as digest
+
+    case = json_flow
+    task = start_json_writing(case)
+    identifier = task["experience_handoff"]["id"]
+    calls, approved = [], set()
+
+    def runner(config, prompt, **kwargs):
+        request = json.loads(prompt.split("\n", 1)[1])
+        calls.append(request)
+        return response(author_output(request))
+
+    def review(plan):
+        return digest(plan) in approved
+
+    with pytest.raises(PortalDataError) as waiting:
+        execute_content_generation(case.store, identifier, runner=runner, review_plan=review)
+    assert waiting.value.code == "resume_plan_review_required"
+    assert [row["role"] for row in calls] == ["plan"]
+    assert "user_plan_feedback" not in calls[0]["context"]
+    overview = plan_overview(generation.generation_context(case.store, identifier))
+    plan = generation.generation_state(case.store, identifier)["writing_plan"]
+    assert [row["experience_id"] for row in overview["chosen"]] == [
+        row["experience_id"] for row in plan["assignments"]
+    ]
+    assert all(row["title"] for row in overview["chosen"])
+
+    generation.request_replan(case.store, identifier, "Put the newest experience first.")
+    with pytest.raises(PortalDataError) as again:
+        execute_content_generation(case.store, identifier, runner=runner, review_plan=review)
+    assert again.value.code == "resume_plan_review_required"
+    assert [row["role"] for row in calls] == ["plan", "plan"]
+    assert calls[1]["context"]["user_plan_feedback"] == "Put the newest experience first."
+
+    approved.add(digest(generation.generation_state(case.store, identifier)["writing_plan"]))
+    result = execute_content_generation(case.store, identifier, runner=runner, review_plan=review)
+    assert result["kind"] == "draft"
+    roles = [row["role"] for row in calls]
+    assert roles.count("plan") == 2
+    assert len([role for role in roles if role.startswith("experience-")]) == 2

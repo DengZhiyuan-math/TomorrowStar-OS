@@ -362,6 +362,11 @@ def generation_context(store, identifier):
             "retained_omitted_experience_ids": deepcopy(
                 payload.get("retained_omitted_experience_ids", [])
             ),
+            **(
+                {"user_plan_feedback": state["plan_feedback"]}
+                if state.get("plan_feedback")
+                else {}
+            ),
             "instructions": MAIN_INSTRUCTIONS
             + " Select and order delivered assignments; write global content as JSON only."
             # 2026-11-10 (Harmattan AI): all 8 delivered experiences were kept, one that
@@ -383,7 +388,11 @@ def generation_context(store, identifier):
             + " It describes the application's career focus, never an invented current job title,"
             + " credential, seniority or proficiency. Do not default to AI/ML for unrelated jobs."
             + " Keep protected human headline wording or its retained omission."
-            + " When headline_required is false, omit headline; the old template has no slot.",
+            + " When headline_required is false, omit headline; the old template has no slot."
+            # 2026-11-12: the user reviews a high-value job's plan and may ask for changes.
+            + " When user_plan_feedback is present, it is the user's own instruction about"
+            + " which delivered experiences to keep, their order and the global content; follow"
+            + " it over the selection rules above, still citing only delivered references.",
         }
     return {
         **_public(state),
@@ -410,6 +419,18 @@ def generation_context(store, identifier):
         "selected_source_ids": list(payload["analysis_selected_source_ids"]),
         "sources": [_source_metadata(source) for source in payload["sources"]],
     }
+
+
+@_serialized
+def request_replan(store, identifier, feedback):
+    """Plan again with the user's instruction; matching finished fragments stay reusable."""
+    directory, state = _load(store, identifier)
+    _require_mutable(state)
+    if not _content(state) or state.get("adopted_draft"):
+        raise _invalid("只有尚未采用的内容写作计划可以按意见重新选材。")
+    state["mapping_required"] = True
+    state["plan_feedback"] = feedback
+    return _save(directory, state)
 
 
 @_serialized
