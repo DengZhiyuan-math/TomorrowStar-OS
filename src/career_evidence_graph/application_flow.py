@@ -350,7 +350,7 @@ def _preparation_progress(task, analysis):
         status, reason = "waiting", "resume_plan_review"
         message = (
             "这是重点岗位：简历选了哪些经历、怎么排已列出。要调整就写下意见点“按意见重新选材”；"
-            "没问题就点“确认选材并继续”，之后自动生成材料并填写。"
+            "没问题就点“确认选材并继续”，系统写出各段条目后再请你逐段核对表述。"
         )
         continuation = {"task_id": task["id"], "attempt_id": resume.get("attempt_id")}
     elif (

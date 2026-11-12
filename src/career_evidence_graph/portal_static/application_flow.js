@@ -493,17 +493,22 @@
     box.append(node("h3", "", "简历选材与结构"));
     if (review.reasons?.length) box.append(node("p", "flow-muted", `停下的原因：${review.reasons.join("、")}`));
     const describe = row => [row.title, row.role, row.organization, [row.start, row.end].filter(Boolean).join("–")].filter(Boolean).join(" · ");
+    // 2026-11-12 (user decision): this step is the catalog; the writer's points fold away
+    // and the real bullets are checked one experience at a time after this.
     const chosen = node("ol");
     for (const row of review.chosen || []) {
       const entry = node("li", "", describe(row));
       if (row.writing_requirements?.length) {
-        const points = node("ul");
-        for (const text of row.writing_requirements) points.append(node("li", "flow-muted", text));
+        const points = node("details");
+        points.append(node("summary", "flow-muted", "给撰写模型的要点"));
+        const list = node("ul");
+        for (const text of row.writing_requirements) list.append(node("li", "flow-muted", text));
+        points.append(list);
         entry.append(points);
       }
       chosen.append(entry);
     }
-    box.append(node("p", "", `入选经历（按简历中的顺序，共 ${review.chosen?.length || 0} 段）`), chosen);
+    box.append(node("p", "", `入选经历目录（按简历中的顺序，共 ${review.chosen?.length || 0} 段）`), chosen);
     if (review.omitted?.length) {
       const omitted = node("ul");
       for (const row of review.omitted) omitted.append(node("li", "flow-muted", describe(row)));
@@ -530,7 +535,7 @@
     const replan = button("按意见重新选材", () => pipelineAction("continue", { plan_feedback: planFeedback.trim() }), "flow-plan-replan", true);
     replan.dataset.blocked = String(!planFeedback.trim());
     input.addEventListener("input", () => { planFeedback = input.value; replan.dataset.blocked = String(!planFeedback.trim()); lock(); });
-    box.append(input, node("p", "flow-muted", "按意见重新选材后会再停下来给你看；选材没问题就点下方的“确认选材并继续”，之后自动生成材料并填写。"), replan);
+    box.append(input, node("p", "flow-muted", "按意见重新选材后会再停下来给你看；选材没问题就点下方的“确认选材并继续”，系统会写出各段简历条目，再请你逐段核对表述。"), replan);
     return box;
   }
 

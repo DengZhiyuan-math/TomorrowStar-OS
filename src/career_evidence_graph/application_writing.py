@@ -65,6 +65,13 @@ def _unstructured_source_ids(snapshot, packet):
     ]
 
 
+# Every delivered assignment carries this instruction for its writer; the user never
+# needs to read it (2026-11-12).
+DEFAULT_WRITING_REQUIREMENT = (
+    "Write in English. Preserve recorded responsibility, status and scope."
+)
+
+
 def _resume_source_ids(analysis, packet):
     """The sources whose experiences the résumé planner may choose from.
 
@@ -201,9 +208,7 @@ def _content_plan(
             "inferences": derived,
             "allowed_fact_refs": [row["id"] for row in facts["facts"]],
             "allowed_inference_refs": [row["id"] for row in derived],
-            "writing_requirements": [
-                "Write in English. Preserve recorded responsibility, status and scope."
-            ],
+            "writing_requirements": [DEFAULT_WRITING_REQUIREMENT],
         }
         assignment["assignment_revision"] = digest(assignment)
         plan["assignments"].append(assignment)

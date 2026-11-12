@@ -447,6 +447,12 @@ def test_a_reviewed_plan_waits_and_written_feedback_plans_again(json_flow):
         row["experience_id"] for row in plan["assignments"]
     ]
     assert all(row["title"] for row in overview["chosen"])
+    # The fixed writer instruction is not shown to the user (2026-11-12).
+    from career_evidence_graph.application_writing import DEFAULT_WRITING_REQUIREMENT
+
+    assert all(
+        DEFAULT_WRITING_REQUIREMENT not in row["writing_requirements"] for row in overview["chosen"]
+    )
 
     generation.request_replan(case.store, identifier, "Put the newest experience first.")
     with pytest.raises(PortalDataError) as again:

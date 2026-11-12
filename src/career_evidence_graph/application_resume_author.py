@@ -121,6 +121,7 @@ def plan_overview(context):
     2026-11-12 (user decision): a high-match, target-company or high-salary job stops
     after planning so the user confirms which experiences enter and how they are ordered.
     """
+    from .application_writing import DEFAULT_WRITING_REQUIREMENT
 
     def described(row):
         experience = row["experience"]
@@ -138,7 +139,15 @@ def plan_overview(context):
     headline = plan.get("headline")
     return {
         "chosen": [
-            described(row) | {"writing_requirements": list(row["writing_requirements"])}
+            described(row)
+            | {
+                # The fixed writer instruction says nothing to the user (2026-11-12).
+                "writing_requirements": [
+                    text
+                    for text in row["writing_requirements"]
+                    if text != DEFAULT_WRITING_REQUIREMENT
+                ]
+            }
             for row in plan["assignments"]
         ],
         "omitted": [
