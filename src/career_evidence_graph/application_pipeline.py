@@ -90,6 +90,11 @@ CONFIRMATION_POLL = 300
 ACCOUNT_SCORE_FLOOR = 55
 # How long a finished match waits for its account check.
 ACCOUNT_CHECK_WAIT = 120
+# 2026-11-12 (user decision): a job whose researched yearly pay reaches this stops for
+# the user's review of the résumé plan, like a high match or a target company.
+HIGH_SALARY_CHF = 200_000
+# How long a finished match waits for its salary research.
+SALARY_RESEARCH_WAIT = 180
 # How often the queue reads recommendation mail while it waits (2026-11-08: every
 # 60 s made about 100 runs an hour, each one or two model calls, for a few mails a day).
 MAIL_POLL = 1800
@@ -133,6 +138,7 @@ class ApplicationPipeline:
         self.computer_use = computer_use
         self._computer_use_runs = {}
         self._account_checks = {}
+        self._salary_runs = {}
         # The live App's application account check (2026-11-09); None in tests.
         self.account_check = (computer_use or {}).get("account_check")
         self._confirmation_reads = {}
@@ -192,6 +198,7 @@ class ApplicationPipeline:
             flow.callbacks["verify_automation_authorization"] = self._verifier
         # Flow consults this permit from the first tick, so register it before the thread.
         flow.callbacks["preparation_allowed"] = self.preparation_allowed
+        flow.callbacks["plan_allowed"] = self.plan_allowed
         self._thread = None
         if self._owner:
             self._thread = threading.Thread(
@@ -1448,6 +1455,13 @@ class ApplicationPipeline:
         expected = {"request_id", "application_id"} if action == "return" else {"request_id"}
         if action == "continue" and isinstance(payload, dict) and "reclaim" in payload:
             expected = {"request_id", "reclaim", "handoff_source"}
+        if action == "continue" and isinstance(payload, dict) and "plan_feedback" in payload:
+            expected = {"request_id", "plan_feedback"}
+            if (
+                not isinstance(payload["plan_feedback"], str)
+                or len(payload["plan_feedback"]) > 4000
+            ):
+                raise PortalDataError("pipeline_request_invalid", "调整意见须为 4000 字以内。", 409)
         if (
             not state.get("queue_mode")
             or not isinstance(payload, dict)
@@ -1599,6 +1613,9 @@ class ApplicationPipeline:
                         state.pop("resume_status", None)
                         state.update(control="running", status="matching", notification=None)
                         self._save(state)
+                        return self.snapshot()
+                    if state.get("wait_reason") == "resume_plan_review":
+                        self._review_plan(state, payload)
                         return self.snapshot()
                     if state.get("wait_reason") == "resume_author_input_required":
                         # The user's own Continue starts a fresh run of automatic resends.
@@ -1873,6 +1890,102 @@ class ApplicationPipeline:
         self._save(state)
         return self.snapshot()
 
+    def plan_allowed(self, task_id, plan):
+        """A high-value job's résumé plan is written once the user confirmed it (2026-11-12)."""
+        try:
+            with self.flow.applications.write_lock():
+                item = next(
+                    (row for row in self._load()["items"] if row.get("task_id") == task_id), None
+                )
+        except (PortalDataError, OSError, ValueError):
+            return False
+        if item is None or not item.get("precision_selection"):
+            return True
+        return item.get("plan_approval") == digest(plan)
+
+    def _precision_reasons(self, item, tier):
+        """Why this job's résumé plan waits for the user; None while salary is pending."""
+        reasons = []
+        if tier == "manual":
+            reasons.append("匹配分达到 75 以上")
+        if self._target_job(item):
+            reasons.append("目标公司")
+        if reasons:
+            return reasons
+        salary = self._salary_result(item)
+        if salary is None:
+            return None
+        high = salary.get("yearly_high_chf")
+        if type(high) is int and high >= HIGH_SALARY_CHF:
+            reasons.append(f"薪资上限约 {high:,} CHF")
+        return reasons
+
+    def _start_salary_research(self, item, application):
+        """Research the job's pay beside the match; the fill reuses it (2026-11-12)."""
+        research = (self.computer_use or {}).get("research_salary")
+        key = item.get("recommendation_id")
+        if not research or item.get("salary_research") or key in self._salary_runs:
+            return
+        run = {"result": None, "done": False, "started": time.time()}
+        self._salary_runs[key] = run
+        fields = {
+            "company": application.get("company", ""),
+            "title": application.get("role_title", ""),
+            "location": application.get("location", ""),
+        }
+        description = str(application.get("job_description") or "")
+
+        def work():
+            try:
+                run["result"] = research(fields, description)
+            except Exception:  # Unknown pay never makes a job high-value.
+                run["result"] = None
+            finally:
+                run["done"] = True
+
+        threading.Thread(target=work, name="salary-research", daemon=True).start()
+
+    def _salary_result(self, item):
+        """The job's researched pay, {} when unknown, or None while research may answer."""
+        if item.get("salary_research"):
+            return item["salary_research"]
+        run = self._salary_runs.get(item.get("recommendation_id"))
+        if run is None:
+            return {}
+        if not run["done"] and time.time() - run["started"] < SALARY_RESEARCH_WAIT:
+            return None
+        if run["result"]:
+            item["salary_research"] = run["result"]
+        return run["result"] or {}
+
+    def _show_plan(self, state, task):
+        """Keep the plan the user reviews in the queue state the panel reads."""
+        item = next(row for row in state["items"] if row.get("task_id") == task["id"])
+        try:
+            current = self.flow.resume_plan(task["id"])
+        except (PortalDataError, OSError, ValueError, KeyError):
+            current = None
+        state["plan_review"] = current and current["overview"] | {
+            "reasons": list(item.get("precision_selection") or [])
+        }
+
+    def _review_plan(self, state, payload):
+        """Continue approves the shown plan; written feedback plans again first."""
+        task = self._task(state)
+        item = next(row for row in state["items"] if row.get("task_id") == task["id"])
+        feedback = (payload.get("plan_feedback") or "").strip()
+        if feedback:
+            self.flow.replan_resume(task["id"], feedback)
+        else:
+            current = self.flow.resume_plan(task["id"])
+            if current is None:
+                raise PortalDataError(
+                    "resume_plan_unavailable", "简历计划尚不能核验，请稍后重试。", 409
+                )
+            item["plan_approval"] = digest(current["plan"])
+        state.pop("plan_review", None)
+        self._continue_author(state, payload["request_id"])
+
     def _start_account_check(self, item, application):
         """Check beside the match whether the application needs an account (2026-11-09)."""
         check = self.account_check
@@ -1954,6 +2067,7 @@ class ApplicationPipeline:
             "pending_optional_cover_letter",
             "notification",
             "computer_use",
+            "plan_review",
         )
         if state.get("computer_use"):
             # Stops a Computer Use fill that is still running for this job.
@@ -3151,6 +3265,11 @@ class ApplicationPipeline:
                     application_route="manual",
                     route_reasons=[*item.get("route_reasons", []), "匹配分达到 75 以上"],
                 )
+            reasons = self._precision_reasons(item, tier)
+            if reasons is None:
+                return
+            if reasons:
+                item["precision_selection"] = reasons
             state.update(active_task_id=item["task_id"], status="generating_resume")
             self._save(state)
             return
@@ -3198,6 +3317,7 @@ class ApplicationPipeline:
             )
             item["task_id"] = task["id"]
             self._start_account_check(item, application)
+            self._start_salary_research(item, application)
             item["status"] = "matching"
             self._save(state)
         task = self.flow.task_snapshot(item["task_id"])
@@ -3304,6 +3424,8 @@ class ApplicationPipeline:
             reason = progress["wait_reason"]
             if progress["status"] in {"waiting", "needs_recheck", "failed", "cancelled"}:
                 state.update(resume_status="generating_resume", wait_reason=reason)
+                if reason == "resume_plan_review":
+                    self._show_plan(state, task)
                 no_answer = (
                     progress["resume"].get("error_code") == "resume_author_no_answer"
                     or progress["letter"].get("error_code") == "letter_generation_no_answer"
@@ -3583,7 +3705,8 @@ class ApplicationPipeline:
 
         application = self.flow.applications.get_application(task["application_id"])
         research = self.computer_use.get("research_salary")
-        salary = item.get("salary_research")
+        early = self._salary_runs.get(item.get("recommendation_id")) or {}
+        salary = item.get("salary_research") or (early.get("done") and early.get("result"))
 
         def work():
             try:

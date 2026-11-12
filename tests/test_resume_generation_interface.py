@@ -44,10 +44,10 @@ def test_default_flow_dispatches_authors_through_resume_owner(json_flow, monkeyp
 
     original = case.store.execute_generation
 
-    def execute(handoff, *, admit_call=None):
+    def execute(handoff, *, admit_call=None, review_plan=None):
         calls.append(handoff["id"])
         assert callable(admit_call) and admit_call() is True
-        return original(handoff, admit_call=admit_call)
+        return original(handoff, admit_call=admit_call, review_plan=review_plan)
 
     case.store.model_runner = runner
     monkeypatch.setattr(case.store, "execute_generation", execute)

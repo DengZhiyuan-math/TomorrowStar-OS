@@ -283,3 +283,29 @@ def test_characters_the_template_font_lacks_are_written_as_latex():
     written["items"][0]["links"] = [{"label": "π₀.₅ — x²", "url": "https://example.com/1"}]
     linked = render_resume(assemble_content(plan(), [written]), template=TEMPLATE).tex
     assert linked.count("x\\textsuperscript{2}") == 1
+
+
+def test_latin_one_signs_a_t1_font_prints_wrongly_are_written_as_latex():
+    """2026-11-12: a headline's "·" printed as "ů"; the compile warned of nothing."""
+    from career_evidence_graph.application_resume_render import (
+        LEGACY_SYMBOLS_SUFFIX,
+        SYMBOLS_SUFFIX,
+        symbols_for,
+    )
+
+    written = fragment()
+    written["items"][0]["text"] = "Research · Modelling, 20 °C, Straße — x²"
+    content = assemble_content(plan(), [written])
+    rendered = render_resume(content, template=TEMPLATE)
+    assert (
+        r"Research \textperiodcentered{} Modelling, 20 \textdegree{}C, Stra\ss{}e --- "
+        in rendered.tex
+    )
+    assert not set("·°ß") & set(rendered.tex)
+    assert rendered.renderer_revision.endswith(SYMBOLS_SUFFIX)
+    assert symbols_for(rendered.renderer_revision) is True
+    # A render saved with the first table keeps its own bytes.
+    legacy = render_resume(content, template=TEMPLATE, symbols="v1")
+    assert "Research · Modelling" in legacy.tex and "---" in legacy.tex
+    assert legacy.renderer_revision.endswith(LEGACY_SYMBOLS_SUFFIX)
+    assert symbols_for(legacy.renderer_revision) == "v1"

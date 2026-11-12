@@ -307,6 +307,8 @@
   }
 
   let shownStep = "";
+  // 2026-11-12: the user's unsent feedback on a high-value job's résumé plan.
+  let planFeedback = "";
   const sourceErrors = { network_error: "岗位页面没能打开（网络错误）", verification_required: "网站要求人工验证", login_required: "网站要求登录后才能查看", http_error: "岗位页面返回错误", browser_error: "浏览器没能打开岗位页面" };
   // A mail subject reads “alert name”: Company - Role; the part after the colon names the job.
   const mailJob = context => (context || "").replace(/^.*”:\s*/, "");
@@ -325,14 +327,14 @@
     automation.hidden = flow?.mode === "preparation";
     automation.dataset.taskId = `${pipeline?.id || ""}/${pipelineScope()}/${pipeline?.active_task_id || ""}`;
     const step = pipelineStep();
-    const key = JSON.stringify([step, pipeline?.current_recommendation, pipeline?.source_receipt?.recommendation_id, pipeline?.computer_use?.report?.status, pipeline?.resume_status, pipeline?.runtime_error, flow?.mode, pipeline?.enabled, pipeline?.id, pipeline?.control, pipeline?.status, pipeline?.current_recommendation_id, pipeline?.active_task_id, pipeline?.wait_reason, pipeline?.notice?.message || pipeline?.notice?.title, pipeline?.items?.map(item => [item.application_id, item.recommendation_id, item.company, item.role_title, item.context, item.source_error_code, item.status, item.reason, item.mismatch, item.source_host, item.pipeline_context?.notification?.message, item.pipeline_context?.wait_reason, item.submitted_by, item.target_company, item.score?.lower, item.score?.upper, item.score?.coverage])]);
+    const key = JSON.stringify([step, pipeline?.current_recommendation, pipeline?.source_receipt?.recommendation_id, pipeline?.computer_use?.report?.status, pipeline?.resume_status, pipeline?.runtime_error, flow?.mode, pipeline?.enabled, pipeline?.id, pipeline?.control, pipeline?.status, pipeline?.current_recommendation_id, pipeline?.active_task_id, pipeline?.wait_reason, pipeline?.plan_review, pipeline?.notice?.message || pipeline?.notice?.title, pipeline?.items?.map(item => [item.application_id, item.recommendation_id, item.company, item.role_title, item.context, item.source_error_code, item.status, item.reason, item.mismatch, item.source_host, item.pipeline_context?.notification?.message, item.pipeline_context?.wait_reason, item.submitted_by, item.target_company, item.score?.lower, item.score?.upper, item.score?.coverage])]);
     if (renderedPipeline === key) return;
     renderedPipeline = key;
     automation.replaceChildren(node("h2", "", "自动申请流程"));
     if (automation.hidden) return;
     const labels = { idle: "尚未开始", reading_email: "正在收录推荐邮件", starting_email: "正在启动邮件读取", selecting_job: "正在选择下一个待处理岗位", acquiring_source: "正在取得当前岗位的完整 JD", starting_source: "正在启动当前岗位读取", waiting_for_mail: "正在等待新的推荐邮件", matching: "正在计算当前岗位匹配度", generating_resume: "正在生成并检查完整岗位材料", preparing: "正在准备申请", starting_worker: "正在检查并启动填写", admitting_worker: "正在启动填写", awaiting_native_check: "正在后台检查填写环境", recovering_worker: "正在核验原页面并恢复当前岗位", filling: "正在填写并上传申请材料", ready_for_review: "申请已准备好，请到原网站最终确认", needs_input: "需要补充信息", needs_recheck: "结果待核验，已停止", blocked: "流程已停止，请查看具体原因", paused: "自动流程已暂停", interrupted: "上次流程已中断，进度已保留", expired: "本次运行窗口已结束，进度已保留", no_matches: "本次未取得可处理的完整岗位", complete: "本次处理已完成", unavailable: "自动流程暂不可用" };
     const running = pipeline?.control === "running";
-    const headline = step || (!running && pipeline?.wait_reason === "score_approval" && "等你确认是否投递") || labels[pipeline?.status] || (running ? "自动流程进行中" : "尚未开始");
+    const headline = step || (!running && pipeline?.wait_reason === "score_approval" && "等你确认是否投递") || (!running && pipeline?.wait_reason === "resume_plan_review" && "等你确认简历选材") || labels[pipeline?.status] || (running ? "自动流程进行中" : "尚未开始");
     // 2026-11-10: one prominent line names the step in progress; a stop names the step it stopped in.
     const failed = !running && (pipeline?.runtime_error || ["needs_recheck", "blocked", "interrupted", "unavailable"].includes(pipeline?.status));
     const status = node("div", `flow-ticker${running ? " is-running" : failed ? " is-failed" : ""}`);
@@ -358,7 +360,12 @@
     automation.append(node("p", "flow-muted", "开启后，系统持续收录推荐邮件，并按顺序处理当前岗位的 JD、匹配、完整材料、填写和上传。等待你处理信息或最终确认时，仍可收录新邮件；最终 Submit 由你操作。"));
     const actions = node("div", "flow-actions");
     // A flow saved before the queue (no queue_mode) resumes through start.
-    const startPipeline = button(pipeline?.id ? "继续当前岗位" : "开启自动流程", () => pipelineAction(pipeline?.queue_mode ? "continue" : "start"), "flow-pipeline-start");
+    const reviewingPlan = !running && pipeline?.wait_reason === "resume_plan_review";
+    const startPipeline = button(pipeline?.id ? "继续当前岗位" : "开启自动流程", () => {
+      const feedback = reviewingPlan ? planFeedback.trim() : "";
+      return pipelineAction(pipeline?.queue_mode ? "continue" : "start", feedback ? { plan_feedback: feedback } : {});
+    }, "flow-pipeline-start");
+    if (!reviewingPlan) planFeedback = "";
     startPipeline.dataset.blocked = String(!pipeline?.enabled || pipeline.control === "running");
     const pausePipeline = button("暂停自动流程", () => mutate(async () => {
       pipeline = await api("/api/pipeline/pause", { method: "POST", body: "{}" });
@@ -375,6 +382,7 @@
         actions.append(button("我已提交", () => pipelineAction("submitted", {}, true), "flow-pipeline-submitted", true));
       }
     }
+    if (reviewingPlan && pipeline.plan_review) automation.append(planReview(pipeline.plan_review));
     automation.append(actions);
     if (pipeline?.wait_reason === "codex_resume_required") automation.append(node("p", "flow-muted", "当前岗位等待 Codex 完成分经历写作、程序组装和单一终审；完成后自动继续，其他岗位保持等待。"));
     if (pipeline?.wait_reason === "precision_adjustment") automation.append(node("p", "flow-muted", "此岗位已完成分析、完整简历与已发现的必要附稿。你可以先调整材料，再点击“继续当前岗位”使用当前版本填写。"));
@@ -471,6 +479,46 @@
     const open = button("跟随当前岗位与材料", async () => { followingPipeline = true; selectedTask = pipeline.active_task_id; await refresh(); current.scrollIntoView({ behavior: "smooth", block: "start" }); }, "flow-pipeline-current", true);
     delete open.dataset.flowWrite;
     return open;
+  }
+
+  // 2026-11-12 (user decision): a high-match, target-company or high-salary job shows
+  // its chosen experiences, order and global content before any experience is written.
+  function planReview(review) {
+    const box = node("section", "flow-plan-review");
+    box.append(node("h3", "", "简历选材与结构"));
+    if (review.reasons?.length) box.append(node("p", "flow-muted", `停下的原因：${review.reasons.join("、")}`));
+    const describe = row => [row.title, row.role, row.organization, [row.start, row.end].filter(Boolean).join("–")].filter(Boolean).join(" · ");
+    const chosen = node("ol");
+    for (const row of review.chosen || []) {
+      const entry = node("li", "", describe(row));
+      if (row.writing_requirements?.length) {
+        const points = node("ul");
+        for (const text of row.writing_requirements) points.append(node("li", "flow-muted", text));
+        entry.append(points);
+      }
+      chosen.append(entry);
+    }
+    box.append(node("p", "", `入选经历（按简历中的顺序，共 ${review.chosen?.length || 0} 段）`), chosen);
+    if (review.omitted?.length) {
+      const omitted = node("ul");
+      for (const row of review.omitted) omitted.append(node("li", "flow-muted", describe(row)));
+      box.append(node("p", "", "未选入的经历"), omitted);
+    }
+    if (review.headline) box.append(node("p", "", `Headline：${review.headline}`));
+    for (const [label, rows] of [["Summary", review.summary], ["Skills", review.skills]]) {
+      if (!rows?.length) continue;
+      const list = node("ul");
+      for (const text of rows) list.append(node("li", "", text));
+      box.append(node("p", "", label), list);
+    }
+    if (review.feedback) box.append(node("p", "flow-muted", `上次的调整意见：${review.feedback}`));
+    const input = node("textarea");
+    input.rows = 4; input.maxLength = 4000; input.value = planFeedback;
+    input.placeholder = "确认就直接点“继续当前岗位”。要调整就写在这里，例如：去掉某段经历、把某段放到第一、Summary 突出某方向。";
+    input.setAttribute("aria-label", "简历选材调整意见");
+    input.addEventListener("input", () => { planFeedback = input.value; });
+    box.append(input);
+    return box;
   }
 
   function pipelineAction(action, payload = {}, stopping = false) {

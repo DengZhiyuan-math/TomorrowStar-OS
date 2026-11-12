@@ -528,3 +528,84 @@ def test_a_job_needing_an_account_goes_on_only_from_a_good_match(
         assert current["active_task_id"] != first["task_id"]
     else:
         assert current["active_task_id"] == first["task_id"]
+
+
+def test_a_high_value_job_waits_for_the_resume_plan_and_feedback_plans_again(
+    queue_environment, monkeypatch
+):
+    """2026-11-12 (user decision): a high match, target company or high salary stops
+    before any experience is written; Continue confirms, written feedback plans again."""
+    from career_evidence_graph import application_pipeline
+
+    pipeline, flow, _intake, _worker, _reads, _fetches, _messages = queue_environment
+    tiers = ["manual"]
+    monkeypatch.setattr(
+        application_pipeline,
+        "score_tier",
+        lambda score, needs_review=False: tiers.pop(0) if tiers else "auto",
+    )
+    plans, feedback, attempts = {}, [], []
+    original = flow.start
+
+    def start(identifier, revision, stage, **_options):
+        if stage != "resume":
+            return original(identifier, revision, stage)
+        task = flow.tasks[identifier]
+        plan = plans.setdefault(identifier, {"assignments": ["exp-a", "exp-b"]})
+        attempts.append(identifier)
+        if not flow.callbacks["plan_allowed"](identifier, plan):
+            flow.calls.append((stage, identifier))
+            task.update(status="failed")
+            task["stages"] = {
+                "resume": {
+                    "status": "failed",
+                    "error_code": "resume_plan_review_required",
+                    "attempt_id": f"attempt-{len(attempts)}",
+                }
+            }
+            task["revision"] += "v"
+            return deepcopy(task)
+        task.pop("stages", None)
+        return original(identifier, revision, stage)
+
+    flow.start = start
+    flow.resume_plan = lambda task_id: {
+        "plan": plans[task_id],
+        "overview": {"chosen": [{"title": eid} for eid in plans[task_id]["assignments"]]},
+    }
+
+    def replan(task_id, text):
+        feedback.append(text)
+        plans[task_id] = {"assignments": ["exp-b"]}
+
+    flow.replan_resume = replan
+    pipeline.start(request_id="precision")
+    waiting = drive(pipeline, "needs_input")
+    assert waiting["wait_reason"] == "resume_plan_review"
+    assert waiting["plan_review"]["reasons"] == ["匹配分达到 75 以上"]
+    assert [row["title"] for row in waiting["plan_review"]["chosen"]] == ["exp-a", "exp-b"]
+    current = next(row for row in waiting["items"] if row["task_id"] == waiting["active_task_id"])
+    assert current["precision_selection"] == ["匹配分达到 75 以上"]
+
+    pipeline.continue_current(request_id="replan", plan_feedback="Only keep exp-b.")
+    again = drive(pipeline, "needs_input")
+    assert feedback == ["Only keep exp-b."]
+    assert again["wait_reason"] == "resume_plan_review"
+    assert [row["title"] for row in again["plan_review"]["chosen"]] == ["exp-b"]
+
+    pipeline.continue_current(request_id="confirm-plan")
+    filling = drive(pipeline, "filling")
+    assert "plan_review" not in filling
+    assert len(attempts) == 3
+
+
+@pytest.mark.parametrize(("high", "waits"), [(250_000, True), (150_000, False)])
+def test_researched_pay_from_200k_chf_makes_a_job_high_value(queue_environment, high, waits):
+    """2026-11-12 (user decision): a yearly pay of 200,000 CHF or more is high value."""
+    pipeline, _flow, _intake, _worker, _reads, _fetches, _messages = queue_environment
+    item = {"recommendation_id": "r1", "salary_research": {"yearly_high_chf": high}}
+    reasons = pipeline._precision_reasons(item, "auto")
+    assert bool(reasons) is waits
+    if waits:
+        assert reasons == ["薪资上限约 250,000 CHF"]
+    assert pipeline._precision_reasons({"recommendation_id": "r2"}, "auto") == []

@@ -353,3 +353,30 @@ def test_conditional_write_retains_generated_source_policy_with_configuration(
     assert result["source_policy"] == binding["source_policy"]
     assert result == refresh_source_snapshot(binding)
     assert (result_project / "prism.json").read_bytes() == before_config
+
+
+@pytest.mark.parametrize(
+    ("preamble", "flagged"),
+    [(r"\usepackage[T1]{fontenc}", ["missing glyph '·'"]), (r"\usepackage{fontspec}", [])],
+)
+def test_a_sign_the_t1_font_prints_wrongly_fails_the_build(
+    tmp_path, monkeypatch, preamble, flagged
+):
+    """2026-11-12: "·" came out as "ů" with no compiler warning; comments are not text."""
+    from career_evidence_graph import application_resume_versions as versions
+
+    project = (tmp_path / "project").resolve()
+    project.mkdir()
+    (project / "main.tex").write_text(
+        "\\documentclass{article}\n" + preamble + "\n% © template note\n"
+        "\\begin{document}Research · Modelling, 100\\% ü\\end{document}\n",
+        encoding="utf-8",
+    )
+    fake = tmp_path / "tectonic"
+    fake.write_text("#!/bin/sh\nprintf '%%PDF-1.4\\n' > main.pdf\n")
+    fake.chmod(0o755)
+    monkeypatch.setattr(versions, "tectonic_executable", lambda: str(fake))
+    build = versions.TectonicCompiler().read_compiled(
+        {"project_root": str(project), "main": "main.tex"}
+    )["build"]
+    assert [row["message"] for row in build["diagnostics"]] == flagged

@@ -762,7 +762,7 @@ def test_body_symbols_use_the_resume_tex_mapping_and_keep_other_characters(tmp_p
     )
     rendered = render_cover_letter(content, TEMPLATE)
     body = rendered["tex"].split(BEGIN_BODY + "\n")[1]
-    assert rendered["renderer_revision"] == "cover-letter-renderer/v4"
+    assert rendered["renderer_revision"] == "cover-letter-renderer/v5"
     assert "\\ensuremath{\\pi}\\textsubscript{0}" in body
     assert "CO\\textsubscript{2}" in body and "x\\textsuperscript{2}" in body
     assert " --- 50\\% \\ensuremath{\\rightarrow} 10\\%" in body
@@ -774,3 +774,18 @@ def test_body_symbols_use_the_resume_tex_mapping_and_keep_other_characters(tmp_p
     legacy = render_cover_letter(content, TEMPLATE, renderer="cover-letter-renderer/v3")
     assert "π₀" in legacy["tex"] and legacy["renderer_revision"] == "cover-letter-renderer/v3"
     assert reconcile_letter_tex(content, TEMPLATE, legacy["tex"])["content"] == content
+
+
+def test_letter_v5_maps_latin_one_signs_and_v4_keeps_its_own_table(tmp_path):
+    """2026-11-12: "·" printed as "ů" in the 8-bit font without any warning."""
+    content = ready(tmp_path)["content"]
+    content = edit_cover_letter(
+        content, "Research · modelling — 20 °C.", expected_revision=content["revision"]
+    )
+    rendered = render_cover_letter(content, TEMPLATE)
+    body = rendered["tex"].split(BEGIN_BODY + "\n")[1]
+    assert rendered["renderer_revision"] == "cover-letter-renderer/v5"
+    assert r"Research \textperiodcentered{} modelling --- 20 \textdegree{}C." in body
+    assert "Research · modelling — 20 °C." in rendered["text"]
+    v4 = render_cover_letter(content, TEMPLATE, renderer="cover-letter-renderer/v4")
+    assert "Research · modelling --- 20 °C." in v4["tex"]
