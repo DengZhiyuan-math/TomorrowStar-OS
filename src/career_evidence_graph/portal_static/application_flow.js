@@ -528,6 +528,12 @@
       for (const text of feedback) given.append(node("li", "flow-muted", text));
       box.append(node("p", "", "已给出的调整意见（重新选材时都会遵循）"), given);
     }
+    // 2026-11-12: the planner answers the latest instruction, including questions.
+    if (review.reply) {
+      const reply = node("div", "flow-plan-reply");
+      reply.append(node("strong", "", "系统的回复："), node("p", "", review.reply));
+      box.append(reply);
+    }
     const input = node("textarea");
     input.rows = 4; input.maxLength = 4000; input.value = planFeedback;
     input.placeholder = "要调整就写在这里，例如：去掉某段经历、把某段放到第一、Summary 突出某方向。";

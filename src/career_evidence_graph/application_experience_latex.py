@@ -333,6 +333,36 @@ def experience_support(payload):
     return {experience: rows for experience, (_, rows) in support.items()}
 
 
+# 2026-11-12, G-Research: the user asked twice "为什么没有考虑STOA呢?" and saw no
+# answer; STOA was not even offered to the planner. With feedback, the planner also
+# answers it and knows which library experiences were not offered for this job.
+PLAN_REPLY_INSTRUCTIONS = (
+    "Also return user_reply: a short answer, in the language of the user's latest "
+    "instruction, that responds to that instruction directly. Say what you changed and "
+    "why; answer a question as a question. If it names an experience listed in "
+    "experiences_not_offered, explain that this job's analysis neither selected it nor "
+    "cited it as evidence for any requirement, so it cannot be chosen at this step. "
+    "Do not invent facts about any experience."
+)
+
+
+def _feedback_context(state):
+    payload = state["payload"]
+    offered = {row["candidate_id"] for row in payload["content_plan"]["assignments"]}
+    others = {}
+    for row in (payload.get("material_packet") or {}).get("sources", {}).values():
+        context = row.get("record_context") or {}
+        candidate = context.get("candidate_id")
+        if candidate and candidate not in offered and context.get("title"):
+            others.setdefault(candidate, context["title"])
+    return {
+        "user_plan_feedback": state["plan_feedback"],
+        "experiences_not_offered": sorted(set(others.values())),
+        "user_reply_instructions": PLAN_REPLY_INSTRUCTIONS,
+        **({"previous_user_reply": state["plan_reply"]} if state.get("plan_reply") else {}),
+    }
+
+
 def generation_context(store, identifier):
     """Main Codex's layout context, fixed retrieved facts and source locators."""
     _, state = _load(store, identifier)
@@ -363,9 +393,7 @@ def generation_context(store, identifier):
             "retained_omitted_experience_ids": deepcopy(
                 payload.get("retained_omitted_experience_ids", [])
             ),
-            **(
-                {"user_plan_feedback": state["plan_feedback"]} if state.get("plan_feedback") else {}
-            ),
+            **(_feedback_context(state) if state.get("plan_feedback") else {}),
             "instructions": MAIN_INSTRUCTIONS
             + " Select and order delivered assignments; write global content as JSON only."
             # 2026-11-10 (Harmattan AI): all 8 delivered experiences were kept, one that
@@ -476,6 +504,17 @@ def wording_is_approved(store, identifier):
     from .application_experience_content import wording_approved
 
     return wording_approved(_load(store, identifier)[1])
+
+
+@_serialized
+def set_plan_reply(store, identifier, reply):
+    """Keep the planner's answer to the user's latest plan instruction."""
+    directory, state = _load(store, identifier)
+    state["plan_reply"] = {
+        "text": reply,
+        "feedback_count": len(state.get("plan_feedback") or []),
+    }
+    return _save(directory, state)
 
 
 @_serialized

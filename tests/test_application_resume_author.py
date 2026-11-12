@@ -44,7 +44,9 @@ def author_output(request):
     if request["role"] == "plan":
         # The planner returns only its choices; the program rebuilds assignments.
         plan = validate_plan(request["context"]["content_plan"]).model_dump(mode="json")
+        feedback = request["context"].get("user_plan_feedback")
         return {
+            **({"user_reply": "Answered: " + feedback[-1]} if feedback else {}),
             **{key: plan[key] for key in ("headline", "summary", "skills") if key in plan},
             "assignments": [
                 {
@@ -441,6 +443,7 @@ def test_a_reviewed_plan_waits_and_written_feedback_plans_again(json_flow):
     assert waiting.value.code == "resume_plan_review_required"
     assert [row["role"] for row in calls] == ["plan"]
     assert "user_plan_feedback" not in calls[0]["context"]
+    assert "user_reply_instructions" not in calls[0]["context"]
     overview = plan_overview(generation.generation_context(case.store, identifier))
     plan = generation.generation_state(case.store, identifier)["writing_plan"]
     assert [row["experience_id"] for row in overview["chosen"]] == [
@@ -460,6 +463,12 @@ def test_a_reviewed_plan_waits_and_written_feedback_plans_again(json_flow):
     assert again.value.code == "resume_plan_review_required"
     assert [row["role"] for row in calls] == ["plan", "plan"]
     assert calls[1]["context"]["user_plan_feedback"] == ["Put the newest experience first."]
+    # 2026-11-12: with feedback the planner answers it and sees what was not offered.
+    assert "user_reply_instructions" in calls[1]["context"]
+    assert isinstance(calls[1]["context"]["experiences_not_offered"], list)
+    assert plan_overview(generation.generation_context(case.store, identifier))["reply"] == (
+        "Answered: Put the newest experience first."
+    )
     # A later instruction keeps the earlier ones (2026-11-12: "remove ARC" was lost).
     generation.request_replan(case.store, identifier, "Keep at most four experiences.")
     with pytest.raises(PortalDataError):

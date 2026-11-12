@@ -32,13 +32,17 @@ def _call(store, identifier, role, context, schema, runner, allow_calls, admit_c
     )
 
 
-def _plan_choices_schema(full):
-    """The planner returns only its choices; delivered assignments are never retyped."""
+def _plan_choices_schema(full, *, reply=False):
+    """The planner returns only its choices; delivered assignments are never retyped.
+
+    With the user's feedback it also answers that feedback in user_reply (2026-11-12).
+    """
     properties = full["properties"]
     return {
         "type": "object",
         "additionalProperties": False,
         "properties": {
+            **({"user_reply": {"type": "string"}} if reply else {}),
             **{
                 key: properties[key]
                 for key in ("headline", "summary", "skills")
@@ -158,6 +162,7 @@ def plan_overview(context):
         "headline": headline["text"] if isinstance(headline, dict) else None,
         "summary": [row["text"] for row in plan.get("summary") or []],
         "skills": [row["text"] for row in plan.get("skills") or []],
+        "reply": (context.get("previous_user_reply") or {}).get("text"),
         "feedback": (
             [feedback]
             if isinstance(feedback := context.get("user_plan_feedback"), str)
@@ -191,7 +196,10 @@ def _execute_content_generation(
         return generation.adopt_generation(store, identifier)
     if context.get("mapping_required"):
         original = context["content_plan"]
-        schema = _plan_choices_schema(type(validate_plan(original)).model_json_schema())
+        schema = _plan_choices_schema(
+            type(validate_plan(original)).model_json_schema(),
+            reply="user_plan_feedback" in context,
+        )
         choices, main_writer, call = _call(
             store, identifier, "plan", context, schema, runner, allow_calls, admit_call
         )
@@ -204,6 +212,8 @@ def _execute_content_generation(
             generation.configure_generation(
                 store, identifier, writing_plan=plan, main_writer_id=main_writer
             )
+            if isinstance(choices.get("user_reply"), str) and choices["user_reply"].strip():
+                generation.set_plan_reply(store, identifier, choices["user_reply"].strip())
         except (PortalDataError, ValueError, TypeError, KeyError) as error:
             _rejected(call, error)
     if allow_calls and review_plan is not None:
