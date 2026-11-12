@@ -461,6 +461,8 @@ def wording_review(store, identifier):
                     for item in current[row["experience_id"]]
                 ],
                 "feedback": list(state.get("wording_feedback", {}).get(row["experience_id"], [])),
+                "confirmed": (state.get("wording_approved") or {}).get(row["experience_id"])
+                == current[row["experience_id"]],
             }
             for row in plan["assignments"]
         ],
@@ -488,14 +490,14 @@ def revise_wording(store, identifier, experience_id, *, feedback=None, items=Non
 
 
 @_serialized
-def approve_wording(store, identifier):
+def approve_wording(store, identifier, experience_id=None):
     from .application_experience_content import approve_wording as approve
 
     directory, state = _load(store, identifier)
     _require_mutable(state)
     if not _content(state) or state.get("adopted_draft"):
         raise _invalid("只有尚未采用的内容写作可以确认表述。")
-    return approve(directory, state)
+    return approve(directory, state, experience_id)
 
 
 @_serialized

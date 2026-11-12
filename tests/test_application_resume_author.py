@@ -626,13 +626,22 @@ def test_flow_reviews_drafted_bullets_before_generating_the_resume(json_flow):
     rewritten = [row for row in requests[before:] if row["role"].startswith("experience-")]
     assert len(rewritten) == 1
     assert rewritten[0]["context"]["user_feedback"] == ["Name the method instead."]
+    handoff = waiting["experience_handoff"]["id"]
+    case.flow.approve_resume_wording(task["id"], first["experience_id"])
+    assert not generation.wording_is_approved(case.store, handoff)
     item = second["items"][0]
     case.flow.revise_resume_wording(
         task["id"], second["experience_id"], items={item["id"]: "Hand-written bullet."}
     )
     edited = case.flow.resume_wording(task["id"])["experiences"][1]["items"][0]
     assert edited == {"id": item["id"], "text": "Hand-written bullet.", "edited": True}
-    case.flow.approve_resume_wording(task["id"])
+    # Editing one experience leaves the other's confirmation in place.
+    assert [row["confirmed"] for row in case.flow.resume_wording(task["id"])["experiences"]] == [
+        True,
+        False,
+    ]
+    case.flow.approve_resume_wording(task["id"], second["experience_id"])
+    assert generation.wording_is_approved(case.store, handoff)
     case.flow.continue_preparation(
         task["id"],
         waiting["revision"],

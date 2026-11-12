@@ -348,3 +348,4 @@
 .flow-plan-review textarea { width: 100%; box-sizing: border-box; margin-top: 8px; }
 .flow-wording-experience { border-top: 1px solid var(--line); padding-top: 10px; margin-top: 10px; }
 .flow-wording-experience textarea { width: 100%; box-sizing: border-box; margin-top: 6px; }
+.flow-wording-catalog button { text-align: left; margin: 2px 0; }

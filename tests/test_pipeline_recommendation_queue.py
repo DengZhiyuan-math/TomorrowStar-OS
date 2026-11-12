@@ -651,9 +651,12 @@ def test_a_high_value_job_waits_for_its_bullets_and_revises_one_experience(
         "score_tier",
         lambda score, needs_review=False: tiers.pop(0) if tiers else "auto",
     )
-    plan = {"assignments": [{"experience_id": "exp-a"}]}
-    bullets = {"exp-a": [{"id": "a1", "text": "Built the thing at scale."}]}
-    revisions, approved, attempts = [], [], []
+    plan = {"assignments": [{"experience_id": "exp-a"}, {"experience_id": "exp-b"}]}
+    bullets = {
+        "exp-a": [{"id": "a1", "text": "Built the thing at scale."}],
+        "exp-b": [{"id": "b1", "text": "Studied the other thing."}],
+    }
+    revisions, approved, attempts = [], set(), []
     original = flow.start
 
     def start(identifier, revision, stage, **_options):
@@ -665,7 +668,7 @@ def test_a_high_value_job_waits_for_its_bullets_and_revises_one_experience(
             "resume_plan_review_required"
             if not flow.callbacks["plan_allowed"](identifier, plan)
             else "resume_wording_review_required"
-            if flow.callbacks["wording_review_required"](identifier) and not approved
+            if flow.callbacks["wording_review_required"](identifier) and approved != set(bullets)
             else None
         )
         if blocked:
@@ -685,6 +688,7 @@ def test_a_high_value_job_waits_for_its_bullets_and_revises_one_experience(
 
     def revise(task_id, experience_id, *, feedback=None, items=None):
         revisions.append((experience_id, feedback, items))
+        approved.discard(experience_id)
         if items:
             bullets[experience_id] = [{"id": key, "text": text} for key, text in items.items()]
 
@@ -692,12 +696,20 @@ def test_a_high_value_job_waits_for_its_bullets_and_revises_one_experience(
     flow.resume_plan = lambda task_id: {"plan": plan, "overview": {"chosen": []}}
     flow.resume_wording = lambda task_id: {
         "experiences": [
-            {"experience_id": eid, "title": eid, "items": items, "feedback": []}
+            {
+                "experience_id": eid,
+                "title": eid,
+                "items": items,
+                "feedback": [],
+                "confirmed": eid in approved,
+            }
             for eid, items in bullets.items()
         ]
     }
     flow.revise_resume_wording = revise
-    flow.approve_resume_wording = lambda task_id: approved.append(task_id)
+    flow.approve_resume_wording = lambda task_id, experience_id=None: approved.update(
+        [experience_id] if experience_id else bullets
+    )
     pipeline.start(request_id="wording")
     assert drive(pipeline, "needs_input")["wait_reason"] == "resume_plan_review"
     pipeline.continue_current(request_id="confirm-plan")
@@ -726,6 +738,11 @@ def test_a_high_value_job_waits_for_its_bullets_and_revises_one_experience(
         ("exp-a", None, {"a1": "Designed the estimator."}),
     ]
     assert not approved
-    pipeline.continue_current(request_id="confirm-wording")
+    # One experience at a time: confirming exp-a keeps the job waiting on exp-b.
+    pipeline.continue_current(request_id="confirm-a", wording_changes={"exp-a": {"confirm": True}})
+    one = pipeline.snapshot()
+    assert one["status"] == "needs_input" and one["wait_reason"] == "resume_wording_review"
+    assert [row["confirmed"] for row in one["wording_review"]["experiences"]] == [True, False]
+    pipeline.continue_current(request_id="confirm-b", wording_changes={"exp-b": {"confirm": True}})
     filling = drive(pipeline, "filling")
-    assert approved and "wording_review" not in filling
+    assert approved == {"exp-a", "exp-b"} and "wording_review" not in filling

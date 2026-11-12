@@ -311,6 +311,7 @@
   let planFeedback = "";
   // 2026-11-12: unsent bullet edits and feedback while a résumé's wording is reviewed.
   const wordingDrafts = new Map();
+  let wordingCurrent = null;
   const sourceErrors = { network_error: "岗位页面没能打开（网络错误）", verification_required: "网站要求人工验证", login_required: "网站要求登录后才能查看", http_error: "岗位页面返回错误", browser_error: "浏览器没能打开岗位页面" };
   // A mail subject reads “alert name”: Company - Role; the part after the colon names the job.
   const mailJob = context => (context || "").replace(/^.*”:\s*/, "");
@@ -364,10 +365,10 @@
     // A flow saved before the queue (no queue_mode) resumes through start.
     const reviewingPlan = !running && pipeline?.wait_reason === "resume_plan_review";
     const reviewingWording = !running && pipeline?.wait_reason === "resume_wording_review";
-    if (!reviewingWording) wordingDrafts.clear();
+    if (!reviewingWording) { wordingDrafts.clear(); wordingCurrent = null; }
     // 2026-11-12 (user decision): during plan review Continue only confirms the plan and
     // starts the automatic steps; feedback is sent by its own button in the plan box.
-    const startPipeline = button(reviewingPlan ? "确认选材并继续" : reviewingWording ? "确认表述并继续" : pipeline?.id ? "继续当前岗位" : "开启自动流程", () => pipelineAction(pipeline?.queue_mode ? "continue" : "start"), "flow-pipeline-start");
+    const startPipeline = button(reviewingPlan ? "确认选材并继续" : reviewingWording ? "全部确认并继续" : pipeline?.id ? "继续当前岗位" : "开启自动流程", () => pipelineAction(pipeline?.queue_mode ? "continue" : "start"), "flow-pipeline-start");
     if (!reviewingPlan) planFeedback = "";
     startPipeline.dataset.blocked = String(!pipeline?.enabled || pipeline.control === "running");
     const pausePipeline = button("暂停自动流程", () => mutate(async () => {
@@ -546,44 +547,61 @@
       for (const text of rows) list.append(node("li", "", text));
       box.append(node("p", "", label), list);
     }
-    for (const experience of review.experiences || []) {
-      const part = node("div", "flow-wording-experience");
-      part.append(node("h4", "", [experience.title, experience.role, experience.organization, [experience.start, experience.end].filter(Boolean).join("–")].filter(Boolean).join(" · ")));
-      const inputs = [];
-      for (const item of experience.items || []) {
-        const key = `${experience.experience_id}:${item.id}`;
-        const input = node("textarea");
-        input.rows = 2; input.maxLength = 2000;
-        input.value = wordingDrafts.has(key) ? wordingDrafts.get(key) : item.text;
-        input.setAttribute("aria-label", `${experience.title} 条目`);
-        input.addEventListener("input", () => { wordingDrafts.set(key, input.value); save.dataset.blocked = String(!changed()); lock(); });
-        inputs.push([item, input]);
-        part.append(input);
-        if (item.edited) part.append(node("p", "flow-muted", "（你改过的文字，会原样保留）"));
-      }
-      const changed = () => inputs.some(([item, input]) => input.value.trim() && input.value.trim() !== item.text);
-      const save = button("保存修改", () => pipelineAction("continue", { wording_changes: { [experience.experience_id]: { items: Object.fromEntries(inputs.map(([item, input]) => [item.id, input.value.trim() || item.text])) } } }), `flow-wording-save-${experience.experience_id}`, true);
-      save.dataset.blocked = String(!changed());
-      if (experience.feedback?.length) {
-        const given = node("ol");
-        for (const text of experience.feedback) given.append(node("li", "flow-muted", text));
-        part.append(node("p", "", "这段已给出的意见（重写时都会遵循）"), given);
-      }
-      const feedbackKey = `${experience.experience_id}:feedback`;
-      const feedback = node("textarea");
-      feedback.rows = 2; feedback.maxLength = 4000;
-      feedback.value = wordingDrafts.get(feedbackKey) || "";
-      feedback.placeholder = "对这段的意见，例如：突出某个方法、去掉某句、换个说法。";
-      feedback.setAttribute("aria-label", `${experience.title} 意见`);
-      const rewrite = button("按意见重写这段", () => pipelineAction("continue", { wording_changes: { [experience.experience_id]: { feedback: feedback.value.trim() } } }), `flow-wording-rewrite-${experience.experience_id}`, true);
-      rewrite.dataset.blocked = String(!feedback.value.trim());
-      feedback.addEventListener("input", () => { wordingDrafts.set(feedbackKey, feedback.value); rewrite.dataset.blocked = String(!feedback.value.trim()); lock(); });
-      const actions = node("div", "flow-actions");
-      actions.append(save, rewrite);
-      part.append(feedback, actions);
-      box.append(part);
+    const experiences = review.experiences || [];
+    const describe = experience => [experience.title, experience.role, experience.organization, [experience.start, experience.end].filter(Boolean).join("–")].filter(Boolean).join(" · ");
+    // 2026-11-12 (user decision): the catalog first, then one experience at a time.
+    if (!experiences.some(row => row.experience_id === wordingCurrent)) wordingCurrent = null;
+    const current = experiences.find(row => row.experience_id === wordingCurrent) || experiences.find(row => !row.confirmed) || experiences[0];
+    const done = experiences.filter(row => row.confirmed).length;
+    box.append(node("p", "", `入选经历目录（已确认 ${done}/${experiences.length}，点一段查看）`));
+    const catalog = node("ol", "flow-wording-catalog");
+    for (const experience of experiences) {
+      const entry = node("li");
+      const open = button(`${describe(experience)} · ${experience.confirmed ? "已确认" : "待核对"}`, () => { wordingCurrent = experience.experience_id; renderedPipeline = ""; renderPipeline(); lock(); }, `flow-wording-open-${experience.experience_id}`, experience !== current);
+      delete open.dataset.flowWrite;
+      entry.append(open);
+      catalog.append(entry);
     }
-    box.append(node("p", "flow-muted", "改文字后点“保存修改”；要系统重写某段就写意见点“按意见重写这段”，它会只重写那一段再停下来给你看。全部满意后点下方的“确认表述并继续”，才生成简历并填写。"));
+    box.append(catalog);
+    if (!current) return box;
+    const part = node("div", "flow-wording-experience");
+    part.append(node("h4", "", `${experiences.indexOf(current) + 1}. ${describe(current)}${current.confirmed ? "（已确认）" : ""}`));
+    const inputs = [];
+    for (const item of current.items || []) {
+      const key = `${current.experience_id}:${item.id}`;
+      const input = node("textarea");
+      input.rows = 2; input.maxLength = 2000;
+      input.value = wordingDrafts.has(key) ? wordingDrafts.get(key) : item.text;
+      input.setAttribute("aria-label", `${current.title} 条目`);
+      input.addEventListener("input", () => { wordingDrafts.set(key, input.value); save.dataset.blocked = String(!changed()); lock(); });
+      inputs.push([item, input]);
+      part.append(input);
+      if (item.edited) part.append(node("p", "flow-muted", "（你改过的文字，会原样保留）"));
+    }
+    const changed = () => inputs.some(([item, input]) => input.value.trim() && input.value.trim() !== item.text);
+    const save = button("保存修改", () => pipelineAction("continue", { wording_changes: { [current.experience_id]: { items: Object.fromEntries(inputs.map(([item, input]) => [item.id, input.value.trim() || item.text])) } } }), `flow-wording-save-${current.experience_id}`, true);
+    save.dataset.blocked = String(!changed());
+    if (current.feedback?.length) {
+      const given = node("ol");
+      for (const text of current.feedback) given.append(node("li", "flow-muted", text));
+      part.append(node("p", "", "这段已给出的意见（重写时都会遵循）"), given);
+    }
+    const feedbackKey = `${current.experience_id}:feedback`;
+    const feedback = node("textarea");
+    feedback.rows = 2; feedback.maxLength = 4000;
+    feedback.value = wordingDrafts.get(feedbackKey) || "";
+    feedback.placeholder = "对这段的意见，例如：突出某个方法、去掉某句、换个说法。";
+    feedback.setAttribute("aria-label", `${current.title} 意见`);
+    const rewrite = button("按意见重写这段", () => pipelineAction("continue", { wording_changes: { [current.experience_id]: { feedback: feedback.value.trim() } } }), `flow-wording-rewrite-${current.experience_id}`, true);
+    rewrite.dataset.blocked = String(!feedback.value.trim());
+    feedback.addEventListener("input", () => { wordingDrafts.set(feedbackKey, feedback.value); rewrite.dataset.blocked = String(!feedback.value.trim()); lock(); });
+    const confirm = button(done + (current.confirmed ? 0 : 1) === experiences.length ? "确认这段（最后一段，确认后生成简历）" : "确认这段，看下一段", () => { wordingCurrent = null; return pipelineAction("continue", { wording_changes: { [current.experience_id]: { confirm: true } } }); }, `flow-wording-confirm-${current.experience_id}`);
+    confirm.dataset.blocked = String(current.confirmed || changed());
+    const actions = node("div", "flow-actions");
+    actions.append(confirm, save, rewrite);
+    part.append(feedback, actions);
+    box.append(part);
+    box.append(node("p", "flow-muted", "逐段核对：改文字后点“保存修改”；要系统重写就写意见点“按意见重写这段”；满意就点“确认这段”。最后一段确认后自动生成简历并填写。下方“全部确认并继续”会一次确认所有段落。"));
     return box;
   }
 
