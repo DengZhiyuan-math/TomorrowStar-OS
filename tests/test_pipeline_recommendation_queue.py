@@ -613,6 +613,7 @@ def test_a_high_value_job_waits_for_the_resume_plan_and_feedback_plans_again(
         plans[task_id] = {"assignments": [{"experience_id": eid} for eid in experiences]}
         selected.add(task_id)
         pending.add(task_id)
+        return {"mapping_required": True}
 
     def edit(task_id, changes):
         points.append(changes)
@@ -794,6 +795,18 @@ def test_a_high_value_job_waits_for_its_bullets_and_revises_one_experience(
         ("exp-a", None, {"a1": "Designed the estimator."}),
     ]
     assert not approved
+    # 2026-11-12: leaving an experience out goes back to the selection, not a rewrite.
+    reopened = []
+    flow.reopen_resume_selection = reopened.append
+    pipeline.continue_current(request_id="reselect", plan_reselect=True)
+    assert reopened == [edited["active_task_id"]]
+    assert drive(pipeline, "needs_input")["wait_reason"] == "resume_wording_review"
+    # Headline, summary and skills are written again only when the user asks.
+    regenerated = []
+    flow.regenerate_resume_global = regenerated.append
+    pipeline.continue_current(request_id="regenerate", regenerate_global=True)
+    assert regenerated == [edited["active_task_id"]]
+    assert drive(pipeline, "needs_input")["wait_reason"] == "resume_wording_review"
     # One experience at a time: confirming exp-a keeps the job waiting on exp-b.
     pipeline.continue_current(request_id="confirm-a", wording_changes={"exp-a": {"confirm": True}})
     one = pipeline.snapshot()

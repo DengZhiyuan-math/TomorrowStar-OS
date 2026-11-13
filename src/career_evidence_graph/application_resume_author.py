@@ -67,7 +67,7 @@ def _plan_choices_schema(full, *, reply=False, count=5):
     }
 
 
-def _expanded_plan(original, choices, *, fixed=False):
+def _expanded_plan(original, choices, *, fixed=False, kept=None):
     """Rebuild the full plan from delivered assignments in the planner's chosen order.
 
     With the user's own selection every delivered assignment stays in its delivered
@@ -79,6 +79,7 @@ def _expanded_plan(original, choices, *, fixed=False):
     if choices.get("headline") is not None:
         plan["headline"] = deepcopy(choices["headline"])
     written = {row["experience_id"]: row["writing_requirements"] for row in choices["assignments"]}
+    written.update(kept or {})
     order = list(delivered) if fixed else list(written)
     plan["assignments"] = [
         delivered[eid]
@@ -212,7 +213,12 @@ def _execute_content_generation(
             store, identifier, "plan", context, schema, runner, allow_calls, admit_call
         )
         try:
-            plan = _expanded_plan(original, choices, fixed=bool(context.get("user_selection")))
+            plan = _expanded_plan(
+                original,
+                choices,
+                fixed=bool(context.get("user_selection")),
+                kept=context.get("kept_points"),
+            )
             repairs = repaired_global_refs(plan)
             if repairs:
                 helper.atomic_write_json(call / "reference-repairs.json", {"repairs": repairs})

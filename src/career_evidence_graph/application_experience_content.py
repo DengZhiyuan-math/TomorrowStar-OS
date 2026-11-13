@@ -153,7 +153,11 @@ def configure(store, directory, state, proposed, *, main_writer_id=None):
                 {key: value for key, value in assignment.items() if key != "assignment_revision"}
             )
         retained = _retained(state, plan)
-        _headline(state, plan.get("headline"), retained)
+        _headline(
+            state,
+            plan.get("headline") or (state.get("global_kept") or {}).get("headline"),
+            retained,
+        )
         # Assembly checks global references and duplicate identities as one boundary.
         placeholders = [
             {
@@ -273,6 +277,22 @@ def submit(directory, state, context, response, writer_id):
     return _save(directory, state)
 
 
+def global_lines(state):
+    """The planned headline, summary and skills with the user's kept lines in place.
+
+    2026-11-12 (user decision): after an experience is removed, a line that cited it
+    stays as the user's protected wording unless the user asks to regenerate.
+    """
+    plan, kept = state["writing_plan"], state.get("global_kept") or {}
+    lines = {"headline": deepcopy(kept.get("headline") or plan.get("headline"))}
+    for key in ("summary", "skills"):
+        rows = deepcopy(plan.get(key) or [])
+        for row in sorted(kept.get(key, []), key=lambda row: row["index"]):
+            rows.insert(row["index"], deepcopy(row["item"]))
+        lines[key] = rows
+    return lines
+
+
 def output(state):
     if state["mapping_required"]:
         raise _invalid("请先分派 JSON 经历写作任务。")
@@ -283,6 +303,15 @@ def output(state):
         )
         retained = _retained(state, _plan(state["writing_plan"]))
         _apply_wording(state, content)
+        kept = state.get("global_kept")
+        if kept:
+            # Assembled AI lines keep their order; the user's kept lines go back in place.
+            for key in ("summary", "skills"):
+                for row in sorted(kept.get(key, []), key=lambda row: row["index"]):
+                    content[key].insert(row["index"], deepcopy(row["item"]))
+            if kept.get("headline"):
+                content["headline"] = deepcopy(kept["headline"])
+            content["revision"] = content_revision(content)
         headline = _headline(state, content.get("headline"), retained)
         if headline:
             content["headline"] = headline
