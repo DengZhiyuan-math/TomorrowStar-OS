@@ -1077,7 +1077,7 @@ class Element {
   prepend(...children) { this.children.unshift(...children); }
   replaceChildren(...children) { this.children = children; }
   addEventListener(type, callback) { this.listeners[type] = callback; }
-  setAttribute() {} removeAttribute() {} focus() {}
+  setAttribute() {} removeAttribute() {} focus() {} before() {} after() {}
   closest() { return this; } querySelector() { return this; }
   get options() { return this.children; }
   get lastElementChild() { return this.children.at(-1) || this; }

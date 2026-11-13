@@ -797,3 +797,116 @@ def test_the_user_checks_evidence_picks_experiences_and_edits_points(json_flow):
     assert [row["role"] for row in calls].count("plan") == 2
     final = generation.generation_state(case.store, identifier)["writing_plan"]
     assert [row["candidate_id"] for row in final["assignments"]] == chosen
+
+
+@pytest.mark.parametrize("cited", [None, "keep", "regenerate"])
+def test_removing_an_experience_during_wording_review_keeps_the_other_work(json_flow, cited):
+    """2026-11-12, G-Research: the user took doctoral research for the education entry
+    and could only send "remove it" as a rewrite instruction. Going back to the
+    selection and leaving it out keeps the other bullets and confirmations, also when
+    the summary cited the removed experience and must be planned again."""
+    from career_evidence_graph import application_experience_latex as generation
+
+    case = json_flow
+    task = start_json_writing(case)
+    identifier = task["experience_handoff"]["id"]
+    calls = []
+
+    def runner(config, prompt, **kwargs):
+        request = json.loads(prompt.split("\n", 1)[1])
+        calls.append(request["role"])
+        output = author_output(request)
+        if request["role"] == "plan" and cited:
+            # Each planning writes new points; the summary cites the last experience.
+            last = request["context"]["content_plan"]["assignments"][-1]
+            output["summary"] = [
+                {"id": "s1", "text": "Synthetic focus.", "fact_refs": last["allowed_fact_refs"][:1]}
+            ]
+            for row in output["assignments"]:
+                row["writing_requirements"] = [f"Point from planning {calls.count('plan')}."]
+        return response(output)
+
+    def run():
+        return execute_content_generation(
+            case.store,
+            identifier,
+            runner=runner,
+            review_plan=lambda plan: plan is not None,
+            review_wording=lambda: True,
+        )
+
+    with pytest.raises(PortalDataError):
+        run()
+    shown = generation.plan_review(case.store, identifier)["overview"]
+    assert all("with_education" in row for row in shown["experiences"])
+    evidence = {str(row["index"]): row["evidence"] for row in shown["requirements"]}
+    generation.select_experiences(case.store, identifier, evidence, shown["selected"])
+    with pytest.raises(PortalDataError) as waiting:
+        run()
+    assert waiting.value.code == "resume_wording_review_required"
+    first, second = generation.wording_review(case.store, identifier)["experiences"]
+    generation.approve_wording(case.store, identifier, first["experience_id"])
+    generation.revise_wording(
+        case.store, identifier, second["experience_id"], feedback="Remove this one."
+    )
+
+    before = list(calls)
+    generation.reopen_selection(case.store, identifier)
+    again = generation.plan_review(case.store, identifier)["overview"]
+    assert again["stage"] == "selection" and again["selected"] == shown["selected"]
+    kept = [
+        candidate for candidate in again["selected"] if candidate == first["experience_id"]
+    ] or [again["selected"][0]]
+    planned = generation._load(case.store, identifier)[1]["writing_plan"]["assignments"]
+    first_points = next(
+        row["writing_requirements"]
+        for row in planned
+        if row["experience_id"] == first["experience_id"]
+    )
+    generation.select_experiences(case.store, identifier, evidence, kept)
+    if cited:
+        # 2026-11-12 (user decision): the summary cited the removed experience. It stays
+        # as the user's kept line and is listed; no model runs unasked.
+        state = generation._load(case.store, identifier)[1]
+        assert not state["mapping_required"]
+        assert state["writing_plan"]["summary"] == []
+        review = generation.wording_review(case.store, identifier)
+        assert review["summary"] == ["Synthetic focus."]
+        assert review["global_notice"] == ["Synthetic focus."]
+        assert calls == before
+        if cited == "keep":
+            assert run()["kind"] == "draft"
+            assert [role for role in calls[len(before) :] if role != "review"] == []
+            from career_evidence_graph.application_experience_content import output
+
+            line = output(generation._load(case.store, identifier)[1])["resume_content"]["summary"][
+                0
+            ]
+            assert (line["text"], line["origin"], line["protected"], line["fact_refs"]) == (
+                "Synthetic focus.",
+                "human",
+                True,
+                [],
+            )
+            return
+        # On request, only headline, summary and skills are written again.
+        generation.regenerate_global(case.store, identifier)
+        assert run()["kind"] == "draft"
+        assert [role for role in calls[len(before) :] if role != "review"] == ["plan"]
+        state = generation._load(case.store, identifier)[1]
+        assert "kept_points" not in state and "global_kept" not in state
+        assert state["writing_plan"]["summary"][0]["origin"] == "ai"
+        assert state["writing_plan"]["assignments"][0]["writing_requirements"] == first_points
+        return
+    state = generation._load(case.store, identifier)[1]
+    assert not state["mapping_required"] and "kept_points" not in state
+    assert state["writing_plan"]["assignments"][0]["writing_requirements"] == first_points
+    assert second["experience_id"] not in state.get("wording_feedback", {})
+    assert [row["experience_id"] for row in state["writing_plan"]["assignments"]] == [
+        first["experience_id"]
+    ]
+    review = generation.wording_review(case.store, identifier)
+    assert [row["confirmed"] for row in review["experiences"]] == [True]
+    assert run()["kind"] == "draft"
+    # No planner or writer ran again; only the final review.
+    assert [role for role in calls[len(before) :] if role != "review"] == []

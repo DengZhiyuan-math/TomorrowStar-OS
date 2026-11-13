@@ -1542,10 +1542,11 @@ class ApplicationPipeline:
                 )
             ):
                 raise PortalDataError("pipeline_request_invalid", "写作要点的格式不能核验。", 409)
-        if action == "continue" and isinstance(payload, dict) and "plan_reselect" in payload:
-            expected = {"request_id", "plan_reselect"}
-            if payload["plan_reselect"] is not True:
-                raise PortalDataError("pipeline_request_invalid", "请使用当前岗位操作。", 409)
+        for flag in ("plan_reselect", "regenerate_global"):
+            if action == "continue" and isinstance(payload, dict) and flag in payload:
+                expected = {"request_id", flag}
+                if payload[flag] is not True:
+                    raise PortalDataError("pipeline_request_invalid", "请使用当前岗位操作。", 409)
         if action == "continue" and isinstance(payload, dict) and "plan_feedback" in payload:
             expected = {"request_id", "plan_feedback"}
             if (
@@ -2031,6 +2032,17 @@ class ApplicationPipeline:
         checks each one's wording in turn. A plain Continue confirms them all.
         """
         task = self._task(state)
+        if payload.get("plan_reselect") or payload.get("regenerate_global"):
+            # 2026-11-12, G-Research: an experience the user meant to leave out could
+            # only receive rewrite instructions here. Its selection is changed instead;
+            # headline, summary and skills are written again only on request.
+            if payload.get("plan_reselect"):
+                self.flow.reopen_resume_selection(task["id"])
+            else:
+                self.flow.regenerate_resume_global(task["id"])
+            state.pop("wording_review", None)
+            self._continue_author(state, payload["request_id"])
+            return
         changes = payload.get("wording_changes")
         rewrite = False
         if changes:
@@ -2166,6 +2178,8 @@ class ApplicationPipeline:
             return
         if payload.get("plan_reselect"):
             self.flow.reopen_resume_selection(task["id"])
+        elif payload.get("regenerate_global"):
+            self.flow.regenerate_resume_global(task["id"])
         elif current["plan"] is None or "plan_selection" in payload:
             # 2026-11-12 (user decision): the user's evidence and experiences, or the
             # shown suggestion when Continue is pressed without changes.
@@ -2174,9 +2188,13 @@ class ApplicationPipeline:
                 "evidence": {str(row["index"]): row["evidence"] for row in shown["requirements"]},
                 "experiences": shown["selected"],
             }
-            self.flow.select_resume_experiences(
+            selected = self.flow.select_resume_experiences(
                 task["id"], chosen["evidence"], chosen["experiences"]
             )
+            if item.get("plan_approval") and not selected.get("mapping_required"):
+                # 2026-11-12 (user decision): experiences only removed or reordered keep
+                # the points the user already approved; no second points review.
+                item["plan_approval"] = _plan_key(self.flow.resume_plan(task["id"])["plan"])
         elif feedback:
             self.flow.replan_resume(task["id"], feedback)
         else:

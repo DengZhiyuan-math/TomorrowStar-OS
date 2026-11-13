@@ -5758,6 +5758,11 @@ class ApplicationFlowService:
 
         return reopen_selection(self._materials, self._handoff_id(task_id))
 
+    def regenerate_resume_global(self, task_id):
+        from .application_experience_latex import regenerate_global
+
+        return regenerate_global(self._materials, self._handoff_id(task_id))
+
     def edit_resume_points(self, task_id, points):
         from .application_experience_latex import edit_plan_points
 

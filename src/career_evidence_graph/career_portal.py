@@ -76,6 +76,7 @@ _PIPELINE_ROUTES = {
             {"request_id", "plan_selection"},
             {"request_id", "plan_points"},
             {"request_id", "plan_reselect"},
+            {"request_id", "regenerate_global"},
         ),
         _PIPELINE_CURRENT,
         409,

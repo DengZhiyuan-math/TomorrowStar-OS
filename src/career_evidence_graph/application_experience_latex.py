@@ -178,6 +178,8 @@ def _public(state):
             # The author runner keeps one reviewer through rewrites (2026-11-08).
             "final_reviewer_id",
             "user_selection",
+            "kept_points",
+            "global_kept",
         )
         if key in state
     }
@@ -393,6 +395,18 @@ def selection_overview(state):
     """
     payload = state["payload"]
     experiences = _packet_experiences(payload)
+    # 2026-11-12, G-Research: the user took doctoral research for the education entry.
+    # Education is fixed template text; an experience at a degree's institution is
+    # marked so the user knows it becomes a section of its own.
+    education = [
+        row.get("text", "")
+        for row in payload["material_packet"]["sources"].values()
+        if row.get("source_kind") == "education"
+    ]
+    for row in experiences.values():
+        row["with_education"] = bool(
+            row.get("organization") and any(row["organization"] in text for text in education)
+        )
     chosen = state.get("user_selection") or state.get("previous_selection") or {}
     evidence = chosen.get("evidence") or _cited_evidence(payload)
     selected = chosen.get("experiences") or [
@@ -503,7 +517,9 @@ def generation_context(store, identifier):
             + " from their own review of each requirement's evidence: keep every delivered"
             + " assignment in the delivered order and only write its writing_requirements and"
             + " the global content. This overrides the selection rules and any earlier"
-            + " instruction about which experiences to keep.",
+            + " instruction about which experiences to keep."
+            + " When kept_points is present, those experiences' writing_requirements are"
+            + " fixed by the user's earlier review; write only the global content.",
         }
     return {
         **_public(state),
@@ -555,7 +571,8 @@ def wording_review(store, identifier):
     if current is None:
         return None
     plan = state["writing_plan"]
-    headline = plan.get("headline")
+    lines = global_lines(state)
+    headline = lines["headline"]
     edits = state.get("wording_edits", {})
     return {
         "experiences": [
@@ -576,8 +593,9 @@ def wording_review(store, identifier):
             for row in plan["assignments"]
         ],
         "headline": headline["text"] if isinstance(headline, dict) else None,
-        "summary": [row["text"] for row in plan.get("summary") or []],
-        "skills": [row["text"] for row in plan.get("skills") or []],
+        "summary": [row["text"] for row in lines["summary"]],
+        "skills": [row["text"] for row in lines["skills"]],
+        "global_notice": kept_texts(state),
     }
 
 
@@ -585,6 +603,53 @@ def wording_is_approved(store, identifier):
     from .application_experience_content import wording_approved
 
     return wording_approved(_load(store, identifier)[1])
+
+
+def global_lines(state):
+    """Headline, summary and skills as the résumé shows them: the planned lines plus
+    lines the user kept after removing the experiences they cited (2026-11-12)."""
+    from .application_experience_content import global_lines as lines
+
+    return lines(state)
+
+
+def kept_texts(state):
+    kept = state.get("global_kept") or {}
+    rows = [kept["headline"]] if kept.get("headline") else []
+    rows += [row["item"] for key in ("summary", "skills") for row in kept.get(key, [])]
+    return [row["text"] for row in rows]
+
+
+def _kept_globals(lines, plan, allowed):
+    """Split shown global lines into planned AI lines and the user's kept lines."""
+    from .application_resume_content import WORDING_EDIT_SOURCE
+
+    def outside(item):
+        return item.get("origin") == "human" or any(
+            ref not in allowed
+            for key in ("fact_refs", "inference_refs")
+            for ref in item.get(key) or []
+        )
+
+    def kept(item):
+        item = deepcopy(item)
+        for key in ("fact_refs", "inference_refs"):
+            item[key] = [ref for ref in item.get(key) or [] if ref in allowed]
+        return item | {"origin": "human", "edit_source": WORDING_EDIT_SOURCE, "protected": True}
+
+    result = {"summary": [], "skills": []}
+    headline = lines["headline"]
+    if isinstance(headline, dict) and outside(headline):
+        result["headline"] = kept(headline)
+        plan.pop("headline", None)
+    for key in ("summary", "skills"):
+        plan[key] = []
+        for index, item in enumerate(lines[key]):
+            if outside(item):
+                result[key].append({"index": index, "item": kept(item)})
+            else:
+                plan[key].append(item)
+    return plan, result
 
 
 def plan_review(store, identifier):
@@ -605,9 +670,17 @@ def plan_review(store, identifier):
         return None
     if not state.get("user_selection"):
         return {"plan": None, "overview": selection_overview(state)}
+    lines = global_lines(state)
     return {
         "plan": deepcopy(state["writing_plan"]),
-        "overview": plan_overview(generation_context(store, identifier)) | {"stage": "points"},
+        "overview": plan_overview(generation_context(store, identifier))
+        | {
+            "stage": "points",
+            "headline": (lines["headline"] or {}).get("text"),
+            "summary": [row["text"] for row in lines["summary"]],
+            "skills": [row["text"] for row in lines["skills"]],
+            "global_notice": kept_texts(state),
+        },
     }
 
 
@@ -651,7 +724,48 @@ def select_experiences(store, identifier, evidence, experiences):
         payload
     )
     state["user_selection"] = {"evidence": evidence, "experiences": list(experiences)}
+    state.pop("kept_points", None)
+    # Instructions for an experience the user removed no longer apply (2026-11-12:
+    # "把这一部分移除简历" was sent as that experience's rewrite instruction).
+    for key in ("wording_feedback", "wording_previous"):
+        for removed in set(state.get(key) or {}) - {
+            row["experience_id"]
+            for row in _delivered(state)["assignments"]
+            if row["candidate_id"] in experiences
+        }:
+            state[key].pop(removed)
     if state.get("mapping_required") or planned != list(experiences) or evidence != basis:
+        if (
+            not state.get("mapping_required")
+            and evidence == basis
+            and set(experiences) <= set(planned)
+        ):
+            # Only removed or reordered: keep the planned points and finished bullets
+            # (2026-11-12, G-Research removed one experience during wording review).
+            from .application_experience_content import configure
+
+            plan = deepcopy(state["writing_plan"])
+            rows = {row["candidate_id"]: row for row in plan["assignments"]}
+            plan["assignments"] = [rows[candidate] for candidate in experiences]
+            plan.pop("revision", None)
+            # 2026-11-12 (user decision): headline, summary and skills stay as they are
+            # unless the user asks to regenerate them. A line citing a removed
+            # experience becomes the user's kept line (still true from other records,
+            # e.g. the PhD in education) and is listed for the user to decide.
+            allowed = {
+                ref
+                for row in plan["assignments"]
+                for ref in [*row["allowed_fact_refs"], *row["allowed_inference_refs"]]
+            }
+            previous = state.get("global_kept")
+            plan, state["global_kept"] = _kept_globals(global_lines(state), plan, allowed)
+            try:
+                return configure(store, directory, state, plan)
+            except PortalDataError:
+                if previous is None:
+                    state.pop("global_kept")
+                else:
+                    state["global_kept"] = previous
         state["mapping_required"] = True
         state.pop("plan_reply", None)
     return _save(directory, state)
@@ -664,6 +778,30 @@ def reopen_selection(store, identifier):
     _require_mutable(state)
     if state.get("user_selection"):
         state["previous_selection"] = state.pop("user_selection")
+    return _save(directory, state)
+
+
+@_serialized
+def regenerate_global(store, identifier):
+    """Write headline, summary and skills again for the kept experiences, on request.
+
+    The experiences' points stay fixed, so their bullets and confirmations stay.
+    """
+    directory, state = _load(store, identifier)
+    _require_mutable(state)
+    plan = state.get("writing_plan")
+    if (
+        not _content(state)
+        or state.get("adopted_draft")
+        or state.get("mapping_required")
+        or not plan
+    ):
+        raise _invalid("只能为当前写作计划重新生成 Headline、Summary 和 Skills。")
+    state["kept_points"] = {
+        row["experience_id"]: list(row["writing_requirements"]) for row in plan["assignments"]
+    }
+    state.pop("global_kept", None)
+    state["mapping_required"] = True
     return _save(directory, state)
 
 
@@ -746,6 +884,9 @@ def configure_generation(
 
         if groups is not None or experiences is not None or organization_plan is not None:
             raise _invalid("内容写作须使用 JSON 写作计划。")
+        # Used by the plan being configured now, whose global content is new.
+        state.pop("kept_points", None)
+        state.pop("global_kept", None)
         return configure(store, directory, state, writing_plan, main_writer_id=main_writer_id)
     payload = state["payload"]
     selected = set(payload["analysis_selected_source_ids"])

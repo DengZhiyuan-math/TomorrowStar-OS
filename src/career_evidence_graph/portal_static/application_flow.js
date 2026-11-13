@@ -549,6 +549,8 @@
     box.append(requirements);
     const support = id => review.requirements.filter(row => draft.evidence[String(row.index)].includes(id)).map(row => row.index);
     box.append(node("p", "", `第二步：勾选放进简历的经历并排序（已选 ${draft.experiences.length} 段，建议 3–5 段）。标签是它支持的要求编号。`));
+    // 2026-11-12, G-Research: doctoral research was taken for the education entry.
+    box.append(node("p", "flow-muted", "每段勾选的经历都会在简历中展开成独立的一段。学历是固定内容，总会出现在 Education，不在这里选。"));
     const list = node("ol", "flow-selection");
     const unchosen = review.experiences.filter(row => !draft.experiences.includes(row.candidate_id));
     const supported = unchosen.filter(row => support(row.candidate_id).length).sort((a, b) => support(b.candidate_id).length - support(a.candidate_id).length);
@@ -563,6 +565,7 @@
       entry.append(label);
       const tags = support(id);
       entry.append(node("span", "flow-muted", tags.length ? `  支持 ${tags.map(index => `R${index + 1}`).join(" ")}` : "  没有作为任何要求的证据"));
+      if (row.with_education) entry.append(node("span", "flow-muted", " · 与学历同一机构，勾选后单独展开，不是 Education 条目"));
       if (chosen) {
         const at = draft.experiences.indexOf(id);
         const move = step => () => { const order = [...draft.experiences]; [order[at], order[at + step]] = [order[at + step], order[at]]; draft.experiences = order; rerender(); };
@@ -594,6 +597,8 @@
     const box = node("section", "flow-plan-review");
     box.append(node("h3", "", "各段经历的写作要点"));
     if (review.reasons?.length) box.append(node("p", "flow-muted", `停下的原因：${review.reasons.join("、")}`));
+    const notice = globalNotice(review);
+    if (notice) box.append(notice);
     box.append(node("p", "", "每行一条要点，直接修改即可，保存后按你的文字写作，不再经过模型改写。"));
     const key = JSON.stringify([pipeline?.active_task_id, review.chosen]);
     if (pointsKey !== key) { pointsKey = key; pointsDrafts.clear(); }
@@ -645,6 +650,19 @@
     return box;
   }
 
+  // 2026-11-12 (user decision): after experiences are removed, headline, summary and
+  // skills stay as written; the user decides whether lines citing them are regenerated.
+  function globalNotice(review) {
+    if (!review.global_notice?.length) return null;
+    const box = node("div", "flow-plan-reply");
+    box.append(node("strong", "", "以下 Headline、Summary 或 Skills 内容曾引用已去掉的经历，目前保持原样："));
+    const list = node("ul");
+    for (const text of review.global_notice) list.append(node("li", "", text));
+    box.append(list, node("p", "flow-muted", "内容仍然成立就不用处理。需要的话，可以只为现在的经历重新生成这三部分，各段经历的要点、条目和确认都不变。"));
+    box.append(button("重新生成 Headline、Summary 和 Skills", () => pipelineAction("continue", { regenerate_global: true }), "flow-regenerate-global", true));
+    return box;
+  }
+
   function planReview(review) {
     return review.stage === "selection" ? selectionReview(review) : pointsReview(review);
   }
@@ -666,6 +684,8 @@
     const box = node("section", "flow-plan-review");
     box.append(node("h3", "", "简历表述"));
     if (review.reasons?.length) box.append(node("p", "flow-muted", `停下的原因：${review.reasons.join("、")}`));
+    const notice = globalNotice(review);
+    if (notice) box.append(notice);
     if (review.headline) box.append(node("p", "", `Headline：${review.headline}`));
     for (const [label, rows] of [["Summary", review.summary], ["Skills", review.skills]]) {
       if (!rows?.length) continue;
@@ -727,6 +747,9 @@
     actions.append(confirm, save, rewrite);
     part.append(feedback, actions);
     box.append(part);
+    // 2026-11-12: leaving an experience out is a selection change, not a rewrite.
+    const reselect = button("返回修改证据与选材", () => pipelineAction("continue", { plan_reselect: true }), "flow-wording-reselect", true);
+    box.append(node("p", "flow-muted", "想去掉或增加某段经历，请返回修改选材：之前的勾选会保留。只去掉或调整顺序时，其他段的要点、条目和确认都保留，Headline、Summary 和 Skills 也不会自动重写。"), reselect);
     box.append(node("p", "flow-muted", "逐段核对：改文字后点“保存修改”；要系统重写就写意见点“按意见重写这段”；满意就点“确认这段”。最后一段确认后自动生成简历并填写。下方“全部确认并继续”会一次确认所有段落。"));
     return box;
   }
