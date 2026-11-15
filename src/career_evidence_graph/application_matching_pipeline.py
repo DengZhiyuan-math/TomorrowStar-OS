@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 from copy import deepcopy
 from pathlib import Path
@@ -38,19 +39,30 @@ def _read_saved(path):
 
 
 def known_reading_failure(directory, saved):
-    """The saved reading phase ended in a proven size refusal, not an unknown call."""
+    """The saved read ended in a proven size refusal or missing material, not an unknown call."""
     from .application_material_packet import known_budget_failure
 
     # A resumed attempt keeps its recovered reading origin but writes its own packet.
     number = saved.get("round_number")
     origin = directory / f"material-packet-{number}"
-    return bool(
+    if (
         saved.get("phase") == "reading"
         and type(number) is int
         and number > 0
         and not origin.is_symlink()
         and known_budget_failure(origin)
-    )
+    ):
+        return True
+    # A read stopped on missing material records why before any later model call
+    # (2026-11-15, G-Research); left "needs recheck", it refused every new analysis.
+    path = directory / "retrieval-execution.json"
+    try:
+        return (
+            not path.is_symlink()
+            and json.loads(path.read_text()).get("status") == "execution_incomplete"
+        )
+    except (OSError, ValueError, AttributeError):
+        return False
 
 
 def _same_upstream_binding(saved, binding):

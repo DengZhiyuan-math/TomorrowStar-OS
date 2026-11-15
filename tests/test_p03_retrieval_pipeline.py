@@ -6,9 +6,9 @@ import pytest
 from test_application_information import answer, library_with
 from test_application_match import model_runner
 from test_canonical_career_sources import canonical as canonical
-from test_normal_retrieval_pipeline import APPLICATION, RecordedPipeline, requirement
+from test_normal_retrieval_pipeline import APPLICATION, RecordedPipeline, requirement, thin
 
-from career_evidence_graph.application_match import analyze_job
+from career_evidence_graph.application_match import Analysis, analyze_job
 from career_evidence_graph.career_experiences import ExperienceStore
 from career_evidence_graph.career_portal_data import PortalDataError
 
@@ -243,3 +243,28 @@ def test_language_facts_remain_applicable_without_experience_selection(canonical
         for row in result["requirements"]
         for source in row["sources"]
     )
+
+
+def test_incomplete_selected_read_is_a_known_failure_that_allows_a_retry(canonical, tmp_path):
+    # 2026-11-15 (G-Research): a read stopped for missing material must not leave the
+    # attempt "needs recheck" and refuse every new analysis of the same job.
+    library, _, capture, base, *_ = canonical
+    saved = capture.read_bytes()
+    capture.unlink()
+    snapshot = thin(canonical)
+    options = {"source_loader": lambda ids: library.snapshot_for_analysis(base, ids)}
+    root = tmp_path / "analyses"
+    module = Analysis(
+        root, runner=RecordedPipeline([requirement("Interdisciplinary research")]), **options
+    )
+    with pytest.raises(PortalDataError) as error:
+        module.prepare(APPLICATION, snapshot, request_id="1" * 32)
+    assert error.value.code == "retrieval_execution_incomplete"
+    reconciled = module.reconcile("1" * 32)
+    assert reconciled["status"] == "failed"
+    assert reconciled["error_code"] == "retrieval_execution_incomplete"
+    capture.write_bytes(saved)
+    retry = Analysis(
+        root, runner=RecordedPipeline([requirement("Interdisciplinary research")]), **options
+    )
+    assert retry.prepare(APPLICATION, snapshot, request_id="2" * 32)["status"] == "complete"
