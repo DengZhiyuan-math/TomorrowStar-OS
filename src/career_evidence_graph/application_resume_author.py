@@ -89,6 +89,30 @@ def _expanded_plan(original, choices, *, fixed=False, kept=None):
     return plan
 
 
+def _require_points(plan, kept=None):
+    """Each planned experience needs a job-specific point beyond the fixed writer instruction.
+
+    2026-11-15 (G-Research): after the user's selection the planner returned only the
+    delivered default, and the points review showed every experience empty.
+    """
+    from .application_writing import DEFAULT_WRITING_REQUIREMENT
+
+    empty = [
+        row["experience_id"]
+        for row in plan["assignments"]
+        if row["experience_id"] not in (kept or {})
+        and not any(
+            text.strip() and text != DEFAULT_WRITING_REQUIREMENT
+            for text in row["writing_requirements"]
+        )
+    ]
+    if empty:
+        raise ValueError(
+            "writing_requirements must give each kept experience at least one job-specific"
+            " point beyond the default instruction; missing for " + ", ".join(empty)
+        )
+
+
 def repaired_global_refs(plan):
     """Correct a global reference only when it names exactly one delivered reference.
 
@@ -209,27 +233,33 @@ def _execute_content_generation(
             reply="user_plan_feedback" in context,
             count=len(original["assignments"]),
         )
-        choices, main_writer, call = _call(
-            store, identifier, "plan", context, schema, runner, allow_calls, admit_call
-        )
-        try:
-            plan = _expanded_plan(
-                original,
-                choices,
-                fixed=bool(context.get("user_selection")),
-                kept=context.get("kept_points"),
+        # A refused plan is asked once more with the reason before the job stops.
+        for attempt in range(2):
+            choices, main_writer, call = _call(
+                store, identifier, "plan", context, schema, runner, allow_calls, admit_call
             )
-            repairs = repaired_global_refs(plan)
-            if repairs:
-                helper.atomic_write_json(call / "reference-repairs.json", {"repairs": repairs})
-                print("resume_plan_reference_repaired: " + json.dumps(repairs), flush=True)
-            generation.configure_generation(
-                store, identifier, writing_plan=plan, main_writer_id=main_writer
-            )
-            if isinstance(choices.get("user_reply"), str) and choices["user_reply"].strip():
-                generation.set_plan_reply(store, identifier, choices["user_reply"].strip())
-        except (PortalDataError, ValueError, TypeError, KeyError) as error:
-            _rejected(call, error)
+            try:
+                plan = _expanded_plan(
+                    original,
+                    choices,
+                    fixed=bool(context.get("user_selection")),
+                    kept=context.get("kept_points"),
+                )
+                _require_points(plan, context.get("kept_points"))
+                repairs = repaired_global_refs(plan)
+                if repairs:
+                    helper.atomic_write_json(call / "reference-repairs.json", {"repairs": repairs})
+                    print("resume_plan_reference_repaired: " + json.dumps(repairs), flush=True)
+                generation.configure_generation(
+                    store, identifier, writing_plan=plan, main_writer_id=main_writer
+                )
+                if isinstance(choices.get("user_reply"), str) and choices["user_reply"].strip():
+                    generation.set_plan_reply(store, identifier, choices["user_reply"].strip())
+                break
+            except (PortalDataError, ValueError, TypeError, KeyError) as error:
+                if attempt:
+                    _rejected(call, error)
+                record_rejection(call, error)
     if allow_calls and review_plan is not None:
         current = generation.generation_state(store, identifier)
         plan = current["writing_plan"]
