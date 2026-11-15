@@ -293,15 +293,23 @@ def assignment_schema(assignment):
 # 2026-11-10: a research experience came back with six long bullets; the user asked for
 # a cap of three. Writers choose the strongest points for the job and merge related ones.
 MAX_EXPERIENCE_ITEMS = 3
-# 2026-11-12 (user decision): "a 5,773-candidate comparison" and "a covered sample of
-# 129 trades" read as padding. Material says what was done and found, not how much.
 # A bullet the user edited while reviewing a high-value résumé's wording (2026-11-12).
 WORDING_EDIT_SOURCE = "user-wording-review"
-DATA_VOLUME_RULE = (
+# 2026-11-12 (user decision): "a 5,773-candidate comparison" and "a covered sample of
+# 129 trades" read as padding. Material says what was done and found, not how much.
+# 2026-11-15 (user decision, G-Research): "producing Markdown reports, CSV summaries,
+# cached inputs and figures" is filler, and "ranked companies ..., using X, Y and Z"
+# should say which tool did the ranking instead of trailing a list of names.
+PADDING_RULE = (
     "Do not state how much data or how many samples, candidates, trades, networks, models, "
     "events or items a piece of work covered (for example a 5,773-candidate comparison or "
     "a sample of 129 trades); say what was done and what it showed. A result measure such "
     "as a percentage change may stay. "
+    "Leave out output and file formats, storage and plumbing (Markdown reports, CSV "
+    "summaries, spreadsheets, JSON files, cached inputs, figures, data-source lists); they "
+    "say nothing about ability. In bullets and summary, name a method or tool in the clause "
+    "that says what it did (for example 'ranked exchanges by stress-channel exposure with a "
+    "structural causal model'), never as a trailing list of technologies after the action. "
 )
 
 
