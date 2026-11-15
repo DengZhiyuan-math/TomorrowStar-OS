@@ -356,9 +356,62 @@ def validate_framework_groups(groups, *, revision):
         raise _invalid()
 
 
-def find_saved_job_brief(application, analysis_root):
-    """Find a completed exact-job interpretation without replaying analysis or calling a model."""
+def _asked_with(directory):
+    try:
+        return tuple(
+            json.loads(_read_bounded_document(directory / name).raw)
+            for name in ("job-brief-prompt.json", "job-brief-schema.json")
+        )
+    except (OSError, ValueError, RecursionError):
+        return None
+
+
+def _interpretation_prompt(job):
+    """The JD interpretation question; equal prompts and schemas mean equal rules."""
+    return (
+        "Interpret this complete job description exactly once, using only this JD. "
+        "Do not read applicant, career library or other files; do not assess a candidate. "
+        "Explain business_object and role_understanding (business_objective, work_outputs, "
+        "methods_role). Business purpose and actual outputs take priority over keyword lists. "
+        "Preserve unknown goals or outputs when the full JD leaves them unspecified; "
+        "do not invent an industry, goal or duty from a title, employer or isolated keyword. "
+        "Cover every requirement the JD states, in its duties and in its qualifications "
+        "(education, knowledge, skills, tools, experience and personal qualities): never "
+        "drop a stated requirement because it seems minor or overlaps a duty. "
+        "Group requirements by actual business responsibility and merge only semantic "
+        "duplicates. Keep each condition as one requirement, including a condition that "
+        "can be met in alternative ways (for example a Master's or PhD, or Python or Java): "
+        "its text keeps "
+        "the alternatives and matching judges whether any is met. Split only distinct "
+        "capabilities that are each needed; each required language level is its own "
+        "requirement (German C1 and English B2 are two), so one unmet level is never "
+        "judged partial. A language level is never a hard_condition: it is a scored "
+        "requirement. Use operator all and leave alternatives null. "
+        "Copy every jd_quote literally from the full JD as one continuous passage, such as "
+        "the whole sentence or bullet; never shorten a quote or join pieces with ellipses. "
+        "Propose integer weight 1..100 and weight_reason per business group; the program "
+        "normalizes group weights to 100 and divides each group equally among its children. "
+        "Required/preferred is descriptive, with no fixed 3:1 ratio. Mark hard_condition "
+        "only for an explicit non-negotiable employment eligibility or credential condition, "
+        "such as work authorization or an awarded degree. "
+        "Ordinary duties and technical experience are not hard conditions merely because "
+        "they are listed as required. Do not invent profit, live trading, "
+        "financial performance or other eligibility gates. Do not judge applicant evidence. "
+        "Return only the schema-constrained object.\nJOB:\n" + json.dumps(job, ensure_ascii=False)
+    )
+
+
+def find_saved_job_brief(application, analysis_root, *, same_rules=False):
+    """Find a completed exact-job interpretation without replaying analysis or calling a model.
+
+    ``same_rules`` accepts only an interpretation asked with today's prompt and schema
+    (2026-11-15: a redo keeps the JD's framework unless its rules changed).
+    """
     job = _job(application)
+    rules = (
+        {"prompt": _interpretation_prompt(job)},
+        json.loads(json.dumps(_Output.model_json_schema())),
+    )
     root = Path(analysis_root).expanduser()
     try:
         if ".." in root.parts or any(part.is_symlink() for part in (root, *root.parents)):
@@ -381,6 +434,8 @@ def find_saved_job_brief(application, analysis_root):
             if isinstance(brief, dict) and (
                 brief.get("job") == job or brief.get("job_revision") == digest(job)
             ):
+                if same_rules and _asked_with(path.parent) != rules:
+                    continue
                 return validate_job_brief(brief, application), path
             attempt_path = path.parent / "attempt.json"
             if attempt_path.exists() or attempt_path.is_symlink():
@@ -483,37 +538,7 @@ def create_job_brief(
     helper.atomic_write_json(
         directory / "job-brief-input.json", {"schema_version": PROTOCOL, "job": job}
     )
-    prompt = (
-        "Interpret this complete job description exactly once, using only this JD. "
-        "Do not read applicant, career library or other files; do not assess a candidate. "
-        "Explain business_object and role_understanding (business_objective, work_outputs, "
-        "methods_role). Business purpose and actual outputs take priority over keyword lists. "
-        "Preserve unknown goals or outputs when the full JD leaves them unspecified; "
-        "do not invent an industry, goal or duty from a title, employer or isolated keyword. "
-        "Cover every requirement the JD states, in its duties and in its qualifications "
-        "(education, knowledge, skills, tools, experience and personal qualities): never "
-        "drop a stated requirement because it seems minor or overlaps a duty. "
-        "Group requirements by actual business responsibility and merge only semantic "
-        "duplicates. Keep each condition as one requirement, including a condition that "
-        "can be met in alternative ways (for example a Master's or PhD, or Python or Java): "
-        "its text keeps "
-        "the alternatives and matching judges whether any is met. Split only distinct "
-        "capabilities that are each needed; each required language level is its own "
-        "requirement (German C1 and English B2 are two), so one unmet level is never "
-        "judged partial. A language level is never a hard_condition: it is a scored "
-        "requirement. Use operator all and leave alternatives null. "
-        "Copy every jd_quote literally from the full JD as one continuous passage, such as "
-        "the whole sentence or bullet; never shorten a quote or join pieces with ellipses. "
-        "Propose integer weight 1..100 and weight_reason per business group; the program "
-        "normalizes group weights to 100 and divides each group equally among its children. "
-        "Required/preferred is descriptive, with no fixed 3:1 ratio. Mark hard_condition "
-        "only for an explicit non-negotiable employment eligibility or credential condition, "
-        "such as work authorization or an awarded degree. "
-        "Ordinary duties and technical experience are not hard conditions merely because "
-        "they are listed as required. Do not invent profit, live trading, "
-        "financial performance or other eligibility gates. Do not judge applicant evidence. "
-        "Return only the schema-constrained object.\nJOB:\n" + json.dumps(job, ensure_ascii=False)
-    )
+    prompt = _interpretation_prompt(job)
     helper.atomic_write_json(directory / "job-brief-prompt.json", {"prompt": prompt})
     config = CodexCLIConfig(
         schema_version="codex-cli-config/v1",
