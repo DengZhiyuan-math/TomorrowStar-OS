@@ -2195,8 +2195,8 @@ class Analysis:
         admit_call=None,
         fresh_job_brief=False,
     ):
-        """``fresh_job_brief``: the user redid this job, so its JD is interpreted anew
-        instead of reusing the latest saved interpretation (APP-15 explicit redo)."""
+        """``fresh_job_brief``: the user redid this job, so only an interpretation asked
+        with today's rules is reused; otherwise its JD is interpreted anew (APP-15)."""
         directory = self._directory(request_id)
         if type(matching_only) is not bool or not isinstance(recovery_candidates, (list, tuple)):
             raise PortalDataError("flow_analysis_mismatch", "分析请求选项不能核验。", 409)
@@ -2236,11 +2236,12 @@ class Analysis:
                 and requirements is None
                 and job_brief is None
                 and self.analyzer is None
-                and fresh_job_brief is not True
             ):
                 from .application_job_brief import find_saved_job_brief
 
-                saved_brief = find_saved_job_brief(application, self.root)
+                saved_brief = find_saved_job_brief(
+                    application, self.root, same_rules=fresh_job_brief is True
+                )
             control = {"denied": False}
             runner = self._admitted_runner(admit_call, control)
             try:

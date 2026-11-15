@@ -1,5 +1,6 @@
 """Analysis owns saved attempts without reads becoming execution effects."""
 
+import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
@@ -158,7 +159,30 @@ def test_same_jd_can_reuse_its_saved_brief_for_a_different_application(canonical
     )
 
 
-def test_redone_job_interprets_its_jd_anew_instead_of_reusing_the_saved_brief(canonical, tmp_path):
+def test_redone_job_keeps_its_jd_interpretation_while_the_rules_are_unchanged(canonical, tmp_path):
+    # 2026-11-15 (G-Research): four interpretations of one JD under identical rules
+    # gave four requirement splits, moving the score across the 75 and 80 lines.
+    library, _, _, base, *_ = canonical
+    snapshot = thin(canonical)
+    first = RecordedPipeline([requirement("Interdisciplinary research")])
+    root = tmp_path / "analyses"
+    analysis = Analysis(
+        root, runner=first, source_loader=lambda ids: library.snapshot_for_analysis(base, ids)
+    )
+    original = analysis.prepare(APPLICATION, snapshot, request_id="1" * 32)
+    second = RecordedPipeline(first.requirements)
+    analysis = Analysis(
+        root, runner=second, source_loader=lambda ids: library.snapshot_for_analysis(base, ids)
+    )
+    later = analysis.prepare(APPLICATION, snapshot, request_id="2" * 32, fresh_job_brief=True)
+    assert second.brief_calls == []
+    assert (
+        analysis.read(later["result_ref"])["job_brief"]["revision"]
+        == analysis.read(original["result_ref"])["job_brief"]["revision"]
+    )
+
+
+def test_redone_job_interprets_its_jd_anew_after_the_rules_changed(canonical, tmp_path):
     # 2026-11-04: an explicit redo after a prompt fix reused the old, incomplete brief.
     library, _, _, base, *_ = canonical
     snapshot = thin(canonical)
@@ -168,6 +192,8 @@ def test_redone_job_interprets_its_jd_anew_instead_of_reusing_the_saved_brief(ca
         root, runner=first, source_loader=lambda ids: library.snapshot_for_analysis(base, ids)
     )
     analysis.prepare(APPLICATION, snapshot, request_id="1" * 32)
+    saved = root / ("1" * 32) / "job-brief" / "job-brief-prompt.json"
+    saved.write_text(json.dumps({"prompt": "An earlier interpretation prompt."}))
     second = RecordedPipeline(first.requirements)
     analysis = Analysis(
         root, runner=second, source_loader=lambda ids: library.snapshot_for_analysis(base, ids)
