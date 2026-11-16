@@ -947,3 +947,72 @@ def test_a_plan_without_job_specific_points_is_asked_again(json_flow):
         "Lead with the job-relevant method." in row["writing_requirements"]
         for row in final["assignments"]
     )
+
+
+def test_a_replan_after_the_user_drops_an_experience_does_not_show_its_old_global_content(
+    json_flow,
+):
+    """2026-11-16 (Roche): the user dropped Prism Local; the planner still saw the old plan
+    with it and copied the old summary's reference to it, so every retry was refused."""
+    from career_evidence_graph import application_experience_latex as generation
+
+    case = json_flow
+    task = start_json_writing(case)
+    identifier = task["experience_handoff"]["id"]
+    calls = []
+
+    def citing(request):
+        output = author_output(request)
+        if request["role"] == "plan" and not request["context"].get("user_selection"):
+            rows = request["context"]["content_plan"]["assignments"]
+            output["summary"] = [
+                {
+                    "id": "summary-old",
+                    "text": "Old summary line.",
+                    "fact_refs": [rows[0]["allowed_fact_refs"][0], rows[1]["allowed_fact_refs"][0]],
+                    "inference_refs": [],
+                    "links": [],
+                    "origin": "ai",
+                    "protected": False,
+                    "edit_source": None,
+                }
+            ]
+        return output
+
+    def runner(config, prompt, **kwargs):
+        request = json.loads(prompt.split("\n", 1)[1])
+        calls.append(request)
+        return response(citing(request))
+
+    def run():
+        return execute_content_generation(
+            case.store, identifier, runner=runner, review_plan=lambda plan: False
+        )
+
+    with pytest.raises(PortalDataError):
+        run()
+    state = generation.generation_state(case.store, identifier)
+    first, dropped = [row["candidate_id"] for row in state["writing_plan"]["assignments"]][:2]
+    assert any(
+        ref.startswith(dropped + "::")
+        for item in state["writing_plan"]["summary"]
+        for ref in item["fact_refs"]
+    )
+    overview = generation.plan_review(case.store, identifier)["overview"]
+    evidence = {str(row["index"]): row["evidence"] for row in overview["requirements"]}
+    # Changed evidence plans again, as when Roche's user swapped one experience for another.
+    evidence["0"] = [] if evidence["0"] else [first]
+    generation.select_experiences(case.store, identifier, evidence, [first])
+    calls.clear()
+    with pytest.raises(PortalDataError):
+        run()
+    shown = next(request for request in calls if request["role"] == "plan")["context"][
+        "writing_plan"
+    ]
+    assert [row["candidate_id"] for row in shown["assignments"]] == [first]
+    assert all(
+        not ref.startswith(dropped + "::")
+        for key in ("summary", "skills")
+        for item in shown[key]
+        for ref in item["fact_refs"]
+    )

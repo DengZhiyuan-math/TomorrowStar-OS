@@ -18,6 +18,38 @@ def _failure(code, message):
     return PortalDataError(code, message, 409)
 
 
+def _selected_view(context):
+    """The previous plan as the planner may reuse it: only the user's chosen experiences.
+
+    2026-11-16 (Roche): the user swapped Prism Local for GSD Core; the planner saw the old
+    plan with Prism Local and copied its headline/summary references, and every retry
+    was refused. Global lines citing an unchosen experience are left out.
+    """
+    chosen = set((context.get("user_selection") or {}).get("experiences") or [])
+    plan = context.get("writing_plan")
+    if not chosen or not isinstance(plan, dict):
+        return context
+
+    def owned(item):
+        return all(
+            ref.split("::", 1)[0] in chosen
+            for ref in [*item.get("fact_refs", []), *item.get("inference_refs", [])]
+        )
+
+    view = plan | {
+        "assignments": [
+            row for row in plan.get("assignments", []) if row["candidate_id"] in chosen
+        ],
+        **{
+            key: [item for item in plan.get(key) or [] if owned(item)]
+            for key in ("summary", "skills")
+        },
+    }
+    if isinstance(plan.get("headline"), dict) and not owned(plan["headline"]):
+        view["headline"] = None
+    return context | {"writing_plan": view}
+
+
 def _call(store, identifier, role, context, schema, runner, allow_calls, admit_call):
     """One résumé author call; see ``material_author.author_call``."""
     return author_call(
@@ -236,7 +268,14 @@ def _execute_content_generation(
         # A refused plan is asked once more with the reason before the job stops.
         for attempt in range(2):
             choices, main_writer, call = _call(
-                store, identifier, "plan", context, schema, runner, allow_calls, admit_call
+                store,
+                identifier,
+                "plan",
+                _selected_view(context),
+                schema,
+                runner,
+                allow_calls,
+                admit_call,
             )
             try:
                 plan = _expanded_plan(
