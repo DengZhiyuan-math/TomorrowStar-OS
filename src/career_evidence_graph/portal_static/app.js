@@ -406,6 +406,9 @@ function renderWorkflow() {
   if (progress && merged && progress.parentElement !== card) card.append(progress);
   if (progress && !merged && progress.parentElement === card) document.querySelector("#flow-root .flow-work")?.prepend(progress);
   card.classList.toggle("has-progress", Boolean(progress && merged));
+  const pipelineActions = $("flow-pipeline-actions"), cardActions = card.querySelector(".workflow-focus-actions");
+  if (pipelineActions && merged && pipelineActions.parentElement !== cardActions) cardActions.prepend(pipelineActions);
+  if (pipelineActions && !merged && pipelineActions.parentElement === cardActions) $("flow-automation")?.append(pipelineActions);
   $("workflow-primary").hidden = merged;
   $("workflow-state").textContent = label;
   $("workflow-title").textContent = title;

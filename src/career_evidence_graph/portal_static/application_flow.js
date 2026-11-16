@@ -88,7 +88,7 @@
     const prismFinishing = flow?.active_task?.prism_edit?.status === "finishing" || !!flow?.active_task?.prism_edit?.opening;
     const manualStages = new Set(["flow-start-analysis", "flow-start-resume", "flow-start-filling", "flow-prepare-worker", "flow-worker-resume", "flow-sync-inputs", "flow-cancel"]);
     for (const element of [...root.querySelectorAll("[data-flow-write]"), ...(today?.querySelectorAll("[data-flow-write]") || [])]) {
-      const automationControl = element.closest("#flow-automation, #today-applications");
+      const automationControl = element.closest("#flow-automation, #today-applications, #flow-pipeline-actions");
       const requiresPaused = element.dataset.flowRequiresPaused === "true";
       const unsavedSource = element.id === "flow-pipeline-start" && (prismEditing || automaticSourceDrafts.has(pipeline?.active_task_id) || [...materialTextDrafts.values()].some(draft => draft.task_id === pipeline?.active_task_id));
       const opportunityControl = element.closest("#flow-opportunities, #flow-intake-settings, #flow-batch-selection, #flow-job-management");
@@ -368,7 +368,8 @@
     if (!running && fetching && recommended?.source_error_code) status.append(node("span", "flow-ticker-detail", `原因：${sourceErrors[recommended.source_error_code] || recommended.source_error_code}`));
     automation.append(status);
     automation.append(node("p", "flow-muted", "开启后，系统持续收录推荐邮件，并按顺序处理当前岗位的 JD、匹配、完整材料、填写和上传。等待你处理信息或最终确认时，仍可收录新邮件；最终 Submit 由你操作。"));
-    const actions = node("div", "flow-actions");
+    document.getElementById("flow-pipeline-actions")?.remove();
+    const actions = node("div", "flow-actions"); actions.id = "flow-pipeline-actions";
     // A flow saved before the queue (no queue_mode) resumes through start.
     const reviewingPlan = !running && pipeline?.wait_reason === "resume_plan_review";
     const reviewingWording = !running && pipeline?.wait_reason === "resume_wording_review";
@@ -396,7 +397,9 @@
     }
     if (reviewingPlan && pipeline.plan_review) automation.append(planReview(pipeline.plan_review));
     if (reviewingWording && pipeline.wording_review) automation.append(wordingReview(pipeline.wording_review));
-    automation.append(actions);
+    // 2026-11-16 (user): the buttons sit in the current application card when it leads this page.
+    const cardActions = root.querySelector("#workflow-focus .workflow-focus-actions");
+    if (cardActions) cardActions.prepend(actions); else automation.append(actions);
     if (pipeline?.wait_reason === "codex_resume_required") automation.append(node("p", "flow-muted", "当前岗位等待 Codex 完成分经历写作、程序组装和单一终审；完成后自动继续，其他岗位保持等待。"));
     if (pipeline?.wait_reason === "precision_adjustment") automation.append(node("p", "flow-muted", "此岗位已完成分析、完整简历与已发现的必要附稿。你可以先调整材料，再点击“继续当前岗位”使用当前版本填写。"));
     // 2026-11-16 (user): the selection, points and wording reviews carry no hint text.
