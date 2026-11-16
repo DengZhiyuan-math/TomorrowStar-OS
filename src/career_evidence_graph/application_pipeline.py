@@ -8,6 +8,7 @@ import os
 import re
 import threading
 import time
+import traceback
 from contextlib import contextmanager
 from contextvars import ContextVar
 from copy import deepcopy
@@ -2902,13 +2903,28 @@ class ApplicationPipeline:
         while not self._closed.wait(interval):
             try:
                 self._tick()
-            except Exception:
+            except Exception as error:
+                # 2026-11-16 (Zurich): closing the App ends a running step; the reopened
+                # App resumes it, so this is not a failure to record.
+                if self._closed.is_set():
+                    return
                 self._runtime_error = "pipeline_checkpoint_unavailable"
                 self._closed.set()
+                frames = traceback.extract_tb(error.__traceback__)
                 try:
                     with self._guard:
                         state = self._load()
                         self._pause_owned_worker(state)
+                        # The stop names the unexpected error and where it was raised.
+                        state["last_stop_error"] = {
+                            "code": type(error).__name__,
+                            "location": " < ".join(
+                                f"{Path(frame.filename).name}:{frame.lineno}"
+                                for frame in reversed(frames[-4:])
+                            ),
+                            "detail": str(error)[:300],
+                            "at": time.time(),
+                        }
                         self._stop(state, "needs_recheck", "自动流程记录未能核验，已停止自动动作。")
                 except Exception:
                     pass
@@ -3587,6 +3603,16 @@ class ApplicationPipeline:
                 )
                 return
             self._save(state)
+        elif (
+            outcome is not None
+            and outcome["status"] == "rejected"
+            and outcome["error_code"] == "flow_interrupted"
+            and item.get("interrupted_retry") != outcome["attempt_id"]
+        ):
+            # 2026-11-16 (Zurich): an App restart ended the analysis; it runs again once.
+            item["interrupted_retry"] = outcome["attempt_id"]
+            state["active_task_id"] = task["id"]
+            self._retry_analysis(state, uuid4().hex)
         elif outcome is not None and outcome["status"] == "rejected":
             item.update(
                 reason=outcome["error_code"],

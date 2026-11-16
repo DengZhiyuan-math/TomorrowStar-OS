@@ -435,3 +435,30 @@ def test_an_analysis_ended_by_a_library_edit_is_analyzed_again_by_itself(tmp_pat
         pipeline.close()
         flow.close()
         intake.close()
+
+
+def test_an_analysis_ended_by_an_app_restart_runs_again_by_itself(tmp_path, monkeypatch):
+    from career_evidence_graph import application_pipeline
+
+    # 2026-11-16 (Zurich): an App restart ended the JD reading; the queue stopped on it.
+    monkeypatch.setattr(application_pipeline, "MODEL_RESEND_WAIT", 3600)
+    pipeline, flow, intake, analysis_calls = _answerless_queue(tmp_path)
+    flow.analysis = None
+
+    def interrupted_then_timeout(task):
+        analysis_calls.append(task["id"])
+        if len(analysis_calls) == 1:
+            raise PortalDataError("flow_interrupted", "Synthetic App restart", 409)
+        raise PortalDataError("match_model_timeout", "Synthetic model timeout", 503)
+
+    flow.callbacks["analysis"] = interrupted_then_timeout
+    try:
+        pipeline.start(request_id="interrupted")
+        state = _until(pipeline, lambda s: s["control"] == "paused")
+        assert len(analysis_calls) == 2
+        assert state["status"] == "needs_input"
+        assert "last_stop_error" not in state
+    finally:
+        pipeline.close()
+        flow.close()
+        intake.close()

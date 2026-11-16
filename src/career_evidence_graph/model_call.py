@@ -183,7 +183,7 @@ def failure_reason(directory: Path) -> str | None:
                 continue
             try:
                 receipt = helper.read_json_object(prompt.parent / files.result, "model call")
-            except (OSError, ValueError):
+            except (OSError, ValueError, helper.StoreError):
                 continue
             text = str(receipt.get("raw_stdout_jsonl") or "")
             messages = []
