@@ -2,6 +2,8 @@
 
 from copy import deepcopy
 
+import pytest
+
 from career_evidence_graph.application_resume_content import validate_fragment
 
 
@@ -229,6 +231,22 @@ def test_content_ids_are_unique_across_program_and_authored_blocks():
     # The experience writer's item is scoped; the global writer keeps its name.
     assert content["summary"][0]["id"] == "item-demo-1"
     assert content["experiences"][0]["items"][0]["id"] == "experience-demo-1-item-demo-1"
+
+
+def test_global_content_citing_an_unplanned_experience_says_so():
+    """2026-11-16 (Roche): after the user dropped an experience, the planner kept the old
+    headline's reference to it; "does not belong to the delivered snapshot" did not say
+    why, and the retry repeated it."""
+    from career_evidence_graph.application_resume_content import assemble_content
+
+    planned = plan()
+    item = deepcopy(fragment()["items"][0])
+    item["fact_refs"] = ["fact-demo-1", "dropped-demo::fact-9"]
+    planned["summary"] = [item]
+    with pytest.raises(ValueError) as error:
+        assemble_content(planned, [fragment()])
+    assert "dropped-demo::fact-9" in str(error.value)
+    assert "experiences in this plan's assignments" in str(error.value)
 
 
 def patch_for(content, **change):
