@@ -399,6 +399,14 @@ function renderWorkflow() {
   const flowHeading = document.querySelector("#flow-root > .page-heading");
   if (automatic && flowHeading && flowHeading.nextElementSibling !== card) flowHeading.after(card);
   if (!automatic && card.parentElement !== $("view-overview")) $("today-applications").before(card);
+  // 2026-11-16 (user): the card and 当前进度 showed the same job; on the 自动申请 page
+  // the card holds that job's details, and its link to this same page is hidden.
+  const progress = $("flow-task");
+  const merged = automatic && card.parentElement === $("flow-root");
+  if (progress && merged && progress.parentElement !== card) card.append(progress);
+  if (progress && !merged && progress.parentElement === card) document.querySelector("#flow-root .flow-work")?.prepend(progress);
+  card.classList.toggle("has-progress", Boolean(progress && merged));
+  $("workflow-primary").hidden = merged;
   $("workflow-state").textContent = label;
   $("workflow-title").textContent = title;
   $("workflow-description").textContent = description;
