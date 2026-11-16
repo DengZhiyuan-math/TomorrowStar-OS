@@ -2264,6 +2264,14 @@ def _file_sha256(path):
     return value
 
 
+def _canonical_job_url(value):
+    """A saved job link in the canonical form the target check uses, or None."""
+    try:
+        return _job_identity(value, allow_generic=True)[1]
+    except (PortalDataError, ValueError):
+        return None
+
+
 class WorkerStore:
     """One state document, the upstream answer store, and the original note writer."""
 
@@ -7748,7 +7756,9 @@ class WorkerService:
                 and country in COUNTRIES
                 and valid_send_approval(task, self.store.single_flow_root, require_active=True)
                 and approval.get("country") == country
-                and approval.get("job_url") == target["job_url"]
+                # The approval keeps the saved link; the target its canonical form, e.g.
+                # without Greenhouse's ?gh_src= (2026-11-16, Xebia).
+                and _canonical_job_url(approval.get("job_url")) == target["job_url"]
                 and all(
                     approval.get(key) == task[key]
                     for key in ("resume_id", "resume_sha256", "analysis_id", "inputs")

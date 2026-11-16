@@ -11,8 +11,10 @@ from career_evidence_graph.career_portal import create_server
 from career_evidence_graph.career_portal_data import PortalDataError
 
 
-def prepared_inputs(tmp_path, *, job_description="Build Python services."):
-    applications, root, career, _, _ = make_bound_single(tmp_path, job_description=job_description)
+def prepared_inputs(tmp_path, *, job_description="Build Python services.", **binding):
+    applications, root, career, _, _ = make_bound_single(
+        tmp_path, job_description=job_description, **binding
+    )
     subprocess.run(["git", "init", "--quiet", str(career)], check=True)
     path = root / "flow.json"
     state = json.loads(path.read_text())

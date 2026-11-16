@@ -148,3 +148,25 @@ def test_new_duplicate_between_scan_and_write_stops_before_saving_preparation(
         assert len(duplicates) == 1
         assert (flow.path.read_bytes(), worker.store.path.read_bytes()) == before
         assert worker.process is None
+
+
+def test_a_job_link_with_tracking_parameters_still_passes_the_prepare_check(tmp_path):
+    # 2026-11-16 (Xebia): the approval kept the saved Greenhouse link with ?gh_src=…,
+    # the target its canonical form, and every prepare stopped as
+    # installed_write_preflight_required.
+    applications, root, career, task = prepared_inputs(
+        tmp_path,
+        job_url="https://jobs.lever.co/synthetic/00000000-0000-0000-0000-000000000001?lever-source=alert",
+    )
+    with create_server(
+        applications.root,
+        career,
+        flow_root=root,
+        worker_root=tmp_path / "worker",
+        worker_live=True,
+        package_resources=tmp_path / "missing-installed-package",
+    ) as server:
+        prepared = server.application_flow_service.prepare_worker(
+            task["id"], task["revision"], "CHE", True
+        )
+        assert prepared["status"] == "queued"
