@@ -960,6 +960,8 @@
   function renderFinalPdf(task) {
     const exported = adopted("export"), resumed = adopted("resume");
     const pdf = exported || (resumed?.kind !== "draft" ? resumed : null);
+    // 2026-11-16 (user): before résumé generation starts there is no PDF section.
+    if (!pdf && !resumed && !task.draft_id && !["resume_generating", "exporting"].includes(task.status)) return;
     const panel = node("section", "flow-stage flow-final-pdf"); panel.id = "flow-final-pdf";
     const factualPending = task.origin === "existing_latex" && !retainedMaterialAccepted(task);
     const path = pdf?.preview_url;
@@ -1224,7 +1226,8 @@
     if ((flow?.mode === "preparation" || task.automatic_materials) && pdf) renderMaterials(pdf, task);
     if (resume || task.worker_ref) renderWorker(task);
     for (const [stage, value] of Object.entries(task.stages || {})) {
-      if (value.status === "failed") {
+      // A plan or wording review is a wait for the user, not a failure.
+      if (value.status === "failed" && !["resume_plan_review_required", "resume_wording_review_required"].includes(value.error_code)) {
         const error = pdfEnvironmentErrors[value.error_code] || value.error_message || { resume_material_insufficient: "材料不足，请补齐可核验来源并重新分析。", resume_latex_context_too_large: "本次取材超出处理范围，尚未启动模型。原资料已保留；请先核对并调整本次取材范围。", flow_latex_base_changed: "完整 LaTeX 底稿已变化。核对后重新绑定当前底稿，再生成独立版本；原记录保留。", flow_draft_mismatch: "生成结果与当前岗位、底稿或资料版本不符，请保留原记录并核验。", resume_export_failed: "PDF 导出未完成，可仅重试导出。", flow_export_not_started: "上次 PDF 导出尚未开始，可明确仅重试导出。", flow_cancelled: "任务已取消，导出保持停止。" }[flow?.mode === "preparation" ? value.error_code : ""] || value.error_code || "请核对资料后重试。";
         current.append(node("p", "flow-error", `${stage === "analysis" ? "岗位分析" : stage === "export" ? "PDF 导出" : stage === "letter" ? "求职信写作" : stage === "letter_export" ? "求职信 PDF" : "简历生成"}失败：${error}`));
       }
