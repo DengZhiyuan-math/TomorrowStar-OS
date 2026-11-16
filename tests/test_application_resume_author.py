@@ -51,7 +51,10 @@ def author_output(request):
             "assignments": [
                 {
                     "experience_id": row["experience_id"],
-                    "writing_requirements": row["writing_requirements"],
+                    "writing_requirements": [
+                        *row["writing_requirements"],
+                        "Lead with the job-relevant method.",
+                    ],
                 }
                 for row in plan["assignments"]
             ],
@@ -911,3 +914,36 @@ def test_removing_an_experience_during_wording_review_keeps_the_other_work(json_
     assert run()["kind"] == "draft"
     # No planner or writer ran again; only the final review.
     assert [role for role in calls[len(before) :] if role != "review"] == []
+
+
+def test_a_plan_without_job_specific_points_is_asked_again(json_flow):
+    """2026-11-15 (G-Research): after the user's selection the planner returned only the
+    fixed writer instruction, and the points review showed every experience empty."""
+    from career_evidence_graph import application_experience_latex as generation
+
+    case = json_flow
+    task = start_json_writing(case)
+    identifier = task["experience_handoff"]["id"]
+    calls = []
+
+    def echoing(request):
+        output = author_output(request)
+        if request["role"] == "plan" and request["previous_validation"] is None:
+            for row in output["assignments"]:
+                row["writing_requirements"] = row["writing_requirements"][:1]
+        return output
+
+    def runner(config, prompt, **kwargs):
+        request = json.loads(prompt.split("\n", 1)[1])
+        calls.append(request)
+        return response(echoing(request))
+
+    assert execute_content_generation(case.store, identifier, runner=runner)["kind"] == "draft"
+    plans = [request for request in calls if request["role"] == "plan"]
+    assert len(plans) == 2
+    assert "job-specific point" in plans[1]["previous_validation"]["reason"]
+    final = generation.generation_state(case.store, identifier)["writing_plan"]
+    assert all(
+        "Lead with the job-relevant method." in row["writing_requirements"]
+        for row in final["assignments"]
+    )

@@ -336,7 +336,8 @@ def test_a_cancelled_job_can_be_redone_in_the_same_batch(single_worker):
     state = service.store.load()
     batch, old_file = state["batch_id"], state["jobs"][0]["file_path"]
     state["jobs"][0]["status"] = "cancelled"
-    state["current_job_id"] = None
+    # 2026-11-16 (G-Research): a real cancel leaves the job current; its redo still replaces it.
+    assert state["current_job_id"] == item["application_id"]
     service.store.save(state)
     again, _ = pipeline_job(service, item, policy=policy)
     service.request("prepare", {"workflow": "single", "send_confirmed": True, "jobs": [again]})

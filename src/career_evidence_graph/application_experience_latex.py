@@ -503,7 +503,11 @@ def generation_context(store, identifier):
             + " Research or Data Science), grounded in delivered fact_refs or inference_refs."
             + " It describes the application's career focus, never an invented current job title,"
             + " credential, seniority or proficiency. Do not default to AI/ML for unrelated jobs."
-            + " Keep protected human headline wording or its retained omission. "
+            + " Keep protected human headline wording or its retained omission."
+            # 2026-11-15 (G-Research): the planner echoed the delivered default as points.
+            + " writing_requirements are each kept experience's points for this job: which of"
+            + " its delivered facts its entry should lead with and emphasize, and how. Write at"
+            + " least one; the delivered default instruction alone is not a point. "
             + PADDING_RULE
             + "This applies to summary, skills and writing_requirements."
             + " When headline_required is false, omit headline; the old template has no slot."
