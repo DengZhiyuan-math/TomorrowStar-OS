@@ -542,6 +542,13 @@ def assemble_content(plan, fragments, retained=None) -> dict:
     for item in global_items:
         if item.origin != "ai" or item.protected or item.edit_source is not None:
             raise ValueError("global writer cannot set human provenance or protection")
+        # 2026-11-16 (Roche): the reason reaches the retry, so name the actual rule.
+        if unplanned := [ref for ref in item.fact_refs if ref not in set(all_fact_refs)]:
+            raise ValueError(
+                "headline, summary and skills may cite only facts of the experiences in"
+                " this plan's assignments; rewrite or drop the item with the reference "
+                + ", ".join(unplanned[:10])
+            )
         _references(item.fact_refs, all_fact_refs)
         _references(item.inference_refs, all_inference_refs)
     # Writers name items independently; the program scopes a name two writers chose.
