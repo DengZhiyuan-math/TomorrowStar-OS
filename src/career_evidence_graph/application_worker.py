@@ -8006,7 +8006,8 @@ class WorkerService:
         """Let a job redone in this batch replace its cancelled record (2026-11-05).
 
         Only a cancelled record with no page, action, handoff or submission left is
-        retired; it keeps its history under ``retired_jobs`` and its attachment.
+        retired; it keeps its history under ``retired_jobs`` and its attachment. A cancel
+        leaves the job current, so being current does not keep it (2026-11-16, G-Research).
         """
         retired = [old for old in state["jobs"] if old["application_id"] in identifiers]
         if not retired or any(
@@ -8015,7 +8016,6 @@ class WorkerService:
             or old.get("intent")
             or old.get("handed_off")
             or old.get("manual_submission")
-            or state.get("current_job_id") == old["application_id"]
             for old in retired
         ):
             return
