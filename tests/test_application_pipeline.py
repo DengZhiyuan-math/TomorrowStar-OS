@@ -1144,3 +1144,32 @@ def test_a_job_country_falls_back_to_the_pages_structured_country(record, countr
     from career_evidence_graph.job_screening import job_country
 
     assert job_country(record) == country
+
+
+@pytest.mark.parametrize(
+    "stage",
+    [
+        {"status": "failed", "error_code": "flow_interrupted", "attempt_id": "a1"},
+        {
+            "status": "needs_recheck",
+            "error_code": "resume_author_needs_recheck",
+            "attempt_id": "a1",
+        },
+    ],
+)
+def test_continue_reruns_resume_writing_stopped_by_a_restart(environment, stage):
+    # 2026-11-16 (Roche): an App restart during résumé writing left the stage
+    # flow_interrupted, and Continue stayed on material_result_unknown.
+    pipeline, flow, _, _, jobs = environment
+    task = flow.tasks.setdefault(jobs[0]["id"], {"id": "task-1", "revision": "r", "stages": {}})
+    task["stages"]["resume"] = dict(stage)
+    flow.task_snapshot = lambda identifier: deepcopy(task)
+    started = []
+
+    def start(identifier, revision, name, **options):
+        started.append((name, options.get("retry")))
+        return deepcopy(task)
+
+    flow.start = start
+    assert pipeline._retry_unknown_writing({"active_task_id": "task-1"}, "request-1")
+    assert started == [("resume", True)]

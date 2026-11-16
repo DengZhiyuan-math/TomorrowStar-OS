@@ -165,7 +165,9 @@ def test_default_overview_uses_automatic_pipeline_guidance(portal, browser_page,
     page.goto(portal.origin + "/" + fragment)
     expect(page.locator("#workflow-state")).to_have_text("正在生成并检查完整岗位材料")
     expect(page.locator("#workflow-title")).to_have_text("Current · Engineer")
-    expect(page.locator("#workflow-primary")).to_have_attribute("href", "#flow")
+    # 2026-11-16 (user): the card holds 当前进度 on the 自动申请 page, so its link to that
+    # same page is hidden.
+    expect(page.locator("#workflow-primary")).to_be_hidden()
     expect(page.locator('[aria-label="申请主流程"]')).not_to_contain_text("Codex 领取")
     expect(page.locator('[aria-label="申请主流程"]')).to_contain_text("自动生成简历")
     expect(page.locator('[data-view="flow"]')).to_contain_text("自动申请")
@@ -177,8 +179,8 @@ def test_default_overview_uses_automatic_pipeline_guidance(portal, browser_page,
     expect(page.locator("#view-flow #workflow-focus")).to_have_count(1)
     page.locator('[data-view="flow"]').click()
     expect(page.locator("#workflow-focus")).to_be_visible()
-    page.locator("#workflow-primary").click()
     expect(page.locator("#view-flow")).to_be_visible()
+    expect(page.locator("#workflow-focus #flow-task")).to_have_count(1)
     expect(page.locator("#flow-automation")).to_contain_text("正在生成并检查完整岗位材料")
     expect(page.locator("#flow-automation")).to_contain_text("当前岗位")
 

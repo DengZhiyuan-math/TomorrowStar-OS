@@ -2558,7 +2558,8 @@ class ApplicationPipeline:
             and resume.get("error_code") == "resume_author_needs_recheck"
         ) or (
             resume.get("status") == "failed"
-            and resume.get("error_code") == "resume_latex_invalid"
+            # 2026-11-16 (Roche): an App restart during writing leaves flow_interrupted.
+            and resume.get("error_code") in {"resume_latex_invalid", "flow_interrupted"}
             and (task.get("experience_handoff") or {}).get("status") != "adopted"
         ):
             retried = True

@@ -637,15 +637,22 @@ def review(
         updated["writing_plan"]["revision"] = digest(
             {key: value for key, value in updated["writing_plan"].items() if key != "revision"}
         )
+        # Only the patched text and links go back; the writer's item keeps its own
+        # provenance. 2026-11-16 (Roche): copying whole assembled items carried the user's
+        # confirmation (protected) into the fragments, and reassembly refused them.
+        changed = {change["item_id"] for change in content_patch["changes"]}
         for experience in patched["experiences"]:
             fragment = updated["fragments"][experience["id"]]
-            patch_items = {
-                item["id"]: item for item in experience["items"] if item["origin"] == "ai"
-            }
-            fragment["content_fragment"]["items"] = [
-                deepcopy(patch_items.get(item["id"], item))
-                for item in fragment["content_fragment"]["items"]
-            ]
+            patch_items = {item["id"]: item for item in experience["items"]}
+            rows = []
+            for item in fragment["content_fragment"]["items"]:
+                new = patch_items.get(item["id"]) or patch_items.get(
+                    f"{experience['id']}-{item['id']}"
+                )
+                if new is not None and new["id"] in changed:
+                    item = item | {"text": new["text"], "links": new["links"]}
+                rows.append(deepcopy(item))
+            fragment["content_fragment"]["items"] = rows
             fragment["revision"] = digest(
                 {key: value for key, value in fragment.items() if key != "revision"}
             )

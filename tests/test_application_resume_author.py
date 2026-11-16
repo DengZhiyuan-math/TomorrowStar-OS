@@ -1016,3 +1016,70 @@ def test_a_replan_after_the_user_drops_an_experience_does_not_show_its_old_globa
         for item in shown[key]
         for ref in item["fact_refs"]
     )
+
+
+def test_a_review_patch_after_confirmed_wording_keeps_the_confirmed_bullets(json_flow):
+    """2026-11-16 (Roche): after every bullet was confirmed, the final review patched a
+    skill line; writing the patch back copied the confirmed (protected) bullets into the
+    writer fragments, and reassembly refused them as writer-set protection."""
+    from career_evidence_graph import application_experience_latex as generation
+    from career_evidence_graph.application_experience_content import output as content_output
+
+    case = json_flow
+    task = start_json_writing(case)
+    identifier = task["experience_handoff"]["id"]
+    patched = []
+
+    def runner(config, prompt, **kwargs):
+        request = json.loads(prompt.split("\n", 1)[1])
+        output = author_output(request)
+        if request["role"] == "plan":
+            first = request["context"]["content_plan"]["assignments"][0]
+            output["summary"] = [
+                {
+                    "id": "s1",
+                    "text": "Synthetic focus.",
+                    "fact_refs": first["allowed_fact_refs"][:1],
+                }
+            ]
+        if request["role"] == "review" and not patched:
+            content = request["context"]["resume_content"]
+            patched.append(True)
+            output["passed"] = True
+            output["content_patch"] = {
+                "schema_version": "resume-content-patch/v1",
+                "base_revision": content["revision"],
+                "changes": [
+                    {
+                        "item_id": "s1",
+                        "field": "text",
+                        "expected": "Synthetic focus.",
+                        "value": "Synthetic, sharper focus.",
+                    }
+                ],
+            }
+        return response(output)
+
+    def run():
+        return execute_content_generation(
+            case.store,
+            identifier,
+            runner=runner,
+            review_plan=lambda plan: plan is not None,
+            review_wording=lambda: True,
+        )
+
+    with pytest.raises(PortalDataError):
+        run()
+    shown = generation.plan_review(case.store, identifier)["overview"]
+    evidence = {str(row["index"]): row["evidence"] for row in shown["requirements"]}
+    generation.select_experiences(case.store, identifier, evidence, shown["selected"])
+    with pytest.raises(PortalDataError) as waiting:
+        run()
+    assert waiting.value.code == "resume_wording_review_required"
+    generation.approve_wording(case.store, identifier)
+    assert run()["kind"] == "draft"
+    assert patched
+    content = content_output(generation._load(case.store, identifier)[1])["resume_content"]
+    assert content["summary"][0]["text"] == "Synthetic, sharper focus."
+    assert all(item["protected"] for row in content["experiences"] for item in row["items"])

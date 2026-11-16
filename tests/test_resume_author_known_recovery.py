@@ -16,7 +16,10 @@ from career_evidence_graph.application_resume_author import execute_content_gene
 from career_evidence_graph.career_portal_data import PortalDataError
 
 
-def test_known_bad_second_author_retries_only_rejected_fragment(json_flow):
+# 2026-11-16 (Roche): an App restart during writing leaves flow_interrupted; the retry
+# resumes the same unadopted handoff.
+@pytest.mark.parametrize("stopped", ["resume_author_failed", "flow_interrupted"])
+def test_known_bad_second_author_retries_only_rejected_fragment(json_flow, stopped):
     case = json_flow
     task = start_json_writing(case)
     identifier = task["experience_handoff"]["id"]
@@ -46,7 +49,7 @@ def test_known_bad_second_author_retries_only_rejected_fragment(json_flow):
         state = case.flow._load()
         current = case.flow._task(state, task["id"])
         current["status"] = "failed"
-        current["stages"]["resume"].update(status="failed", error_code="resume_author_failed")
+        current["stages"]["resume"].update(status="failed", error_code=stopped)
         case.flow._save(state)
     case.flow.callbacks["resume"] = lambda request: execute_content_generation(
         case.store, identifier, runner=runner

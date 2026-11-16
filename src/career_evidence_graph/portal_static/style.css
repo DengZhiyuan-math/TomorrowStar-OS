@@ -78,6 +78,9 @@
 .workflow-focus-copy > p { max-width:640px; color:#69776b; font-size:13px; line-height:1.85; margin-top:10px; }
 .workflow-focus-actions { display:flex; align-items:center; gap:22px; flex-wrap:wrap; margin-top:24px; }
 .workflow-focus-actions .button { min-height:42px; padding:11px 18px; font-size:12px; }
+/* 2026-11-16 (user): on the 自动申请 page the card holds 当前进度; the card already names the job and its state. */
+.workflow-focus > #flow-task { border:0; border-top:1px solid #e3e9e1; border-radius:0; box-shadow:none; margin:0; padding:24px 30px 30px; background:transparent; }
+.workflow-focus > #flow-task > h2, .workflow-focus > #flow-task > .flow-job-title, .workflow-focus > #flow-task > .flow-job-title + .flow-badges { display:none; }
 .workflow-note { margin:22px 22px 22px 0; padding:22px; border-radius:9px; background:#f0f4ed; display:flex; flex-direction:column; align-items:flex-start; }
 .workflow-note-symbol { font-size:30px; line-height:1; color:#6b876f; margin-bottom:22px; }
 .workflow-note strong { font-size:13px; color:#385741; }
