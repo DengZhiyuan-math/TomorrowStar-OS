@@ -399,7 +399,8 @@
     automation.append(actions);
     if (pipeline?.wait_reason === "codex_resume_required") automation.append(node("p", "flow-muted", "当前岗位等待 Codex 完成分经历写作、程序组装和单一终审；完成后自动继续，其他岗位保持等待。"));
     if (pipeline?.wait_reason === "precision_adjustment") automation.append(node("p", "flow-muted", "此岗位已完成分析、完整简历与已发现的必要附稿。你可以先调整材料，再点击“继续当前岗位”使用当前版本填写。"));
-    if (pipeline?.notice && !failed) automation.append(node("p", "flow-muted", pipeline.notice.message || pipeline.notice.title));
+    // 2026-11-16 (user): the selection, points and wording reviews carry no hint text.
+    if (pipeline?.notice && !failed && !["resume_plan_review", "resume_wording_review"].includes(pipeline?.wait_reason)) automation.append(node("p", "flow-muted", pipeline.notice.message || pipeline.notice.title));
     // One row per job: title, a status badge with its reason, and the row's action.
     // The current job comes first, then the rest newest first.
     // A closed posting is not listed (2026-11-05); older ones stay recorded only.
@@ -749,8 +750,7 @@
     box.append(part);
     // 2026-11-12: leaving an experience out is a selection change, not a rewrite.
     const reselect = button("返回修改证据与选材", () => pipelineAction("continue", { plan_reselect: true }), "flow-wording-reselect", true);
-    box.append(node("p", "flow-muted", "想去掉或增加某段经历，请返回修改选材：之前的勾选会保留。只去掉或调整顺序时，其他段的要点、条目和确认都保留，Headline、Summary 和 Skills 也不会自动重写。"), reselect);
-    box.append(node("p", "flow-muted", "逐段核对：改文字后点“保存修改”；要系统重写就写意见点“按意见重写这段”；满意就点“确认这段”。最后一段确认后自动生成简历并填写。下方“全部确认并继续”会一次确认所有段落。"));
+    box.append(reselect);
     return box;
   }
 

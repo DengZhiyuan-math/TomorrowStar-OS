@@ -351,7 +351,8 @@ function renderWorkflow() {
     const readable = overviewFlow.readable.flow && overviewFlow.readable.pipeline;
     label = readable ? overviewFlow.statusText || "自动申请流程" : "自动申请状态暂不可用";
     title = [item?.company, item?.role_title].filter(Boolean).join(" · ") || "按顺序处理推荐岗位。";
-    description = readable ? pipeline?.notification?.message || "系统自动衔接岗位读取、匹配、简历、填写与上传。需要补充信息或最终确认时会通知你。" : "已保存的岗位和进度保留。进入自动申请读取最新状态。";
+    // 2026-11-16 (user): the selection, points and wording reviews carry no hint text.
+    description = readable && ["resume_plan_review", "resume_wording_review"].includes(pipeline?.wait_reason) ? "" : readable ? pipeline?.notification?.message ||"系统自动衔接岗位读取、匹配、简历、填写与上传。需要补充信息或最终确认时会通知你。" : "已保存的岗位和进度保留。进入自动申请读取最新状态。";
     action = pipeline?.active_task_id ? "查看当前岗位与材料" : "查看自动申请";
     destination = "#flow";
     // A paused or stopped job keeps the step it stopped in (resume_status), e.g. the
