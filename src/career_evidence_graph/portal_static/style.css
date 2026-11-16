@@ -364,4 +364,5 @@
 .flow-selection button { padding: 0 8px; margin-left: 4px; min-height: 0; }
 .today-applications { padding: 20px 24px; margin-bottom: 24px; }
 .today-applications:empty { display: none; }
+#workflow-description:empty { display: none; }
 .today-applications h2 { margin: 0 0 4px; }
