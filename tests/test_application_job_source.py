@@ -920,3 +920,54 @@ def test_json_ld_location_is_available_under_application_location_key():
     )
     assert capture["job_fields"]["location"] == "Zurich, CH"
     assert capture["job_fields"]["datePosted"] == "2026-10-20"
+
+
+def test_a_close_connection_body_read_to_its_length_is_captured(monkeypatch):
+    # 2026-11-16 (Neowise): a Connection: close page with a Content-Length closes its
+    # socket once the last byte is read; touching it again failed as network_error.
+    body = html_job(posting()).encode()
+
+    class Body(io.BytesIO):
+        def close(self):
+            sock.released = True
+            super().close()
+
+    class Connection:
+        released = False
+
+        def settimeout(self, timeout):
+            if self.released:
+                raise OSError(9, "Bad file descriptor")
+
+        def connect(self, address):
+            pass
+
+        def getpeername(self):
+            return ("8.8.8.8", 443)
+
+        def sendall(self, data):
+            pass
+
+        def do_handshake(self):
+            pass
+
+        def makefile(self, mode):
+            return Body(
+                b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n"
+                + f"Content-Length: {len(body)}\r\n\r\n".encode()
+                + body
+            )
+
+        def close(self):
+            pass
+
+    class Context:
+        def wrap_socket(self, sock, **kwargs):
+            return sock
+
+    sock = Connection()
+    monkeypatch.setattr("ssl.create_default_context", lambda: Context())
+    monkeypatch.setattr("socket.socket", lambda *args: sock)
+    capture = fetch_job_source("https://jobs.example.com/role", resolver=public_resolver)
+    assert not capture.get("error_code")
+    assert capture["jd_completeness"] == "full"

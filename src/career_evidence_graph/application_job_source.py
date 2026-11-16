@@ -98,7 +98,8 @@ def _https_get(url, *, addresses, timeout, max_bytes):
         if length is not None and (not length.isdigit() or int(length) > max_bytes):
             raise ValueError("response_too_large")
         chunks, size = [], 0
-        while True:
+        # A body read to its Content-Length closes the response and its socket.
+        while not response.isclosed():
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise TimeoutError
