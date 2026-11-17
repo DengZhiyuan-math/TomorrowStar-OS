@@ -103,13 +103,12 @@
     element.append(node("h2", "", title));
     return element;
   }
-  const heading = node("div", "page-heading");
-  const headingCopy = node("div");
-  const title = node("h1", "", "自动申请"); title.id = "flow-title";
-  headingCopy.append(title);
+  // 2026-11-16 (user): no page title. The re-read button stays: it is how an
+  // uncertain save is checked against the saved records before writes unlock.
+  const heading = node("div", "page-heading flow-heading");
   const observe = button("读取最新状态", () => refresh(true), "flow-observe", true);
   delete observe.dataset.flowWrite;
-  heading.append(headingCopy, observe);
+  heading.append(observe);
   const alert = node("div", "notice"); alert.id = "flow-notice"; alert.hidden = true; alert.setAttribute("role", "status");
   const automation = section("自动申请流程", "flow-automation");
   const columns = node("div", "flow-columns");
@@ -279,7 +278,6 @@
 
   function renderMode() {
     const preparing = flow?.mode === "preparation";
-    title.textContent = preparing ? "投递工作台" : "自动申请";
     const label = preparing ? "投递工作台" : "自动申请";
     if (viewLabels.flow !== label) {
       viewLabels.flow = label;
@@ -366,8 +364,15 @@
       status.append(node("span", "flow-ticker-detail", `原因：${pipeline?.notice?.message || "自动流程记录未能核验"}${code ? `（${code}）` : ""}`));
     }
     if (!running && fetching && recommended?.source_error_code) status.append(node("span", "flow-ticker-detail", `原因：${sourceErrors[recommended.source_error_code] || recommended.source_error_code}`));
-    automation.append(status);
-    automation.append(node("p", "flow-muted", "开启后，系统持续收录推荐邮件，并按顺序处理当前岗位的 JD、匹配、完整材料、填写和上传。等待你处理信息或最终确认时，仍可收录新邮件；最终 Submit 由你操作。"));
+    // 2026-11-16 (user): when the current application card leads this page it already
+    // names the job and its state; the ticker, intro and current row are hidden there
+    // (CSS) and the ticker's reasons move into the card (app.js places #flow-card-details).
+    status.classList.add("flow-card-duplicate");
+    document.getElementById("flow-card-details")?.remove();
+    const cardDetails = node("div", "flow-card-details"); cardDetails.id = "flow-card-details";
+    for (const detail of status.querySelectorAll(".flow-ticker-detail")) cardDetails.append(node("p", failed ? "flow-error" : "flow-muted", detail.textContent));
+    automation.append(status, cardDetails);
+    automation.append(node("p", "flow-muted flow-card-duplicate", "开启后，系统持续收录推荐邮件，并按顺序处理当前岗位的 JD、匹配、完整材料、填写和上传。等待你处理信息或最终确认时，仍可收录新邮件；最终 Submit 由你操作。"));
     document.getElementById("flow-pipeline-actions")?.remove();
     const actions = node("div", "flow-actions"); actions.id = "flow-pipeline-actions";
     // A flow saved before the queue (no queue_mode) resumes through start.
@@ -400,10 +405,15 @@
     // 2026-11-16 (user): the buttons sit in the current application card when it leads this page.
     const cardActions = root.querySelector("#workflow-focus .workflow-focus-actions");
     if (cardActions) cardActions.prepend(actions); else automation.append(actions);
+    if (cardActions) root.querySelector("#workflow-focus #workflow-description").after(cardDetails);
     if (pipeline?.wait_reason === "codex_resume_required") automation.append(node("p", "flow-muted", "当前岗位等待 Codex 完成分经历写作、程序组装和单一终审；完成后自动继续，其他岗位保持等待。"));
     if (pipeline?.wait_reason === "precision_adjustment") automation.append(node("p", "flow-muted", "此岗位已完成分析、完整简历与已发现的必要附稿。你可以先调整材料，再点击“继续当前岗位”使用当前版本填写。"));
     // 2026-11-16 (user): the selection, points and wording reviews carry no hint text.
-    if (pipeline?.notice && !failed && !["resume_plan_review", "resume_wording_review"].includes(pipeline?.wait_reason)) automation.append(node("p", "flow-muted", pipeline.notice.message || pipeline.notice.title));
+    if (pipeline?.notice && !failed && !["resume_plan_review", "resume_wording_review"].includes(pipeline?.wait_reason)) {
+      automation.append(node("p", "flow-muted flow-card-duplicate", pipeline.notice.message || pipeline.notice.title));
+      // The card's description already shows the notification's message.
+      if ((pipeline.notice.message || pipeline.notice.title) !== pipeline.notification?.message) cardDetails.append(node("p", "flow-muted", pipeline.notice.message || pipeline.notice.title));
+    }
     // One row per job: title, a status badge with its reason, and the row's action.
     // The current job comes first, then the rest newest first.
     // A closed posting is not listed (2026-11-05); older ones stay recorded only.
@@ -420,7 +430,8 @@
         currentRow = pipelineRow(item, true, false);
         const focus = node("ol", "flow-pipeline-items");
         focus.append(pipelineRow(item, true));
-        automation.append(node("h3", "", "当前岗位"), focus);
+        automation.append(node("h3", "flow-card-duplicate", "当前岗位"), focus);
+        focus.classList.add("flow-card-duplicate");
       }
       else if (needsHandling(item)) handling.push(pipelineRow(item, false));
       else {
@@ -446,6 +457,8 @@
       listing.append(folder);
     }
     if (pipeline?.active_task_id && !automation.querySelector("#flow-pipeline-current")) automation.append(followButton());
+    // Only duplicates of the card left: the section hides when the card leads the page.
+    automation.classList.toggle("only-card-duplicates", [...automation.children].slice(1).every(child => child.matches(".flow-card-duplicate, .flow-card-details, #flow-pipeline-actions")));
   }
 
   function scoreBand(score) {
@@ -460,13 +473,14 @@
       : item.status === "analysis_failed" ? ["分析未通过", "rejected", "分析结果未通过校验，已保留记录"]
       : item.reason === "flow_eligibility_required" ? ["岗位不匹配", "rejected", item.mismatch?.length ? `不满足：${item.mismatch.join("；")}` : "JD 的硬性条件与信息库不符"]
       : item.status === "completed" && item.submitted_by === "user" ? ["已提交", "applied", ""]
+      : ["admitted", "pending"].includes(item.status) ? ["排队中", "candidate", ""]
       : item.status !== "skipped" ? ["已处理", "applied", ""]
       : item.reason === "posting_closed" ? ["已停招", "withdrawn", "领英显示岗位已停止招聘"]
       : item.reason === "easy_apply_only" ? ["仅领英站内申请", "withdrawn", "只能用领英 Easy Apply，需要时请自己投递"]
       : item.reason === "indeed_apply_only" ? ["仅 Indeed 站内申请", "withdrawn", "只能用 Indeed Apply，需要时请自己投递"]
       : item.reason === "posting_not_found" ? ["岗位已找不到", "withdrawn", "原链接已失效或岗位已下架，已自动跳过"]
       : item.reason === "source_unavailable" ? ["未取得 JD", "candidate", `${sourceErrors[item.source_error_code] || "岗位页面没能读取"}，已自动跳过`]
-      : item.reason === "low_match_score" ? ["匹配过低", "withdrawn", "匹配分低于 15，已自动跳过"]
+      : item.reason === "low_match_score" ? ["匹配过低", "withdrawn", "匹配分低于自动跳过线，已自动跳过"]
       : item.reason === "account_low_match" ? ["需要账号·匹配不高", "withdrawn", "申请需要登录或注册，且匹配分低于 55，已自动跳过"]
       : item.reason === "account_required" ? ["需要账号", "candidate", "申请需要登录或注册；已搁置，页面留在 Chrome，可自行注册后投递"]
       : ["已跳过", "candidate", item.pipeline_context?.notification?.message ? `跳过时：${item.pipeline_context.notification.message}` : ""];

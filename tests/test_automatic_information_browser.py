@@ -171,7 +171,7 @@ def test_poll_preserves_unfinished_text_without_saving_or_duplicate_blur(
         expect(answer).to_be_focused()
         assert writes == []
         answer.fill("Synthetic Completed")
-        page.locator("#flow-title").click()
+        page.locator(":focus").blur()
         expect(page.get_by_label("Full name · 补充信息")).to_have_count(0)
         page.locator("#flow-observe").click()
         assert len(writes) == 1 and writes[0]["payload"]["value"] == "Synthetic Completed"
@@ -195,7 +195,7 @@ def test_applied_write_with_lost_response_is_read_back_without_replay(
 
         page.route("**/api/flow/worker-action", applied)
         page.get_by_label("Full name · 补充信息").fill("Synthetic Saved")
-        page.locator("#flow-title").click()
+        page.locator(":focus").blur()
         expect(page.locator("#flow-notice")).to_contain_text("操作结果尚未核验")
         page.locator("#flow-observe").click()
         expect(page.locator("#flow-notice")).to_contain_text("已读取持久状态")
@@ -259,7 +259,7 @@ def test_unknown_draft_cannot_reconcile_against_another_jobs_scoped_record(
         page.route("**/api/flow/worker-action", unknown)
         answer = page.get_by_label("Full name · 补充信息")
         answer.fill("Synthetic Unknown")
-        page.locator("#flow-title").click()
+        page.locator(":focus").blur()
         expect(page.locator("#flow-notice")).to_contain_text("操作结果尚未核验")
         page.locator("#flow-observe").click()
         expect(page.locator("#flow-notice")).to_contain_text("已读取持久状态")

@@ -2,7 +2,7 @@
 
 const $ = (id) => document.getElementById(id);
 const fields = ["company", "role_title", "status", "track", "location", "url", "application_date", "deadline", "next_action", "notes", "job_description", "application_strategy", "jd_match", "evidence_match", "personal_priority", "target_company", "compensation_priority", "strategy_notes"];
-const viewLabels = { "resume-review": "简历审阅（Prism）", flow: "单岗位工作台", handoff: "申请交接", overview: "今日工作", applications: "岗位与进度", evidence: "职业证据", interview: "项目访谈", website: "公开展示" };
+const viewLabels = { "resume-review": "简历审阅（Prism）", flow: "单岗位工作台", handoff: "申请交接", overview: "今日工作", applications: "岗位与进度", evidence: "职业证据", interview: "项目访谈", website: "公开展示", settings: "设置" };
 const kindLabels = { project_report: "项目报告", report: "项目报告", reports: "项目报告", candidate: "候选经历", experience: "经历", contribution: "贡献", skill: "技能记录", assessment: "评估记录", evidence: "证据", source: "来源材料", inventory: "经历清单", context: "背景材料", profile: "个人资料" };
 const evidenceStatusLabels = { documentary: "来源材料 · 未作能力审核", candidate: "候选 · 待审核", pending: "待审核", unreviewed: "未审核", proposed: "候选 · 待审核", reviewed: "已审核", accepted: "已确认", confirmed: "已确认", verified: "已验证", rejected: "未采纳", superseded: "已被后继版本替代", draft: "草稿" };
 let data = { applications: [], evidence: [], statuses: [], tracks: [], connections: {}, csrf_token: "" };
@@ -218,6 +218,7 @@ function setView() {
   if (view === "evidence" && stateReady && evidenceView === "table") loadExperienceTable();
   if (view === "website" && stateReady) loadPublicSite();
   if (view === "resume-review" && stateReady && typeof loadPrismReview === "function") loadPrismReview();
+  if (view === "settings" && typeof loadSettings === "function") loadSettings();
 }
 
 async function loadPublicSite() {
@@ -410,6 +411,9 @@ function renderWorkflow() {
   const pipelineActions = $("flow-pipeline-actions"), cardActions = card.querySelector(".workflow-focus-actions");
   if (pipelineActions && merged && pipelineActions.parentElement !== cardActions) cardActions.prepend(pipelineActions);
   if (pipelineActions && !merged && pipelineActions.parentElement === cardActions) $("flow-automation")?.append(pipelineActions);
+  const cardDetails = $("flow-card-details");
+  if (cardDetails && merged && cardDetails.previousElementSibling !== $("workflow-description")) $("workflow-description").after(cardDetails);
+  if (cardDetails && !merged && cardDetails.parentElement !== $("flow-automation")) $("flow-automation")?.append(cardDetails);
   $("workflow-primary").hidden = merged;
   $("workflow-state").textContent = label;
   $("workflow-title").textContent = title;
@@ -723,7 +727,6 @@ function populateApplication(application) {
   $("original-details").open = false;
   $("original-content").textContent = string(application?.content) || "此记录暂无正文内容。";
   $("application-dialog-title").textContent = application ? `${application.company} · ${application.role_title}` : "新增投递";
-  $("application-dialog-eyebrow").textContent = application ? "APPLICATION DETAILS" : "NEW APPLICATION";
   $("application-dialog-subtitle").textContent = "已保存的岗位、原文和来源；需要时可更正记录。";
   $("application-corrections").open = false;
   $("save-application").hidden = true;
@@ -1049,7 +1052,7 @@ function renderEvidenceCorrection(item, detail, container) {
   }
 }
 
-$("today-label").textContent = new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "long" }).format(new Date()) + "  /  TODAY'S WORKSPACE";
+$("today-label").textContent = new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "long" }).format(new Date());
 window.addEventListener("handoff-state", event => { overviewHandoff = event.detail; renderWorkflow(); });
 window.addEventListener("application-flow-state", event => { overviewFlow = event.detail; renderWorkflow(); });
 $("workflow-primary").addEventListener("click", () => {

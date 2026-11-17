@@ -1,5 +1,7 @@
 """Local service failures do not hide the current pipeline or its stop control."""
 
+import re
+
 import pytest
 from test_career_portal_http import _running_portal
 from test_career_portal_http import portal as portal
@@ -395,7 +397,7 @@ def test_unreadable_flow_retains_answer_draft_without_autosaving(backend, browse
         page.locator("#flow-observe").click()
         expect(page.locator("#flow-notice")).to_contain_text("Synthetic flow unreadable")
         answer.fill("2026-11-01")
-        page.locator("#flow-title").click()
+        page.locator(":focus").blur()
         expect(answer).to_have_value("2026-11-01")
         assert not writes
         assert not runner.store.library()
@@ -455,7 +457,7 @@ def test_ticker_names_the_running_step_and_the_step_that_failed(portal, browser_
         notice={"kind": "wait", "title": "自动流程需要处理", "message": "Synthetic export failure"},
         last_stop_error={"code": "resume_export_failed", "location": None, "at": 1},
     )
-    expect(ticker).to_have_class("flow-ticker is-failed", timeout=6000)
+    expect(ticker).to_have_class(re.compile(r"\bflow-ticker is-failed\b"), timeout=6000)
     expect(ticker).to_contain_text("出错的步骤：生成并检查完整岗位材料")
     expect(ticker).to_contain_text("原因：Synthetic export failure（resume_export_failed）")
 

@@ -157,8 +157,18 @@ def validate_letter(content, *, sources=None, application=None, inputs_revision=
         _text(row["text"])
         if by_id is not None:
             for identifier, quote in zip(row["source_ids"], row["source_quotes"], strict=True):
-                if identifier not in by_id or quote not in by_id[identifier]["text"]:
-                    raise ValueError("letter quotation is outside delivered source scope")
+                # 2026-11-16 (isolutions): the reason names the reference, so the retried
+                # writer can correct a mistyped source id or quote.
+                if identifier not in by_id:
+                    raise ValueError(
+                        "letter quotation is outside delivered source scope: source id "
+                        f"{identifier} is not a delivered source; copy ids exactly"
+                    )
+                if quote not in by_id[identifier]["text"]:
+                    raise ValueError(
+                        "letter quotation is outside delivered source scope: the quote for "
+                        f"{identifier} is not verbatim in that source"
+                    )
     return value
 
 

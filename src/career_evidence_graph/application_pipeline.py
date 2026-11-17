@@ -27,6 +27,7 @@ from .application_flow import pipeline_http_entry
 from .application_input_binding import job_input_revision
 from .application_match_refresh import match_refresh_running, require_no_other_match_refresh
 from .application_match_scoring import calculate_match_score, combined_score, score_tier
+from .application_settings import score_thresholds
 from .career_portal_data import PortalDataError
 from .job_screening import job_country, screen_applications
 from .validation.hashing import record_digest as digest
@@ -3455,7 +3456,9 @@ class ApplicationPipeline:
                         analysis["requirements"],
                     )
                     tier = item["score_tier"] = score_tier(
-                        score, needs_review=bool(models and models["needs_review"])
+                        score,
+                        needs_review=bool(models and models["needs_review"]),
+                        thresholds=score_thresholds(self.flow.root),
                     )
                 except (OSError, PortalDataError, KeyError, TypeError, ValueError):
                     pass
@@ -3579,7 +3582,11 @@ class ApplicationPipeline:
             )
             item["score"] = score
             item.update(
-                score_tier=score_tier(score, needs_review=bool(models and models["needs_review"])),
+                score_tier=score_tier(
+                    score,
+                    needs_review=bool(models and models["needs_review"]),
+                    thresholds=score_thresholds(self.flow.root),
+                ),
                 score_analysis_id=task["analysis_id"],
             )
             eligibility = task_eligibility(task)

@@ -41,7 +41,7 @@
   const apiControl = (operation) => perform(operation, { controller }).catch(() => {});
 
   const heading = el("div", "", "worker-heading");
-  const title = el("div"); title.append(el("div", "AUTOMATION LAB · 自动化实验", "eyebrow"), el("h2", "集中补充，逐岗位复核"));
+  const title = el("div"); title.append(el("h2", "集中补充，逐岗位复核"));
   const controls = el("div", "", "worker-buttons");
   const resume = button("开始／继续", () => apiControl("resume"), true);
   const pause = button("暂停批次", () => apiControl("pause"));

@@ -159,7 +159,8 @@ try:
                   "selection_rationale": rationale,
                   "extracted_fields": fields, "limitations": [limitation]}
     elif properties == {"company", "role_title", "location", "deadline", "salary",
-                        "employment_type", "posted_date", "is_full_jd"}:
+                        "employment_type", "posted_date", "is_full_jd",
+                        "open_application"}:
         allowed_source = (
             "Company: Synthetic Employer\\nTitle: Software Engineer\\n"
             "Requirements: Python\\nunit tests"
@@ -170,7 +171,7 @@ try:
         output = {
             "company": "Synthetic Employer", "role_title": "Software Engineer",
             "location": "", "deadline": "", "salary": "", "employment_type": "",
-            "posted_date": "", "is_full_jd": True,
+            "posted_date": "", "is_full_jd": True, "open_application": False,
         }
     elif properties == {"items", "limitations"}:
         items = []

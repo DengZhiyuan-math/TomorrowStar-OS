@@ -366,3 +366,21 @@
 .today-applications:empty { display: none; }
 #workflow-description:empty { display: none; }
 .today-applications h2 { margin: 0 0 4px; }
+#flow-root > .flow-heading { justify-content:flex-end; margin-bottom:16px; }
+/* 2026-11-16 (user): the card already shows the current job and its state. */
+#flow-root:has(#workflow-focus.has-progress) .flow-card-duplicate,
+#flow-root:has(#workflow-focus.has-progress) #flow-automation.only-card-duplicates { display:none; }
+#flow-automation > .flow-card-details { display:none; }
+#workflow-focus .flow-card-details { margin-top:8px; display:grid; gap:4px; }
+/* 2026-11-16: 设置 page. */
+#settings-root { display:grid; gap:18px; max-width:760px; margin-bottom:40px; }
+.settings-panel { padding:22px 24px; display:grid; gap:14px; }
+.settings-field { display:grid; gap:6px; font-size:12px; color:#56674a; }
+.settings-field input, .settings-field select, .settings-field textarea { border:1px solid #dfe6d6; border-radius:6px; padding:9px 11px; font-size:12px; background:#fff; max-width:420px; }
+.settings-field textarea { max-width:100%; }
+.settings-check { display:flex; gap:9px; align-items:center; font-size:12px; color:#56674a; }
+.settings-hint { font-size:11px; color:#8a957f; line-height:1.7; }
+.settings-actions { display:flex; gap:14px; align-items:center; }
+.settings-status { font-size:11px; color:#60834b; }
+.settings-status.is-error { color:#9d5b4d; }
+.nav-settings { margin-top:25px; }

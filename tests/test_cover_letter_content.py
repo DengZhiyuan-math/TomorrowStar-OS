@@ -168,6 +168,9 @@ def test_successfully_delivered_source_scope_is_validated_before_review(tmp_path
     assert caught.value.code == "letter_generation_failed"
     assert len(calls) == 1
     assert json.loads((tmp_path / "bad/failure.json").read_text())["status"] == "failed"
+    # 2026-11-16 (isolutions): the reason the retried writer sees names the reference.
+    (rejection,) = tmp_path.rglob("validation-failure.json")
+    assert "foreign-source" in json.loads(rejection.read_text())["reason"]
 
 
 @pytest.mark.parametrize("lost_stage", ["schema.json", "review-schema.json"])

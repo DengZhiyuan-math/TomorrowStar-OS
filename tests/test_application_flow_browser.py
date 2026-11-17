@@ -213,7 +213,7 @@ def test_reopening_observes_and_default_admission_retains_one_queued_job(
 
         intake.fetcher = fetch
         page.goto(instance.origin + "/#flow")
-        expect(page.locator("#flow-title")).to_have_text("自动申请")
+        expect(page.locator("#flow-title")).to_have_count(0)
         expect(page.locator("#flow-refresh-mail")).to_be_enabled()
         page.reload()
         expect(page.locator("#flow-refresh-mail")).to_be_enabled()
@@ -671,7 +671,7 @@ def test_worker_question_keeps_draft_and_saves_only_current_job_without_resuming
         answer.fill("2026-11-01")
         page.locator("#flow-observe").click()
         expect(answer).to_have_value("2026-11-01")
-        page.locator("#flow-title").click()
+        page.locator(":focus").blur()
         expect(page.locator("#flow-notice")).to_contain_text("已自动保存到信息库")
         assert service.store.library()[0]["value"] == "2026-11-01"
         assert service.store.load()["commands"][-1]["action"] == "answers-changed"
@@ -776,7 +776,7 @@ def test_unknown_answer_for_viewed_task_does_not_lock_other_pipeline_job(
         expect(answer).to_be_visible()
         page.route("**/api/flow/worker-action", lambda route: route.abort())
         answer.fill("2026-11-01")
-        page.locator("#flow-title").click()
+        page.locator(":focus").blur()
         expect(page.locator("#flow-notice")).to_contain_text("尚未核验")
         expect(page.locator("#flow-pipeline-start")).to_be_enabled()
         assert not service.store.library()

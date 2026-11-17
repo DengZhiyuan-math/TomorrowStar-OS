@@ -1156,7 +1156,7 @@ def _content_manifest(state, template):
 
 
 def _rendered_content(plan, *, template=None):
-    from .application_resume_render import render_resume, symbols_for
+    from .application_resume_render import layout_for, render_resume, symbols_for
 
     content = plan["resume_content"]
     rendered = render_resume(
@@ -1164,6 +1164,7 @@ def _rendered_content(plan, *, template=None):
         plan["template_revision"],
         template=template,
         symbols=symbols_for(plan["renderer_revision"]),
+        layout=layout_for(plan["renderer_revision"]),
     )
     ranges = {key: list(value) for key, value in rendered.ranges.items()}
     if (

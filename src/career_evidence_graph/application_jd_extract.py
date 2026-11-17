@@ -26,6 +26,7 @@ class _JobFacts(BaseModel):
     employment_type: str
     posted_date: str
     is_full_jd: bool
+    open_application: bool
 
 
 _OVERRIDES = (
@@ -55,6 +56,8 @@ def extract_job_fields(text: str, directory: Path, *, runner=run_codex_exec) -> 
         "preferences, target-company choices, fit, proficiency, or application status. "
         "is_full_jd is true only for a single complete job description with duties and "
         "requirements; a recommendation summary, login page, or excerpt is false. "
+        "open_application is true only for an employer's general application form that "
+        "names the areas of work it hires for but no single role; role_title stays empty. "
         "Keep dates as written, with no invented dates.\nSOURCE_JSON:\n"
         + json.dumps(text, ensure_ascii=False)
     )
