@@ -527,6 +527,10 @@ class ApplicationIntakeService:
                 )
             else:
                 fields = self.extractor(capture.get("body_text", ""), run / "extraction")
+                # 2026-11-16 (Neowise): a general application form names the areas it
+                # hires for but no role; it is saved as an open application.
+                if fields.get("open_application") and not str(fields.get("role_title")).strip():
+                    fields = fields | {"role_title": "Open Application", "is_full_jd": True}
             job["fields"] = fields | {
                 "job_description": capture.get("body_text", ""),
                 "url": capture.get("final_url", capture.get("url", "")),

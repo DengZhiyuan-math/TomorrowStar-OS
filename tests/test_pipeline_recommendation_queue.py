@@ -359,7 +359,7 @@ def test_a_job_tiered_for_approval_by_an_older_rule_is_tiered_again(queue_enviro
     monkeypatch.setattr(
         application_pipeline,
         "score_tier",
-        lambda score, needs_review=False: tiers.pop(0) if tiers else "auto",
+        lambda score, needs_review=False, **_: tiers.pop(0) if tiers else "auto",
     )
     pipeline.start(request_id="retier")
     current = drive(pipeline, "filling")
@@ -379,7 +379,7 @@ def test_low_score_is_skipped_and_a_middle_score_waits_for_one_continue(
     monkeypatch.setattr(
         application_pipeline,
         "score_tier",
-        lambda score, needs_review=False: tiers.pop(0) if tiers else "approve",
+        lambda score, needs_review=False, **_: tiers.pop(0) if tiers else "approve",
     )
     pipeline.start(request_id="tiers")
     waiting = drive(pipeline, "needs_input")
@@ -542,7 +542,7 @@ def test_a_high_value_job_waits_for_the_resume_plan_and_feedback_plans_again(
     monkeypatch.setattr(
         application_pipeline,
         "score_tier",
-        lambda score, needs_review=False: tiers.pop(0) if tiers else "auto",
+        lambda score, needs_review=False, **_: tiers.pop(0) if tiers else "auto",
     )
     plans, feedback, attempts, pending, selected = {}, [], [], set(), set()
     original = flow.start
@@ -706,7 +706,7 @@ def test_a_high_value_job_waits_for_its_bullets_and_revises_one_experience(
     monkeypatch.setattr(
         application_pipeline,
         "score_tier",
-        lambda score, needs_review=False: tiers.pop(0) if tiers else "auto",
+        lambda score, needs_review=False, **_: tiers.pop(0) if tiers else "auto",
     )
     plan = {"assignments": [{"experience_id": "exp-a"}, {"experience_id": "exp-b"}]}
     bullets = {

@@ -60,6 +60,9 @@ _ESCAPES = {
 # Templates use 8-bit fonts; these characters have no glyph there and vanish. Renders
 # that write one carry SYMBOLS_SUFFIX, so earlier saved renders still verify.
 SYMBOLS_SUFFIX = "+symbols/v2"
+# 2026-11-16: an entry with only dates carries them on its title line, and a same-year
+# span is one year. Renders saved before this keep their layout.
+LAYOUT_SUFFIX = "+dated-title/v1"
 LEGACY_SYMBOLS_SUFFIX = "+symbols/v1"
 SYMBOLS_V1 = {
     "\u2014": "---",
@@ -152,6 +155,11 @@ def symbol_escapes(enabled: bool | str = True):
         yield used
     finally:
         _symbols.reset(token)
+
+
+def layout_for(renderer_revision: str | None) -> bool:
+    """Whether a saved render used the dated-title layout."""
+    return bool(renderer_revision and LAYOUT_SUFFIX in renderer_revision)
 
 
 def symbols_for(renderer_revision: str | None) -> bool | str:
@@ -249,14 +257,34 @@ def _append_items(pieces, ranges, items):
     pieces.append("\\end{itemize}\n")
 
 
-def _append_experiences(pieces, ranges, experiences, *, metadata_macro=False):
+def _append_experiences(pieces, ranges, experiences, *, metadata_macro=False, layout=None):
+    """``layout`` (a list) enables the dated-title layout and records where it applied."""
     for row in experiences:
         start = sum(map(len, pieces))
-        pieces.append("\\subsection*{" + _text(row["title"]) + "}\n")
-        dates = " -- ".join(filter(None, [row.get("start"), row.get("end")]))
+        span = list(filter(None, [row.get("start"), row.get("end")]))
+        dated_title = False
+        if layout is not None:
+            # 2026-11-16 (Volatility Wins): a same-year span is one year, and an entry
+            # with only dates puts them on its title line, not a line of their own.
+            single = list(dict.fromkeys(span))
+            dated_title = bool(
+                metadata_macro
+                and span
+                and not any(row.get(key) for key in ("organization", "role", "location"))
+            )
+            if dated_title or single != span:
+                layout.append(row["id"])
+            span = single
+        dates = " -- ".join(span)
+        pieces.append(
+            "\\subsection*{"
+            + _text(row["title"])
+            + ("\\hfill\\mbox{\\normalfont\\small " + _text(dates) + "}" if dated_title else "")
+            + "}\n"
+        )
         if metadata_macro:
             fields = [row.get("organization"), row.get("role"), row.get("location"), dates]
-            if any(fields):
+            if any(fields) and not dated_title:
                 pieces.append(
                     "\\TomorrowStarExperienceMeta"
                     + "".join("{" + _text(field or "") + "}" for field in fields)
@@ -274,7 +302,7 @@ def _append_experiences(pieces, ranges, experiences, *, metadata_macro=False):
         ranges[row["id"]] = (start, sum(map(len, pieces)))
 
 
-def _render_template(content, template):
+def _render_template(content, template, layout=None):
     revision = validate_template(template, content["template_revision"])
     # Opt in through the fixed preamble. Historical templates keep exact v1 bytes.
     metadata_macro = (
@@ -300,7 +328,9 @@ def _render_template(content, template):
                 body.append(rendered)
                 body_ranges[headline["id"]] = (0, len(rendered))
         elif key == "experiences":
-            _append_experiences(body, body_ranges, content[key], metadata_macro=metadata_macro)
+            _append_experiences(
+                body, body_ranges, content[key], metadata_macro=metadata_macro, layout=layout
+            )
         else:
             _append_items(body, body_ranges, content[key])
         start = sum(map(len, pieces))
@@ -334,22 +364,26 @@ def render_resume(
     *,
     template: str | None = None,
     symbols: bool = True,
+    layout: bool = True,
 ) -> RenderedResume:
     """Render one complete document; ranges use Python character offsets."""
+    changed = [] if layout else None
     with symbol_escapes(symbols) as used:
-        rendered = _render(content, template_revision, template)
+        rendered = _render(content, template_revision, template, changed)
+    if changed:
+        rendered = replace(rendered, renderer_revision=rendered.renderer_revision + LAYOUT_SUFFIX)
     if not used:
         return rendered
     suffix = LEGACY_SYMBOLS_SUFFIX if symbols == "v1" else SYMBOLS_SUFFIX
     return replace(rendered, renderer_revision=rendered.renderer_revision + suffix)
 
 
-def _render(content, template_revision, template):
+def _render(content, template_revision, template, layout=None):
     content = validate_content(content).model_dump(mode="json")
     if content["schema_version"] == "resume-template-content/v1":
         if template_revision not in {TEMPLATE_REVISION, content["template_revision"]}:
             raise ValueError("unsupported resume template revision")
-        return _render_template(content, template)
+        return _render_template(content, template, layout)
     if template is not None or template_revision != TEMPLATE_REVISION:
         raise ValueError("unsupported resume template revision")
     ranges = {}

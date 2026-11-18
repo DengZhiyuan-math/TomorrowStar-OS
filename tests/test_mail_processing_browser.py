@@ -49,7 +49,7 @@ def test_mail_progress_polling_preserves_current_unsaved_answer(backend, browser
     thread.start()
     try:
         page.goto(f"http://127.0.0.1:{owner.server_port}/#flow")
-        expect(page.locator("#flow-title")).to_have_text("自动申请")
+        expect(page.locator("#flow-observe")).to_be_visible()
         progress = page.locator("#flow-mail-progress")
         expect(progress).to_contain_text("邮件处理：本地收录 9 · 已标记 7 · 已归档 4 · 待核对 2")
         expect(progress).to_contain_text("岗位来源：已完成 3 · 失败 5 · 待核验 1")

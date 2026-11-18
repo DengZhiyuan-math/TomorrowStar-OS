@@ -499,3 +499,25 @@ test_cover_letter_pair_cancellation.py (15).
 - Open: a missing letter template now stops the job at `letter_export` (before,
   only that letter upload failed); `application_worker.py` got three formatting
   hunks from `ruff format` (it was unformatted on the base commit).
+
+**Material step 4 — UI, tests, full suite, install (2026-11-10, 5f812ac9).**
+
+- Steps 1–3 and the planner-size fix are committed (de856935 … 4be78857).
+- UI: the Cover Letter panel shows the `letter_export` stage (built with page
+  count, building, failed, stale after an edit), opens the PDF through
+  `/api/flow/letter-pdfs/<id>/pdf` (`ApplicationFlowService.read_letter_pdf`, path
+  and SHA-256 checked) and has "仅重试 Cover Letter PDF". Pipeline admits a
+  `letter_export` retry like `letter`.
+- Tests: the two `_same_upstream_binding` monkeypatches in
+  `test_upstream_analysis_reuse.py` are replaced by a changed job field. The
+  `_recovery_directory` test stays (the function stays in the analysis chain;
+  Keyrock regression).
+- Full suite: 72 failed / 12 errors with this change; every one also fails in a
+  full HEAD run. 15 of them (loaded identity: "A packaged loaded role cannot be
+  normalized") pass alone — order-dependent pollution, pre-existing.
+- Installed to the main App (record `maintenance-2026-11-10-letter-panel/`),
+  reopened with the same flags. Real run pending: the paused job
+  e7c39f1b… (planner prompt 1.15 M chars at 15:42) needs the user's Continue.
+- Still open: material consistency check is not on Model Call Record; the
+  bound-update journal merge does not carry a letter edit row; old
+  `task["cover_letter"]` records are read-only.

@@ -309,3 +309,9 @@ def test_a_failure_reason_quotes_the_model_error(call_dir):
         )
     assert model_call.failure_reason(call_dir) == "模型调用失败：invalid schema"
     assert model_call.failure_reason(call_dir / "missing") is None
+
+
+def test_a_call_ended_before_its_result_was_saved_has_no_failure_reason(call_dir):
+    """2026-11-16, Zurich: an App restart left a sent JD reading without a result file."""
+    assert not (call_dir / PAGE.result).exists()
+    assert model_call.failure_reason(call_dir) is None

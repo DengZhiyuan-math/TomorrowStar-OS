@@ -312,6 +312,8 @@ def recover_commit(pipeline, state, path, *, resume_request_id=None):
         state.get("control") != "running"
         or current.get("control") != "paused"
         or current.get("controller") != state.get("controller")
+        # A Chrome fill never claims the Worker, so its controller stays empty.
+        and not (pipeline.computer_use and not current.get("controller"))
         or current.get("batch_id") != journal["batch_id"]
         or current.get("current_job_id") != job["application_id"]
         or job.get("intent")

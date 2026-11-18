@@ -71,7 +71,15 @@ def test_compact_header_keeps_human_wording_round_trip_and_ranges():
     ("organization", "role", "location", "start", "end", "expected"),
     [
         (None, None, "Remote", None, None, r"\TomorrowStarExperienceMeta{}{}{Remote}{}"),
-        (None, None, None, "2026", None, r"\TomorrowStarExperienceMeta{}{}{}{2026}"),
+        # 2026-11-16: an entry with only dates carries them on its title line.
+        (
+            None,
+            None,
+            None,
+            "2026",
+            None,
+            r"\subsection*{Validation workflow\hfill\mbox{\normalfont\small 2026}}",
+        ),
         (
             "Lab_1",
             "R&D {lead}",
@@ -97,3 +105,26 @@ def test_optional_fields_preserve_escaped_values_without_empty_metadata_rows(
         assert "TomorrowStarExperienceMeta" not in block
     else:
         assert expected in block
+
+
+def test_an_entry_with_only_dates_carries_them_on_its_title_line():
+    # 2026-11-16 (Volatility Wins): an empty header line showed only "2026 -- 2026".
+    content, template = compact_content()
+    content["experiences"][0].update(
+        organization=None, role=None, location=None, start="2026", end="2026"
+    )
+    content["revision"] = content_revision(content)
+    rendered = render_resume(content, template=template)
+    assert r"\subsection*{Validation workflow\hfill\mbox{\normalfont\small 2026}}" in rendered.tex
+    assert r"\TomorrowStarExperienceMeta" not in rendered.tex.split(r"\begin{document}")[1]
+    assert rendered.renderer_revision.endswith("+dated-title/v1")
+    saved = render_resume(content, template=template, layout=False)
+    assert r"\TomorrowStarExperienceMeta{}{}{}{2026 -- 2026}" in saved.tex
+    assert "dated-title" not in saved.renderer_revision
+
+
+def test_an_entry_with_a_role_keeps_its_layout_and_version():
+    content, template = compact_content()
+    assert render_resume(content, template=template) == render_resume(
+        content, template=template, layout=False
+    )

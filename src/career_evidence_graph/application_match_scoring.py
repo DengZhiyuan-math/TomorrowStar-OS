@@ -329,17 +329,23 @@ def combined_score(primary, analysis, requirements):
     }
 
 
-# Decided 2026-10-31: below 20 skip, 20-60 autonomous, 60-80 the user approves before
-# materials, 80 and above precision adjustment. Within 5 points of a line the more
-# involved tier applies (a 4-job test moved dual scores by 3-7 points), and the upper
-# bound is read, so uncertainty also leans toward the user.
-def score_tier(score, *, needs_review=False):
+# The upper bound of the score is read, so uncertainty leans toward the user. Below
+# skip_below a job is skipped, from manual_from on it is prepared for manual review,
+# and between them it proceeds automatically (2026-11-11: no approval band). The
+# lines default to 15 and 75; the 设置 page saves others (2026-11-16).
+def score_tier(score, *, needs_review=False, thresholds=None):
     if score is None or score.get("upper") is None:
         return "approve"
     upper = score["upper"]
-    # 2026-11-11 (user decision): 55-75 no longer waits for approval; it proceeds like
-    # the band below it. A missing score or a model disagreement still asks.
-    tier = "manual" if upper >= 75 else "auto" if upper >= 15 else "skip"
+    lines = thresholds or {"skip_below": 15, "manual_from": 75}
+    # A missing score or a model disagreement still asks.
+    tier = (
+        "manual"
+        if upper >= lines["manual_from"]
+        else "auto"
+        if upper >= lines["skip_below"]
+        else "skip"
+    )
     if needs_review and tier in {"auto", "skip"}:
         tier = "approve"
     return tier

@@ -1579,7 +1579,7 @@ class ApplicationResumeStore:
     @staticmethod
     def _imported_content_projection(mapping, application_id, latex_source):
         from .application_resume_content import validate_content
-        from .application_resume_render import render_resume, symbols_for
+        from .application_resume_render import layout_for, render_resume, symbols_for
 
         if not isinstance(mapping, dict) or set(mapping) != {
             "content",
@@ -1609,6 +1609,9 @@ class ApplicationResumeStore:
             content,
             template=mapping["template"],
             symbols=symbols_for(
+                manifest.get("renderer_revision") if isinstance(manifest, dict) else None
+            ),
+            layout=layout_for(
                 manifest.get("renderer_revision") if isinstance(manifest, dict) else None
             ),
         )

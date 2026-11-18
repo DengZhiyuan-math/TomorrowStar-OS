@@ -145,6 +145,57 @@ def _require_points(plan, kept=None):
         )
 
 
+def _one_edit(a, b):
+    if a == b or abs(len(a) - len(b)) > 1:
+        return False
+    if len(a) == len(b):
+        return sum(x != y for x, y in zip(a, b, strict=True)) == 1
+    short, long = sorted((a, b), key=len)
+    return any(long[:i] + long[i + 1 :] == short for i in range(len(long)))
+
+
+def repaired_experience_ids(choices, experience_ids):
+    """Correct an experience ID the planner miscopied by one character.
+
+    2026-11-18 (mobilezone): ``exp-7ebeb094eceebcce`` came back as
+    ``exp-7ebeb094eceebce`` in both answers, which were refused. In experience IDs
+    and references only, a hex ID absent from the delivered ones that is one edit
+    from exactly one of them is replaced; anything else still fails validation.
+    Returns the corrections made.
+    """
+    import re
+
+    known = {eid.removeprefix("exp-") for eid in experience_ids}
+    repairs = {}
+
+    def fix(text):
+        def replace(match):
+            token = match.group(0)
+            near = [] if token in known else [h for h in known if _one_edit(token, h)]
+            if len(near) != 1:
+                return token
+            repairs[token] = near[0]
+            return near[0]
+
+        return re.sub(r"[0-9a-f]{8,}", replace, text) if isinstance(text, str) else text
+
+    def walk(value):
+        if isinstance(value, list):
+            for item in value:
+                walk(item)
+        elif isinstance(value, dict):
+            for key, item in value.items():
+                if key == "experience_id":
+                    value[key] = fix(item)
+                elif key.endswith("_refs") and isinstance(item, list):
+                    value[key] = [fix(ref) for ref in item]
+                else:
+                    walk(item)
+
+    walk(choices)
+    return [{"from": old, "to": new} for old, new in repairs.items()]
+
+
 def repaired_global_refs(plan):
     """Correct a global reference only when it names exactly one delivered reference.
 
@@ -278,6 +329,12 @@ def _execute_content_generation(
                 admit_call,
             )
             try:
+                slips = repaired_experience_ids(
+                    choices, [row["experience_id"] for row in original["assignments"]]
+                )
+                if slips:
+                    helper.atomic_write_json(call / "id-repairs.json", {"repairs": slips})
+                    print("resume_plan_experience_id_repaired: " + json.dumps(slips), flush=True)
                 plan = _expanded_plan(
                     original,
                     choices,

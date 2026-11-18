@@ -8,6 +8,7 @@ import os
 import re
 import threading
 import time
+import traceback
 from contextlib import contextmanager
 from contextvars import ContextVar
 from copy import deepcopy
@@ -26,6 +27,7 @@ from .application_flow import pipeline_http_entry
 from .application_input_binding import job_input_revision
 from .application_match_refresh import match_refresh_running, require_no_other_match_refresh
 from .application_match_scoring import calculate_match_score, combined_score, score_tier
+from .application_settings import score_thresholds
 from .career_portal_data import PortalDataError
 from .job_screening import job_country, screen_applications
 from .validation.hashing import record_digest as digest
@@ -2902,13 +2904,28 @@ class ApplicationPipeline:
         while not self._closed.wait(interval):
             try:
                 self._tick()
-            except Exception:
+            except Exception as error:
+                # 2026-11-16 (Zurich): closing the App ends a running step; the reopened
+                # App resumes it, so this is not a failure to record.
+                if self._closed.is_set():
+                    return
                 self._runtime_error = "pipeline_checkpoint_unavailable"
                 self._closed.set()
+                frames = traceback.extract_tb(error.__traceback__)
                 try:
                     with self._guard:
                         state = self._load()
                         self._pause_owned_worker(state)
+                        # The stop names the unexpected error and where it was raised.
+                        state["last_stop_error"] = {
+                            "code": type(error).__name__,
+                            "location": " < ".join(
+                                f"{Path(frame.filename).name}:{frame.lineno}"
+                                for frame in reversed(frames[-4:])
+                            ),
+                            "detail": str(error)[:300],
+                            "at": time.time(),
+                        }
                         self._stop(state, "needs_recheck", "自动流程记录未能核验，已停止自动动作。")
                 except Exception:
                     pass
@@ -3363,6 +3380,11 @@ class ApplicationPipeline:
 
                 if advance_material_update(self, state):
                     return
+            if self.computer_use:
+                if not state.get("material_update_id"):
+                    state["status"] = "starting_worker"
+                    self._save(state)
+                return
             current = self.worker.snapshot()
             task = self._task(state)
             job = next(
@@ -3439,7 +3461,9 @@ class ApplicationPipeline:
                         analysis["requirements"],
                     )
                     tier = item["score_tier"] = score_tier(
-                        score, needs_review=bool(models and models["needs_review"])
+                        score,
+                        needs_review=bool(models and models["needs_review"]),
+                        thresholds=score_thresholds(self.flow.root),
                     )
                 except (OSError, PortalDataError, KeyError, TypeError, ValueError):
                     pass
@@ -3563,7 +3587,11 @@ class ApplicationPipeline:
             )
             item["score"] = score
             item.update(
-                score_tier=score_tier(score, needs_review=bool(models and models["needs_review"])),
+                score_tier=score_tier(
+                    score,
+                    needs_review=bool(models and models["needs_review"]),
+                    thresholds=score_thresholds(self.flow.root),
+                ),
                 score_analysis_id=task["analysis_id"],
             )
             eligibility = task_eligibility(task)
@@ -3587,6 +3615,16 @@ class ApplicationPipeline:
                 )
                 return
             self._save(state)
+        elif (
+            outcome is not None
+            and outcome["status"] == "rejected"
+            and outcome["error_code"] == "flow_interrupted"
+            and item.get("interrupted_retry") != outcome["attempt_id"]
+        ):
+            # 2026-11-16 (Zurich): an App restart ended the analysis; it runs again once.
+            item["interrupted_retry"] = outcome["attempt_id"]
+            state["active_task_id"] = task["id"]
+            self._retry_analysis(state, uuid4().hex)
         elif outcome is not None and outcome["status"] == "rejected":
             item.update(
                 reason=outcome["error_code"],
@@ -4069,6 +4107,34 @@ class ApplicationPipeline:
             return self.snapshot()
         if state["control"] == "running" and action == "continue":
             raise PortalDataError("pipeline_running", "当前岗位正在填写。", 409)
+        update = (self._task(state).get("material_update") or {}) if action == "continue" else {}
+        if update.get("explicit_source") and update.get("status") != "complete":
+            # 2026-11-18 (Neowise): a refill uploaded the old CV while an edited résumé
+            # waited. The Worker never opens a page here, so its closed-page material
+            # update adopts the new PDF first; the fill starts when it is complete.
+            from .application_bound_materials import begin as begin_material_update
+
+            if begin_material_update(self.flow, state["active_task_id"], payload["request_id"]):
+                requests.append(
+                    {
+                        "request_id": payload["request_id"],
+                        "action": action,
+                        "status": "complete",
+                        "at": time.time(),
+                    }
+                )
+                state.pop("computer_use", None)
+                state.pop("resume_status", None)
+                state.update(
+                    control="running",
+                    status="continuing_worker",
+                    notification=None,
+                    wait_reason="material_update",
+                    material_update_id=self._task(state)["material_update"]["id"],
+                    material_update_continue_request_id=payload["request_id"],
+                )
+                self._save(state)
+                return self.snapshot()
         requests.append(
             {
                 "request_id": payload["request_id"],

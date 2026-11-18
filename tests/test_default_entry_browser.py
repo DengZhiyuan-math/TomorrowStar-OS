@@ -217,7 +217,7 @@ def test_material_preparation_keeps_its_navigation_label(portal, browser_page):
         ),
     )
     page.goto(portal.origin + "/#flow")
-    expect(page.locator("#flow-title")).to_have_text("投递工作台")
+    expect(page.locator("#flow-observe")).to_be_visible()
     expect(page.locator('[data-view="flow"]')).to_contain_text("材料准备")
     page.locator("#flow-observe").click()
     expect(page.locator('[data-view="flow"]')).to_contain_text("材料准备")

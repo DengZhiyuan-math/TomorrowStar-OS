@@ -993,6 +993,8 @@ def main() -> int:
             else None,
             flow_intake_factory=intake_factory,
             application_processed_label=args.application_processed_label,
+            # The 设置 page edits the App's own portal.json (2026-11-16).
+            portal_config=support / "portal.json" if synthetic_root is None else None,
             flow_resume_factory=(
                 (lambda *values: synthetic_preparation_resumes(*values, application=True))
                 if args.synthetic_mail

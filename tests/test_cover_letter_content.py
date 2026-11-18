@@ -168,6 +168,9 @@ def test_successfully_delivered_source_scope_is_validated_before_review(tmp_path
     assert caught.value.code == "letter_generation_failed"
     assert len(calls) == 1
     assert json.loads((tmp_path / "bad/failure.json").read_text())["status"] == "failed"
+    # 2026-11-16 (isolutions): the reason the retried writer sees names the reference.
+    (rejection,) = tmp_path.rglob("validation-failure.json")
+    assert "foreign-source" in json.loads(rejection.read_text())["reason"]
 
 
 @pytest.mark.parametrize("lost_stage", ["schema.json", "review-schema.json"])
@@ -789,3 +792,22 @@ def test_letter_v5_maps_latin_one_signs_and_v4_keeps_its_own_table(tmp_path):
     assert "Research · modelling — 20 °C." in rendered["text"]
     v4 = render_cover_letter(content, TEMPLATE, renderer="cover-letter-renderer/v4")
     assert "Research · modelling --- 20 °C." in v4["tex"]
+
+
+def test_a_quote_may_skip_whole_sentences_but_not_reword_or_cut_one():
+    # 2026-11-18 (Exa): the writer twice left one middle sentence out of a fact quote.
+    from career_evidence_graph.application_cover_letter import _quoted
+
+    source = (
+        "The user explained A. This is a limit. The user distinguished B; neither substitutes."
+        " This does not attribute parser work. The user noted C. The answer did not establish D."
+    )
+    assert _quoted("This is a limit. The user distinguished B; neither substitutes.", source)
+    assert _quoted(
+        "The user explained A. This is a limit. The user distinguished B; neither substitutes."
+        " The user noted C.",
+        source,
+    )
+    assert not _quoted("The user noted C. The user explained A.", source)  # order changed
+    assert not _quoted("The user explained A. The user noted C, briefly.", source)  # reworded
+    assert not _quoted("The user explained A. user noted C.", source)  # partial sentence

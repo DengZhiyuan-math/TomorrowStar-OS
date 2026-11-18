@@ -25,6 +25,7 @@ def fields(text, directory):
         "employment_type": "",
         "posted_date": "",
         "is_full_jd": True,
+        "open_application": False,
     }
 
 
@@ -61,6 +62,25 @@ def test_missing_identity_keeps_source_draft_without_inventing_fields(applicatio
         assert state["job"]["missing_fields"] == ["company"]
         assert applications.list_applications() == []
         assert list((tmp_path / "intake" / "runs").glob("*/source.json"))
+    finally:
+        service.close()
+
+
+def test_a_general_application_form_is_saved_as_an_open_application(applications, tmp_path):
+    # 2026-11-16 (Neowise): the form names its areas of work but no single role.
+    general = fields("", None) | {"role_title": "", "is_full_jd": False, "open_application": True}
+    service = ApplicationIntakeService(
+        applications,
+        tmp_path / "intake",
+        fetcher=lambda url: page(url) | {"job_fields": {}},
+        extractor=lambda *_: general,
+    )
+    try:
+        service.ingest(url="https://jobs.synthetic.example/general-application", request_id="e" * 32)
+        state = ready(service)
+        assert state["job"]["status"] == "saved"
+        saved = applications.get_application(state["job"]["application_id"])
+        assert (saved["company"], saved["role_title"]) == ("Synthetic Labs", "Open Application")
     finally:
         service.close()
 

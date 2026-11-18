@@ -9,7 +9,7 @@
   function input(label, type = "text") { const control = el(type === "textarea" || type === "select" ? type : "input"); if (control.tagName === "INPUT") control.type = type; control.setAttribute("aria-label", label); const wrap = el("label", label); wrap.append(control); return [wrap, control]; }
   function button(label, action) { const item = el("button", label, "button button-secondary"); item.type = "button"; item.addEventListener("click", action); return item; }
   function check(label) { const [wrap, control] = input(label, "checkbox"); wrap.className = "handoff-check"; return [wrap, control]; }
-  const heading = el("div", "", "page-heading handoff-heading"); const intro = el("div"); intro.append(el("div", "CODEX HANDOFF", "eyebrow"), el("h1", "一份任务，一次交接"), el("p", "准备已批准的资料，交给 Codex 操作，再由你复核并在原页面提交。")); heading.append(intro);
+  const heading = el("div", "", "page-heading handoff-heading"); const intro = el("div"); intro.append(el("h1", "一份任务，一次交接"), el("p", "准备已批准的资料，交给 Codex 操作，再由你复核并在原页面提交。")); heading.append(intro);
   const message = el("p", "正在读取持久交接记录…", "handoff-message"); message.setAttribute("role", "status");
   const refresh = button("刷新交接记录", async () => { if (body.dataset.dirty === "true" && !await confirmAction("刷新后放弃当前未保存的交接输入，并读取持久记录核对结果。", "刷新并核对")) return; refreshState(); });
   const body = el("div", "", "handoff-body"); heading.append(refresh); root.append(heading, message, body);

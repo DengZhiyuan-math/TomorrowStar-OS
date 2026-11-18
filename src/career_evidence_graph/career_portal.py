@@ -151,6 +151,7 @@ def create_server(
     write_admission_policy: str = "strict",
     resume_model_mode: str | None = None,
     flow_automatic_latex_base=None,
+    portal_config: Path | None = None,
 ) -> ThreadingHTTPServer:
     """Bind only loopback; all input roots are selected explicitly by the operator."""
     if not 0 <= port <= 65535:
@@ -213,6 +214,14 @@ def create_server(
     intake, intake_unavailable = runtime.intake, runtime.intake_unavailable
     pipeline, pipeline_unavailable = runtime.pipeline, runtime.pipeline_unavailable
     readiness, flow_sources = runtime.readiness, runtime.flow_sources
+    from .application_settings import Settings
+
+    # The 设置 page (2026-11-16); each section is available only where its file is.
+    settings = Settings(
+        flow_root=flow.root if flow and pipeline else None,
+        fill_root=(getattr(pipeline, "computer_use", None) or {}).get("root"),
+        portal_config=portal_config,
+    )
     token = secrets.token_urlsafe(32)
 
     def worker_reference(_state: dict, task: dict) -> dict:
@@ -353,6 +362,7 @@ def create_server(
                     "/static/worker.css": ("worker.css", "text/css; charset=utf-8"),
                     "/static/handoff.js": ("handoff.js", "text/javascript; charset=utf-8"),
                     "/static/handoff.css": ("handoff.css", "text/css; charset=utf-8"),
+                    "/static/settings.js": ("settings.js", "text/javascript; charset=utf-8"),
                 }
                 if path in static:
                     filename, mime = static[path]
@@ -364,6 +374,8 @@ def create_server(
                     self._send(200, raw, mime)
                 elif path == "/api/health":
                     self._json({"ok": True, "local_only": True})
+                elif path == "/api/settings":
+                    self._json(settings.snapshot())
                 elif path == "/api/handoff/state":
                     self._json(handoff.snapshot() if handoff else {"enabled": False})
                 elif path == "/api/pipeline/state":
@@ -648,6 +660,16 @@ def create_server(
             self._json(response, 200 if patch else 201)
 
         def do_POST(self) -> None:
+            if self._path() == "/api/settings":
+                if not self._admit(write=True):
+                    return
+                try:
+                    self._json(settings.save(self._body()))
+                except PortalDataError as error:
+                    self._error(error.code, str(error), error.status)
+                except (OSError, ValueError, KeyError, TypeError):
+                    self._error("settings_result_unknown", "设置保存结果未知，请刷新后核对。", 500)
+                return
             if self._path().startswith("/api/resume-review/"):
                 if not self._admit(write=True):
                     return

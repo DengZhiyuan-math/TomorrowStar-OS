@@ -486,3 +486,66 @@ def test_bound_material_commit_keeps_identity_only_and_retains_original_receipts
     finally:
         os.close(descriptor)
         worker.store.worker_lock_descriptor = None
+
+
+def test_a_chrome_refill_first_adopts_the_users_edited_resume(
+    bound_pipeline, monkeypatch, tmp_path
+):
+    """2026-11-18 (Neowise): Continue refilled the form in Chrome with the old CV while
+    the user's edited résumé waited; the edit is now the uploaded file."""
+    import hashlib
+    import time
+    from pathlib import Path
+
+    from career_evidence_graph import application_computer_use
+    from career_evidence_graph.application_worker import start_run
+
+    server, store, _calls = bound_pipeline
+    flow, worker, pipeline = (
+        server.application_flow_service,
+        server.worker_service,
+        server.application_pipeline_service,
+    )
+    start_run(worker.store)
+    pipeline.pause()
+    pipeline.computer_use = {"executable": "/bin/codex", "root": tmp_path / "cu"}
+    contexts = []
+
+    def fill(executable, context, root, **options):
+        contexts.append(context)
+        return {"status": "ready_for_review", "summary": "", "filled": [], "unanswered": []}
+
+    monkeypatch.setattr(application_computer_use, "run_fill", fill)
+    monkeypatch.setattr(
+        application_computer_use, "stage_files", lambda context, folder=None: context
+    )
+    monkeypatch.setattr(
+        worker.store, "_native_answer_reference", lambda job: {"confirmed_answers": []}
+    )
+    with pipeline._control() as state:
+        state.update(
+            control="paused",
+            status="ready_for_review",
+            computer_use={"run_id": "earlier-fill", "started_at": 0, "company": "Synthetic"},
+        )
+        pipeline._save(state)
+    # A Chrome fill never claims the Worker.
+    current = worker.store.load()
+    current["controller"] = ""
+    worker.store.save(current)
+    original = flow.snapshot()["active_task"]
+    request_material_update(flow)
+    pipeline.continue_current(request_id="refill-with-edit")
+    for _ in range(500):
+        pipeline._tick()
+        if contexts or pipeline.snapshot()["control"] == "paused":
+            break
+        time.sleep(0.01)
+    assert contexts, pipeline.snapshot()
+    task = flow.snapshot(original["id"])["active_task"]
+    assert task["resume_id"] != original["resume_id"]
+    assert task["material_update"]["status"] == "complete"
+    (context,) = contexts
+    uploaded = hashlib.sha256(Path(context["resume_path"]).read_bytes()).hexdigest()
+    assert uploaded == task["resume_sha256"]
+    assert EDITED_LINE in store.read_export(task["resume_id"])["latex_source"]

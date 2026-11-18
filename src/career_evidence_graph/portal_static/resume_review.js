@@ -67,7 +67,7 @@ function renderPrismReview() {
   const state = prismReviewState;
   const heading = node("div", "page-heading");
   const intro = node("div", "");
-  intro.append(node("div", "eyebrow", "LATEX RESUME REVIEW"), node("h1", "", "简历审阅（Prism）"), node("p", "", "在 Prism 编辑并保存，再将 LaTeX 与对应 PDF 接回这里。真实申请继续暂停。"));
+  intro.append(node("h1", "", "简历审阅（Prism）"), node("p", "", "在 Prism 编辑并保存，再将 LaTeX 与对应 PDF 接回这里。真实申请继续暂停。"));
   heading.append(intro);
   root.replaceChildren(heading);
   if (!state?.enabled) {

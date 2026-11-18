@@ -390,7 +390,7 @@ def test_answer_saves_without_refreshing_native_diagnostics_in_either_control_st
             ),
         )
         page.get_by_label("Start date · 补充信息").fill("2026-11-01")
-        page.locator("#flow-title").click()
+        page.locator(":focus").blur()
         expect(page.locator("#flow-notice")).to_contain_text("已自动保存到信息库")
         assert [row["operation"] for row in writes] == ["answer"]
         assert page.evaluate("window.__checks.length") == 0
@@ -429,7 +429,7 @@ def test_running_answer_with_unknown_native_diagnostic_saves_through_real_api(
             lambda request: writes.append(request.url) if request.method == "POST" else None,
         )
         page.get_by_label("Start date · 补充信息").fill("2026-11-01")
-        page.locator("#flow-title").click()
+        page.locator(":focus").blur()
         expect(page.locator("#flow-notice")).to_contain_text("已自动保存到信息库")
         assert [url.rsplit("/", 1)[-1] for url in writes] == ["worker-action"]
         assert starts == []
