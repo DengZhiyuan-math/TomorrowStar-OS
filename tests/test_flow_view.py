@@ -395,3 +395,30 @@ def test_a_long_hold_logs_its_named_steps(roots, tmp_path, monkeypatch):
             pass
     finally:
         runtime.close()
+
+
+def test_the_page_task_leaves_out_update_copies_and_superseded_results():
+    # 2026-11-18 (Exa): three résumé edits made one page poll 61 MB; it timed out.
+    from career_evidence_graph.application_flow_view import page_task
+
+    def row(stage, identifier, adopted=True):
+        return {"stage": stage, "adopted": adopted, "result": {"id": identifier}}
+
+    task = {
+        "draft_id": "d2",
+        "resume_id": "r2",
+        "material_update": {"id": "u", "status": "staged", "old": {}, "candidate": {}},
+        "material_update_history": [{"old": {}, "candidate": {}}],
+        "artifacts": [
+            row("analysis", "a1"),
+            row("resume", "d1"),
+            row("export", "r1"),
+            row("resume", "d2"),
+            row("export", "r2"),
+            row("export", "r3", adopted=False),
+        ],
+    }
+    page_task(task)
+    assert task["material_update"] == {"id": "u", "status": "staged"}
+    assert "material_update_history" not in task
+    assert [r["result"]["id"] for r in task["artifacts"]] == ["a1", "d2", "r2"]

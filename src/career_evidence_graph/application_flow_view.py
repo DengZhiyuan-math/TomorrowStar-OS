@@ -25,6 +25,37 @@ def preparation_activity(task):
     }
 
 
+_CURRENT_IDS = ("analysis_id", "draft_id", "resume_id", "letter_id", "letter_export_id")
+
+
+def page_task(task):
+    """Leave out of the page's whole task what the page never reads.
+
+    2026-11-18 (Exa): each material update kept whole task copies (``old``,
+    ``candidate``) and every edit added another adopted draft and PDF, so one poll
+    reached 61 MB, timed out and locked the page's buttons. The page reads the
+    update's status and editable draft, and the adopted result each stage holds now.
+    """
+    if not task:
+        return task
+    update = task.get("material_update")
+    if isinstance(update, dict):
+        task["material_update"] = {
+            key: value for key, value in update.items() if key not in {"old", "candidate"}
+        }
+    task.pop("material_update_history", None)
+    if isinstance(task.get("artifacts"), list):
+        current = {task.get(key) for key in _CURRENT_IDS} - {None}
+        adopted = [row for row in task["artifacts"] if row.get("adopted")]
+        latest = {row.get("stage"): id(row) for row in adopted}
+        task["artifacts"] = [
+            row
+            for row in adopted
+            if id(row) in latest.values() or (row.get("result") or {}).get("id") in current
+        ]
+    return task
+
+
 class FlowView:
     """Project the Flow page state; old keys keep their shape, new keys are additive.
 
@@ -228,4 +259,8 @@ class FlowView:
                 }
         state["progress"] = progress
         state["preparation_activity"] = preparation_activity(task)
+        if not preparation_only:
+            for row in state.get("tasks", []):
+                page_task(row)
+            page_task(task)
         return state
