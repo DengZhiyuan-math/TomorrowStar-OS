@@ -211,6 +211,8 @@ _FILL_RULES = """Fill every field of the application form, across its steps:
 - Upload resume_path to the resume or CV field, and cover_letter_path to a cover
   letter upload field if there is one, {upload} If there is no upload field
   but a cover-letter text box, paste cover_letter_text.
+- When a field states or enforces a length limit, shorten your text to fit it
+  without changing its facts, and check that no length error remains.
 - Skip any "autofill from resume" helper.
 
 Never click Submit, Apply, Send or any button that sends the application, and never

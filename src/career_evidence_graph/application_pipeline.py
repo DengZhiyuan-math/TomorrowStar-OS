@@ -3380,6 +3380,11 @@ class ApplicationPipeline:
 
                 if advance_material_update(self, state):
                     return
+            if self.computer_use:
+                if not state.get("material_update_id"):
+                    state["status"] = "starting_worker"
+                    self._save(state)
+                return
             current = self.worker.snapshot()
             task = self._task(state)
             job = next(
@@ -4102,6 +4107,34 @@ class ApplicationPipeline:
             return self.snapshot()
         if state["control"] == "running" and action == "continue":
             raise PortalDataError("pipeline_running", "当前岗位正在填写。", 409)
+        update = (self._task(state).get("material_update") or {}) if action == "continue" else {}
+        if update.get("explicit_source") and update.get("status") != "complete":
+            # 2026-11-18 (Neowise): a refill uploaded the old CV while an edited résumé
+            # waited. The Worker never opens a page here, so its closed-page material
+            # update adopts the new PDF first; the fill starts when it is complete.
+            from .application_bound_materials import begin as begin_material_update
+
+            if begin_material_update(self.flow, state["active_task_id"], payload["request_id"]):
+                requests.append(
+                    {
+                        "request_id": payload["request_id"],
+                        "action": action,
+                        "status": "complete",
+                        "at": time.time(),
+                    }
+                )
+                state.pop("computer_use", None)
+                state.pop("resume_status", None)
+                state.update(
+                    control="running",
+                    status="continuing_worker",
+                    notification=None,
+                    wait_reason="material_update",
+                    material_update_id=self._task(state)["material_update"]["id"],
+                    material_update_continue_request_id=payload["request_id"],
+                )
+                self._save(state)
+                return self.snapshot()
         requests.append(
             {
                 "request_id": payload["request_id"],

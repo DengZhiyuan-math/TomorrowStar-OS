@@ -495,6 +495,13 @@ def generation_context(store, identifier):
             + " or retained_protected_scopes keeps it. Keep fewer than 3 only when fewer have"
             + " real support. Order kept experiences by that support, strongest first, not by"
             + " date or the delivered order."
+            # 2026-11-17 (Neowise, user: 选材没有抓住这个重点): "agentic development is core
+            # to how we work" was carried by Prism Local's agent panel plus a LaTeX bullet;
+            # the deeper multi-agent Proof CLI work was dropped as "already shown".
+            + " When the JD names a way of working as central (such as agentic development),"
+            + " keep the experience with the deepest evidence of it, not merely one that"
+            + " touches it, and its writing_requirements lead with those facts; a kept"
+            + " experience's points leave out facts that support no requirement."
             # 2026-11-04: a planner cited a dropped experience's fact, then a mis-copied ID.
             + " headline, summary and skills may cite only the allowed_fact_refs and"
             + " allowed_inference_refs of the assignments you keep; copy each ID exactly."
