@@ -190,3 +190,33 @@ def test_pipeline_resends_an_author_without_answer_after_the_wait(current_pipeli
         pipeline._tick()
     assert calls == [task["id"]]
     assert pipeline.snapshot()["model_resend"]["stage"] == "resume"
+
+
+def test_an_experience_id_miscopied_by_one_character_is_corrected_only_when_unique():
+    # 2026-11-18 (mobilezone): the planner dropped one "c" of exp-7ebeb094eceebcce.
+    from career_evidence_graph.application_resume_author import repaired_experience_ids
+
+    delivered = ["exp-7ebeb094eceebcce", "exp-18bbb862ac2a0517", "exp-aaaa1111", "exp-aaaa1112"]
+    choices = {
+        "assignments": [{"experience_id": "exp-7ebeb094eceebce", "writing_requirements": []}],
+        "headline": {"fact_refs": ["exp-7ebeb094eceebce::exp-7ebeb094eceebce-human-cv-L105-03"]},
+        "summary": [
+            {
+                "text": "Kept as written: 7ebeb094eceebce",
+                "fact_refs": ["exp-7ebeb094eceebcce::7ebeb094eceebce-fact-0014"],
+            }
+        ],
+        # One edit from two delivered IDs: left to fail validation.
+        "skills": [{"fact_refs": ["exp-aaaa1113::aaaa1113-fact-1"]}],
+    }
+    repairs = repaired_experience_ids(choices, delivered)
+    assert repairs == [{"from": "7ebeb094eceebce", "to": "7ebeb094eceebcce"}]
+    assert choices["assignments"][0]["experience_id"] == "exp-7ebeb094eceebcce"
+    assert choices["headline"]["fact_refs"] == [
+        "exp-7ebeb094eceebcce::exp-7ebeb094eceebcce-human-cv-L105-03"
+    ]
+    assert choices["summary"][0]["fact_refs"] == [
+        "exp-7ebeb094eceebcce::7ebeb094eceebcce-fact-0014"
+    ]
+    assert choices["summary"][0]["text"] == "Kept as written: 7ebeb094eceebce"
+    assert choices["skills"][0]["fact_refs"] == ["exp-aaaa1113::aaaa1113-fact-1"]

@@ -164,12 +164,36 @@ def validate_letter(content, *, sources=None, application=None, inputs_revision=
                         "letter quotation is outside delivered source scope: source id "
                         f"{identifier} is not a delivered source; copy ids exactly"
                     )
-                if quote not in by_id[identifier]["text"]:
+                if not _quoted(quote, by_id[identifier]["text"]):
                     raise ValueError(
                         "letter quotation is outside delivered source scope: the quote for "
                         f"{identifier} is not verbatim in that source"
                     )
     return value
+
+
+def _quoted(quote, source):
+    """A quote is literal, or whole literal sentences of the source in their order.
+
+    2026-11-18 (Exa): twice the writer quoted a fact without one middle sentence;
+    each sentence was exact but the quote was refused. Skipping a sentence is
+    allowed; a reworded or partial sentence is not.
+    """
+    if quote in source:
+        return True
+    start = 0
+    for sentence in re.split(r"(?<=[.!?])\s+", quote.strip()):
+        found = source.find(sentence, start)
+        while found >= 0 and not (
+            (found == 0 or re.search(r"[.!?]\s+$", source[:found]))
+            and re.match(r"\s|$", source[found + len(sentence) :])
+            and sentence[-1] in ".!?"
+        ):
+            found = source.find(sentence, found + 1)
+        if found < 0:
+            return False
+        start = found + len(sentence)
+    return True
 
 
 def _template_parts(template):
