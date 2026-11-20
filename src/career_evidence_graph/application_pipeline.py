@@ -1784,7 +1784,32 @@ class ApplicationPipeline:
                         self._save(state)
                         return self.start(request_id=payload["request_id"])
                     if not state.get("active_task_id"):
-                        if state["control"] == "paused" and state["status"] == "needs_input":
+                        intake = self.intake.snapshot()
+                        cut = next(
+                            (
+                                row
+                                for row in intake.get("recommendations", [])
+                                if row["id"] == state.get("current_recommendation_id")
+                                and row.get("acquisition_checkpoint") == "needs_recheck"
+                            ),
+                            None,
+                        )
+                        if (
+                            state["control"] == "paused"
+                            and state["status"] == "needs_recheck"
+                            and cut is not None
+                            and intake.get("status") != "running"
+                            and self.intake.store.abandon_pending_acquisition(cut["id"])
+                        ):
+                            # 2026-11-20: an App restart cut off this JD read; Continue
+                            # reads the job page again instead of waiting on it forever.
+                            state["source_receipt"] = {
+                                "recommendation_id": cut["id"],
+                                "recommendation_revision": cut["revision"],
+                                "status": "selected",
+                                "retry_request_id": payload["request_id"],
+                            }
+                        elif state["control"] == "paused" and state["status"] == "needs_input":
                             record = next(
                                 (
                                     row

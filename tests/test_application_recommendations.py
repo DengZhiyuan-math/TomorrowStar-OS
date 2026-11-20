@@ -1254,3 +1254,19 @@ def test_a_reread_posting_matches_its_saved_note_despite_format(description, sam
         )
         is same
     )
+
+
+def test_a_read_cut_off_by_a_restart_can_be_closed_and_read_again(recommendation_store):
+    store = recommendation_store
+    url = "https://www.linkedin.com/jobs/view/10009"
+    row = store.import_messages(
+        [{"message_id": "cut", "body_text": "Summary.", "links": [url]}],
+        [{"message_id": "cut", "url": url, "jd_completeness": "unknown"}],
+    )["recommendations"][0]
+    assert store.begin_acquisition(row["id"], row["revision"])["status"] == "fetch"
+    # 2026-11-20: the App restarted mid-read; the attempt stays pending with no capture.
+    assert store.snapshot()["recommendations"][0]["acquisition_checkpoint"] == "needs_recheck"
+    assert store.begin_acquisition(row["id"], row["revision"])["status"] == "needs_recheck"
+    assert store.abandon_pending_acquisition(row["id"])
+    assert store.snapshot()["recommendations"][0]["acquisition_checkpoint"] == "failed"
+    assert store.begin_acquisition(row["id"], row["revision"], retry=True)["status"] == "fetch"

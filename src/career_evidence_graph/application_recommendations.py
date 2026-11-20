@@ -341,6 +341,20 @@ class RecommendationStore:
                 }
             return {"status": status, "recommendation": record}
 
+    def abandon_pending_acquisition(self, identifier: str) -> bool:
+        """Close a read an App restart cut off, on the user's Continue (2026-11-20).
+
+        Only a pending attempt with no captured response is closed; reading a public
+        job page again has no side effect. True when one was closed.
+        """
+        with self.applications.write_lock():
+            attempt = self._acquisition(identifier)
+            if not attempt or attempt["status"] != "pending":
+                return False
+            attempt.update(status="saved", abandoned_at=datetime.now(UTC).isoformat())
+            self._save_acquisition(attempt)
+            return True
+
     def finish_acquisition(self, identifier: str, attempt_id: str, capture: dict) -> dict:
         """Retain one response before publishing its per-job result."""
         with self.applications.write_lock():
