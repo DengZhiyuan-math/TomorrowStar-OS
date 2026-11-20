@@ -883,3 +883,16 @@ def test_required_german_the_user_lacks_skips_whatever_the_score(tmp_path, appli
     analysis = {"second_opinion": {"status": "complete", "requirements": second}}
     assert german_required_unmet(analysis, rows)
     assert score_tier(score, german=True) == "skip"
+
+
+def test_a_requirement_repeated_in_a_later_plain_group_stays_in_the_first(
+    tmp_path, application, output
+):
+    # 2026-11-20 (ZKB): "several years of experience" came back in two plain groups.
+    repeated = deepcopy(output["groups"][0])
+    repeated.update(label="Background", weight=5, requirements=repeated["requirements"][1:])
+    output["groups"].append(repeated)
+    value = brief(tmp_path, application, output)
+    assert [group["label"] for group in value["groups"]] == ["Business", "Methods"]
+    texts = [row["text"] for row in brief_requirements(value)]
+    assert texts.count("Validate risk") == 1

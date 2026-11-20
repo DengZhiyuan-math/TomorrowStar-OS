@@ -231,7 +231,15 @@ def _canonical_groups(output, jd):
                 raise _invalid("重复业务分组的权重不一致。")
             continue
         if any(key in atom_owners for key in atoms):
-            raise _invalid("不同业务分组包含重复要求，会重复计分。")
+            if group["operator"] != "all" or alternatives is not None:
+                raise _invalid("不同业务分组包含重复要求，会重复计分。")
+            # 2026-11-20 (ZKB): the model listed one requirement in two plain groups.
+            # It stays in the first; a group left empty is dropped, as weights renormalize.
+            atoms = {key: atom for key, atom in atoms.items() if key not in atom_owners}
+            if not atoms:
+                continue
+            signature["atoms"] = sorted(atoms)
+            group_id = "group-" + digest(signature)[:24]
         group["id"] = group_id
         group["requirements"] = [
             atom | {"id": "req-" + digest([group_id, key])[:24]} for key, atom in atoms.items()
