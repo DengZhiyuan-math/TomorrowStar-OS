@@ -384,3 +384,12 @@
 .settings-status { font-size:11px; color:#60834b; }
 .settings-status.is-error { color:#9d5b4d; }
 .nav-settings { margin-top:25px; }
+
+/* 2026-11-20: jobs filled in this batch, one tab each, beside the current job. */
+.flow-submit-tabs { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:14px 30px 0; }
+.flow-submit-tab { border:1px solid #d6e0d4; background:#f6f8f5; color:#40584a; border-radius:999px; padding:6px 14px; font-size:13px; cursor:pointer; max-width:320px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.flow-submit-tab.is-active { background:#4d6b58; border-color:#4d6b58; color:#fff; }
+.flow-submit-count { margin-left:auto; color:#68816e; font-size:13px; }
+.flow-submit-panel { padding:22px 30px 28px; }
+.flow-submit-panel h2 { margin:10px 0 8px; }
+.workflow-focus.showing-submit > .workflow-focus-main, .workflow-focus.showing-submit > .workflow-path { display:none; }

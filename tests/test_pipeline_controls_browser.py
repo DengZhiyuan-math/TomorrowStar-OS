@@ -573,3 +573,56 @@ def test_a_state_read_that_timed_out_is_cleared_once_reads_recover(portal, brows
         page.clock.fast_forward(1500)
         page.wait_for_timeout(20)
     expect(page.locator("#flow-notice")).to_be_hidden()
+
+
+def test_filled_jobs_get_a_tab_each_and_are_recorded_as_submitted_there(portal, browser_page):
+    from playwright.sync_api import expect
+
+    # 2026-11-20 (user): the batch's filled jobs sit beside the current job as tabs.
+    page = browser_page
+    waiting = [
+        {
+            "recommendation_id": f"rec-{name}",
+            "application_id": f"app-{name}",
+            "task_id": f"task-{name}",
+            "status": "skipped",
+            "reason": "awaiting_submit",
+            "company": name,
+            "role_title": "Data Engineer",
+            "pipeline_context": {
+                "computer_use": {
+                    "report": {"summary": f"Filled {name}.", "unanswered": ["Photo (optional)"]}
+                }
+            },
+        }
+        for name in ("Axept", "Cisco")
+    ]
+    writes = []
+
+    def read(route):
+        route.fulfill(json=pipeline_state(id="synthetic-pipeline", queue_mode=True, items=waiting))
+
+    def mark(route):
+        writes.append(route.request.post_data_json)
+        waiting.pop()
+        route.fulfill(json=pipeline_state(id="synthetic-pipeline", queue_mode=True, items=waiting))
+
+    page.route("**/api/pipeline/state", read)
+    page.route("**/api/pipeline/mark-submitted", mark)
+    # The card leads 自动申请 in the App; this synthetic portal keeps it on 今日工作.
+    page.goto(portal.origin + "/#overview")
+    tabs = page.locator("#flow-submit-tabs [role=tab]")
+    expect(tabs).to_have_count(3)
+    expect(tabs.nth(0)).to_have_text("当前岗位")
+    expect(page.locator("#flow-submit-tabs")).to_contain_text("2 个已填好，等你提交")
+    tabs.nth(2).click()
+    panel = page.locator("#flow-submit-panel")
+    expect(panel).to_contain_text("Cisco · Data Engineer")
+    expect(panel).to_contain_text("Filled Cisco.")
+    expect(panel).to_contain_text("Photo (optional)")
+    expect(page.locator("#workflow-focus .workflow-path")).to_be_hidden()
+    page.locator("#flow-submit-done").click()
+    expect(tabs).to_have_count(2)
+    expect(page.locator("#flow-submit-panel")).to_have_count(0)
+    expect(page.locator("#workflow-focus .workflow-path")).to_be_visible()
+    assert writes[0]["application_id"] == "app-Cisco"

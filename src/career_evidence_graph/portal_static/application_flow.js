@@ -2430,6 +2430,48 @@
       task_id: task.id, task_revision: task.codex_handoff_restart?.origin_task_revision || task.revision,
     }) }), { scope: taskScope() });
   }
+  // 2026-11-20 (user): the jobs filled in this batch wait for Submit in Chrome. The
+  // card shows one tab per waiting job beside the current one, so each can be
+  // checked and recorded as submitted in turn.
+  let submitTab = null;
+  function renderSubmitTabs() {
+    const card = $("workflow-focus");
+    document.getElementById("flow-submit-tabs")?.remove();
+    document.getElementById("flow-submit-panel")?.remove();
+    if (!card) return;
+    const keyOf = item => item.application_id || item.recommendation_id;
+    const waiting = (pipeline?.items || []).filter(item => item.status === "skipped" && item.reason === "awaiting_submit");
+    if (submitTab && !waiting.some(item => keyOf(item) === submitTab)) submitTab = null;
+    card.classList.toggle("showing-submit", Boolean(submitTab));
+    if (!waiting.length) return;
+    const tabs = node("div", "flow-submit-tabs"); tabs.id = "flow-submit-tabs";
+    tabs.setAttribute("role", "tablist"); tabs.setAttribute("aria-label", "当前岗位与等你提交的岗位");
+    const tab = (label, key) => {
+      const element = node("button", `flow-submit-tab${submitTab === key ? " is-active" : ""}`, label);
+      element.type = "button"; element.setAttribute("role", "tab"); element.setAttribute("aria-selected", String(submitTab === key));
+      element.addEventListener("click", () => { submitTab = key; render(); });
+      return element;
+    };
+    tabs.append(tab("当前岗位", null));
+    for (const item of waiting) tabs.append(tab([item.company, item.role_title].filter(Boolean).join(" · ") || "已填好的岗位", keyOf(item)));
+    tabs.append(node("span", "flow-submit-count", `${waiting.length} 个已填好，等你提交`));
+    card.prepend(tabs);
+    const item = waiting.find(row => keyOf(row) === submitTab);
+    if (!item) return;
+    const report = item.pipeline_context?.computer_use?.report || {};
+    const panel = node("div", "flow-submit-panel"); panel.id = "flow-submit-panel"; panel.setAttribute("role", "tabpanel");
+    panel.append(
+      node("span", "workflow-state", "已填好 · 等你检查并提交"),
+      node("h2", "", [item.company, item.role_title].filter(Boolean).join(" · ") || "已填好的岗位"),
+      node("p", "", "申请表已在 Chrome 里填好，那个标签页还开着。请到 Chrome 检查内容，确认无误后由你点击 Submit，再回来点“我已提交”。"),
+    );
+    if (report.summary) panel.append(node("p", "flow-muted", `填写记录：${report.summary}`));
+    if (report.unanswered?.length) panel.append(node("p", "flow-muted", `未填写：${report.unanswered.join("；")}`));
+    const actions = node("div", "flow-actions");
+    actions.append(button("我已提交", () => pipelineAction("mark-submitted", { application_id: keyOf(item) }), "flow-submit-done"));
+    panel.append(actions);
+    tabs.after(panel);
+  }
   function render() {
     const focused = document.activeElement;
     const focusArea = [current, automation].find(area => area.contains(focused));
@@ -2438,7 +2480,7 @@
     const selection = focusKey && typeof focused.selectionStart === "number" ? [focused.selectionStart, focused.selectionEnd, focused.selectionDirection] : null;
     rendering = true;
     try {
-      renderMode(); renderPipeline(); renderIntake(); renderSavedJobs(); renderBatchSelection(); renderMaterialBatch(); renderTask(); lock();
+      renderMode(); renderPipeline(); renderIntake(); renderSavedJobs(); renderBatchSelection(); renderMaterialBatch(); renderTask(); renderSubmitTabs(); lock();
       if (focusKey && focusedTask === focusArea.dataset.taskId && !focused.isConnected) {
         const replacement = [...focusArea.querySelectorAll("input, textarea, select, button")].find(input => (input.dataset.answerKey || input.id || input.getAttribute("aria-label")) === focusKey);
         if (replacement && !replacement.disabled) { replacement.focus({ preventScroll: true }); if (selection) replacement.setSelectionRange(...selection); }
