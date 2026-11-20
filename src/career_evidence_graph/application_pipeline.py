@@ -127,6 +127,9 @@ SALARY_RESEARCH_WAIT = 180
 # How often the queue reads recommendation mail while it waits (2026-11-08: every
 # 60 s made about 100 runs an hour, each one or two model calls, for a few mails a day).
 MAIL_POLL = 1800
+# 2026-11-20 (user decision): the queue takes only jobs the user pastes or adds; it
+# no longer reads recommendation mail, so nothing arrives on its own.
+MAIL_INTAKE = False
 # A model call that produced no answer is Continued automatically after a wait, up to
 # this many times; then the job stops for the user (decided 2026-11-09).
 MODEL_RESENDS = 3
@@ -3084,7 +3087,7 @@ class ApplicationPipeline:
         # A paused step resuming into selection or a source would wait on it too; a
         # stopped mail read is the one wait this capture recovers.
         after_mail = {"selecting_job", "starting_source", "acquiring_source"}
-        if (
+        if not MAIL_INTAKE or (
             state["status"] in after_mail | {"reading_email", "starting_email"}
             or state.get("resume_status") in after_mail
             or state.get("mail_capture_error")
@@ -3108,6 +3111,10 @@ class ApplicationPipeline:
 
     def _queue(self, state):
         intake = self.intake.snapshot()
+        if not MAIL_INTAKE and state["status"] in {"reading_email", "starting_email"}:
+            state["status"] = "selecting_job"
+            self._save(state)
+            return
         if state["status"] == "reading_email":
             if state["intake_run_id"] is None:
                 if intake["status"] == "running":
@@ -3167,6 +3174,11 @@ class ApplicationPipeline:
                 self._save(state)
                 return
             if intake["status"] == "running":
+                return
+            if not MAIL_INTAKE:
+                if state["status"] != "waiting_for_mail":
+                    state["status"] = "waiting_for_mail"
+                    self._save(state)
                 return
             seen = {row.get("recommendation_id") for row in state["items"]}
             seen |= set(state.get("closed_postings", []))

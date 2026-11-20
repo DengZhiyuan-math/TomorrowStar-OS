@@ -35,3 +35,11 @@ def planner_path(monkeypatch, reading_limits):
     from career_evidence_graph import application_matching_pipeline
 
     monkeypatch.setattr(application_matching_pipeline, "_whole_library_plan", lambda *_: None)
+
+
+@pytest.fixture(autouse=True)
+def _mail_intake_on(monkeypatch):
+    """Queue tests drive the mail path; the App runs with it off since 2026-11-20."""
+    from career_evidence_graph import application_pipeline
+
+    monkeypatch.setattr(application_pipeline, "MAIL_INTAKE", True)

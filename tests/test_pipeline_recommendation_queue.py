@@ -935,3 +935,19 @@ def test_a_removed_posting_leaves_as_not_found_without_counting_as_an_outage(
     reasons = {row.get("reason") for row in state["items"] if row["status"] == "skipped"}
     assert reasons == {"posting_not_found"}
     assert "网络" not in ((state.get("notice") or {}).get("message") or "")
+
+
+def test_with_mail_intake_off_the_queue_reads_no_mail_and_waits_for_added_jobs(
+    queue_environment, monkeypatch
+):
+    from career_evidence_graph import application_pipeline
+
+    # 2026-11-20 (user decision): only jobs the user pastes or adds enter the queue.
+    monkeypatch.setattr(application_pipeline, "MAIL_INTAKE", False)
+    pipeline, flow, intake, _worker, reads, fetches, _messages = queue_environment
+    pipeline.start(request_id="manual-only")
+    waiting = drive(pipeline, "waiting_for_mail")
+    for _ in range(5):
+        pipeline._tick()
+    assert reads == [] and fetches == [] and flow.tasks == {}
+    assert pipeline.snapshot()["status"] == "waiting_for_mail" and waiting["items"] == []
