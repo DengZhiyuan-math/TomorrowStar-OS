@@ -127,9 +127,9 @@ SALARY_RESEARCH_WAIT = 180
 # How often the queue reads recommendation mail while it waits (2026-11-08: every
 # 60 s made about 100 runs an hour, each one or two model calls, for a few mails a day).
 MAIL_POLL = 1800
-# 2026-11-20 (user decision): the queue takes only jobs the user pastes or adds; it
-# no longer reads recommendation mail, so nothing arrives on its own.
-MAIL_INTAKE = False
+# 2026-11-20 (user decision): mail intake was turned off, then on again the same day
+# once LinkedIn jobs were read in the App's Chrome (20 pages in a row, none refused).
+MAIL_INTAKE = True
 # A model call that produced no answer is Continued automatically after a wait, up to
 # this many times; then the job stops for the user (decided 2026-11-09).
 MODEL_RESENDS = 3
