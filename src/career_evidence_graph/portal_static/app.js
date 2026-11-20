@@ -351,7 +351,9 @@ function renderWorkflow() {
     const item = pipeline?.items?.find(item => pipeline.current_recommendation_id && item.recommendation_id === pipeline.current_recommendation_id || pipeline.active_task_id && item.task_id === pipeline.active_task_id);
     const readable = overviewFlow.readable.flow && overviewFlow.readable.pipeline;
     label = readable ? overviewFlow.statusText || "自动申请流程" : "自动申请状态暂不可用";
-    title = [item?.company, item?.role_title].filter(Boolean).join(" · ") || "按顺序处理推荐岗位。";
+    // 2026-11-20: before its task exists the job's name is on the current recommendation.
+    const named = item?.company || item?.role_title ? item : pipeline?.current_recommendation;
+    title = [named?.company, named?.role_title].filter(Boolean).join(" · ") || "按顺序处理推荐岗位。";
     // 2026-11-16 (user): the selection, points and wording reviews carry no hint text;
     // a ready application's label already says to confirm it on the original site.
     description = readable && (["resume_plan_review", "resume_wording_review"].includes(pipeline?.wait_reason) || pipeline?.status === "ready_for_review") ? "" : readable ? pipeline?.notification?.message ||"系统自动衔接岗位读取、匹配、简历、填写与上传。需要补充信息或最终确认时会通知你。" : "已保存的岗位和进度保留。进入自动申请读取最新状态。";

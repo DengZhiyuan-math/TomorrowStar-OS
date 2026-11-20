@@ -2470,6 +2470,10 @@
           readable.flow = true;
         } catch (error) { readable.flow = false; observations.push({ status: "rejected", reason: error }); }
       }
+      // 2026-11-20: a current job without a task yet must not show the last job's analysis.
+      if (followingPipeline && readable.pipeline && !followed && nextPipeline?.current_recommendation_id && nextFlow?.active_task) {
+        nextFlow = { ...nextFlow, active_task: null, active_explanation: null, match_explanation: null };
+      }
       flow = nextFlow; intake = nextIntake; pipeline = nextPipeline;
       if (readable.pipeline) for (const [key, requestId] of pipelineRequests) {
         if (!key.startsWith("{")) continue;
