@@ -874,3 +874,64 @@ def test_a_jd_written_in_german_leaves_before_matching(queue_environment, monkey
     current = drive(pipeline, "filling")
     skipped = [row for row in current["items"] if row["status"] == "skipped"]
     assert [(row["reason"], row["task_id"]) for row in skipped] == [("german_jd", None)]
+
+
+def _tick_until(pipeline, done):
+    for _ in range(300):
+        pipeline._tick()
+        state = pipeline.snapshot()
+        if done(state):
+            return state
+        time.sleep(0.005)
+    pytest.fail(str(pipeline.snapshot()))
+
+
+def test_a_throttled_page_waits_and_is_read_again_instead_of_leaving(
+    queue_environment, monkeypatch
+):
+    from career_evidence_graph import application_pipeline
+
+    # 2026-11-20: LinkedIn answered 429 and three jobs were skipped as unreachable.
+    pipeline, _flow, intake, _worker, _reads, fetches, _messages = queue_environment
+    clock = [1_800_000_000.0]
+    monkeypatch.setattr(application_pipeline.time, "time", lambda: clock[0])
+    answers = ["rate_limited"]
+
+    def throttled(url):
+        fetches.append(url)
+        if answers:
+            answers.pop(0)
+            return page(url, status="unavailable", completeness="unknown") | {
+                "error_code": "rate_limited"
+            }
+        return page(url)
+
+    intake.fetcher = throttled
+    pipeline.start(request_id="throttled")
+    state = _tick_until(pipeline, lambda s: "限流" in ((s.get("notice") or {}).get("title") or ""))
+    assert len(fetches) == 1
+    assert not [row for row in state["items"] if row.get("reason") == "source_unavailable"]
+    clock[0] += application_pipeline.RATE_LIMIT_WAIT
+    state = _tick_until(pipeline, lambda s: len(fetches) == 2 and s["status"] != "acquiring_source")
+    assert state.get("source_wait") is None
+    assert not [row for row in state["items"] if row.get("reason") == "source_unavailable"]
+
+
+def test_a_removed_posting_leaves_as_not_found_without_counting_as_an_outage(
+    queue_environment,
+):
+    pipeline, _flow, intake, _worker, _reads, fetches, _messages = queue_environment
+
+    def gone(url):
+        fetches.append(url)
+        return page(url, status="expired", completeness="unknown")
+
+    intake.fetcher = gone
+    pipeline.start(request_id="gone")
+    state = _tick_until(pipeline, lambda s: len(fetches) >= 4)
+    state = _tick_until(
+        pipeline, lambda s: sum(row["status"] == "skipped" for row in s["items"]) >= 3
+    )
+    reasons = {row.get("reason") for row in state["items"] if row["status"] == "skipped"}
+    assert reasons == {"posting_not_found"}
+    assert "网络" not in ((state.get("notice") or {}).get("message") or "")

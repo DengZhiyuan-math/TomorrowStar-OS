@@ -889,6 +889,9 @@ def fetch_job_source(url, *, resolver=socket.getaddrinfo, transport=None):
         capture["acquisition_status"] = "login_required"
     elif status in {404, 410}:
         capture["acquisition_status"] = "expired"
+    elif status in {429, 999}:
+        # 2026-11-20: LinkedIn answers too many reads with 429 (or its own 999).
+        capture["error_code"] = "rate_limited"
     elif status != 200:
         capture["error_code"] = "http_error"
     else:

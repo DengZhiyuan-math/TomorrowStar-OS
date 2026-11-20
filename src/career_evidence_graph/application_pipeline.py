@@ -95,6 +95,10 @@ def _mismatch(eligibility):
 RESUMABLE_STEPS = frozenset({"matching", "generating_resume"})
 # How often a waiting Computer Use job checks for the company's confirmation mail.
 CONFIRMATION_POLL = 300
+# 2026-11-20: a job page the site refuses for too many reads is read again after this
+# many seconds, at most RATE_LIMIT_RETRIES times, before it is set aside.
+RATE_LIMIT_WAIT = 600
+RATE_LIMIT_RETRIES = 3
 # A job whose application needs an account goes on only from this match (2026-11-09).
 ACCOUNT_SCORE_FLOOR = 55
 # How long a finished match waits for its account check.
@@ -3218,7 +3222,42 @@ class ApplicationPipeline:
         )
         code = record.get("source_error_code")
         streak = state.get("source_failure_streak", 0)
-        if checkpoint == "failed" and not (unknown or retry) and code != "verification_required":
+        settled = checkpoint == "failed" and not (unknown or retry)
+        wait = state.get("source_wait") or {}
+        if settled and code == "rate_limited":
+            if wait.get("recommendation_id") != record["id"]:
+                wait = {"recommendation_id": record["id"], "attempts": 0}
+            if wait["attempts"] < RATE_LIMIT_RETRIES:
+                # The site throttles reads; the job waits and is read again, not skipped.
+                if "until" not in wait:
+                    state["source_wait"] = wait | {"until": time.time() + RATE_LIMIT_WAIT}
+                    self._save(state)
+                elif time.time() >= wait["until"]:
+                    state["source_wait"] = {
+                        "recommendation_id": record["id"],
+                        "attempts": wait["attempts"] + 1,
+                    }
+                    state["source_receipt"] = {
+                        "recommendation_id": record["id"],
+                        "recommendation_revision": record["revision"],
+                        "status": "selected",
+                        "retry_request_id": f"rate-limit-{wait['attempts'] + 1}-{uuid4().hex}",
+                    }
+                    self._save(state)
+                return
+        state.pop("source_wait", None)
+        if settled and record.get("acquisition_status") == "expired":
+            # 2026-11-20: 404/410 means the posting is gone, not that the network failed.
+            recommendation = record["id"]
+            state.update(control="paused", status="needs_input")
+            self._leave_current(state, "posting-gone:" + recommendation)
+            item = next(
+                row for row in state["items"] if row.get("recommendation_id") == recommendation
+            )
+            item["reason"] = "posting_not_found"
+            self._save(state)
+            return
+        if settled and code != "verification_required":
             # 2026-11-10 (user decision): a page that cannot be opened no longer waits
             # for a click; the job is set aside and the queue goes on. Three in a row
             # look like a network outage, which stops instead of emptying the queue.
@@ -4606,6 +4645,15 @@ class ApplicationPipeline:
 
     def _notice(self, state):
         """The page notice: the wait notification, else a takeover only while it holds the job."""
+        wait = state.get("source_wait") or {}
+        if wait.get("until") and state.get("control") == "running":
+            return {
+                "kind": "wait",
+                "title": "领英限流，稍后自动重试",
+                "message": "领英暂时拒绝读取岗位页面（请求过多）。约 "
+                + time.strftime("%H:%M", time.localtime(wait["until"]))
+                + f" 自动重读（第 {wait['attempts'] + 1}/{RATE_LIMIT_RETRIES} 次），无需操作。",
+            }
         notification = state.get("notification")
         if notification:
             return {
