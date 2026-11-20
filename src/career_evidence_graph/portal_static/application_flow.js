@@ -386,7 +386,12 @@
     if (!reviewingPlan) { planFeedback = ""; selectionDraft = null; pointsDrafts.clear(); }
     startPipeline.dataset.blocked = String(!pipeline?.enabled || pipeline.control === "running" || selecting && !selectionFor(pipeline.plan_review).experiences.length);
     const pausePipeline = button("暂停自动流程", () => mutate(async () => {
-      pipeline = await api("/api/pipeline/pause", { method: "POST", body: "{}" });
+      try { pipeline = await api("/api/pipeline/pause", { method: "POST", body: "{}" }); }
+      catch (error) {
+        const settled = error.timedOut ? await settledPipeline(null, state => state.control !== "running") : null;
+        if (!settled) throw error;
+        pipeline = settled;
+      }
     }, { stopping: true, scope: pipelineScope(), domain: "pipeline" }), "flow-pipeline-pause", true);
     pausePipeline.dataset.flowStop = "true";
     pausePipeline.dataset.blocked = String(pipeline?.control !== "running");
@@ -772,6 +777,20 @@
     return box;
   }
 
+  // 2026-11-20: a queue action waits for the running step's lock and may outlast the
+  // 30 s request; the backend still applies it. Read the queue until its request ID
+  // is recorded (or the check holds), so a late success is not shown as unverified.
+  async function settledPipeline(requestId, done = state => Object.values(state).some(value => Array.isArray(value) && value.some(row => row?.request_id === requestId)) || state.request_id === requestId) {
+    message("工作台正忙，操作已发出，正在核对结果…");
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      try {
+        const state = await api("/api/pipeline/state");
+        if (done(state)) { message(""); return state; }
+      } catch { /* The workbench is still busy; read again. */ }
+    }
+    return null;
+  }
   function pipelineAction(action, payload = {}, stopping = false) {
     return mutate(async () => {
       const key = JSON.stringify([action, payload]);
@@ -782,9 +801,13 @@
       try {
         pipeline = await api(`/api/pipeline/${action}`, { method: "POST", body: JSON.stringify({ request_id: pipelineRequests.get(key), ...payload }) });
       } catch (error) {
+        // "我已自行提交" keeps no request ID; its job reads as completed instead.
+        const marked = state => state.items?.some(item => [item.application_id, item.recommendation_id].includes(payload.application_id) && item.status === "completed");
+        const settled = error.timedOut ? await settledPipeline(pipelineRequests.get(key), action === "mark-submitted" ? marked : undefined) : null;
         // The page notice sits far above the list; the toast shows next to the click.
-        if (submit) toast(`未能记录为已提交：${error.message}`);
-        throw error;
+        if (!settled && submit) toast(`未能记录为已提交：${error.message}`);
+        if (!settled) throw error;
+        pipeline = settled;
       }
       pipelineRequests.delete(key);
       if (submit) {

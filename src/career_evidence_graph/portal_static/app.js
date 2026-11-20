@@ -131,7 +131,7 @@ async function api(path, options = {}) {
   try {
     let response;
     try { response = await fetch(path, { credentials: "same-origin", cache: "no-store", ...options, signal: controller.signal, headers: { Accept: "application/json", ...(options.body ? { "Content-Type": "application/json", "X-CSRF-Token": data.csrf_token } : {}), ...options.headers } }); }
-    catch { throw new Error(timedOut ? "工作台响应超时，操作结果尚未核验。请在当前页面核验。" : "连接中断。请确认本机工作台仍在运行，然后核验操作结果。"); }
+    catch { throw Object.assign(new Error(timedOut ? "工作台响应超时，操作结果尚未核验。请在当前页面核验。" : "连接中断。请确认本机工作台仍在运行，然后核验操作结果。"), { timedOut }); }
     let body;
     try { body = await response.json(); } catch { throw new Error(timedOut ? "工作台响应超时，操作结果尚未核验。请在当前页面核验。" : options.method && options.method !== "GET" ? "工作台响应无法读取，操作结果尚未核验。请在当前页面核验并重试。" : "工作台返回了无法读取的响应，请刷新后重试。"); }
     if (!response.ok) {

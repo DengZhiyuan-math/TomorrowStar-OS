@@ -283,6 +283,13 @@ def test_hung_start_times_out_without_replay_and_pause_still_works(portal, brows
     with page.expect_request("**/api/pipeline/start"):
         page.locator("#flow-pipeline-start").click()
     page.clock.fast_forward(30001)
+    # 2026-11-20: the queue is read for the request first; this one is never recorded.
+    expect(page.locator("#flow-notice")).to_contain_text("正在核对结果")
+    for _ in range(200):
+        if "尚未核验" in (page.locator("#flow-notice").text_content() or ""):
+            break
+        page.clock.fast_forward(3000)
+        page.wait_for_timeout(20)
     expect(page.locator("#flow-notice")).to_contain_text("超时")
     expect(page.locator("#flow-notice")).to_contain_text("尚未核验")
     expect(page.locator("#flow-pipeline-pause")).to_be_enabled()
@@ -496,3 +503,43 @@ def test_ticker_says_a_score_decision_waits_for_confirmation(portal, browser_pag
     page.route("**/api/pipeline/state", lambda route: route.fulfill(json=pipeline))
     page.goto(portal.origin + "/#flow")
     expect(page.locator("#flow-automation .flow-ticker-text")).to_have_text("等你确认是否投递")
+
+
+def test_a_queue_action_that_outlasts_the_request_is_verified_from_the_queue(portal, browser_page):
+    from playwright.sync_api import expect
+
+    # 2026-11-20: a Skip waited behind the running step's lock past the 30 s request
+    # while the backend applied it; the page now reads the queue for its request ID.
+    page = browser_page
+    held, recorded = [], []
+
+    def read(route):
+        route.fulfill(
+            json=pipeline_state(
+                id="synthetic-pipeline",
+                queue_mode=True,
+                status="needs_input",
+                current_requests=[{"request_id": recorded[0], "status": "complete"}]
+                if recorded
+                else [],
+            )
+        )
+
+    def continue_(route):
+        held.append(route)
+        recorded.append(route.request.post_data_json["request_id"])
+
+    page.route("**/api/pipeline/state", read)
+    page.route("**/api/pipeline/continue", continue_)
+    page.goto(portal.origin + "/#flow")
+    start = page.locator("#flow-pipeline-start")
+    expect(start).to_be_enabled()
+    page.clock.install()
+    with page.expect_request("**/api/pipeline/continue"):
+        start.click()
+    page.clock.fast_forward(30_000)
+    expect(page.locator("#flow-notice")).to_contain_text("正在核对结果")
+    page.clock.fast_forward(3_000)
+    expect(page.locator("#flow-notice")).not_to_contain_text("尚未核验")
+    expect(page.locator("#flow-notice")).to_be_hidden()
+    expect(start).to_be_enabled()
