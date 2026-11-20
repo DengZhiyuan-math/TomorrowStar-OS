@@ -20,10 +20,8 @@ from .validation.models import CodexCLIConfig
 
 GMAIL_APP_ID = "connector_2128aebfecb84f64a069897515042a44"
 _BODY_LIMIT = 131072
-RECOMMENDATION_QUERY = (
-    "newer_than:7d (from:jobalerts-noreply@linkedin.com OR "
-    "from:jobalert.indeed.com OR from:match.indeed.com)"
-)
+# 2026-11-20 (user decision): Indeed recommendations are no longer read.
+RECOMMENDATION_QUERY = "newer_than:7d from:jobalerts-noreply@linkedin.com"
 _OVERRIDES = (
     "features.apps=true",
     "features.shell_tool=false",
@@ -257,10 +255,7 @@ def _verified_capture(
             raise _EvidenceError("mail_metadata_invalid")
         sender = headers.get("from", "")
         address = parseaddr(sender)[1].lower()
-        if address != "jobalerts-noreply@linkedin.com" and (
-            address.count("@") != 1
-            or address.rsplit("@", 1)[-1] not in {"jobalert.indeed.com", "match.indeed.com"}
-        ):
+        if address != "jobalerts-noreply@linkedin.com":
             raise _EvidenceError("sender_not_allowed")
         message = normalize_message(
             {

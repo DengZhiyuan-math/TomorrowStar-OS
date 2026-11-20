@@ -901,18 +901,21 @@ def test_metadata_and_mime_structure_have_finite_capture_limits(tmp_path, mutati
 
 
 @pytest.mark.parametrize("domain", ["jobalert.indeed.com", "match.indeed.com"])
-def test_indeed_query_domains_are_verified_as_domains_instead_of_mailbox_addresses(
-    tmp_path, domain
-):
-    from career_evidence_graph.application_gmail import read_recommendation_emails
+def test_indeed_recommendations_are_no_longer_read(tmp_path, domain):
+    from career_evidence_graph.application_gmail import (
+        RECOMMENDATION_QUERY,
+        read_recommendation_emails,
+    )
 
+    # 2026-11-20 (user decision): only LinkedIn recommendations enter the queue.
+    assert "indeed" not in RECOMMENDATION_QUERY
     events = _mail_events()
     events[1]["item"]["result"]["structured_content"]["payload"]["headers"][0]["value"] = (
         f"Synthetic <alerts@{domain}>"
     )
     result = read_recommendation_emails(tmp_path / "capture", runner=_process(events))
-    assert result["status"] == "readable"
-    assert result["emails"][0]["from"] == f"Synthetic <alerts@{domain}>"
+    assert result["status"] == "unavailable"
+    assert result["reason"] == "sender_not_allowed"
 
 
 def test_processing_inspection_uses_actual_label_and_message_state(tmp_path):
