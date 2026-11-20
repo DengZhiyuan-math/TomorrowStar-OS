@@ -2840,19 +2840,26 @@ class ApplicationPipeline:
         """
         from .indeed_job_source import apply_route
         from .job_listing_links import employer_url, posting_gone, posting_status
+        from .linkedin_job_source import saved_posting
 
         listing = application.get("listing_url") or application["url"]
-        status, target = posting_status(listing)
+        record = next(
+            (
+                row
+                for row in self.intake.snapshot().get("recommendations", [])
+                if row["id"] == item["recommendation_id"]
+                or (row.get("existing_application") or {}).get("id") == application["id"]
+            ),
+            None,
+        )
+        # 2026-11-20: the one browser read already named a LinkedIn job's apply route;
+        # it is not read again here. Only a job saved before then is read once more.
+        fields = (record or {}).get("documentary_fields") or {}
+        status, target = saved_posting(fields)
+        if status is None and "linkedin_posting" not in fields:
+            status, target = posting_status(listing)
         if status is None:
             # An Indeed job's route was read with its page (2026-11-05).
-            record = next(
-                (
-                    row
-                    for row in self.intake.snapshot().get("recommendations", [])
-                    if row["id"] == item["recommendation_id"]
-                ),
-                None,
-            )
             status = "indeed_apply" if apply_route(record) == "indeed_apply" else None
         today = time.strftime("%Y-%m-%d")
         changes, reason = {}, None

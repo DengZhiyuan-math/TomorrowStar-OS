@@ -16,6 +16,7 @@ from .application_automation import recommendation_key
 from .application_job_source import _finish, _text, fetch_job_source
 from .cua_driver import load_login_state
 from .employer_page_search import find_employer_page
+from .linkedin_job_source import linkedin_job_key, read_linkedin_job
 
 # Long enough for the user to finish a verification Indeed shows in the window.
 PAGE_WAIT_MS = 120_000
@@ -37,6 +38,9 @@ def fetch_job_source_or_browser(url, *, read=None, find=None):
     A company-site job also gets the employer's own application page when one is
     found and verified (2026-11-05); an injected reader finds only with ``find``.
     """
+    if linkedin_job_key(url) and job_listing_links.LOGIN_ROOT is not None:
+        # 2026-11-20: a LinkedIn job is read once in the App's Chrome, never by script.
+        return read_linkedin_job(url)
     capture = fetch_job_source(url)
     job_key = indeed_job_key(capture.get("url"))
     if (
