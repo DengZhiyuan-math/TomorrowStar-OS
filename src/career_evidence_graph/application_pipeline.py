@@ -1849,6 +1849,11 @@ class ApplicationPipeline:
                     ):
                         # 2026-11-08, Mistral: a program check stopped the materials
                         # step; Continue re-enters it instead of restarting the flow.
+                        # 2026-11-20 (Deloitte): an App quit left the Worker's stop
+                        # marker; this explicit Continue lifts it once writes are durable,
+                        # or the fill start refuses again with checkpoint_unavailable.
+                        if hasattr(self.worker, "lift_checkpoint_stop"):
+                            self.worker.lift_checkpoint_stop()
                         resume = state.pop("resume_status", None) or "generating_resume"
                         state.update(control="running", status=resume, notification=None)
                     else:
