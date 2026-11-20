@@ -762,15 +762,15 @@ function renderSourceIntake(snapshot) {
   const job = snapshot?.job;
   if (!job) throw new Error("尚未取得当前来源处理记录。");
   if (sourceRequest && job.request_id !== sourceRequest.request_id) throw new Error("来源处理记录已变化，不能据此确认本次保存。");
-  const messages = { running: "正在后台读取、整理并保存…", saved: "已保存岗位信息", needs_input: "已保存来源草稿，关键资料仍待补充。", failed: "整理未完成，已保留输入。", needs_recheck: "保存结果待核验，已停止。请读取已保存状态。" };
+  const messages = { running: "正在后台读取、整理并保存…", saved: "已保存，岗位已加入投递队列。", needs_input: "未加入投递：还缺岗位资料。", failed: "整理未完成，已保留输入。", needs_recheck: "保存结果待核验，已停止。请读取已保存状态。" };
   const running = job.status === "running";
   if (!sourceRequest && typeof job.request_id === "string") sourceRequest = { request_id: job.request_id, input: job.fields?.job_description || job.fields?.url || "" };
   sourceBusy = running; sourceUnknown = job.status === "needs_recheck";
   notice("source-intake-status", messages[job.status] || "处理状态待核验。", ["failed", "needs_recheck"].includes(job.status));
   if (job.error_code || job.error_message) {
     const explanation = job.status === "needs_recheck" ? "来源已保留。保存结果尚未核验，请先读取已保存状态。" : ({
-      intake_source_incomplete: "来源已保留。尚未取得完整岗位信息，请补充 JD 全文后再次整理。",
-      intake_source_unavailable: "来源已保留。岗位页面暂不可读，可粘贴 JD 全文再次整理。",
+      intake_source_incomplete: "没能从中识别出完整的岗位描述（职责和要求）。请把页面上的岗位介绍复制粘贴到上面，再点“自动整理并保存”。",
+      intake_source_unavailable: "岗位页面暂时读不到。请把 JD 全文复制粘贴到上面，再点“自动整理并保存”。",
       intake_extraction_failed: "来源已保留。自动提取未完成，请查看原文后明确重试整理。",
       recommendation_source_conflict: "这个来源与已保存的同一岗位记录不符，未保存。可在“岗位与进度”核对已有记录，或粘贴其他岗位。",
     }[job.error_code] || "来源已保留。整理未完成，请查看已保存来源后明确重试整理。");
