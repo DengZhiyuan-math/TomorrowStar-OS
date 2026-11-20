@@ -122,6 +122,7 @@ def summarize(record: dict, requirements: list[dict]) -> dict:
                 "judgment": row.get("judgment"),
                 "fit_score": row.get("fit_score"),
                 "experience_shortfall": row.get("experience_shortfall"),
+                "german_required_unmet": row.get("german_required_unmet"),
                 "explanation": str(row.get("explanation") or "")[:1000],
             }
             for row in rows

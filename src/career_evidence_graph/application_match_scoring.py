@@ -357,20 +357,27 @@ def combined_score(primary, analysis, requirements, *, excluded=frozenset()):
 EXPERIENCE_REACH_FLOOR = 80
 
 
-def experience_reach(analysis, requirements):
-    """The combined upper score without experience-shortfall requirements; None if none."""
+def _flagged(analysis, requirements, key):
+    """Framework requirement IDs either scoring model marked with key."""
     second = (analysis or {}).get("second_opinion") or {}
     others = second.get("requirements") if second.get("status") == "complete" else None
     others = others if isinstance(others, list) and len(others) == len(requirements) else []
-    flagged = {
+    return {
         row["scoring_framework"]["requirement_id"]
         for index, row in enumerate(requirements)
         if isinstance(row.get("scoring_framework"), dict)
-        and (
-            row.get("experience_shortfall") is True
-            or (others and others[index].get("experience_shortfall") is True)
-        )
+        and (row.get(key) is True or (others and others[index].get(key) is True))
     }
+
+
+def german_required_unmet(analysis, requirements):
+    """2026-11-20 (user decision): a JD that requires German the user lacks is skipped."""
+    return bool(_flagged(analysis, requirements, "german_required_unmet"))
+
+
+def experience_reach(analysis, requirements):
+    """The combined upper score without experience-shortfall requirements; None if none."""
+    flagged = _flagged(analysis, requirements, "experience_shortfall")
     if not flagged:
         return None
     try:
@@ -389,7 +396,9 @@ def experience_reach(analysis, requirements):
 # skip_below a job is skipped, from manual_from on it is prepared for manual review,
 # and between them it proceeds automatically (2026-11-11: no approval band). The
 # lines default to 15 and 75; the 设置 page saves others (2026-11-16).
-def score_tier(score, *, needs_review=False, thresholds=None, reach=None):
+def score_tier(score, *, needs_review=False, thresholds=None, reach=None, german=False):
+    if german:
+        return "skip"
     if score is None or score.get("upper") is None:
         return "approve"
     if reach is not None and reach < EXPERIENCE_REACH_FLOOR:

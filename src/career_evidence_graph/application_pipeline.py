@@ -31,6 +31,7 @@ from .application_match_scoring import (
     calculate_match_score,
     combined_score,
     experience_reach,
+    german_required_unmet,
     score_tier,
 )
 from .application_settings import score_thresholds
@@ -1455,6 +1456,7 @@ class ApplicationPipeline:
                 "reason_code",
                 "score_tier",
                 "experience_reach",
+                "german_required",
                 "score_analysis_id",
                 "score_decision",
                 "analysis_attempt_id",
@@ -1651,7 +1653,11 @@ class ApplicationPipeline:
                     current_recommendation_id=target["recommendation_id"], control="paused"
                 )
                 target["status"] = target.pop("retained_status")
-                if target.get("reason") in {"low_match_score", "experience_shortfall"}:
+                if target.get("reason") in {
+                    "low_match_score",
+                    "experience_shortfall",
+                    "german_required",
+                }:
                     # Returning a low-score job is the user's decision to proceed.
                     target["score_decision"] = target.get("score_analysis_id")
                 if state.get("worker_batch_id"):
@@ -3468,12 +3474,14 @@ class ApplicationPipeline:
                         analysis["requirements"],
                     )
                     reach = experience_reach(analysis, analysis["requirements"])
-                    item["experience_reach"] = reach
+                    german = german_required_unmet(analysis, analysis["requirements"])
+                    item.update(experience_reach=reach, german_required=german)
                     tier = item["score_tier"] = score_tier(
                         score,
                         needs_review=bool(models and models["needs_review"]),
                         thresholds=score_thresholds(self.flow.root),
                         reach=reach,
+                        german=german,
                     )
                 except (OSError, PortalDataError, KeyError, TypeError, ValueError):
                     pass
@@ -3494,7 +3502,9 @@ class ApplicationPipeline:
             if tier == "skip" and not decided:
                 reach = item.get("experience_reach")
                 item["reason"] = (
-                    "experience_shortfall"
+                    "german_required"
+                    if item.get("german_required")
+                    else "experience_shortfall"
                     if reach is not None and reach < EXPERIENCE_REACH_FLOOR
                     else "low_match_score"
                 )
@@ -3602,13 +3612,16 @@ class ApplicationPipeline:
             )
             item["score"] = score
             reach = experience_reach(analysis, analysis["requirements"])
+            german = german_required_unmet(analysis, analysis["requirements"])
             item.update(
                 experience_reach=reach,
+                german_required=german,
                 score_tier=score_tier(
                     score,
                     needs_review=bool(models and models["needs_review"]),
                     thresholds=score_thresholds(self.flow.root),
                     reach=reach,
+                    german=german,
                 ),
                 score_analysis_id=task["analysis_id"],
             )

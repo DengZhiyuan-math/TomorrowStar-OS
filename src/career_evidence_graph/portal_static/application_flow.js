@@ -426,7 +426,7 @@
     items.sort((a, b) => (b.current - a.current) || (b.index - a.index));
     // 2026-11-08: jobs stopped by a fault or a site limit go to their own folder;
     // the rest are grouped by target company, then by match band, each with its colour.
-    const needsHandling = item => item.status === "analysis_failed" || item.status === "skipped" && !["low_match_score", "experience_shortfall", "flow_eligibility_required", "account_low_match"].includes(item.reason) && item.pipeline_context?.wait_reason !== "score_approval";
+    const needsHandling = item => item.status === "analysis_failed" || item.status === "skipped" && !["low_match_score", "experience_shortfall", "german_required", "flow_eligibility_required", "account_low_match"].includes(item.reason) && item.pipeline_context?.wait_reason !== "score_approval";
     const groups = [["target", "目标公司"], ["high", "高匹配 · 75 分以上"], ["good", "较高匹配 · 55–74"], ["fair", "中等匹配 · 40–54"], ["low", "较低匹配 · 40 以下"], ["unscored", "尚无匹配分"], ["mismatch", "硬性条件不满足"]].map(([key, label]) => ({ key, label, rows: [] }));
     const handling = [];
     let currentRow = null;
@@ -486,6 +486,7 @@
       : item.reason === "posting_not_found" ? ["岗位已找不到", "withdrawn", "原链接已失效或岗位已下架，已自动跳过"]
       : item.reason === "source_unavailable" ? ["未取得 JD", "candidate", `${sourceErrors[item.source_error_code] || "岗位页面没能读取"}，已自动跳过`]
       : item.reason === "low_match_score" ? ["匹配过低", "withdrawn", "匹配分低于自动跳过线，已自动跳过"]
+      : item.reason === "german_required" ? ["需要德语", "withdrawn", "JD 把德语列为必需要求，高于你已记录的德语水平，已自动跳过"]
       : item.reason === "experience_shortfall" ? ["经验年限不足", "withdrawn", `JD 要求的工作年限明显高于你的经历，不算年限的匹配分${item.experience_reach == null ? "" : ` ${Math.round(item.experience_reach)}`} 不到 80，已自动跳过`]
       : item.reason === "account_low_match" ? ["需要账号·匹配不高", "withdrawn", "申请需要登录或注册，且匹配分低于 55，已自动跳过"]
       : item.reason === "account_required" ? ["需要账号", "candidate", "申请需要登录或注册；已搁置，页面留在 Chrome，可自行注册后投递"]

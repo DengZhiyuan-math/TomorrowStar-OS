@@ -836,3 +836,24 @@ def test_a_job_well_short_of_stated_experience_is_skipped_with_its_own_reason(
     assert [(row["reason"], row["experience_reach"]) for row in skipped] == [
         ("experience_shortfall", 76)
     ]
+
+
+def test_a_job_requiring_german_the_user_lacks_is_skipped_with_its_own_reason(
+    queue_environment, monkeypatch
+):
+    from career_evidence_graph import application_pipeline
+
+    # 2026-11-20 (user decision): required German above the recorded level skips the job.
+    pipeline, _flow, _intake, _worker, _reads, _fetches, _messages = queue_environment
+    flags = [True]
+    monkeypatch.setattr(
+        application_pipeline,
+        "german_required_unmet",
+        lambda *_: flags.pop(0) if flags else False,
+    )
+    pipeline.start(request_id="german")
+    current = drive(pipeline, "filling")
+    skipped = [row for row in current["items"] if row["status"] == "skipped"]
+    assert [(row["reason"], row["german_required"]) for row in skipped] == [
+        ("german_required", True)
+    ]

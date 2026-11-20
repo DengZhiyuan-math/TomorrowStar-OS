@@ -115,6 +115,8 @@ class _Requirement(BaseModel):
     fit_score: int | None = None
     # True when the user falls well short of a stated minimum experience (2026-11-20).
     experience_shortfall: bool | None = None
+    # True when the JD requires German above the user's recorded level (2026-11-20).
+    german_required_unmet: bool | None = None
 
 
 class _ExtractedFields(BaseModel):
@@ -196,6 +198,7 @@ class _CompactRequirement(BaseModel):
     ]
     fit_score: int | None = None
     experience_shortfall: bool | None = None
+    german_required_unmet: bool | None = None
     inference: _NativeInference
 
 
@@ -510,6 +513,11 @@ _FIT_SCORE_RULES = (
     "user's recorded relevant experience falls short of it by two years or more; count "
     "doctoral or other research years only where the stated experience is research, "
     "scientific or computational work. Otherwise false, including when no length is stated. "
+    "For every requirement also return german_required_unmet: true only when the "
+    "requirement, read with its jd_quote, makes German proficiency a requirement (for "
+    "example fluent German, sehr gute Deutschkenntnisse, German C1 required) and the "
+    "user's recorded German level is below it. False when German is preferred, an "
+    "advantage or one of several accepted languages, or when German is not stated. "
 )
 
 

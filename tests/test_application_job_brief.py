@@ -868,3 +868,18 @@ def test_the_second_model_alone_can_mark_an_experience_shortfall(tmp_path, appli
     second[1]["experience_shortfall"] = True
     analysis = {"second_opinion": {"status": "complete", "requirements": second}}
     assert experience_reach(analysis, rows) == 92
+
+
+def test_required_german_the_user_lacks_skips_whatever_the_score(tmp_path, application, output):
+    from career_evidence_graph.application_match_scoring import german_required_unmet, score_tier
+
+    rows = _experience_rows(tmp_path, application, output, ("supported", 100))
+    del rows[1]["experience_shortfall"]
+    score = calculate_framework_score(rows)
+    assert not german_required_unmet({}, rows)
+    assert score_tier(score) == "auto"
+    second = [{"judgment": row["judgment"], "fit_score": row.get("fit_score")} for row in rows]
+    second[1]["german_required_unmet"] = True
+    analysis = {"second_opinion": {"status": "complete", "requirements": second}}
+    assert german_required_unmet(analysis, rows)
+    assert score_tier(score, german=True) == "skip"
