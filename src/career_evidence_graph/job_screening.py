@@ -109,6 +109,98 @@ def application_route(record: dict, *, relevant: bool) -> tuple[str, list[str]]:
     return "batch", ["评价已核对，当前未标记重点投入信号"]
 
 
+_GERMAN_WORDS = frozenset(
+    [
+        "und",
+        "der",
+        "die",
+        "das",
+        "mit",
+        "für",
+        "wir",
+        "sie",
+        "ihre",
+        "ihr",
+        "ist",
+        "von",
+        "zu",
+        "auf",
+        "eine",
+        "einen",
+        "einer",
+        "bei",
+        "als",
+        "oder",
+        "sowie",
+        "unsere",
+        "unser",
+        "du",
+        "dich",
+        "dein",
+        "deine",
+        "werden",
+        "sind",
+        "des",
+        "dem",
+        "den",
+        "nicht",
+        "auch",
+        "über",
+        "uns",
+        "wird",
+        "bringst",
+        "hast",
+        "bist",
+        "kenntnisse",
+        "erfahrung",
+        "aufgaben",
+    ]
+)
+_ENGLISH_WORDS = frozenset(
+    [
+        "and",
+        "the",
+        "with",
+        "for",
+        "we",
+        "you",
+        "your",
+        "our",
+        "is",
+        "of",
+        "to",
+        "on",
+        "are",
+        "will",
+        "or",
+        "be",
+        "this",
+        "that",
+        "have",
+        "has",
+        "experience",
+        "skills",
+        "team",
+        "work",
+        "who",
+        "what",
+        "about",
+        "from",
+    ]
+)
+
+
+def written_in_german(text: str) -> bool:
+    """True when a JD is written in German rather than English (2026-11-20).
+
+    Function words decide; a JD with a full English version stays English.
+    """
+    words = re.findall(r"[a-zäöüß]+", str(text or "").casefold())
+    german = sum(word in _GERMAN_WORDS for word in words)
+    english = sum(word in _ENGLISH_WORDS for word in words)
+    return german >= 30 and german > 2 * english
+
+
 def _language_requirement(sentence: str, language: str) -> str:
     names = {"French": r"French|法语", "German": r"German|德语"}[language]
     if not re.search(rf"\b(?:{names})\b|{names}", sentence, re.I):

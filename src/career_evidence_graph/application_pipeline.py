@@ -36,7 +36,7 @@ from .application_match_scoring import (
 )
 from .application_settings import score_thresholds
 from .career_portal_data import PortalDataError
-from .job_screening import job_country, screen_applications
+from .job_screening import job_country, screen_applications, written_in_german
 from .validation.hashing import record_digest as digest
 
 PROTOCOL = "application-pipeline/v1"
@@ -2851,6 +2851,10 @@ class ApplicationPipeline:
         page = changes.get("url") or application["url"]
         if reason is None and page != listing and posting_gone(page):
             reason = "posting_not_found"
+        # 2026-11-20 (user decision): a JD written in German needs German the user lacks,
+        # stated or not; it leaves before matching.
+        if reason is None and written_in_german(application.get("job_description")):
+            reason = "german_jd"
         if changes:
             application = self.flow.applications.update_application(
                 application["id"], changes, application["revision"]

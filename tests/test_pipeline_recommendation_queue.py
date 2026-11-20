@@ -857,3 +857,20 @@ def test_a_job_requiring_german_the_user_lacks_is_skipped_with_its_own_reason(
     assert [(row["reason"], row["german_required"]) for row in skipped] == [
         ("german_required", True)
     ]
+
+
+def test_a_jd_written_in_german_leaves_before_matching(queue_environment, monkeypatch):
+    from career_evidence_graph import application_pipeline
+
+    # 2026-11-20 (user decision): a German JD needs German even when it states none.
+    pipeline, flow, _intake, _worker, _reads, _fetches, _messages = queue_environment
+    languages = [True]
+    monkeypatch.setattr(
+        application_pipeline,
+        "written_in_german",
+        lambda _text: languages.pop(0) if languages else False,
+    )
+    pipeline.start(request_id="german-jd")
+    current = drive(pipeline, "filling")
+    skipped = [row for row in current["items"] if row["status"] == "skipped"]
+    assert [(row["reason"], row["task_id"]) for row in skipped] == [("german_jd", None)]

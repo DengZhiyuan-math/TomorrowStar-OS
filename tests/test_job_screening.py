@@ -297,3 +297,24 @@ def test_targeted_screening_matches_bulk_and_preserves_all_history(application_i
         assert hint["company_history"] == [
             {field: rows[2][field] for field in ("id", "role_title", "status", "url")}
         ]
+
+
+def test_a_jd_written_in_german_is_told_from_an_english_or_bilingual_one():
+    from career_evidence_graph.job_screening import written_in_german
+
+    german = (
+        "Wir suchen eine Data Engineer, die mit uns und unseren Kunden Datenplattformen "
+        "aufbaut. Du bringst Erfahrung mit Python und SQL mit, bist offen für Neues und "
+        "arbeitest gerne im Team. Deine Aufgaben sind die Entwicklung von Pipelines für "
+        "die Fachbereiche sowie der Betrieb auf Azure. "
+    ) * 4
+    english = (
+        "We are looking for a data engineer who will build data platforms with our team "
+        "and our clients. You have experience with Python and SQL and you are open to new "
+        "work. Your tasks are the development of pipelines for the business. "
+    ) * 4
+    assert written_in_german(german)
+    assert not written_in_german(english)
+    # A posting that carries a full English version stays English.
+    assert not written_in_german(german + english * 2)
+    assert not written_in_german("Gute Deutschkenntnisse. " + english)
