@@ -815,3 +815,24 @@ def test_a_high_value_job_waits_for_its_bullets_and_revises_one_experience(
     pipeline.continue_current(request_id="confirm-b", wording_changes={"exp-b": {"confirm": True}})
     filling = drive(pipeline, "filling")
     assert approved == {"exp-a", "exp-b"} and "wording_review" not in filling
+
+
+def test_a_job_well_short_of_stated_experience_is_skipped_with_its_own_reason(
+    queue_environment, monkeypatch
+):
+    from career_evidence_graph import application_pipeline
+
+    # 2026-11-20: without the experience requirements the rest of the match reached 76.
+    pipeline, _flow, _intake, _worker, _reads, _fetches, _messages = queue_environment
+    reaches = [76]
+    monkeypatch.setattr(
+        application_pipeline,
+        "experience_reach",
+        lambda *_: reaches.pop(0) if reaches else None,
+    )
+    pipeline.start(request_id="experience")
+    current = drive(pipeline, "filling")
+    skipped = [row for row in current["items"] if row["status"] == "skipped"]
+    assert [(row["reason"], row["experience_reach"]) for row in skipped] == [
+        ("experience_shortfall", 76)
+    ]

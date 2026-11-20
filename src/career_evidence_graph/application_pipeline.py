@@ -26,7 +26,13 @@ from .application_flow import (
 from .application_flow import pipeline_http_entry
 from .application_input_binding import job_input_revision
 from .application_match_refresh import match_refresh_running, require_no_other_match_refresh
-from .application_match_scoring import calculate_match_score, combined_score, score_tier
+from .application_match_scoring import (
+    EXPERIENCE_REACH_FLOOR,
+    calculate_match_score,
+    combined_score,
+    experience_reach,
+    score_tier,
+)
 from .application_settings import score_thresholds
 from .career_portal_data import PortalDataError
 from .job_screening import job_country, screen_applications
@@ -1448,6 +1454,7 @@ class ApplicationPipeline:
                 "reason",
                 "reason_code",
                 "score_tier",
+                "experience_reach",
                 "score_analysis_id",
                 "score_decision",
                 "analysis_attempt_id",
@@ -1644,7 +1651,7 @@ class ApplicationPipeline:
                     current_recommendation_id=target["recommendation_id"], control="paused"
                 )
                 target["status"] = target.pop("retained_status")
-                if target.get("reason") == "low_match_score":
+                if target.get("reason") in {"low_match_score", "experience_shortfall"}:
                     # Returning a low-score job is the user's decision to proceed.
                     target["score_decision"] = target.get("score_analysis_id")
                 if state.get("worker_batch_id"):
@@ -3460,10 +3467,13 @@ class ApplicationPipeline:
                         analysis,
                         analysis["requirements"],
                     )
+                    reach = experience_reach(analysis, analysis["requirements"])
+                    item["experience_reach"] = reach
                     tier = item["score_tier"] = score_tier(
                         score,
                         needs_review=bool(models and models["needs_review"]),
                         thresholds=score_thresholds(self.flow.root),
+                        reach=reach,
                     )
                 except (OSError, PortalDataError, KeyError, TypeError, ValueError):
                     pass
@@ -3482,7 +3492,12 @@ class ApplicationPipeline:
                 self._save(state)
                 return
             if tier == "skip" and not decided:
-                item["reason"] = "low_match_score"
+                reach = item.get("experience_reach")
+                item["reason"] = (
+                    "experience_shortfall"
+                    if reach is not None and reach < EXPERIENCE_REACH_FLOOR
+                    else "low_match_score"
+                )
                 if state.get("queue_mode") and state.get("current_recommendation_id"):
                     state["active_task_id"] = item["task_id"]
                     self._leave_current(state, "low-score:" + item["task_id"])
@@ -3586,11 +3601,14 @@ class ApplicationPipeline:
                 calculate_match_score(analysis["requirements"]), analysis, analysis["requirements"]
             )
             item["score"] = score
+            reach = experience_reach(analysis, analysis["requirements"])
             item.update(
+                experience_reach=reach,
                 score_tier=score_tier(
                     score,
                     needs_review=bool(models and models["needs_review"]),
                     thresholds=score_thresholds(self.flow.root),
+                    reach=reach,
                 ),
                 score_analysis_id=task["analysis_id"],
             )

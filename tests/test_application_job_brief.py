@@ -818,3 +818,53 @@ def test_a_quote_cut_mid_line_with_its_own_period_names_the_literal_words():
     )
     with pytest.raises(PortalDataError):
         _literal_jd_quote("Deploy and monitor models in staging with drift detection.", jd)
+
+
+def _experience_rows(tmp_path, application, output, pricing):
+    rows = judged_rows(
+        brief(tmp_path, application, output),
+        {"Research pricing models": pricing[0], "Validate risk": "gap", "Python": "supported"},
+    )
+    rows[0]["fit_score"] = pricing[1]
+    rows[1]["experience_shortfall"] = True
+    return rows
+
+
+def test_experience_shortfall_rows_leave_the_score_and_an_empty_group_its_weight(
+    tmp_path, application, output
+):
+    from career_evidence_graph.application_match_scoring import experience_reach
+
+    rows = _experience_rows(tmp_path, application, output, ("supported", 90))
+    assert calculate_framework_score(rows)["upper"] == 56
+    assert experience_reach({"requirements": rows}, rows) == 92
+    # Eligibility still reads every requirement; a fully left-out group drops its weight.
+    excluded = {row["scoring_framework"]["requirement_id"] for row in rows[2:]}
+    assert calculate_framework_score(rows, excluded=excluded)["upper"] == 45
+    del rows[1]["experience_shortfall"]
+    assert experience_reach({"requirements": rows}, rows) is None
+
+
+def test_well_short_experience_skips_unless_the_rest_reaches_80(tmp_path, application, output):
+    from career_evidence_graph.application_match_scoring import experience_reach, score_tier
+
+    rows = _experience_rows(tmp_path, application, output, ("partial", 70))
+    score = calculate_framework_score(rows)
+    reach = experience_reach({"requirements": rows}, rows)
+    assert (score["upper"], reach) == (48, 76)
+    assert score_tier(score, reach=reach) == "skip"
+    rows[0].update(judgment="supported", fit_score=75)
+    reach = experience_reach({"requirements": rows}, rows)
+    assert reach == 80
+    assert score_tier(calculate_framework_score(rows), reach=reach) == "auto"
+
+
+def test_the_second_model_alone_can_mark_an_experience_shortfall(tmp_path, application, output):
+    from career_evidence_graph.application_match_scoring import experience_reach
+
+    rows = _experience_rows(tmp_path, application, output, ("supported", 90))
+    del rows[1]["experience_shortfall"]
+    second = [{"judgment": row["judgment"], "fit_score": row.get("fit_score")} for row in rows]
+    second[1]["experience_shortfall"] = True
+    analysis = {"second_opinion": {"status": "complete", "requirements": second}}
+    assert experience_reach(analysis, rows) == 92

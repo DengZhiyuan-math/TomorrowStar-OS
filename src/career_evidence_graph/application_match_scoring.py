@@ -63,10 +63,13 @@ def normalize_requirements(requirements):
     return list(distinct.values())
 
 
-def calculate_match_score(requirements: list[dict]) -> dict:
-    """Calculate legacy or fixed-framework match intervals without changing qualifications."""
+def calculate_match_score(requirements: list[dict], *, excluded=frozenset()) -> dict:
+    """Calculate legacy or fixed-framework match intervals without changing qualifications.
+
+    excluded names framework requirement IDs left out of the score (not of eligibility).
+    """
     if any("scoring_framework" in row for row in requirements):
-        return calculate_framework_score(requirements)
+        return calculate_framework_score(requirements, excluded=excluded)
     requirements = normalize_requirements(requirements)
     total = sum(3 if row["importance"] == "required" else 1 for row in requirements)
     unknown = sum(
@@ -127,22 +130,35 @@ def _item_interval(row):
 
 
 def _group_interval(group, rows):
-    """A group's interval: OR of AND branches, all as the mean, any as the best."""
+    """A group's interval: OR of AND branches, all as the mean, any as the best.
+
+    A row of None is left out of the score; None when nothing in the group is scored.
+    """
     if group["alternatives"] is not None:
+        clauses = [
+            [rows[i] for i in clause if rows[i] is not None] for clause in group["alternatives"]
+        ]
+        clauses = [clause for clause in clauses if clause]
+        if not clauses:
+            return None
         return tuple(
-            max(
-                Fraction(sum(rows[i][index] for i in clause), len(clause))
-                for clause in group["alternatives"]
-            )
+            max(Fraction(sum(row[index] for row in clause), len(clause)) for clause in clauses)
             for index in (0, 1)
         )
+    rows = [row for row in rows if row is not None]
+    if not rows:
+        return None
     if group["operator"] == "all":
         return tuple(Fraction(sum(row[index] for row in rows), len(rows)) for index in (0, 1))
     return tuple(Fraction(max(row[index] for row in rows)) for index in (0, 1))
 
 
-def calculate_framework_score(rows):
-    """Compute conservative intervals with all/any business-group semantics."""
+def calculate_framework_score(rows, *, excluded=frozenset()):
+    """Compute conservative intervals with all/any business-group semantics.
+
+    Requirements in excluded leave the score, and a group left empty leaves its weight;
+    eligibility still reads every requirement.
+    """
     from .application_job_brief import FRAMEWORK, validate_framework_groups
 
     try:
@@ -205,7 +221,7 @@ def calculate_framework_score(rows):
                 total * len(group["requirements"]),
             ):
                 raise _invalid()
-        lower = upper = Fraction(0)
+        lower = upper = scored_weight = Fraction(0)
         hard = []
         for group in ordered:
             # Eligibility reads the judgments; the score reads each item's interval.
@@ -213,7 +229,10 @@ def calculate_framework_score(rows):
                 {"supported": (1, 1), "gap": (0, 0)}.get(seen[atom["id"]], (0, 1))
                 for atom in group["requirements"]
             ]
-            scored = [intervals[atom["id"]] for atom in group["requirements"]]
+            scored = [
+                None if atom["id"] in excluded else intervals[atom["id"]]
+                for atom in group["requirements"]
+            ]
             if group["alternatives"] is not None:
                 clauses = [[values[index] for index in clause] for clause in group["alternatives"]]
                 eligibility = (
@@ -241,11 +260,14 @@ def calculate_framework_score(rows):
                 )
             else:
                 raise _invalid()
-            low, high = _group_interval(group, scored)
-            lower += 100 * group["weight"] * low / total
-            upper += 100 * group["weight"] * high / total
+            interval = _group_interval(group, scored)
+            if interval is not None:
+                lower += group["weight"] * interval[0]
+                upper += group["weight"] * interval[1]
+                scored_weight += group["weight"]
             if group["hard_condition"]:
                 hard.append(eligibility)
+        lower, upper = 100 * lower / scored_weight, 100 * upper / scored_weight
         return {
             "lower": float(lower),
             "upper": float(upper),
@@ -280,7 +302,7 @@ PRIMARY_WEIGHT = 0.45
 SECOND_WEIGHT = 0.55
 
 
-def combined_score(primary, analysis, requirements):
+def combined_score(primary, analysis, requirements, *, excluded=frozenset()):
     """Average the primary and second-opinion scores; flag review when they differ too much.
 
     Decided 2026-10-31: sol scores, Opus scores beside it, and a gap above REVIEW_GAP
@@ -298,7 +320,7 @@ def combined_score(primary, analysis, requirements):
             | {"judgment": other["judgment"], "fit_score": other.get("fit_score")}
             for row, other in zip(requirements, second["requirements"], strict=True)
         ]
-        other = calculate_match_score(rows)
+        other = calculate_match_score(rows, excluded=excluded)
     except (PortalDataError, KeyError, TypeError, ValueError):
         return primary, None
 
@@ -329,13 +351,49 @@ def combined_score(primary, analysis, requirements):
     }
 
 
+# 2026-11-20 (user decision): a JD's stated minimum experience is in practice a hard bar.
+# When either scoring model marks the user well short of it, the job is worth a try only
+# if the rest of the match, the experience requirements left out, reaches this line.
+EXPERIENCE_REACH_FLOOR = 80
+
+
+def experience_reach(analysis, requirements):
+    """The combined upper score without experience-shortfall requirements; None if none."""
+    second = (analysis or {}).get("second_opinion") or {}
+    others = second.get("requirements") if second.get("status") == "complete" else None
+    others = others if isinstance(others, list) and len(others) == len(requirements) else []
+    flagged = {
+        row["scoring_framework"]["requirement_id"]
+        for index, row in enumerate(requirements)
+        if isinstance(row.get("scoring_framework"), dict)
+        and (
+            row.get("experience_shortfall") is True
+            or (others and others[index].get("experience_shortfall") is True)
+        )
+    }
+    if not flagged:
+        return None
+    try:
+        score, _models = combined_score(
+            calculate_match_score(requirements, excluded=flagged),
+            analysis,
+            requirements,
+            excluded=flagged,
+        )
+    except PortalDataError:
+        return None
+    return score["upper"]
+
+
 # The upper bound of the score is read, so uncertainty leans toward the user. Below
 # skip_below a job is skipped, from manual_from on it is prepared for manual review,
 # and between them it proceeds automatically (2026-11-11: no approval band). The
 # lines default to 15 and 75; the 设置 page saves others (2026-11-16).
-def score_tier(score, *, needs_review=False, thresholds=None):
+def score_tier(score, *, needs_review=False, thresholds=None, reach=None):
     if score is None or score.get("upper") is None:
         return "approve"
+    if reach is not None and reach < EXPERIENCE_REACH_FLOOR:
+        return "skip"
     upper = score["upper"]
     lines = thresholds or {"skip_below": 15, "manual_from": 75}
     # A missing score or a model disagreement still asks.

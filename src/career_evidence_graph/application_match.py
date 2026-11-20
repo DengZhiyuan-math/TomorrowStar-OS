@@ -113,6 +113,8 @@ class _Requirement(BaseModel):
     ]
     # The model's 0-100 fit inside its judgment's band; the program clamps and rounds it.
     fit_score: int | None = None
+    # True when the user falls well short of a stated minimum experience (2026-11-20).
+    experience_shortfall: bool | None = None
 
 
 class _ExtractedFields(BaseModel):
@@ -193,6 +195,7 @@ class _CompactRequirement(BaseModel):
         "documentary", "personal_completed", "personal_design", "team", "other", "unknown"
     ]
     fit_score: int | None = None
+    experience_shortfall: bool | None = None
     inference: _NativeInference
 
 
@@ -501,6 +504,12 @@ _FIT_SCORE_RULES = (
     "workflow design, are judged partial or supported by semantic inference, not unknown, "
     "even when no record names them. Score every requirement by the same standard from the "
     "supplied facts only; the program keeps the score inside its band and rounds it to 5. "
+    "For every requirement also return experience_shortfall: true only when the "
+    "requirement, read with its jd_quote, states a minimum length of experience (for "
+    "example 5+ years, at least 3 years in a similar role, Master's with 5+ years) and the "
+    "user's recorded relevant experience falls short of it by two years or more; count "
+    "doctoral or other research years only where the stated experience is research, "
+    "scientific or computational work. Otherwise false, including when no length is stated. "
 )
 
 
