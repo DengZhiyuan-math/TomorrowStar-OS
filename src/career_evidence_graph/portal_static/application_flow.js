@@ -72,7 +72,10 @@
     element.dataset.flowWrite = "true";
     return element;
   }
+  // 2026-11-20: a read that timed out once must not stay on screen after reads recover.
+  let pollNotice = false;
   function message(text, error = false) {
+    pollNotice = false;
     const target = $("flow-notice");
     target.textContent = text;
     target.hidden = !text;
@@ -2456,10 +2459,13 @@
       let nextFlow = observations[0].status === "fulfilled" ? observations[0].value : flow;
       const nextIntake = observations[1].status === "fulfilled" ? observations[1].value : { ...intake, enabled: false, status: "unavailable", message: observations[1].reason.message };
       const nextPipeline = observations[2].status === "fulfilled" ? observations[2].value : pipeline;
-      if (followingPipeline && nextPipeline?.active_task_id && selectedTask !== nextPipeline.active_task_id) {
+      // 2026-11-20: while a new job is matched the queue names no active task; follow the
+      // current job's task (or the flow's own) instead of keeping a job the queue left.
+      const followed = nextPipeline?.active_task_id || nextPipeline?.items?.find(item => item.recommendation_id === nextPipeline.current_recommendation_id)?.task_id || null;
+      if (followingPipeline && readable.pipeline && selectedTask !== followed && (followed || selectedTask)) {
         try {
-          nextFlow = await api(`/api/flow/${encodeURIComponent(nextPipeline.active_task_id)}`);
-          selectedTask = nextPipeline.active_task_id;
+          nextFlow = await api(followed ? `/api/flow/${encodeURIComponent(followed)}` : "/api/flow/state");
+          selectedTask = followed;
           readable.flow = true;
         } catch (error) { readable.flow = false; observations.push({ status: "rejected", reason: error }); }
       }
@@ -2486,7 +2492,8 @@
       }
       render();
       const unavailable = observations.filter(observation => observation.status === "rejected");
-      if (unavailable.length) message(unavailable.map(observation => observation.reason.message).join(" "), true);
+      if (unavailable.length) { message(unavailable.map(observation => observation.reason.message).join(" "), true); pollNotice = true; }
+      else if (pollNotice) message("");
     } catch (error) { message(`${error.message} 可重新读取状态。`, true); }
     finally { observing = false; observe.disabled = false; schedule(); }
     if (readable.flow && readable.pipeline && location.hash === "#flow") saveNextAnswer();

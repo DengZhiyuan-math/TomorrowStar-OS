@@ -543,3 +543,33 @@ def test_a_queue_action_that_outlasts_the_request_is_verified_from_the_queue(por
     expect(page.locator("#flow-notice")).not_to_contain_text("尚未核验")
     expect(page.locator("#flow-notice")).to_be_hidden()
     expect(start).to_be_enabled()
+
+
+def test_a_state_read_that_timed_out_is_cleared_once_reads_recover(portal, browser_page):
+    from playwright.sync_api import expect
+
+    # 2026-11-20: one slow poll left "工作台响应超时" on screen after reads recovered.
+    page = browser_page
+    held = []
+
+    def read(route):
+        if held == ["hold"]:
+            held.append(route)
+            return
+        route.fulfill(json=pipeline_state(id="synthetic-pipeline", status="matching"))
+
+    page.route("**/api/pipeline/state", read)
+    page.goto(portal.origin + "/#flow")
+    expect(page.locator("#flow-pipeline-start")).to_be_enabled()
+    page.clock.install()
+    held.append("hold")
+    with page.expect_request("**/api/pipeline/state"):
+        page.clock.fast_forward(1500)
+    page.clock.fast_forward(30_001)
+    expect(page.locator("#flow-notice")).to_contain_text("读取状态超时")
+    for _ in range(20):
+        if page.locator("#flow-notice").is_hidden():
+            break
+        page.clock.fast_forward(1500)
+        page.wait_for_timeout(20)
+    expect(page.locator("#flow-notice")).to_be_hidden()
