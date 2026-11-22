@@ -591,6 +591,29 @@ def _aligned_quotes(row, eligible, application, brief=None):
     return row | {"source_quotes": [first[identifier] for identifier in ids]}
 
 
+def _cited_only(delivered, value):
+    """Drop analysis citations of sources the writer is not given.
+
+    2026-11-19 (Novartis): the match analysis cited an application-only answer
+    (availability after graduation); the letter writer quoted it from there and was
+    refused, since such answers are not employer-facing material sources.
+    """
+    if isinstance(value, dict):
+        return {
+            key: [item for item in item_list if item in delivered]
+            if key in {"source_ids", "selected_source_ids"} and isinstance(item_list, list)
+            else _cited_only(delivered, item_list)
+            for key, item_list in value.items()
+        }
+    if isinstance(value, list):
+        return [
+            _cited_only(delivered, item)
+            for item in value
+            if not (isinstance(item, dict) and item.get("source_id", "jd") not in delivered)
+        ]
+    return value
+
+
 def material_review_inputs(fixed_inputs, eligible):
     """Writers and reviewers read judgments and the facts they rest on, not receipts.
 
@@ -625,37 +648,45 @@ def material_review_inputs(fixed_inputs, eligible):
         # Nothing selected or cited: the writer keeps every eligible fact as before.
         used = {row["source_id"] for row in eligible}
     brief = analysis.get("job_brief") or {}
+    delivered = {row["source_id"] for row in eligible} | {"jd"}
     return {
         "fixed_inputs": {key: value for key, value in fixed_inputs.items() if key != "analysis"}
         | {
-            "analysis": {
-                # The JD is in the application binding; revisions stay with the program.
-                "job_brief": {
-                    key: value
-                    for key, value in brief.items()
-                    if key
-                    not in {
-                        "job",
-                        "job_revision",
-                        "revision",
-                        "framework_revision",
-                        "schema_version",
-                    }
-                },
-                "requirements": [
-                    {
+            "analysis": _cited_only(
+                delivered,
+                {
+                    # The JD is in the application binding; revisions stay with the program.
+                    "job_brief": {
                         key: value
-                        for key, value in row.items()
-                        if key not in {"scoring_framework", "sources"}
-                    }
-                    for row in analysis.get("requirements", [])
-                ],
-                **{
-                    key: analysis[key]
-                    for key in ("selected_source_ids", "selection_rationale", "inference_result")
-                    if key in analysis
+                        for key, value in brief.items()
+                        if key
+                        not in {
+                            "job",
+                            "job_revision",
+                            "revision",
+                            "framework_revision",
+                            "schema_version",
+                        }
+                    },
+                    "requirements": [
+                        {
+                            key: value
+                            for key, value in row.items()
+                            if key not in {"scoring_framework", "sources"}
+                        }
+                        for row in analysis.get("requirements", [])
+                    ],
+                    **{
+                        key: analysis[key]
+                        for key in (
+                            "selected_source_ids",
+                            "selection_rationale",
+                            "inference_result",
+                        )
+                        if key in analysis
+                    },
                 },
-            }
+            )
         },
         # The grouped view states each experience once, without receipts or locators.
         **matching_view(

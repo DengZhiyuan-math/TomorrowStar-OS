@@ -614,6 +614,11 @@ def review(
             if scope in protected_scopes
             for item in scope_items
         }
+        # 2026-11-19 (Cisco): the reviewer copied another hash from its prompt as the
+        # base revision. It reviews exactly this content and each change still checks
+        # its old value, so the program supplies the revision itself.
+        if isinstance(content_patch, dict):
+            content_patch = {**content_patch, "base_revision": content["revision"]}
         try:
             patched = apply_content_patch(
                 content,

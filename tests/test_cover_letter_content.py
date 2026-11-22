@@ -811,3 +811,34 @@ def test_a_quote_may_skip_whole_sentences_but_not_reword_or_cut_one():
     assert not _quoted("The user noted C. The user explained A.", source)  # order changed
     assert not _quoted("The user explained A. The user noted C, briefly.", source)  # reworded
     assert not _quoted("The user explained A. user noted C.", source)  # partial sentence
+
+
+def test_the_writer_sees_no_citation_of_an_application_only_answer():
+    """2026-11-19 (Novartis): the analysis cited an answer the letter may not use."""
+    from career_evidence_graph.application_cover_letter import _cited_only
+
+    answer = "confirmed-information:abc:answer"
+    analysis = {
+        "selected_source_ids": ["fact-1", answer],
+        "requirements": [
+            {
+                "source_ids": ["fact-1", answer],
+                "citations": [
+                    {"source_id": "fact-1", "quote": "kept"},
+                    {"source_id": answer, "quote": "dropped"},
+                ],
+                "inference": {"facts": [{"source_id": answer, "quote": "dropped"}]},
+            }
+        ],
+    }
+    view = _cited_only({"fact-1", "jd"}, analysis)
+    assert view == {
+        "selected_source_ids": ["fact-1"],
+        "requirements": [
+            {
+                "source_ids": ["fact-1"],
+                "citations": [{"source_id": "fact-1", "quote": "kept"}],
+                "inference": {"facts": []},
+            }
+        ],
+    }

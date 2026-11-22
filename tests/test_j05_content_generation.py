@@ -198,6 +198,39 @@ def test_protected_human_words_and_item_order_survive_writer_and_review(delivery
         )
 
 
+def test_content_review_ignores_a_miscopied_base_revision(delivery):
+    """2026-11-19 (Cisco): the reviewer copied another hash as the base revision."""
+    store, identifier, plan = delivery
+    generation.configure_generation(store, identifier, writing_plan=plan)
+    submit(delivery)
+    candidate = generation.assemble_generation(store, identifier)
+    generation.review_generation(
+        store,
+        identifier,
+        candidate_sha256=candidate["candidate_sha256"],
+        reviewer_id="reviewer-one",
+        passed=True,
+        issues=[],
+        content_patch={
+            "schema_version": "resume-content-patch/v1",
+            "base_revision": "d69b9f805f650824310ae28329207f373227553ed8258efbd105c97f22b8508d",
+            "changes": [
+                {
+                    "item_id": "item-demo-1",
+                    "field": "text",
+                    "expected": "Participated in planning a validation workflow.",
+                    "value": "Contributed to planning a validation workflow.",
+                }
+            ],
+        },
+    )
+    updated = generation.review_context(store, identifier)
+    assert (
+        updated["resume_content"]["experiences"][0]["items"][0]["text"]
+        == "Contributed to planning a validation workflow."
+    )
+
+
 @pytest.mark.parametrize(
     "corruption", ["experience", "candidate", "reference", "human", "extra_field"]
 )
