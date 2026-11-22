@@ -82,10 +82,22 @@ _PIPELINE_ROUTES = {
         409,
     ),
     "skip": ("skip_current", ({"request_id"},), _PIPELINE_CURRENT, 409),
-    "redo": ("redo_current", ({"request_id"},), _PIPELINE_CURRENT, 409),
+    "redo": ("redo_current", ({"request_id"}, {"request_id", "precision"}), _PIPELINE_CURRENT, 409),
     "return": ("return_to", ({"request_id", "application_id"},), _PIPELINE_CURRENT, 409),
     "observe-result": ("observe_result", ({"request_id"},), _PIPELINE_CURRENT, 409),
     "submitted": ("record_submitted", ({"request_id"},), _PIPELINE_CURRENT, 409),
+    "decline-parked": (
+        "decline_parked",
+        ({"request_id", "application_id"},),
+        _PIPELINE_CURRENT,
+        409,
+    ),
+    "retry-parked": (
+        "retry_parked",
+        ({"request_id", "application_id"},),
+        _PIPELINE_CURRENT,
+        409,
+    ),
     "mark-submitted": (
         "mark_submitted",
         ({"request_id", "application_id"},),

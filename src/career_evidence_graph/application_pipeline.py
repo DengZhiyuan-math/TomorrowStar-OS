@@ -99,6 +99,9 @@ CONFIRMATION_POLL = 300
 # many seconds, at most RATE_LIMIT_RETRIES times, before it is set aside.
 RATE_LIMIT_WAIT = 600
 RATE_LIMIT_RETRIES = 3
+# 2026-11-19 (user decision): a filled job waits for the user's Submit in its Chrome
+# tab while the queue fills the next one; at most this many filled jobs wait at once.
+SUBMIT_WAIT_LIMIT = 5
 # A job whose application needs an account goes on only from this match (2026-11-09).
 ACCOUNT_SCORE_FLOOR = 55
 # How long a finished match waits for its account check.
@@ -689,6 +692,58 @@ class ApplicationPipeline:
                         record["revision"],
                     )
             return self.snapshot()
+
+    def decline_parked(self, *, application_id, request_id, reason="declined_by_user"):
+        """The user gives up a filled job waiting for Submit; its slot frees (2026-11-21)."""
+        with self._control() as state:
+            self._request_id(request_id)
+            item = next(
+                (
+                    row
+                    for row in self._awaiting_submit(state)
+                    if application_id in {row.get("application_id"), row.get("recommendation_id")}
+                ),
+                None,
+            )
+            if item is None:
+                raise PortalDataError("pipeline_item_missing", "找不到这条等你提交的岗位。", 409)
+            item["reason"] = reason
+            self._save(state)
+            return self.snapshot()
+
+    def retry_parked(self, *, application_id, request_id):
+        """Fill a job waiting for Submit again once the current job is done (2026-11-21)."""
+        return self.decline_parked(
+            application_id=application_id, request_id=request_id, reason="retry_fill"
+        )
+
+    def _start_retry_fill(self, state):
+        """Make a job the user asked to refill current and start its fill again."""
+        target = next(
+            (
+                row
+                for row in state["items"]
+                if row["status"] == "skipped"
+                and row.get("reason") == "retry_fill"
+                and row.get("pipeline_context")
+            ),
+            None,
+        )
+        if target is None:
+            return False
+        state.update(deepcopy(target["pipeline_context"]))
+        target["status"] = target.pop("retained_status")
+        target.pop("reason", None)
+        for key in ("computer_use", "resume_status", "wait_reason"):
+            state.pop(key, None)
+        state.update(
+            current_recommendation_id=target["recommendation_id"],
+            control="running",
+            status="starting_worker",
+            notification=None,
+        )
+        self._save(state)
+        return True
 
     def record_submitted(self, *, request_id):
         """The user submitted the Computer Use form in Chrome; record it and move on."""
@@ -1425,12 +1480,14 @@ class ApplicationPipeline:
         self._save(state)
         return self.snapshot()
 
-    def redo_current(self, *, request_id):
+    def redo_current(self, *, request_id, precision=False):
         """Start the cancelled current job again as a new task; the old one stays history.
 
         Only after its cancel completed. Flow creates a new task for an application
         whose task was cancelled, so the job is analysed under current rules and its
         materials are prepared anew. Continue never revives a cancelled job.
+        ``precision`` lets the user choose the résumé's evidence and experiences for a
+        job below the precision tier (2026-11-20, Rivia: add ZeQome).
         """
         with self._control() as state:
             self._request_id(request_id)
@@ -1469,10 +1526,13 @@ class ApplicationPipeline:
                 "analysis_attempt_id",
                 "task_revision",
                 "precision_selection",
+                "precision_requested",
                 "plan_approval",
             ):
                 item.pop(key, None)
             item.update(task_id=None, status="pending", score=None, fresh_job_brief=True)
+            if precision is True:
+                item["precision_requested"] = True
             requests.append(
                 {
                     "request_id": request_id,
@@ -2123,7 +2183,7 @@ class ApplicationPipeline:
 
     def _precision_reasons(self, item, tier):
         """Why this job's résumé plan waits for the user; None while salary is pending."""
-        reasons = []
+        reasons = ["你要求调整选材"] if item.get("precision_requested") else []
         if tier == "manual":
             reasons.append("匹配分达到 75 以上")
         if self._target_job(item):
@@ -2354,6 +2414,7 @@ class ApplicationPipeline:
         item["status"] = "skipped"
         for key in keys:
             state.pop(key, None)
+        state.pop("submit_slot_wait", None)
         state.update(
             current_recommendation_id=None,
             active_task_id=None,
@@ -2931,6 +2992,8 @@ class ApplicationPipeline:
 
     def _pause_owned_worker(self, state):
         run = self._computer_use_runs.get((state.get("computer_use") or {}).get("run_id"))
+        if run:
+            run["stopped"] = True
         if run and run.get("process") is not None and run["process"].poll() is None:
             run["process"].terminate()
         if state.get("computer_use"):
@@ -3016,6 +3079,11 @@ class ApplicationPipeline:
                 self._observe_submission(state)
             if self._watch_confirmation(state):
                 return
+            if state.get("queue_mode"):
+                self._watch_parked_confirmations(state)
+                # The last filled job held the queue; a Submit elsewhere freed a slot.
+                if self._park_for_submit(state):
+                    return
             if self._resend_when_due(state):
                 return
             if state["control"] != "running":
@@ -3161,6 +3229,8 @@ class ApplicationPipeline:
             self._save(state)
             return
         if state["status"] in {"selecting_job", "waiting_for_mail"}:
+            if self._start_retry_fill(state):
+                return
             admitted = next((row for row in state["items"] if row["status"] == "admitted"), None)
             if admitted is not None:
                 if admitted["application_id"]:
@@ -3341,9 +3411,13 @@ class ApplicationPipeline:
         try:
             selected = self.intake.select(record["id"], record["revision"])
         except PortalDataError as error:
-            if error.code != "recommendation_posting_closed":
+            if error.code not in {
+                "recommendation_posting_closed",
+                "recommendation_duplicate_uncertain",
+            }:
                 raise
-            # A closed posting leaves the queue unlisted and creates no record.
+            # A closed posting, or one whose company and title match an existing
+            # application (2026-11-22), leaves the queue unlisted and creates no record.
             closed = state.setdefault("closed_postings", [])
             if record["id"] not in closed:
                 closed.append(record["id"])
@@ -4138,6 +4212,20 @@ class ApplicationPipeline:
                     report = run_claude_fill(
                         claude, context, self.computer_use["root"], started=started
                     )
+                    # 2026-11-19: when Claude fails (e.g. the Chrome extension is not
+                    # connected), Codex (GPT) takes over the same job; a pause does not.
+                    if (
+                        use_claude
+                        and report.get("status") == "failed"
+                        and not record.get("stopped")
+                    ):
+                        report = run_fill(
+                            self.computer_use["executable"],
+                            context,
+                            self.computer_use["root"],
+                            started=started,
+                            reasoning_effort=effort,
+                        )
                 record["report"] = report
             except (OSError, ValueError) as error:
                 record["report"] = {
@@ -4183,11 +4271,13 @@ class ApplicationPipeline:
                     row["salary_research"] = run["salary_research"]
         summary = str(report.get("summary") or "")[:300]
         if report["status"] == "ready_for_review":
+            state["submit_slot_wait"] = True
             self._stop(
                 state,
                 "ready_for_review",
                 "已在 Chrome 填好申请表。请检查后由你最终提交，再点“我已提交”。",
             )
+            self._park_for_submit(state)
         elif report["status"] == "account_required":
             # 2026-11-09: a sign-in wall leaves the automatic path; park the job, keep
             # its page open in Chrome, remember the site, and go on with the next job.
@@ -4219,6 +4309,91 @@ class ApplicationPipeline:
             self._stop(state, "needs_input", "需要你在 Chrome 处理：" + summary)
         else:
             self._stop(state, "needs_recheck", "Computer Use 未完成：" + summary)
+
+    @staticmethod
+    def _awaiting_submit(state):
+        return [
+            row
+            for row in state["items"]
+            if row["status"] == "skipped" and row.get("reason") == "awaiting_submit"
+        ]
+
+    def _park_for_submit(self, state):
+        """Leave a filled job waiting for the user's Submit and fill the next one.
+
+        2026-11-19 (user decision): jobs are filled one by one and up to
+        SUBMIT_WAIT_LIMIT of them wait for review and Submit at the same time. The
+        last one stays current, which stops the queue until a slot frees. Returns
+        True when it parked the job.
+        """
+        if (
+            not state.get("submit_slot_wait")
+            or state["status"] != "ready_for_review"
+            or len(self._awaiting_submit(state)) >= SUBMIT_WAIT_LIMIT - 1
+        ):
+            return False
+        item = next(
+            row
+            for row in state["items"]
+            if row.get("recommendation_id") == state.get("current_recommendation_id")
+        )
+        item["reason"] = "awaiting_submit"
+        self._leave_current(state, "awaiting-submit:" + state["computer_use"]["run_id"])
+        return True
+
+    def _watch_parked_confirmations(self, state):
+        """A parked job's confirmation mail records its Submit, as for the current job."""
+        reader = (self.computer_use or {}).get("confirmations")
+        if reader is None:
+            return
+        from .application_computer_use import confirmation_email
+
+        for item in self._awaiting_submit(state):
+            use = (item.get("pipeline_context") or {}).get("computer_use") or {}
+            if not use.get("company") or not use.get("run_id"):
+                continue
+            read = self._confirmation_reads.get(use["run_id"])
+            if read is not None and read.get("email") is not None:
+                self._confirmation_reads.pop(use["run_id"], None)
+                item.update(
+                    status="completed", submitted_by="confirmation_email", submitted_at=time.time()
+                )
+                self._save(state)
+                self._mark_applied(item, "confirmation_email")
+                continue
+            if (read is not None and read["thread"].is_alive()) or time.time() < item.get(
+                "confirmation_poll_at", 0
+            ):
+                continue
+            record = {"email": None}
+
+            def work(record=record, company=use["company"], since=use["started_at"]):
+                try:
+                    record["email"] = confirmation_email(reader(company, since), company)
+                except (OSError, ValueError, TypeError, KeyError, PortalDataError):
+                    record["email"] = None
+
+            record["thread"] = threading.Thread(target=work, name="confirmation-mail", daemon=True)
+            self._confirmation_reads[use["run_id"]] = record
+            record["thread"].start()
+            item["confirmation_poll_at"] = time.time() + CONFIRMATION_POLL
+            self._save(state)
+
+    def _mark_applied(self, item, by):
+        if not item.get("application_id"):
+            return
+        record = self.flow.applications.get_application(item["application_id"])
+        if record.get("status") != "applied":
+            self.flow.applications.update_application(
+                record["id"],
+                {
+                    "status": "applied",
+                    "next_action": "已提交（确认邮件）。"
+                    if by == "confirmation_email"
+                    else "已由用户提交。",
+                },
+                record["revision"],
+            )
 
     def _computer_use_request(self, state, action, payload):
         """Continue refills through Computer Use; Submitted records the user's own send."""
@@ -4282,19 +4457,7 @@ class ApplicationPipeline:
         item = next(row for row in state["items"] if row.get("recommendation_id") == recommendation)
         item.update(status="completed", submitted_by=by, submitted_at=time.time())
         self._save(state)
-        if item.get("application_id"):
-            record = self.flow.applications.get_application(item["application_id"])
-            if record.get("status") != "applied":
-                self.flow.applications.update_application(
-                    record["id"],
-                    {
-                        "status": "applied",
-                        "next_action": "已提交（确认邮件）。"
-                        if by == "confirmation_email"
-                        else "已由用户提交。",
-                    },
-                    record["revision"],
-                )
+        self._mark_applied(item, by)
 
     def _watch_confirmation(self, state):
         """While a Computer Use fill waits for the user's Submit, look for the

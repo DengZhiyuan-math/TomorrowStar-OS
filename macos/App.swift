@@ -880,6 +880,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
                 NSApp.dockTile.badgeLabel = "1"
                 if self.pipelineNotices.insert(id).inserted {
                     NSApp.requestUserAttention(.informationalRequest)
+                    // 2026-11-20 (user decision): a sound when work waits for the user.
+                    NSSound(named: "Glass")?.play()
                 }
             } else {
                 NSApp.dockTile.badgeLabel = nil

@@ -12,6 +12,7 @@ from test_application_pipeline import Flow
 from test_pipeline_recommendation_queue import drive
 from test_worker_backend_recovery import backend as backend
 
+from career_evidence_graph import application_pipeline
 from career_evidence_graph.application_intake import ApplicationIntakeService
 from career_evidence_graph.application_pipeline import ApplicationPipeline
 from career_evidence_graph.application_worker import WorkerService
@@ -20,6 +21,8 @@ from career_evidence_graph.career_portal_data import ApplicationStore, PortalDat
 
 @pytest.fixture
 def current_pipeline(tmp_path, monkeypatch):
+    # These tests follow one filled job at a time; parking is tested on its own.
+    monkeypatch.setattr(application_pipeline, "SUBMIT_WAIT_LIMIT", 1)
     (tmp_path / "applications").mkdir()
     apps = ApplicationStore(tmp_path / "applications")
     urls = [f"https://www.linkedin.com/jobs/view/{10000 + i}" for i in (1, 2, 3)]
@@ -1341,6 +1344,37 @@ def test_claude_continues_a_fill_codex_ended_at_its_usage_limit(
     assert state["computer_use"]["report"]["status"] == "ready_for_review"
 
 
+def test_codex_takes_over_a_fill_claude_could_not_do(current_pipeline, monkeypatch, tmp_path):
+    """2026-11-19, Kanton Zürich: the Claude in Chrome extension did not connect."""
+    from career_evidence_graph import application_computer_use
+
+    pipeline, _flow, _intake, worker = current_pipeline
+    pipeline.computer_use = {"executable": "/bin/codex", "root": tmp_path / "cu", "claude": "/c"}
+    calls = []
+    failed = {"status": "failed", "summary": "Browser extension is not connected."}
+    ready = {"status": "ready_for_review", "summary": "", "filled": [], "unanswered": []}
+    monkeypatch.setattr(application_computer_use, "preferred_executor", lambda root: "claude")
+    monkeypatch.setattr(
+        application_computer_use, "run_fill", lambda *a, **kw: calls.append("codex") or ready
+    )
+    monkeypatch.setattr(
+        application_computer_use,
+        "run_claude_fill",
+        lambda config, context, root, **kw: calls.append(config) or failed,
+    )
+    monkeypatch.setattr(
+        worker.store, "_native_answer_reference", lambda job: {"confirmed_answers": []}
+    )
+    pipeline.start(request_id="start")
+    for _ in range(100):
+        pipeline._tick()
+        state = pipeline.snapshot()
+        if (state.get("computer_use") or {}).get("report"):
+            break
+    assert calls == ["/c", "codex"]
+    assert state["computer_use"]["report"]["status"] == "ready_for_review"
+
+
 def test_a_removed_posting_leaves_the_queue_without_a_click(
     current_pipeline, monkeypatch, tmp_path
 ):
@@ -1583,3 +1617,81 @@ def test_a_pasted_job_jumps_ahead_of_the_waiting_ones_once(current_pipeline, mon
     snapshot["job"] = {"status": "failed", "request_id": "r2", "application_id": None}
     pipeline._admit_pasted_job(state)
     assert len(state["items"]) == 3
+
+
+def _parking_fill(monkeypatch, pipeline, worker, tmp_path, confirmations=None):
+    from career_evidence_graph import application_computer_use
+
+    pipeline.computer_use = {"executable": "/bin/codex", "root": tmp_path / "cu"}
+    if confirmations is not None:
+        pipeline.computer_use["confirmations"] = confirmations
+    contexts = []
+
+    def fill(executable, context, root, **options):
+        contexts.append(context)
+        return {"status": "ready_for_review", "summary": "", "filled": [], "unanswered": []}
+
+    monkeypatch.setattr(application_computer_use, "run_fill", fill)
+    monkeypatch.setattr(
+        worker.store, "_native_answer_reference", lambda job: {"confirmed_answers": []}
+    )
+    return contexts
+
+
+def _waiting(state):
+    return [row for row in state["items"] if row.get("reason") == "awaiting_submit"]
+
+
+def test_filled_jobs_wait_for_submit_while_the_queue_fills_the_next(
+    current_pipeline, monkeypatch, tmp_path
+):
+    """2026-11-19 (user decision): fill jobs one by one; up to five wait for Submit."""
+    pipeline, flow, _intake, worker = current_pipeline
+    monkeypatch.setattr(application_pipeline, "SUBMIT_WAIT_LIMIT", 2)
+    contexts = _parking_fill(monkeypatch, pipeline, worker, tmp_path)
+    pipeline.start(request_id="start")
+    held = drive(pipeline, "ready_for_review")
+    # The first filled job waits on its own; the second holds the queue at the limit.
+    (first,) = _waiting(held)
+    assert first["status"] == "skipped" and len(contexts) == 2
+    assert held["control"] == "paused" and held["active_task_id"] != first["task_id"]
+    pipeline.mark_submitted(application_id=first["application_id"], request_id="sent-1")
+    for _ in range(200):
+        pipeline._tick()
+        state = pipeline.snapshot()
+        if len(contexts) == 3:
+            break
+        time.sleep(0.01)
+    # A freed slot lets the held job wait aside and the third job is filled.
+    assert len(contexts) == 3
+    assert [row["task_id"] for row in _waiting(state) if row["status"] == "skipped"] == [
+        held["active_task_id"]
+    ]
+    assert flow.applications.get_application(first["application_id"])["status"] == "applied"
+
+
+def test_a_waiting_jobs_confirmation_mail_records_its_submit(
+    current_pipeline, monkeypatch, tmp_path
+):
+    pipeline, flow, _intake, worker = current_pipeline
+    monkeypatch.setattr(application_pipeline, "SUBMIT_WAIT_LIMIT", 5)
+
+    def confirmations(company, since):
+        return [
+            {"from": company, "subject": f"Thank you for applying to {company}", "body_text": ""}
+        ]
+
+    _parking_fill(monkeypatch, pipeline, worker, tmp_path, confirmations)
+    pipeline.start(request_id="start")
+    for _ in range(400):
+        pipeline._tick()
+        state = pipeline.snapshot()
+        done = [row for row in state["items"] if row.get("submitted_by") == "confirmation_email"]
+        if len(done) == 3:
+            break
+        time.sleep(0.01)
+    assert len(done) == 3 and all(row["status"] == "completed" for row in done)
+    assert all(
+        flow.applications.get_application(row["application_id"])["status"] == "applied"
+        for row in done
+    )

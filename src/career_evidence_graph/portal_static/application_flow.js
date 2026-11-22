@@ -429,8 +429,8 @@
     items.sort((a, b) => (b.current - a.current) || (b.index - a.index));
     // 2026-11-08: jobs stopped by a fault or a site limit go to their own folder;
     // the rest are grouped by target company, then by match band, each with its colour.
-    const needsHandling = item => item.status === "analysis_failed" || item.status === "skipped" && !["low_match_score", "experience_shortfall", "german_required", "german_jd", "mail_intake_off", "flow_eligibility_required", "account_low_match"].includes(item.reason) && item.pipeline_context?.wait_reason !== "score_approval";
-    const groups = [["target", "目标公司"], ["high", "高匹配 · 75 分以上"], ["good", "较高匹配 · 55–74"], ["fair", "中等匹配 · 40–54"], ["low", "较低匹配 · 40 以下"], ["unscored", "尚无匹配分"], ["mismatch", "硬性条件不满足"]].map(([key, label]) => ({ key, label, rows: [] }));
+    const needsHandling = item => item.status === "analysis_failed" || item.status === "skipped" && !["low_match_score", "experience_shortfall", "german_required", "german_jd", "mail_intake_off", "flow_eligibility_required", "account_low_match", "awaiting_submit", "declined_by_user", "retry_fill"].includes(item.reason) && item.pipeline_context?.wait_reason !== "score_approval";
+    const groups = [["submit", "已填好 · 等你检查并提交"], ["target", "目标公司"], ["high", "高匹配 · 75 分以上"], ["good", "较高匹配 · 55–74"], ["fair", "中等匹配 · 40–54"], ["low", "较低匹配 · 40 以下"], ["unscored", "尚无匹配分"], ["mismatch", "硬性条件不满足"]].map(([key, label]) => ({ key, label, rows: [] }));
     const handling = [];
     let currentRow = null;
     for (const { item, current } of items) {
@@ -443,7 +443,7 @@
       }
       else if (needsHandling(item)) handling.push(pipelineRow(item, false));
       else {
-        const key = item.target_company ? "target" : item.reason === "flow_eligibility_required" ? "mismatch" : scoreBand(item.score) || "unscored";
+        const key = item.status === "skipped" && item.reason === "awaiting_submit" ? "submit" : item.target_company ? "target" : item.reason === "flow_eligibility_required" ? "mismatch" : scoreBand(item.score) || "unscored";
         groups.find(group => group.key === key).rows.push(pipelineRow(item, false));
       }
     }
@@ -494,6 +494,9 @@
       : item.reason === "german_required" ? ["需要德语", "withdrawn", "JD 把德语列为必需要求，高于你已记录的德语水平，已自动跳过"]
       : item.reason === "experience_shortfall" ? ["经验年限不足", "withdrawn", `JD 要求的工作年限明显高于你的经历，不算年限的匹配分${item.experience_reach == null ? "" : ` ${Math.round(item.experience_reach)}`} 不到 80，已自动跳过`]
       : item.reason === "account_low_match" ? ["需要账号·匹配不高", "withdrawn", "申请需要登录或注册，且匹配分低于 55，已自动跳过"]
+      : item.reason === "awaiting_submit" ? ["等你提交", "reviewed", "已在 Chrome 填好，标签页保留；检查并提交后点“已提交”"]
+      : item.reason === "declined_by_user" ? ["不投了", "withdrawn", "你选择不投这个已填好的岗位；需要时可返回"]
+      : item.reason === "retry_fill" ? ["等待重填", "candidate", "当前岗位处理完后会重新填写"]
       : item.reason === "account_required" ? ["需要账号", "candidate", "申请需要登录或注册；已搁置，页面留在 Chrome，可自行注册后投递"]
       : ["已跳过", "candidate", item.pipeline_context?.notification?.message ? `跳过时：${item.pipeline_context.notification.message}` : ""];
     const band = item.reason === "flow_eligibility_required" ? null : scoreBand(score);
@@ -2469,6 +2472,8 @@
     if (report.unanswered?.length) panel.append(node("p", "flow-muted", `未填写：${report.unanswered.join("；")}`));
     const actions = node("div", "flow-actions");
     actions.append(button("我已提交", () => pipelineAction("mark-submitted", { application_id: keyOf(item) }), "flow-submit-done"));
+    actions.append(button("不投了", () => pipelineAction("decline-parked", { application_id: keyOf(item) }), "flow-submit-decline"));
+    actions.append(button("重试", () => pipelineAction("retry-parked", { application_id: keyOf(item) }), "flow-submit-retry"));
     panel.append(actions);
     tabs.after(panel);
   }

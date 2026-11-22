@@ -322,6 +322,7 @@
 .flow-target-chip { padding: 1px 8px; border-radius: 10px; background: #fdecb8; color: #7a5600; font-weight: 600; }
 .flow-pipeline-group { margin: 18px 0 0; font-size: 12px; font-weight: 600; color: var(--muted); display: flex; align-items: center; gap: 8px; }
 .flow-pipeline-group::before { content: ""; width: 10px; height: 10px; border-radius: 3px; background: #d7dbd4; }
+.flow-pipeline-group.tier-submit::before { background: #2d6587; }
 .flow-pipeline-group.tier-target::before { background: #d49b0b; }
 .flow-pipeline-group.tier-high::before { background: #3f8a5a; }
 .flow-pipeline-group.tier-good::before { background: #3d7fa6; }

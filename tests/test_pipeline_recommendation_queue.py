@@ -393,6 +393,23 @@ def test_low_score_is_skipped_and_a_middle_score_waits_for_one_continue(
     assert [call[0] for call in flow.calls].count("resume") == 1
 
 
+def test_a_job_matching_a_linkless_application_is_skipped_without_stopping(
+    queue_environment,
+):
+    # Decided 2026-11-22: same company and title as an existing application that has
+    # no saved link is treated as already applied; the queue moves on by itself.
+    pipeline, flow, intake, _worker, _reads, _fetches, _messages = queue_environment
+    flow.applications.create_application(
+        {"company": "Synthetic Labs", "role_title": "Systems Engineer", "status": "applied"}
+    )
+    pipeline.start(request_id="duplicates")
+    waiting = drive(pipeline, "waiting_for_mail")
+    listed = {row["id"] for row in intake.snapshot()["recommendations"]}
+    assert listed and set(waiting["closed_postings"]) == listed
+    assert waiting["items"] == []
+    assert len(flow.applications.list_applications()) == 1
+
+
 def test_a_closed_posting_leaves_unrecorded_and_easy_apply_with_its_reason(
     queue_environment, monkeypatch
 ):

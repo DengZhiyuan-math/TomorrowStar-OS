@@ -394,3 +394,41 @@ def test_a_pruned_batch_without_a_current_job_has_stopped():
     current = {"batch_history": [], "jobs": [{"application_id": "app"}]}
     with pytest.raises(PortalDataError):
         WorkerService._archived_cancellation(current, "app", "b" * 32, "task")
+
+
+def test_a_redo_can_ask_to_choose_the_resume_experiences(cancellable_pipeline):
+    # 2026-11-20, Rivia (72.7): the user wanted ZeQome in the résumé, but only jobs in
+    # the precision tier stop for the user to choose experiences.
+    pipeline, _, _, _ = cancellable_pipeline
+    pipeline.start(request_id="begin-precision-redo")
+    drive(pipeline, "filling")
+    pipeline.cancel_current(request_id="cancel-before-precision-redo")
+    pipeline.redo_current(request_id="redo-precision", precision=True)
+    with pipeline._guard:
+        item = next(row for row in pipeline._load()["items"] if row["task_id"] is None)
+    assert pipeline._precision_reasons(item, "auto") == ["你要求调整选材"]
+    item.pop("precision_requested")
+    assert pipeline._precision_reasons(item, "manual") == ["匹配分达到 75 以上"]
+
+
+def test_a_parked_job_can_be_declined_or_refilled_after_the_current_job():
+    # 2026-11-21 (user decision): a filled job waiting for Submit can be given up or
+    # filled again once the current job is done.
+    from career_evidence_graph.application_pipeline import ApplicationPipeline
+
+    parked = {
+        "recommendation_id": "r1",
+        "application_id": "a1",
+        "status": "skipped",
+        "reason": "retry_fill",
+        "retained_status": "matched",
+        "pipeline_context": {"active_task_id": "t1", "computer_use": {"run_id": "x"}},
+    }
+    state = {"items": [parked], "status": "selecting_job", "control": "running"}
+    saved = []
+    fake = type("P", (), {"_save": lambda self, s: saved.append(s)})()
+    assert ApplicationPipeline._start_retry_fill(fake, state) is True
+    assert state["current_recommendation_id"] == "r1" and state["active_task_id"] == "t1"
+    assert state["status"] == "starting_worker" and "computer_use" not in state
+    assert parked["status"] == "matched" and "reason" not in parked
+    assert ApplicationPipeline._start_retry_fill(fake, state) is False
