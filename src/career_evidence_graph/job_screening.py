@@ -561,11 +561,17 @@ def _name_patterns(name):
 def application_country(location):
     """Only an explicit unique country in the job location establishes scope."""
     if not isinstance(location, str) or re.search(
-        r"[;/|]|\b(?:or|exclude[ds]?|excluding|except|outside|not|non|without|other\s+than)\b",
+        r"\b(?:or|exclude[ds]?|excluding|except|outside|not|non|without|other\s+than)\b",
         location,
         re.I,
     ):
         return None
+    parts = re.split(r"[;/|]", location)
+    if len(parts) > 1:
+        # 2026-11-22, Allianz: "Wallisellen / Hof, Zurich, Switzerland" is one office.
+        # Alternatives count only when they name different countries.
+        found = {application_country(part) for part in parts} - {None}
+        return found.pop() if len(found) == 1 else None
     components = [part.strip() for part in re.split(r"[,()\[\]—–-]", location)]
     matches = set()
     labels = [*_COUNTRIES.items(), *((name, (name,)) for name in _OTHER_COUNTRIES)]

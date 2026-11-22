@@ -381,6 +381,8 @@ def test_one_grant_drives_email_matching_resume_and_filling_without_ui(environme
         ("Zurich", "CHE"),
         ("Springfield", None),
         ("Switzerland / France", None),
+        ("Zurich / Berlin", None),
+        ("Wallisellen / Hof, Zurich, Switzerland", "CHE"),
         ("Remote", None),
         ("Amsterdam, Netherlands", "OTHER"),
     ],
