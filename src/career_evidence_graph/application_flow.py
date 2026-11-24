@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fcntl
 import hashlib
+import marshal
 import queue
 import re
 import shutil
@@ -565,6 +566,8 @@ class ApplicationFlowService:
         self._shared = None
         # Task files whose digest this process verified or wrote, by file identity.
         self._verified_tasks = set()
+        # Verified task files as (file identity, marshal bytes), by path (2026-11-24).
+        self._task_bytes = {}
         self._stored_format = None
         self.callbacks = dict(callbacks or {})
         self.input_provider = input_provider
@@ -763,14 +766,35 @@ class ApplicationFlowService:
         return (str(path), info.st_ino, info.st_mtime_ns, info.st_size)
 
     def _read_task_file(self, path):
-        """One task revision file, its digest checked once per file identity."""
-        task = helper.read_json_object(path, "application flow task")
+        """One task revision file, its digest checked once per file identity.
+
+        2026-11-24: 124 tasks were 761 MB; every load parsed all of them (3.5 s) and
+        every save re-digested all of them (3 s), under the shared write lock, so the
+        page's state read passed its 30 s limit. Revision files never change, so a
+        verified file is kept as marshal bytes: each load still gets fresh objects,
+        and _save recognises an unchanged task by comparing bytes.
+        """
         key = self._file_identity(path)
+        cached = self._task_bytes.get(str(path))
+        if cached is not None and cached[0] == key:
+            return marshal.loads(cached[1])
+        task = helper.read_json_object(path, "application flow task")
         if key not in self._verified_tasks:
             if task.get("revision") != digest({k: v for k, v in task.items() if k != "revision"}):
                 raise ValueError("task file differs from its revision")
             self._verified_tasks.add(key)
+        self._task_bytes[str(path)] = (key, marshal.dumps(task, 2))
         return task
+
+    def _unchanged(self, path, task):
+        """Whether ``task`` equals the verified revision file at ``path`` (no digest)."""
+        cached = self._task_bytes.get(str(path))
+        if cached is None:
+            return False
+        try:
+            return marshal.dumps(task, 2) == cached[1] and self._file_identity(path) == cached[0]
+        except (ValueError, OSError):
+            return False
 
     def adopted_artifact(self, stage, identifier, *, kind=None):
         """Read an isolated historical result without projecting current inputs."""
@@ -806,8 +830,14 @@ class ApplicationFlowService:
             ):
                 task.pop("material_binding")
             compact_match_rechecks(task)
-            task["revision"] = digest({k: v for k, v in task.items() if k != "revision"})
             directory = self.root / folder / task["id"]
+            current = task.get("revision")
+            if not (
+                isinstance(current, str)
+                and re.fullmatch(r"[a-f0-9]{64}", current)
+                and self._unchanged(directory / f"{current}.json", task)
+            ):
+                task["revision"] = digest({k: v for k, v in task.items() if k != "revision"})
             if any(path.is_symlink() for path in (directory.parent, directory)):
                 raise PortalDataError("flow_invalid", "历史任务目录不能使用符号链接。", 409)
             path = directory / f"{task['revision']}.json"
@@ -821,6 +851,11 @@ class ApplicationFlowService:
                 and helper.read_json_object(path, "historical application flow") != task
             ):
                 raise PortalDataError("flow_invalid", "历史任务快照不能核验，请保留原件。", 409)
+        current = {
+            str(self.root / folder / task["id"] / f"{task['revision']}.json")
+            for folder, task in records
+        }
+        self._task_bytes = {p: v for p, v in self._task_bytes.items() if p in current}
         # 2026-11-09: flow.json names the task revision files instead of repeating them.
         from .application_flow_store import index_for
 
