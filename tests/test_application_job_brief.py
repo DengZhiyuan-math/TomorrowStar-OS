@@ -792,6 +792,16 @@ def test_a_one_requirement_group_returned_with_or_branches_reads_as_all(
     assert [row["text"] for row in brief_requirements(value)] == ["Bachelor's or master's degree"]
 
 
+def test_an_all_group_with_one_branch_reads_as_all(tmp_path, application, output):
+    """2026-11-24, Zühlke: "all" groups came back with one branch, some indexes out of
+    range, and the whole brief was rejected."""
+    nested_output(application, output, texts=["Python", "SQL"])
+    output["groups"][0].update(operator="all", alternatives=[[0, 1, 2, 3]])
+    group = brief(tmp_path, application, output)["groups"][0]
+    assert group["operator"] == "all" and group["alternatives"] is None
+    assert len(group["requirements"]) == 2
+
+
 def test_the_prompt_splits_each_required_language_level(tmp_path, application, output):
     """2026-11-08: finnova's "Deutsch (C1) und Englisch (B2)" stayed one requirement,
     judged partial with German A2, and passed the eligibility gate."""

@@ -579,10 +579,14 @@ def create_job_brief(
     try:
         output = _Output.model_validate(result.structured_result).model_dump()
         for group in output["groups"]:
-            if len(group["requirements"]) == 1:
+            if len(group["requirements"]) == 1 or (
+                group["operator"] == "all" and len(group["alternatives"] or []) <= 1
+            ):
                 # One requirement has no OR branches; its alternatives live in its text
                 # (2026-11-08: UBS's one-requirement degree group came back as "any"
                 # with an out-of-range branch on two attempts, rejecting the brief).
+                # A single branch on an "all" group says "all" again (2026-11-24,
+                # Zühlke: three such groups rejected the brief); several stay invalid.
                 group.update(operator="all", alternatives=None)
             group["jd_quote"] = _literal_group_quote(group["jd_quote"], job["job_description"])
             for item in group["requirements"]:
