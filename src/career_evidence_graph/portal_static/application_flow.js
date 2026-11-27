@@ -868,7 +868,7 @@
       mailProgress.append(node("p", "", `邮件处理：本地收录 ${progress.mail_captured || 0} · 已标记 ${progress.mail_labeled || 0} · 已归档 ${progress.mail_archived || 0} · 待核对 ${progress.mail_needs_recheck || 0}`));
       if (progress.mail_processing_error === "gmail_processing_invalid") mailProgress.append(node("p", "flow-error", "邮件处理标签配置无效；仍可收录推荐；未执行标记或归档。请在设置中更正标签。"));
       else if (progress.mail_label_configured === false) mailProgress.append(node("p", "", "未配置邮件处理标签；仍可收录推荐，不执行标记或归档。"));
-      if (progress.mail_needs_recheck) mailProgress.append(node("p", "flow-error", "邮件处理结果待核对；核对前不会重复标记或归档。"));
+      if (progress.mail_needs_recheck) mailProgress.append(node("p", "flow-error", "部分邮件尚未确认已归档；下次读取邮件时会重新标记并归档。"));
       mailProgress.append(node("p", "", `待处理岗位 ${progress.pending_candidates || 0} · 未完整邮件 ${progress.incomplete_messages || 0} · 未读邮件 ${progress.unread_messages || 0}`));
       mailProgress.append(node("p", "", `岗位来源：已完成 ${progress.source_complete || 0} · 失败 ${progress.source_failed || 0} · 待核验 ${progress.source_needs_recheck || 0}`));
       mailProgress.append(node("p", "", progress.has_more ? "仍有后续页，请明确继续读取。" : "暂无后续页记录。"));

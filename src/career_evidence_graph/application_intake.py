@@ -35,6 +35,7 @@ from .validation.hashing import record_digest as digest
 from .workable_uploads import job_shortcode
 
 # Selections refused before anything is written: the outcome is known.
+MAIL_ARCHIVE_BATCH = 50
 KNOWN_SAVE_REFUSALS = {
     "recommendation_source_conflict",
     "recommendation_source_changed",
@@ -44,10 +45,13 @@ KNOWN_SAVE_REFUSALS = {
 
 def _canonical(url):
     key = recommendation_key(url)
-    if key is None or key[0] not in {"linkedin", "indeed"}:
+    if key is None or key[0] not in {"linkedin", "indeed", "efinancialcareers"}:
         return None
     if key[0] == "linkedin":
         return f"https://www.linkedin.com/jobs/view/{key[1]}"
+    if key[0] == "efinancialcareers":
+        parts = urlsplit(url)
+        return f"https://{parts.hostname}{parts.path}"
     if urlsplit(url).path.rstrip("/") not in {
         "/viewjob",
         "/m/viewjob",
@@ -89,10 +93,6 @@ def _explicit_pasted_job_url(text):
         if recommendation_key(value) in candidates:
             return value
     return ""
-
-
-class _MailboxResultUnknown(Exception):
-    """An external mailbox operation needs readback before retry."""
 
 
 class ApplicationIntakeService:
@@ -1198,63 +1198,44 @@ class ApplicationIntakeService:
     def _process_captured_mail(self, request, run):
         if self.processed_label is None:
             return
-        state = self._load()
-        for identifier, checkpoint in self._mail_processing(state).items():
-            if not self._admit(request):
-                return
+        # 2026-11-27: one call labels and archives a batch. Adding the label and removing
+        # INBOX are idempotent, so a batch whose result is unknown is simply sent again.
+        groups = {}
+        for identifier, checkpoint in self._mail_processing(self._load()).items():
             if checkpoint["label_status"] == checkpoint["archive_status"] == "complete":
                 continue
             label = checkpoint.get("label_name") or self.processed_label
-            checkpoint["label_name"] = label
-            options = {
-                "message_id": checkpoint.get("message_id", identifier),
-                "label_name": label,
-                "expected_mailbox_identity": checkpoint.get("mailbox_identity"),
-            }
+            groups.setdefault((label, checkpoint.get("mailbox_identity")), []).append(identifier)
 
-            def call(operation, options=options):
+        def mark(identifiers, status, label):
+            with self.applications.write_lock():
+                current = self._load()
+                for identifier in identifiers:
+                    current["mail_processing"][identifier].update(
+                        label_name=label, label_status=status, archive_status=status
+                    )
+                self._save(current)
+
+        for (label, mailbox_identity), identifiers in groups.items():
+            for start in range(0, len(identifiers), MAIL_ARCHIVE_BATCH):
                 if not self._admit(request):
-                    raise _MailboxResultUnknown("intake-interrupted")
+                    return
+                batch = identifiers[start : start + MAIL_ARCHIVE_BATCH]
+                processing = self._load()["mail_processing"]
+                message_ids = [processing[key].get("message_id", key) for key in batch]
+                mark(batch, "needs_recheck", label)
                 try:
                     result = self.mailbox(
-                        run / "mail-processing" / uuid4().hex, operation=operation, **options
+                        run / "mail-processing" / uuid4().hex,
+                        operation="label_and_archive",
+                        message_ids=message_ids,
+                        label_name=label,
+                        expected_mailbox_identity=mailbox_identity,
                     )
-                except Exception as error:
-                    raise _MailboxResultUnknown("mailbox-result-unknown") from error
-                if not isinstance(result, dict) or result.get("status") != "complete":
-                    raise _MailboxResultUnknown("mailbox-result-unknown")
-                return result
-
-            try:
-                actual = call("inspect")
-                for operation, field in (("label", "labeled"), ("archive", "archived")):
-                    key = operation + "_status"
-                    if type(actual.get(field)) is not bool:
-                        raise _MailboxResultUnknown("mailbox-state-unknown")
-                    if not actual[field]:
-                        checkpoint[key] = "needs_recheck"
-                        with self.applications.write_lock():
-                            current = self._load()
-                            current["mail_processing"][identifier] = checkpoint
-                            self._save(current)
-                        call(operation)
-                        actual = call("inspect")
-                        if actual.get(field) is not True:
-                            raise _MailboxResultUnknown("mailbox-change-unverified")
-                    checkpoint[key] = "complete"
-                    with self.applications.write_lock():
-                        current = self._load()
-                        current["mail_processing"][identifier] = checkpoint
-                        self._save(current)
-            except _MailboxResultUnknown:
-                key = (
-                    "label_status" if checkpoint["label_status"] != "complete" else "archive_status"
-                )
-                checkpoint[key] = "needs_recheck"
-                with self.applications.write_lock():
-                    current = self._load()
-                    current["mail_processing"][identifier] = checkpoint
-                    self._save(current)
+                except Exception:  # noqa: BLE001 - an unknown result is retried next read.
+                    result = None
+                if isinstance(result, dict) and result.get("status") == "complete":
+                    mark(batch, "complete", label)
 
     def _finish_capture(self, request, run, result):
         """Finish this saved page, then automatically read the next bounded API page."""

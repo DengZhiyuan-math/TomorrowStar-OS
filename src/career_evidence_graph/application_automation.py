@@ -113,6 +113,9 @@ def recommendation_key(url: object) -> tuple[str, str] | None:
             if re.fullmatch(r"[a-fA-F0-9]{16}", identifier):
                 return "indeed", identifier.casefold()
         return None
+    if re.fullmatch(r"(?:www\.)?efinancialcareers\.[a-z]{2,3}(?:\.[a-z]{2})?", host):
+        match = re.fullmatch(r"/(?:[a-z]{2}/)?[^/]+\.id([0-9]+)/?", parsed.path)
+        return ("efinancialcareers", match[1]) if match else None
     return key
 
 

@@ -48,7 +48,6 @@ def mail_backend(tmp_path, monkeypatch, request):
     if isinstance(label, dict):
         job_url, label = label["job_url"], label["label"]
     calls, reads = [], []
-    actual = {"labeled": False, "archived": False}
     current = {"configured_label": label}
 
     def reader(*_args, **_options):
@@ -64,12 +63,9 @@ def mail_backend(tmp_path, monkeypatch, request):
         saved = current["server"].application_intake_service.snapshot()["recommendations"]
         assert saved[0]["source_messages"][0]["message_id"] == "incoming"
         calls.append(operation)
-        if operation == "label":
-            actual["labeled"] = True
-        if operation == "archive":
-            actual["archived"] = True
+        if len(calls) == 1:
             raise TimeoutError("Synthetic archive succeeded; reply lost")
-        return {"status": "complete", **actual}
+        return {"status": "complete"}
 
     def forbidden(*_args, **_options):
         pytest.fail("Waiting capture must not acquire or analyze another JD")
@@ -142,7 +138,7 @@ def test_real_pipeline_capture_reopen_and_archive_readback_preserve_waiting_job(
         api(portal, "/api/pipeline/capture", {"request_id": "capture-while-current-waits"})
         captured = ready(owner.application_intake_service)
         assert captured["progress"]["mail_needs_recheck"] == 1
-        assert captured["progress"]["mail_labeled"] == 1
+        assert captured["progress"]["mail_labeled"] == 0
         assert captured["progress"]["mail_archived"] == 0
         assert len(captured["recommendations"]) == 1
         for _ in range(2):
@@ -154,13 +150,13 @@ def test_real_pipeline_capture_reopen_and_archive_readback_preserve_waiting_job(
             assert after[key] == pipeline_before[key]
         assert runner.store.load() == worker_before
         assert owner.application_flow_service.snapshot()["tasks"] == task_before
-        assert calls == ["inspect", "label", "inspect", "archive"]
+        assert calls == ["label_and_archive"]
     owner.server_close()
     owner = reopen()
     current["server"] = owner
     with http_backend(owner, tmp_path) as portal:
         api(portal, "/api/pipeline/capture", {"request_id": "capture-while-current-waits"})
-        assert reads == [True] and calls == ["inspect", "label", "inspect", "archive"]
+        assert reads == [True] and calls == ["label_and_archive"]
         # The normal application entry uses Pipeline capture. Legacy intake
         # continue remains gated while Pipeline owns the current job.
         api(portal, "/api/pipeline/capture", {"request_id": "explicit-mail-readback"})
@@ -168,7 +164,7 @@ def test_real_pipeline_capture_reopen_and_archive_readback_preserve_waiting_job(
         assert result["progress"]["mail_archived"] == 1
         assert result["progress"]["mail_needs_recheck"] == 0
         assert len(result["recommendations"]) == 1 and reads == [True, True]
-        assert calls == ["inspect", "label", "inspect", "archive", "inspect"]
+        assert calls == ["label_and_archive", "label_and_archive"]
         after = api(portal, "/api/pipeline/state")
         assert after["active_task_id"] == pipeline_before["active_task_id"]
         assert after["status"] == wait_status and after["control"] == "paused"
@@ -217,7 +213,7 @@ def test_background_mail_poll_captures_without_advancing_real_waiting_job(mail_b
         assert after[key] == before[key]
     assert runner.store.load() == worker_before
     assert runner.pages[worker_before["jobs"][0]["application_id"]] is page
-    assert reads == [True] and calls == ["inspect", "label", "inspect", "archive"]
+    assert reads == [True] and calls == ["label_and_archive"]
 
 
 @pytest.mark.parametrize(
