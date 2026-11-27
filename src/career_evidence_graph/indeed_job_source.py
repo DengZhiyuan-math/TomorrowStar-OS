@@ -15,6 +15,7 @@ from . import job_listing_links
 from .application_automation import recommendation_key
 from .application_job_source import _finish, _text, fetch_job_source
 from .cua_driver import load_login_state
+from .efinancialcareers_job_source import efinancialcareers_job_key, read_efinancialcareers_job
 from .employer_page_search import find_employer_page
 from .linkedin_job_source import linkedin_job_key, read_linkedin_job
 
@@ -41,6 +42,9 @@ def fetch_job_source_or_browser(url, *, read=None, find=None):
     if linkedin_job_key(url) and job_listing_links.LOGIN_ROOT is not None:
         # 2026-11-20: a LinkedIn job is read once in the App's Chrome, never by script.
         return read_linkedin_job(url)
+    if efinancialcareers_job_key(url) and job_listing_links.LOGIN_ROOT is not None:
+        # 2026-11-27: eFinancialCareers refuses the plain read; its page is read once.
+        return read_efinancialcareers_job(url)
     capture = fetch_job_source(url)
     job_key = indeed_job_key(capture.get("url"))
     if (
@@ -133,10 +137,15 @@ def apply_route(record: dict | None) -> str:
 
 
 def employer_apply_url(record: dict | None) -> str | None:
-    """The verified employer application page saved with a company-site Indeed job."""
-    url = ((record or {}).get("documentary_fields") or {}).get("employer_apply_url")
+    """The employer application page saved with a company-site Indeed job, or the
+    external application page an eFinancialCareers job names."""
+    fields = (record or {}).get("documentary_fields") or {}
+    url = fields.get("employer_apply_url")
     if (
-        apply_route(record) == "company_site"
+        (
+            apply_route(record) == "company_site"
+            or fields.get("employer_found_by") == "efinancialcareers"
+        )
         and isinstance(url, str)
         and url.startswith("https://")
     ):

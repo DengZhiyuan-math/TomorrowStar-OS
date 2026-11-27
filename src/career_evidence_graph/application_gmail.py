@@ -20,8 +20,26 @@ from .validation.models import CodexCLIConfig
 
 GMAIL_APP_ID = "connector_2128aebfecb84f64a069897515042a44"
 _BODY_LIMIT = 131072
-# 2026-11-20 (user decision): Indeed recommendations are no longer read.
-RECOMMENDATION_QUERY = "newer_than:7d from:jobalerts-noreply@linkedin.com"
+_ARCHIVE_BATCH = 50
+# 2026-11-27 (user decision): Indeed and eFinancialCareers recommendations are read again.
+_SENDER_DOMAINS = ("jobalert.indeed.com", "match.indeed.com", "efinancialcareers.com")
+RECOMMENDATION_QUERY = (
+    "newer_than:7d (from:jobalerts-noreply@linkedin.com OR "
+    + " OR ".join(f"from:{domain}" for domain in _SENDER_DOMAINS)
+    + ")"
+)
+
+
+def _recommendation_sender(address: str) -> bool:
+    """LinkedIn's alert mailbox, or any mailbox at a listed domain or its subdomain."""
+    if address == "jobalerts-noreply@linkedin.com":
+        return True
+    domain = address.rpartition("@")[2]
+    return address.count("@") == 1 and any(
+        domain == value or domain.endswith("." + value) for value in _SENDER_DOMAINS
+    )
+
+
 _OVERRIDES = (
     "features.apps=true",
     "features.shell_tool=false",
@@ -255,7 +273,7 @@ def _verified_capture(
             raise _EvidenceError("mail_metadata_invalid")
         sender = headers.get("from", "")
         address = parseaddr(sender)[1].lower()
-        if address != "jobalerts-noreply@linkedin.com":
+        if not _recommendation_sender(address):
             raise _EvidenceError("sender_not_allowed")
         message = normalize_message(
             {
@@ -612,22 +630,31 @@ def read_recommendation_emails(
 def process_recommendation_email(
     directory: Path,
     *,
-    message_id: str,
+    message_id: str | None = None,
     label_name: str,
     operation: str,
     expected_mailbox_identity: str | None = None,
+    message_ids: list[str] | None = None,
     runner=subprocess.run,
 ) -> dict:
-    """Inspect or update one already captured message, retaining exact connector evidence.
+    """Inspect or update already captured messages, retaining exact connector evidence.
 
-    Archive removes INBOX from this message only. Thread-wide archive could hide
-    uncaptured messages from the same thread.
+    Archive removes INBOX from these messages only. Thread-wide archive could hide
+    uncaptured messages from the same thread. ``label_and_archive`` labels and
+    archives a batch of captured messages in one call (2026-11-27): one call per
+    message took minutes per mail and held the queue for hours.
     """
+    batch = operation == "label_and_archive"
+    identifiers = message_ids if batch else [message_id]
     if (
-        operation not in {"inspect", "label", "archive"}
-        or not isinstance(message_id, str)
-        or not 1 <= len(message_id) <= 256
-        or not message_id.isprintable()
+        operation not in {"inspect", "label", "archive", "label_and_archive"}
+        or not isinstance(identifiers, list)
+        or not 1 <= len(identifiers) <= (_ARCHIVE_BATCH if batch else 1)
+        or len(set(identifiers)) != len(identifiers)
+        or any(
+            not isinstance(value, str) or not 1 <= len(value) <= 256 or not value.isprintable()
+            for value in identifiers
+        )
         or not isinstance(label_name, str)
         or not 1 <= len(label_name.strip()) <= 225
         or not label_name.isprintable()
@@ -661,11 +688,19 @@ def process_recommendation_email(
         "archive": {
             "gmail.batch_modify_email": {"message_ids": [message_id], "remove_labels": ["INBOX"]}
         },
+        "label_and_archive": {
+            "gmail.apply_labels_to_emails": {
+                "message_ids": identifiers,
+                "add_label_names": [label_name],
+                "create_missing_labels": True,
+            },
+            "gmail.batch_modify_email": {"message_ids": identifiers, "remove_labels": ["INBOX"]},
+        },
     }[operation]
     overrides = tuple(value for value in _OVERRIDES if ".tools." not in value) + tuple(
         f"apps.{GMAIL_APP_ID}.tools.{name.partition('.')[2]}.enabled=true" for name in expected
     )
-    # The enabled actions are confined to one persisted message and the configured label.
+    # The enabled actions are confined to the persisted messages and the configured label.
     overrides = tuple(
         value.replace("destructive_enabled=false", "destructive_enabled=true")
         if value.startswith(f"apps.{GMAIL_APP_ID}.") and operation != "inspect"

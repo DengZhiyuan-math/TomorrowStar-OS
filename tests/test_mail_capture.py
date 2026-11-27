@@ -42,19 +42,16 @@ def test_capture_only_pages_without_fetching_or_extracting_jds(applications, tmp
 def test_mailbox_changes_follow_durable_capture_and_unknown_archive_is_reconciled(
     applications, tmp_path
 ):
-    calls, external = [], {"labeled": False, "archived": False}
+    calls = []
 
-    def mailbox(directory, *, message_id, label_name, operation, **kwargs):
-        assert message_id == "mail-one" and label_name == "Configured Jobs"
+    def mailbox(directory, *, message_ids, label_name, operation, **kwargs):
+        assert message_ids == ["mail-one"] and label_name == "Configured Jobs"
         captured = service.snapshot()["recommendations"]
         assert len(captured) == 1 and captured[0]["source_messages"]
         calls.append(operation)
-        if operation == "label":
-            external["labeled"] = True
-        if operation == "archive":
-            external["archived"] = True
+        if len(calls) == 1:
             raise TimeoutError("Archive succeeded, response lost")
-        return {"status": "complete", **external}
+        return {"status": "complete"}
 
     service = ApplicationIntakeService(
         applications,
@@ -67,13 +64,15 @@ def test_mailbox_changes_follow_durable_capture_and_unknown_archive_is_reconcile
         service.refresh(capture_only=True)
         first = ready(service)
         assert first["progress"]["mail_captured"] == 1
-        assert first["progress"]["mail_labeled"] == 1
+        assert first["progress"]["mail_labeled"] == 0
         assert first["progress"]["mail_needs_recheck"] == 1
         service.continue_read()
         result = ready(service)
+        assert result["progress"]["mail_labeled"] == 1
         assert result["progress"]["mail_archived"] == 1
         assert result["progress"]["mail_needs_recheck"] == 0
-        assert calls == ["inspect", "label", "inspect", "archive", "inspect"]
+        # One idempotent batch call; an unknown result is simply sent again.
+        assert calls == ["label_and_archive", "label_and_archive"]
         assert len(result["recommendations"]) == 1
     finally:
         service.close()
@@ -151,8 +150,7 @@ def test_checkpoint_save_failure_stops_all_later_mailbox_operations(
             "provenance": {},
         },
         mailbox=lambda *_a, **options: (
-            calls.append((options["message_id"], options["operation"]))
-            or {"status": "complete", "labeled": False, "archived": False}
+            calls.append((options["message_ids"], options["operation"])) or {"status": "complete"}
         ),
     )
     try:
@@ -160,7 +158,7 @@ def test_checkpoint_save_failure_stops_all_later_mailbox_operations(
         service.refresh(capture_only=True)
         result = ready(service)
         assert result["status"] == "failed"
-        assert calls == [("mail-one", "inspect")]
+        assert calls == []
     finally:
         service.close()
 
@@ -231,10 +229,6 @@ def test_same_message_id_in_another_mailbox_has_separate_history_and_progress(
     applications, tmp_path, first_unknown
 ):
     active, calls = ["a" * 64], []
-    external = {
-        "a" * 64: {"labeled": False, "archived": False},
-        "b" * 64: {"labeled": False, "archived": False},
-    }
 
     def reader(*_args, **_kwargs):
         return {
@@ -246,18 +240,13 @@ def test_same_message_id_in_another_mailbox_has_separate_history_and_progress(
             },
         }
 
-    def mailbox(_directory, *, message_id, operation, expected_mailbox_identity, **_kwargs):
+    def mailbox(_directory, *, message_ids, operation, expected_mailbox_identity, **_kwargs):
         assert expected_mailbox_identity == active[0]
-        assert message_id == "mail-one"
+        assert message_ids == ["mail-one"]
         calls.append((expected_mailbox_identity, operation))
         if first_unknown and expected_mailbox_identity == "a" * 64:
             return {"status": "needs_recheck"}
-        actual = external[expected_mailbox_identity]
-        if operation == "label":
-            actual["labeled"] = True
-        if operation == "archive":
-            actual["archived"] = True
-        return {"status": "complete", **actual}
+        return {"status": "complete"}
 
     service = ApplicationIntakeService(
         applications,
@@ -278,16 +267,7 @@ def test_same_message_id_in_another_mailbox_has_separate_history_and_progress(
         assert second["progress"]["mail_captured"] == 1
         assert second["progress"]["mail_archived"] == 1
         assert second["progress"]["mail_needs_recheck"] == 0
-        assert calls == first_calls + [
-            ("b" * 64, operation)
-            for operation in (
-                "inspect",
-                "label",
-                "inspect",
-                "archive",
-                "inspect",
-            )
-        ]
+        assert calls == first_calls + [("b" * 64, "label_and_archive")]
         sources = second["recommendations"][0]["source_messages"]
         assert {row["mailbox_identity"] for row in sources} == {"a" * 64, "b" * 64}
         assert len({row["capture_id"] for row in sources}) == 2

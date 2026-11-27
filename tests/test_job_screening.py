@@ -318,3 +318,52 @@ def test_a_jd_written_in_german_is_told_from_an_english_or_bilingual_one():
     # A posting that carries a full English version stays English.
     assert not written_in_german(german + english * 2)
     assert not written_in_german("Gute Deutschkenntnisse. " + english)
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "6-Month Internship - Trading, Tel Aviv",
+        "Compliance Administrative Intern (6-Month Internship) Luxembourg",
+        "Contractor, Personal Banking Compliance (3-6 months)",
+        "Senior Product Marketing Manager (3-6 month contract)",
+        "AI and Data Science Manager - Group Audit 80-100%, temporary for 12 months",
+        "Werkstudent Data Science (m/w/d)",
+        "Praktikum Machine Learning",
+        "Fixed-term Research Engineer",
+    ],
+)
+def test_a_temporary_title_is_excluded(title):
+    from career_evidence_graph.job_screening import temporary_job
+
+    assert temporary_job(title)
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "Machine Learning Engineer, International Payments",
+        "Internal Audit Data Scientist",
+        "Contract Manager",
+        "Smart Contracts Engineer",
+        "Quantitative Researcher",
+    ],
+)
+def test_a_permanent_title_is_kept(title):
+    from career_evidence_graph.job_screening import temporary_job
+
+    assert not temporary_job(title)
+
+
+def test_the_page_employment_type_decides():
+    from career_evidence_graph.job_screening import temporary_job
+
+    def criteria(text):
+        return {"criteria": [{"label": "Employment type", "text": text}]}
+
+    assert temporary_job("Data Scientist", criteria("Contract"))
+    assert temporary_job("Data Scientist", criteria("Internship"))
+    assert temporary_job("Data Scientist", criteria("Temporary"))
+    assert temporary_job("Data Scientist", {"employmentType": "CONTRACTOR"})
+    assert not temporary_job("Data Scientist", criteria("Full-time"))
+    assert not temporary_job("Data Scientist", criteria("Part-time"))

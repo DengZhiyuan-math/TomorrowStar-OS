@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fcntl
 import hashlib
+import marshal
 import queue
 import re
 import shutil
@@ -45,9 +46,9 @@ _PIPELINE_HTTP_ENTRY = ContextVar("pipeline_http_entry", default=None)
 
 
 @contextmanager
-def pipeline_http_entry(flow, checker):
+def pipeline_http_entry(flow, checker, *, admit_letter_retry=None):
     """Carry an HTTP admission check to the actual locked Flow mutation."""
-    token = _PIPELINE_HTTP_ENTRY.set((flow, checker))
+    token = _PIPELINE_HTTP_ENTRY.set((flow, checker, admit_letter_retry))
     try:
         yield
     finally:
@@ -565,6 +566,8 @@ class ApplicationFlowService:
         self._shared = None
         # Task files whose digest this process verified or wrote, by file identity.
         self._verified_tasks = set()
+        # Verified task files as (file identity, marshal digest), by path (2026-11-24).
+        self._task_marks = {}
         self._stored_format = None
         self.callbacks = dict(callbacks or {})
         self.input_provider = input_provider
@@ -628,7 +631,15 @@ class ApplicationFlowService:
         cached = self._shared
         if key is not None and cached is not None and cached[0] == key:
             return cached[1]
-        state = self._load()
+        # 2026-11-24: one changed task re-read all 144 (868 MB) for each page read, 21 s
+        # under memory pressure. Unchanged revisions keep this read-only parse.
+        from .application_flow_store import task_path
+
+        prior = {
+            str(task_path(self.root, task["id"], task["revision"])): task
+            for task in (cached[1]["tasks"] if cached is not None else [])
+        }
+        state = self._load(read=lambda path: prior.get(str(path)) or self._read_task_file(path))
         try:
             info = self.path.stat()
             if key == (info.st_ino, info.st_mtime_ns, info.st_size):
@@ -637,7 +648,12 @@ class ApplicationFlowService:
             pass
         return state
 
-    def _load(self):
+    def _load(self, read=None):
+        # 2026-11-24: name the whole-record reads and writes in long lock holds.
+        with lock_step("flow_load"):
+            return self._load_record(read)
+
+    def _load_record(self, read=None):
         if self.path.is_symlink():
             raise PortalDataError("flow_invalid", "任务快照不能使用符号链接。", 409)
         try:
@@ -645,7 +661,7 @@ class ApplicationFlowService:
 
             stored = helper.read_json_object(self.path, "application flow")
             self._stored_format = "index" if is_index(stored) else "inline"
-            state = assemble(self.root, stored, read=self._read_task_file)
+            state = assemble(self.root, stored, read=read or self._read_task_file)
             # Task files are verified once per file identity (_read_task_file); an
             # inline record written before 2026-11-09 is verified task by task below.
             verified = {task["id"] for task in state["tasks"]} if is_index(stored) else set()
@@ -763,14 +779,34 @@ class ApplicationFlowService:
         return (str(path), info.st_ino, info.st_mtime_ns, info.st_size)
 
     def _read_task_file(self, path):
-        """One task revision file, its digest checked once per file identity."""
-        task = helper.read_json_object(path, "application flow task")
+        """One task revision file, its digest checked once per file identity.
+
+        2026-11-24: _save re-digested every task (3 s for 761 MB) under the shared
+        lock. A verified file's marshal digest lets _save recognise an unchanged task
+        cheaply; only the 32-byte digest is kept, since holding the files' bytes
+        (868 MB) pushed the 16 GB host into swap and loads took 21 s.
+        """
         key = self._file_identity(path)
+        task = helper.read_json_object(path, "application flow task")
         if key not in self._verified_tasks:
             if task.get("revision") != digest({k: v for k, v in task.items() if k != "revision"}):
                 raise ValueError("task file differs from its revision")
             self._verified_tasks.add(key)
+        mark = self._task_marks.get(str(path))
+        if mark is None or mark[0] != key:
+            self._task_marks[str(path)] = (key, hashlib.sha256(marshal.dumps(task, 2)).digest())
         return task
+
+    def _unchanged(self, path, task):
+        """Whether ``task`` equals the verified revision file at ``path`` (no digest)."""
+        mark = self._task_marks.get(str(path))
+        if mark is None:
+            return False
+        try:
+            same = hashlib.sha256(marshal.dumps(task, 2)).digest() == mark[1]
+            return same and self._file_identity(path) == mark[0]
+        except (ValueError, OSError):
+            return False
 
     def adopted_artifact(self, stage, identifier, *, kind=None):
         """Read an isolated historical result without projecting current inputs."""
@@ -791,6 +827,10 @@ class ApplicationFlowService:
             )
 
     def _save(self, state):
+        with lock_step("flow_save"):
+            self._save_record(state)
+
+    def _save_record(self, state):
         if self.material_batch:
             self.material_batch.seal(state)
         records = [("snapshots", task) for task in state["tasks"]]
@@ -806,8 +846,14 @@ class ApplicationFlowService:
             ):
                 task.pop("material_binding")
             compact_match_rechecks(task)
-            task["revision"] = digest({k: v for k, v in task.items() if k != "revision"})
             directory = self.root / folder / task["id"]
+            current = task.get("revision")
+            if not (
+                isinstance(current, str)
+                and re.fullmatch(r"[a-f0-9]{64}", current)
+                and self._unchanged(directory / f"{current}.json", task)
+            ):
+                task["revision"] = digest({k: v for k, v in task.items() if k != "revision"})
             if any(path.is_symlink() for path in (directory.parent, directory)):
                 raise PortalDataError("flow_invalid", "历史任务目录不能使用符号链接。", 409)
             path = directory / f"{task['revision']}.json"
@@ -821,6 +867,11 @@ class ApplicationFlowService:
                 and helper.read_json_object(path, "historical application flow") != task
             ):
                 raise PortalDataError("flow_invalid", "历史任务快照不能核验，请保留原件。", 409)
+        current = {
+            str(self.root / folder / task["id"] / f"{task['revision']}.json")
+            for folder, task in records
+        }
+        self._task_marks = {p: v for p, v in self._task_marks.items() if p in current}
         # 2026-11-09: flow.json names the task revision files instead of repeating them.
         from .application_flow_store import index_for
 
@@ -5719,21 +5770,29 @@ class ApplicationFlowService:
             with self.applications.write_lock():
                 state = self._load()
                 task = self._task(state, expected["id"])
+                current = task["stages"].get(stage, {})
                 if (
                     self._closed.is_set()
                     or task["status"] == "cancelled"
                     or task["job_binding"] != expected["job_binding"]
                     or task["inputs"] != expected["inputs"]
-                    or task["stages"].get(stage, {}).get("attempt_id")
-                    != expected["stages"][stage].get("attempt_id")
+                    or current.get("attempt_id") != expected["stages"][stage].get("attempt_id")
                 ):
                     return False
                 if self.material_batch and not self.material_batch.guard_admission(state, task):
                     return False
+                if stage == "letter" and current.get("paused_retry"):
+                    return current["status"] == "running" and self._paused_letter_retry_allowed(
+                        task["id"], current["attempt_id"]
+                    )
                 permit = self.callbacks.get("preparation_allowed")
                 return permit(task["id"]) is True if permit is not None else True
         except (OSError, ValueError, KeyError, TypeError, helper.StoreError, PortalDataError):
             return False
+
+    def _paused_letter_retry_allowed(self, task_id, attempt_id):
+        permit = self.callbacks.get("preparation_allowed")
+        return permit is not None and permit(task_id, letter_attempt=attempt_id) is True
 
     def resume_plan_allowed(self, task, plan):
         """Whether the user's review lets this résumé plan be written (2026-11-12)."""
@@ -5882,6 +5941,9 @@ class ApplicationFlowService:
                     "material_consistency": (task.get("material_consistency") or {}).get(
                         "status", "not_started"
                     ),
+                    "paused_letter_retry": task["stages"]
+                    .get("letter", {})
+                    .get("paused_retry", False),
                 }
                 for task in self._load_shared()["tasks"]
                 if task["id"] in wanted
@@ -5914,6 +5976,18 @@ class ApplicationFlowService:
         request_path = self.root / "material-consistency-attempts" / attempt / "request.json"
         helper.atomic_write_json(request_path, deepcopy(task))
         self._queue.put((task["id"], "material-consistency", attempt))
+
+    def resume_letter_consistency(self, task_id):
+        """Restore ordinary pair review after a letter-only retry and an explicit resume."""
+        with self.applications.write_lock():
+            state = self._load()
+            task = self._task(state, task_id)
+            letter = task["stages"].get("letter", {})
+            if letter.get("status") != "complete" or not letter.pop("paused_retry", False):
+                return False
+            self._reserve_material_consistency(task)
+            self._save(state)
+            return (task.get("material_consistency") or {}).get("status") in {"queued", "running"}
 
     @staticmethod
     def _cancel_material_consistency(task):
@@ -6275,6 +6349,16 @@ class ApplicationFlowService:
                 if current.get("attempt_id"):
                     # Answered calls of the earlier attempt are reused; see material_author.
                     task["stages"][stage]["retry_from_attempt_id"] = current["attempt_id"]
+                entry = _PIPELINE_HTTP_ENTRY.get()
+                if (
+                    retry
+                    and current["status"] in {"failed", "needs_recheck", "cancelled"}
+                    and entry is not None
+                    and entry[0] is self
+                    and entry[2] is not None
+                    and entry[2](task_id, attempt_id)
+                ):
+                    task["stages"][stage]["paused_retry"] = True
             if stage == "letter_export":
                 from .application_cover_letter import adopted_letter
 
@@ -6425,6 +6509,7 @@ class ApplicationFlowService:
                 self._save(state)
                 request = deepcopy(task)
                 self._running_stage_task_id = task_id
+            paused_letter_retry = stage == "letter" and request["stages"][stage].get("paused_retry")
             result = None
             failed_handoff = None
             try:
@@ -6516,6 +6601,12 @@ class ApplicationFlowService:
                 if active and error_code is None:
                     try:
                         self._fresh(request, stage=stage)
+                        if paused_letter_retry and not self._paused_letter_retry_allowed(
+                            task_id, attempt_id
+                        ):
+                            raise PortalDataError(
+                                "letter_generation_failed", "求职信重试已停止，保留本次结果。", 409
+                            )
                         if stage == "export":
                             self._export_result(request, result)
                         if stage == "resume" and result.get("kind") in {
@@ -6647,6 +6738,9 @@ class ApplicationFlowService:
                     task["status"] = f"{stage}_ready"
                 if stage == "resume" and result.get("kind") != "draft":
                     task["resume_sha256"] = result.get("pdf_sha256")
+                if paused_letter_retry:
+                    self._save(state)
+                    continue
                 self._batch_after(state, task)
                 self._reserve_material_consistency(task)
                 self._save_material_result(state, task)

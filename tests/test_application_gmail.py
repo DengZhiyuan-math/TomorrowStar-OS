@@ -900,22 +900,37 @@ def test_metadata_and_mime_structure_have_finite_capture_limits(tmp_path, mutati
     assert result["emails"] == []
 
 
-@pytest.mark.parametrize("domain", ["jobalert.indeed.com", "match.indeed.com"])
-def test_indeed_recommendations_are_no_longer_read(tmp_path, domain):
+@pytest.mark.parametrize(
+    ("sender", "status"),
+    [
+        ("alerts@jobalert.indeed.com", "readable"),
+        ("donotreply@match.indeed.com", "readable"),
+        ("emails@efinancialcareers.com", "readable"),
+        ("alerts@indeed.com", "unavailable"),
+        ("emails@notefinancialcareers.com", "unavailable"),
+    ],
+)
+def test_indeed_and_efinancialcareers_recommendations_are_read(tmp_path, sender, status):
     from career_evidence_graph.application_gmail import (
         RECOMMENDATION_QUERY,
         read_recommendation_emails,
+        validate_recommendation_query,
     )
 
-    # 2026-11-20 (user decision): only LinkedIn recommendations enter the queue.
-    assert "indeed" not in RECOMMENDATION_QUERY
+    # 2026-11-27 (user decision): Indeed and eFinancialCareers mails enter the queue again.
+    assert "from:match.indeed.com" in RECOMMENDATION_QUERY
+    assert "from:efinancialcareers.com" in RECOMMENDATION_QUERY
+    assert validate_recommendation_query(
+        RECOMMENDATION_QUERY.replace("newer_than:7d", "after:1 before:2")
+    )
     events = _mail_events()
     events[1]["item"]["result"]["structured_content"]["payload"]["headers"][0]["value"] = (
-        f"Synthetic <alerts@{domain}>"
+        f"Synthetic <{sender}>"
     )
     result = read_recommendation_emails(tmp_path / "capture", runner=_process(events))
-    assert result["status"] == "unavailable"
-    assert result["reason"] == "sender_not_allowed"
+    assert result["status"] == status
+    if status == "unavailable":
+        assert result["reason"] == "sender_not_allowed"
 
 
 def test_processing_inspection_uses_actual_label_and_message_state(tmp_path):
@@ -977,6 +992,32 @@ def test_processing_only_modifies_the_captured_message(tmp_path, operation, tool
         runner=_process([_tool("change", tool, arguments, {})], {"status": "complete"}),
     )
     assert result == {"status": "complete"}
+
+
+def test_batch_labels_and_archives_only_the_captured_messages_in_one_call(tmp_path):
+    from career_evidence_graph.application_gmail import process_recommendation_email
+    from career_evidence_graph.career_portal_data import PortalDataError
+
+    ids = ["mail-one", "mail-two"]
+    label = {"message_ids": ids, "add_label_names": ["Jobs"], "create_missing_labels": True}
+    archive = {"message_ids": ids, "remove_labels": ["INBOX"]}
+    both = [
+        _tool("label", "gmail.apply_labels_to_emails", label, {}),
+        _tool("archive", "gmail.batch_modify_email", archive, {}),
+    ]
+    options = {"message_ids": ids, "label_name": "Jobs", "operation": "label_and_archive"}
+    result = process_recommendation_email(
+        tmp_path / "batch", runner=_process(both, {"status": "complete"}), **options
+    )
+    assert result == {"status": "complete"}
+    missing = process_recommendation_email(
+        tmp_path / "missing", runner=_process(both[:1], {"status": "complete"}), **options
+    )
+    assert missing["status"] == "needs_recheck"
+    with pytest.raises(PortalDataError):
+        process_recommendation_email(
+            tmp_path / "large", **options | {"message_ids": [f"m{n}" for n in range(51)]}
+        )
 
 
 def test_processing_model_claim_and_thread_archive_cannot_confirm_success(tmp_path):

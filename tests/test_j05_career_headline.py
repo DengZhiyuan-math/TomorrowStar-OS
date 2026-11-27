@@ -126,27 +126,28 @@ def test_manual_headline_survives_regeneration_and_cannot_be_review_patched(deli
     )
     candidate = generation.assemble_generation(store, identifier)
     assert candidate["resume_content"]["headline"] == human
-    with pytest.raises(PortalDataError):
-        generation.review_generation(
-            store,
-            identifier,
-            candidate_sha256=candidate["candidate_sha256"],
-            reviewer_id="independent-reviewer",
-            passed=True,
-            issues=[],
-            content_patch={
-                "schema_version": "resume-content-patch/v1",
-                "base_revision": candidate["resume_content"]["revision"],
-                "changes": [
-                    {
-                        "item_id": human["id"],
-                        "field": "text",
-                        "expected": human["text"],
-                        "value": "Data Science",
-                    }
-                ],
-            },
-        )
+    # 2026-11-24: a passing review's change to protected content is dropped.
+    generation.review_generation(
+        store,
+        identifier,
+        candidate_sha256=candidate["candidate_sha256"],
+        reviewer_id="independent-reviewer",
+        passed=True,
+        issues=[],
+        content_patch={
+            "schema_version": "resume-content-patch/v1",
+            "base_revision": candidate["resume_content"]["revision"],
+            "changes": [
+                {
+                    "item_id": human["id"],
+                    "field": "text",
+                    "expected": human["text"],
+                    "value": "Data Science",
+                }
+            ],
+        },
+    )
+    assert generation.review_context(store, identifier)["resume_content"]["headline"] == human
 
 
 def test_manual_headline_deletion_survives_regeneration(delivery):

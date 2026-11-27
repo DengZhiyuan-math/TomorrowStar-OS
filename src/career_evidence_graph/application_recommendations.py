@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import re
+import zlib
 from copy import deepcopy
 from datetime import UTC, datetime
 from html import unescape
 from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 from ._vendor import job_apply_store as helper
@@ -42,6 +45,28 @@ class _MailHTML(HTMLParser):
     def handle_data(self, data):
         if not self.blocked:
             self.text.append(data)
+
+
+def _indeed_target(link: str) -> str:
+    """The Indeed job link inside an Indeed match-mail redirect, or ``link`` itself.
+
+    Match mails link through ``cts.indeed.com/v3/<gzip+base64 JSON>``; the JSON's
+    ``u`` is the job link with its ``jk``. Decoding opens nothing (2026-11-27).
+    """
+    parts = urlsplit(link)
+    segments = parts.path.split("/")
+    if parts.hostname != "cts.indeed.com" or len(segments) < 3 or segments[1] != "v3":
+        return link
+    try:
+        data = base64.b64decode(segments[2] + "=" * (-len(segments[2]) % 4), altchars=b"-_")
+        inflater = zlib.decompressobj(47)
+        target = json.loads(inflater.decompress(data, 65536))["u"]
+        host = urlsplit(target).hostname or ""
+    except (ValueError, TypeError, KeyError, zlib.error):
+        return link
+    if target.startswith("https://") and (host == "indeed.com" or host.endswith(".indeed.com")):
+        return target
+    return link
 
 
 def normalize_message(raw: dict) -> dict:
@@ -85,6 +110,7 @@ def normalize_message(raw: dict) -> dict:
     links = list(
         dict.fromkeys(_clean(link).rstrip(".,;)>]") for link in links if isinstance(link, str))
     )
+    links = list(dict.fromkeys(target for link in links for target in (link, _indeed_target(link))))
     completeness = raw.get("body_completeness", "unknown") if has_body else "excerpt"
     if not isinstance(completeness, str):
         completeness = "unknown"

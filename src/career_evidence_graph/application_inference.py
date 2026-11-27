@@ -161,9 +161,16 @@ def _date(value):
         raise _invalid("日期计算包含无效日期。") from error
 
 
+def _dates(text):
+    """Full dates in ``text`` as ISO, written ones included (2026-11-24, Swiss Re: the
+    JD's "1 September 2027" rejected the cutoff 2027-09-01 and stopped the job)."""
+    text = unicodedata.normalize("NFKC", text)
+    return set(_ISO_DATE.findall(_WRITTEN_DATE.sub(_iso_written_date, text)))
+
+
 def _cited_date(value, facts):
     parsed = _date(value)
-    if not any(value in _ISO_DATE.findall(fact["quote"]) for fact in facts):
+    if not any(value in _dates(fact["quote"]) for fact in facts):
         raise _invalid("日期计算输入不在事实引文内。")
     return parsed
 
@@ -200,7 +207,7 @@ def _calculate(calculation, atom, facts):
     else:
         subject = _cited_date(calculation["subject_date"], facts)
         cutoff = _date(calculation["cutoff_date"])
-        if calculation["cutoff_date"] not in _ISO_DATE.findall(atom["jd_quote"]):
+        if calculation["cutoff_date"] not in _dates(atom["jd_quote"]):
             raise _invalid("截止日期必须来自该固定岗位要求原文。")
         result = {"satisfied": subject <= cutoff}
     return {**calculation, "result": result}

@@ -100,25 +100,10 @@ def _job(application):
 
 
 def _quote_span(quote, jd, start=0):
-    """Where a quote occurs in the JD from ``start``, restoring only case and whitespace."""
-    if quote.strip():
-        index = jd.find(quote, start)
-        if index >= 0:
-            return index, index + len(quote)
-    parts = quote.split()
-    if not parts:
-        return None
-    # A captured LinkedIn JD renders some colons as "{{:}}" (2026-11-04: every
-    # "Label: duty" bullet); a quote's plain colon still names that passage.
-    pattern = r"\s+".join(re.escape(part).replace(":", r"(?::|\{\{:\}\})") for part in parts)
-    # A new tolerant match must not truncate words, decimal numbers or operators.
-    pattern = (
-        r"(?<![\w+#*/<>=&|%^~\u2010-\u2015\u2212-])(?<!\w\.)(?<!\d,)"
-        + pattern
-        + r"(?![\w+#*/<>=&|%^~\u2010-\u2015\u2212-]|\.\w|,\d)"
-    )
-    match = re.compile(pattern, re.IGNORECASE).search(jd, start)
-    return match.span() if match else None
+    """Where a quote occurs in the JD from ``start``, ignoring typography only."""
+    from .quote_match import quote_span
+
+    return quote_span(jd, quote, start)
 
 
 def _literal_jd_quote(quote, jd):
@@ -129,10 +114,10 @@ def _literal_jd_quote(quote, jd):
     pieces occur in order within one paragraph.
     """
     span = _quote_span(quote, jd)
-    if span is None and quote.rstrip(".;:, ") != quote:
+    if span is None and quote.rstrip(".;:,!? ") != quote:
         # A quote cut mid-line that ends with its own period (2026-11-10, Capco:
         # "... with drift detection." for "... with drift detection, performance ...").
-        span = _quote_span(quote.rstrip(".;:, "), jd)
+        span = _quote_span(quote.rstrip(".;:,!? "), jd)
     pieces = [piece.strip() for piece in re.split(r"\.\.\.|\u2026", quote) if piece.strip()]
     if span is None and len(pieces) > 1:
         spans, start = [], 0
@@ -180,9 +165,45 @@ def _shortened_jd_line(quote, jd):
                 passages.add(passage)
     # A sentence and its own line can both match; the sentence is the passage named.
     shortest = min(passages, key=len, default=None)
-    if shortest is None or not all(shortest in passage for passage in passages):
+    if shortest is not None and all(shortest in passage for passage in passages):
+        return shortest
+    # A quote of several lines names several passages; each line is matched on its own.
+    return None if "\n" in quote.strip() else _reworded_jd_sentence(wanted, jd, words)
+
+
+# A JD's "We're hiring" becomes the model's "You're hiring" (2026-11-18, DeepJudge).
+PRONOUNS = {
+    pronoun + suffix
+    for pronoun in ("we", "you", "they", "our", "your", "their")
+    for suffix in ("", "'re", "\u2019re", "'ll", "\u2019ll", "'ve", "\u2019ve")
+}
+
+
+def _reworded_jd_sentence(wanted, jd, words):
+    """The one JD sentence a quote rewords lightly (2026-11-26, Thomson Reuters:
+    "Be an Innovative: ..." for "Be Innovative: ...", "You are an adaptable learner"
+    for "We are seeking an adaptable learner"). The quote names it only when it is
+    clearly the closest sentence and every word longer than three letters occurs in
+    it; the brief keeps the JD's own wording.
+    """
+    from difflib import SequenceMatcher
+
+    scored = []
+    for line in jd.splitlines():
+        for passage in {line.strip(), *re.split(r"(?<=[.!?;])\s+", line.strip())}:
+            have = words(passage)
+            # Only short function words may differ ("an", "you"); a changed content
+            # word ("staging" for "production") keeps the quote rejected.
+            if have and {word for word in wanted if len(word) > 3} - PRONOUNS <= set(have):
+                scored.append((SequenceMatcher(None, wanted, have).ratio(), passage))
+    scored.sort(key=lambda row: row[0], reverse=True)
+    if not scored or scored[0][0] < 0.8:
         return None
-    return shortest
+    best = scored[0][1]
+    # A line and its own sentence may tie; another passage close behind is ambiguous.
+    if any(score > scored[0][0] - 0.1 and best not in passage for score, passage in scored[1:]):
+        return None
+    return best
 
 
 def _literal_group_quote(quote, jd):
@@ -579,10 +600,14 @@ def create_job_brief(
     try:
         output = _Output.model_validate(result.structured_result).model_dump()
         for group in output["groups"]:
-            if len(group["requirements"]) == 1:
+            if len(group["requirements"]) == 1 or (
+                group["operator"] == "all" and len(group["alternatives"] or []) <= 1
+            ):
                 # One requirement has no OR branches; its alternatives live in its text
                 # (2026-11-08: UBS's one-requirement degree group came back as "any"
                 # with an out-of-range branch on two attempts, rejecting the brief).
+                # A single branch on an "all" group says "all" again (2026-11-24,
+                # Zühlke: three such groups rejected the brief); several stay invalid.
                 group.update(operator="all", alternatives=None)
             group["jd_quote"] = _literal_group_quote(group["jd_quote"], job["job_description"])
             for item in group["requirements"]:

@@ -108,7 +108,9 @@ def test_a_model_change_analyses_the_job_from_the_start(canonical, tmp_path, mon
 
 
 # An unusable citation now only withholds that requirement (test_native_fact_citations).
-@pytest.mark.parametrize(("fault", "error_code"), [("inference", "match_inference_invalid")])
+# 2026-11-24: an unverifiable inference only withholds its requirement; an invented
+# calculation kind still rejects the evaluation.
+@pytest.mark.parametrize(("fault", "error_code"), [("inference", "match_model_invalid")])
 def test_known_invalid_evaluator_keeps_ready_packet_after_implementation_repair(
     canonical, tmp_path, monkeypatch, fault, error_code
 ):
@@ -129,7 +131,7 @@ def test_known_invalid_evaluator_keeps_ready_packet_after_implementation_repair(
                 ]
             else:
                 output["requirements"][0]["inference"].update(
-                    type="deterministic", calculation=None
+                    type="deterministic", calculation={"kind": "invented"}
                 )
             return model_runner(output, [])(config, prompt, **kwargs)
         return result
@@ -308,7 +310,9 @@ def test_a_rejected_evaluation_with_changed_inputs_is_analysed_again_from_the_st
         result = initial(config, prompt, **kwargs)
         if config.output_schema.name == "match-schema.json":
             output = deepcopy(result.structured_result)
-            output["requirements"][0]["inference"].update(type="deterministic", calculation=None)
+            output["requirements"][0]["inference"].update(
+                type="deterministic", calculation={"kind": "invented"}
+            )
             return model_runner(output, [])(config, prompt, **kwargs)
         return result
 
@@ -319,7 +323,7 @@ def test_a_rejected_evaluation_with_changed_inputs_is_analysed_again_from_the_st
     }
     with pytest.raises(PortalDataError) as caught:
         application_match.analyze_job(APPLICATION, snapshot, old, runner=invalid, **options)
-    assert caught.value.code == "match_inference_invalid"
+    assert caught.value.code == "match_model_invalid"
     # Installed MC-11: the Education Record changed the information binding, so the
     # rejected attempt could not be resumed and every retry was refused. A changed
     # job field stands in for that changed binding.

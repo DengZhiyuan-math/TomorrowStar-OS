@@ -446,8 +446,14 @@ def quoted_source(source, quote):
     start = source["text"].find(quote)
     end = start + len(quote)
     proposed_quote = None
+    policy = "latex-presentation-literal/v1"
     if start < 0 and quote.strip():
         span = _presentation_quote_span(source, quote)
+        if span is None:
+            # 2026-11-24: typography (apostrophes, dashes, case, spacing) is ignored.
+            from .quote_match import quote_span
+
+            span, policy = quote_span(source["text"], quote), "typography-folded/v1"
         if span is not None:
             start, end = span
             proposed_quote, quote = quote, source["text"][start:end]
@@ -455,9 +461,7 @@ def quoted_source(source, quote):
         raise PortalDataError("match_source_invalid", "引用片段不在该来源已读取的原文内。", 409)
     result = deepcopy(source) | {"quote": quote, "quote_start": start, "quote_end": end}
     if proposed_quote is not None:
-        result.update(
-            proposed_quote=proposed_quote, quote_match_policy="latex-presentation-literal/v1"
-        )
+        result.update(proposed_quote=proposed_quote, quote_match_policy=policy)
     text, offset = source["text"], 0
     if "quote_segments" in source:
         segment = next(

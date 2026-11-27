@@ -46,27 +46,32 @@ def test_terminal_review_cannot_change_items_in_locked_human_list(delivery):
     generation.configure_generation(store, identifier, writing_plan=plan)
     submit(delivery)
     candidate = generation.assemble_generation(store, identifier)
-    with pytest.raises(PortalDataError, match="人工保护"):
-        generation.review_generation(
-            store,
-            identifier,
-            candidate_sha256=candidate["candidate_sha256"],
-            reviewer_id="reviewer-one",
-            passed=True,
-            issues=[],
-            content_patch={
-                "schema_version": "resume-content-patch/v1",
-                "base_revision": candidate["resume_content"]["revision"],
-                "changes": [
-                    {
-                        "item_id": "item-demo-1",
-                        "field": "text",
-                        "expected": retained["experiences"][0]["items"][0]["text"],
-                        "value": "Replacement wording.",
-                    }
-                ],
-            },
-        )
+    # 2026-11-24: a passing review's change to protected content is dropped.
+    generation.review_generation(
+        store,
+        identifier,
+        candidate_sha256=candidate["candidate_sha256"],
+        reviewer_id="reviewer-one",
+        passed=True,
+        issues=[],
+        content_patch={
+            "schema_version": "resume-content-patch/v1",
+            "base_revision": candidate["resume_content"]["revision"],
+            "changes": [
+                {
+                    "item_id": "item-demo-1",
+                    "field": "text",
+                    "expected": retained["experiences"][0]["items"][0]["text"],
+                    "value": "Replacement wording.",
+                }
+            ],
+        },
+    )
+    reviewed = generation.review_context(store, identifier)
+    assert (
+        reviewed["resume_content"]["experiences"][0]["items"][0]["text"]
+        == (retained["experiences"][0]["items"][0]["text"])
+    )
 
 
 def test_manual_list_structure_is_carried_through_prepare(content_delivery):

@@ -455,3 +455,13 @@ def test_expected_date_can_meet_date_requirement_without_awarding_degree(express
     assert validate_inference(*values)["calculation"]["result"]["satisfied"] is True
     values[0]["inference"]["expression_scope"] = expression
     invalid(values)
+
+
+def test_written_dates_count_as_the_same_iso_dates():
+    # 2026-11-24, Swiss Re: the JD's "1 September 2027" rejected the cutoff 2027-09-01.
+    from career_evidence_graph.application_inference import _dates
+
+    assert _dates("starting 1 September 2027.") == {"2027-09-01"}
+    assert _dates("start on September 1, 2027") == {"2027-09-01"}
+    assert _dates("start 2027-08-01") == {"2027-08-01"}
+    assert _dates("from September 2027") == set()

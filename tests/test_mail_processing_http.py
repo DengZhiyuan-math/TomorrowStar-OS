@@ -27,7 +27,6 @@ def test_configured_label_is_local_and_reopening_preserves_mail_receipts(
     portal, tmp_path, monkeypatch, label
 ):
     reads, calls, fetches = [], [], []
-    external = {"labeled": False, "archived": False}
     invalid = label is not None and label != "  Synthetic Jobs / 已处理  "
 
     def reader(*args, **kwargs):
@@ -45,12 +44,9 @@ def test_configured_label_is_local_and_reopening_preserves_mail_receipts(
         saved = active.server.application_intake_service.snapshot()["recommendations"]
         assert saved[0]["source_messages"][0]["message_id"] == "mail-one"
         calls.append(operation)
-        if operation == "label":
-            external["labeled"] = True
-        if operation == "archive":
-            external["archived"] = True
+        if len(calls) == 1:
             raise TimeoutError("Synthetic archive response lost")
-        return {"status": "complete", **external}
+        return {"status": "complete"}
 
     monkeypatch.setattr(
         application_intake,
@@ -73,7 +69,7 @@ def test_configured_label_is_local_and_reopening_preserves_mail_receipts(
         request(active, "/api/recommendations/refresh", {"capture_only": True})
         captured = ready(active.server.application_intake_service)
         assert captured["progress"]["mail_captured"] == 1
-        assert captured["progress"]["mail_labeled"] == int(label is not None and not invalid)
+        assert captured["progress"]["mail_labeled"] == 0
         assert captured["progress"]["mail_archived"] == 0
         assert len(captured["recommendations"]) == 1
         assert not fetches
@@ -90,7 +86,7 @@ def test_configured_label_is_local_and_reopening_preserves_mail_receipts(
             reconciled = ready(active.server.application_intake_service)
             assert reconciled["progress"]["mail_archived"] == 1
             assert reconciled["progress"]["mail_needs_recheck"] == 0
-            assert calls == ["inspect", "label", "inspect", "archive", "inspect"]
+            assert calls == ["label_and_archive", "label_and_archive"]
         else:
             assert calls == []
             assert not reopened["progress"]["mail_label_configured"]

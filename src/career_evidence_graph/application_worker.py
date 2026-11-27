@@ -7050,7 +7050,13 @@ class WorkerService:
                 requests = state.setdefault("selection_history", [])
                 if any(row["request_id"] == request_id for row in requests):
                     return self.snapshot()
-                if operation == "skip-current" and state["current_job_id"] != job["application_id"]:
+                # 2026-11-26 (Axpo): a job parked for Submit was refilled through
+                # Computer Use without becoming the Worker's current job again; with no
+                # current job, leaving it is still a valid skip.
+                if operation == "skip-current" and state["current_job_id"] not in {
+                    None,
+                    job["application_id"],
+                }:
                     raise PortalDataError("current_job_changed", "当前岗位已变化。", 409)
                 if operation == "select-current" and state["current_job_id"] not in {
                     None,

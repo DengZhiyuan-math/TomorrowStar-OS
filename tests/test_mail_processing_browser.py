@@ -113,16 +113,13 @@ def test_unknown_mailbox_result_is_visible_without_polling_redispatch(
 ):
     from playwright.sync_api import expect
 
-    calls, external = [], {"labeled": False, "archived": False}
+    calls = []
 
     def mailbox(_directory, *, operation, **_options):
         calls.append(operation)
-        if operation == "label":
-            external["labeled"] = True
-        if operation == "archive":
-            external["archived"] = True
+        if len(calls) == 1:
             raise TimeoutError("Synthetic archive response lost")
-        return {"status": "complete", **external}
+        return {"status": "complete"}
 
     def factory(applications, root):
         return ApplicationIntakeService(
@@ -159,8 +156,8 @@ def test_unknown_mailbox_result_is_visible_without_polling_redispatch(
         page.clock.install()
         page.goto(instance.origin + "/#flow")
         progress = page.locator("#flow-mail-progress")
-        expect(progress).to_contain_text("邮件处理：本地收录 1 · 已标记 1 · 已归档 0 · 待核对 1")
-        expect(progress).to_contain_text("邮件处理结果待核对；核对前不会重复标记或归档")
+        expect(progress).to_contain_text("邮件处理：本地收录 1 · 已标记 0 · 已归档 0 · 待核对 1")
+        expect(progress).to_contain_text("部分邮件尚未确认已归档；下次读取邮件时会重新标记并归档")
         expect(progress).to_contain_text("岗位来源：已完成 0 · 失败 0 · 待核验 0")
         with page.expect_response("**/api/recommendations/state"):
             page.clock.fast_forward(1500)

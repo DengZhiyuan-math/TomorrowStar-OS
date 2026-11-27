@@ -381,6 +381,8 @@ def test_one_grant_drives_email_matching_resume_and_filling_without_ui(environme
         ("Zurich", "CHE"),
         ("Springfield", None),
         ("Switzerland / France", None),
+        ("Zurich / Berlin", None),
+        ("Wallisellen / Hof, Zurich, Switzerland", "CHE"),
         ("Remote", None),
         ("Amsterdam, Netherlands", "OTHER"),
     ],
@@ -1048,6 +1050,35 @@ def test_unknown_qualification_continues_preparation_without_becoming_confirmed(
     task = flow.tasks[state["active_task_id"]]
     assert task_eligibility(task)["status"] == "needs_input"
     assert any(call[0] == "prepare" for call in flow.calls)
+
+
+def test_a_nationality_conflict_is_skipped_without_asking(environment):
+    # 2026-11-26 (user decision): CERN required a Member State nationality.
+    pipeline, flow, _, _, _ = environment
+    original = flow.start
+
+    def start(identifier, revision, stage):
+        result = original(identifier, revision, stage)
+        if stage == "analysis":
+            requirement = flow.tasks[identifier]["artifacts"][-1]["result"]["requirements"][0]
+            requirement.update(
+                text="Be a national of a CERN Member or Associate Member State.",
+                hard_condition=True,
+                judgment="gap",
+            )
+        return result
+
+    flow.start = start
+    pipeline.start(request_id="nationality-conflict")
+    for _ in range(30):
+        pipeline._tick()
+        state = pipeline.snapshot()
+        if any(row.get("reason") == "nationality_required" for row in state["items"]):
+            break
+    item = next(row for row in state["items"] if row.get("reason") == "nationality_required")
+    assert item["status"] == "skipped"
+    assert item["mismatch"] == ["Be a national of a CERN Member or Associate Member State."]
+    assert state.get("wait_reason") != "qualification_conflict"
 
 
 def test_a_qualification_conflict_names_the_hard_conditions_not_met(environment):

@@ -175,14 +175,38 @@ def test_protected_human_words_and_item_order_survive_writer_and_review(delivery
     submit(delivery)
     candidate = generation.assemble_generation(store, identifier)
     assert candidate["resume_content"]["experiences"][0]["items"][0] == human
-    with pytest.raises(PortalDataError):
+    # 2026-11-24: a passing review's change to protected wording is dropped, not the review.
+    generation.review_generation(
+        store,
+        identifier,
+        candidate_sha256=candidate["candidate_sha256"],
+        reviewer_id="reviewer-one",
+        passed=True,
+        issues=[],
+        content_patch={
+            "schema_version": "resume-content-patch/v1",
+            "base_revision": candidate["resume_content"]["revision"],
+            "changes": [
+                {
+                    "item_id": human["id"],
+                    "field": "text",
+                    "expected": human["text"],
+                    "value": "Changed",
+                }
+            ],
+        },
+    )
+    reviewed = generation.review_context(store, identifier)
+    assert reviewed["resume_content"]["experiences"][0]["items"][0] == human
+    # A failing review that changes protected wording is still refused.
+    with pytest.raises(PortalDataError, match="补丁超出允许字段"):
         generation.review_generation(
             store,
             identifier,
             candidate_sha256=candidate["candidate_sha256"],
             reviewer_id="reviewer-one",
-            passed=True,
-            issues=[],
+            passed=False,
+            issues=["wording"],
             content_patch={
                 "schema_version": "resume-content-patch/v1",
                 "base_revision": candidate["resume_content"]["revision"],

@@ -250,6 +250,41 @@ def _native_fact_source_ids(snapshot, sources):
     }
 
 
+def _inference_fallback(requirement, template, brief):
+    """One requirement's unverifiable inference no longer fails the whole analysis.
+
+    2026-11-24: a supported requirement's suggested wording failed its exact-number or
+    language-level check and the job stopped with match_inference_invalid. The wording
+    is only a résumé hint, so it is dropped first; if the inference still cannot be
+    verified, only this requirement becomes unknown, as for an unusable citation.
+    """
+    inference = dict(requirement["inference"])
+    if requirement["judgment"] != "unknown" and inference.get("expression_scope", "").strip():
+        try:
+            return validate_inference(
+                requirement | {"inference": inference | {"expression_scope": ""}}, template, brief
+            )
+        except PortalDataError:
+            pass
+    if "fit_score" in requirement:
+        requirement["proposed_fit_score"] = requirement.pop("fit_score")
+    requirement.update(
+        proposed_judgment=requirement["judgment"],
+        judgment="unknown",
+        claim_scope="unknown",
+        citation_warning="match_inference_invalid",
+        model_explanation=requirement["explanation"],
+        explanation="这项推断暂不能核验，暂不计分；其余项目继续分析。",
+    )
+    requirement["inference"] = inference | {
+        "type": "direct" if inference.get("type") == "deterministic" else inference.get("type"),
+        "relation": "unresolved",
+        "expression_scope": "",
+        "calculation": None,
+    }
+    return validate_inference(requirement, template, brief)
+
+
 def _resume_source_ids(sources, native_ids):
     canonical = {
         identifier
@@ -1443,6 +1478,7 @@ def _analyze_loaded_job(
         pool.shutdown(wait=False)
     try:
         # sol took up to 150 s on a 39-requirement JD in the 2026-10-31 comparison.
+        # 2026-11-27: some JDs ran past 300 s (four timeouts in a row on one job).
         result = send_model_call(
             directory,
             EVALUATION,
@@ -1451,7 +1487,7 @@ def _analyze_loaded_job(
             prompt,
             previous=previous,
             before_send=before_send,
-            timeout_seconds=300,
+            timeout_seconds=600,
             allow_non_repository=True,
             environment=environment,
         )
@@ -1643,9 +1679,22 @@ def _analyze_loaded_job(
                 )
                 if requirement["judgment"] == "unknown":
                     requirement["inference"]["expression_scope"] = ""
-            requirement["inference"] = validate_inference(
-                requirement, expected[requirement_index], brief
-            )
+            try:
+                requirement["inference"] = validate_inference(
+                    requirement, expected[requirement_index], brief
+                )
+            except PortalDataError as error:
+                if error.code != "match_inference_invalid":
+                    raise
+                requirement["inference"] = _inference_fallback(
+                    requirement, expected[requirement_index], brief
+                )
+                note = (
+                    "One or more requirements' inference could not be verified; its suggested "
+                    "wording was dropped or the requirement was left unknown."
+                )
+                if note not in output["limitations"]:
+                    output["limitations"].append(note)
         mapped.update(references)
     if any(requirement.get("gap_review_required") for requirement in requirements):
         output["limitations"].append(

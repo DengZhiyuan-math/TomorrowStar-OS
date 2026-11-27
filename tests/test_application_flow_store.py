@@ -99,3 +99,67 @@ def test_a_changed_task_file_is_rejected(application, tmp_path):
     with pytest.raises(PortalDataError) as error:
         service(applications, tmp_path / "flow")
     assert error.value.code == "flow_invalid"
+
+
+def test_loads_never_share_objects_and_saves_skip_unchanged_digests(
+    application, tmp_path, monkeypatch
+):
+    # 2026-11-24: 761 MB of task files were parsed on every load and digested on
+    # every save under the shared lock; the page's state read passed 30 s.
+    import career_evidence_graph.application_flow as module
+
+    applications, job = application
+    flow = service(applications, tmp_path / "flow")
+    try:
+        task = flow.create(job["id"], job["revision"])
+        with applications.write_lock():
+            flow._load()
+        reads, digests = [], []
+        read, digest = helper.read_json_object, module.digest
+        monkeypatch.setattr(
+            helper, "read_json_object", lambda path, label: reads.append(path) or read(path, label)
+        )
+        monkeypatch.setattr(module, "digest", lambda value: digests.append(1) or digest(value))
+        with applications.write_lock():
+            first = flow._load()
+            # An unsaved change never reaches the next load.
+            first["tasks"][0]["job_description"] = "Unsaved change."
+            second = flow._load()
+            assert second["tasks"][0]["job_description"] != "Unsaved change."
+            digests.clear()
+            flow._save(second)
+        # An unchanged task keeps its revision without being digested again.
+        assert json.loads(flow.path.read_text())["task_refs"][0]["revision"] == task["revision"]
+        assert len(digests) < 2
+        with applications.write_lock():
+            state = flow._load()
+            state["tasks"][0]["job_description"] = "Saved change."
+            flow._save(state)
+            assert state["tasks"][0]["revision"] != task["revision"]
+            assert flow._load()["tasks"][0]["job_description"] == "Saved change."
+    finally:
+        flow.close()
+
+
+def test_a_shared_read_reparses_only_the_changed_task(application, tmp_path):
+    # 2026-11-24: one changed task re-read all 144 (868 MB) for each page read.
+    applications, job = application
+    flow = service(applications, tmp_path / "flow")
+    try:
+        flow.create(job["id"], job["revision"])
+        with applications.write_lock():
+            state = flow._load()
+            state["tasks"].append(
+                dict(state["tasks"][0], id="b" * 32, application_id="other-application")
+            )
+            flow._save(state)
+            before = flow._load_shared()
+            state = flow._load()
+            state["tasks"][0]["job_description"] = "Changed job description."
+            flow._save(state)
+            after = flow._load_shared()
+        assert after["tasks"][1] is before["tasks"][1]
+        assert after["tasks"][0] is not before["tasks"][0]
+        assert after["tasks"][0]["job_description"] == "Changed job description."
+    finally:
+        flow.close()

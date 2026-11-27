@@ -582,17 +582,28 @@ def test_raw_or_mixed_controlled_sources_keep_literal_quote_validation(
 
 
 def test_native_full_fact_does_not_bypass_inference_precision_checks(native_case, tmp_path):
-    from career_evidence_graph.career_portal_data import PortalDataError
-
     application, prepared, output = native_case
     output["requirements"][0]["inference"]["expression_scope"] = (
         "Delivered 987654 completed projects."
     )
     directory = tmp_path / "unsupported-inference"
-    with pytest.raises(PortalDataError) as caught:
-        analyze_job(application, prepared, directory, runner=model_runner(output, []))
-    assert caught.value.code == "match_inference_invalid"
-    assert not (directory / "analysis.json").exists()
+    # 2026-11-24: the unsupported number is dropped; it no longer stops the analysis.
+    result = analyze_job(application, prepared, directory, runner=model_runner(output, []))
+    assert result["requirements"][0]["inference"]["expression_scope"] == ""
+    assert "987654" not in json.dumps(result)
+
+
+def test_an_unverifiable_inference_leaves_only_its_requirement_unknown(native_case, tmp_path):
+    # 2026-11-24: one requirement's inference stopped the whole job analysis.
+    application, prepared, output = native_case
+    output["requirements"][0]["inference"].update(type="deterministic", calculation=None)
+    result = analyze_job(
+        application, prepared, tmp_path / "unverifiable", runner=model_runner(output, [])
+    )
+    row = result["requirements"][0]
+    assert row["judgment"] == "unknown"
+    assert row["citation_warning"] == "match_inference_invalid"
+    assert row["inference"]["relation"] == "unresolved"
 
 
 def test_default_material_budget_adapts_but_explicit_invalid_pair_is_rejected():

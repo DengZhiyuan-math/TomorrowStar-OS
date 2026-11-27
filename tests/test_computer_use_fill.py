@@ -418,6 +418,8 @@ def test_a_claude_fill_works_only_through_claude_in_chrome(tmp_path, monkeypatch
     assert "mcp__claude-in-chrome__javascript_tool" not in allowed
     # 2026-11-11, Celonis: batched clicks were refused and ~/Apply was out of reach.
     assert "mcp__claude-in-chrome__browser_batch" not in allowed
+    # 2026-11-24, Assora: a second Chrome on the account blocked the fill; it picks this Mac's.
+    assert "mcp__claude-in-chrome__select_browser" in allowed
     assert argv[argv.index("--add-dir") + 1] == "/Users/u/Apply"
     assert process.options["env"]["CLAUDE_CONFIG_DIR"].endswith("/.claude-x")
     prompt = process.prompt.decode()

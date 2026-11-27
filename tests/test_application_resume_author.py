@@ -11,6 +11,7 @@ from test_cover_letter_content import phase
 from test_j08_flow_combination import json_flow as json_flow
 from test_j08_flow_combination import start_json_writing
 
+from career_evidence_graph import application_experience_latex as generation
 from career_evidence_graph.application_resume_author import execute_content_generation
 from career_evidence_graph.application_resume_content import validate_plan
 from career_evidence_graph.career_portal_data import PortalDataError
@@ -63,6 +64,65 @@ def author_output(request):
         # The writer's union schema is answered inside "result".
         return {"result": scoped_output(request["context"])}
     return {"passed": True, "issues": [], "content_patch": None, "rewrite_experience_ids": []}
+
+
+@pytest.mark.parametrize("corrects_patch", [True, False])
+def test_final_review_retries_a_patch_that_quotes_the_wrong_draft_text(json_flow, corrects_patch):
+    task = start_json_writing(json_flow)
+    identifier = task["experience_handoff"]["id"]
+    calls = []
+    reviews = []
+
+    def runner(config, prompt, **kwargs):
+        request = json.loads(prompt.split("\n", 1)[1])
+        calls.append(request["role"])
+        answer = author_output(request)
+        if request["role"] == "review":
+            reviews.append(request)
+            content = request["context"]["resume_content"]
+            item = content["experiences"][0]["items"][0]
+            wrong_text = len(reviews) == 1 or not corrects_patch
+            answer["content_patch"] = {
+                "schema_version": "resume-content-patch/v1",
+                "base_revision": content["revision"],
+                "changes": [
+                    {
+                        "item_id": item["id"],
+                        "field": "text",
+                        "expected": item["text"] + " Additional context."
+                        if wrong_text
+                        else item["text"],
+                        "value": "Contributed to the validation workflow.",
+                    }
+                ],
+            }
+        return response(answer)
+
+    if corrects_patch:
+        result = execute_content_generation(json_flow.store, identifier, runner=runner)
+        assert result["kind"] == "draft"
+    else:
+        with pytest.raises(PortalDataError) as rejected:
+            execute_content_generation(json_flow.store, identifier, runner=runner)
+        assert rejected.value.code == "resume_author_failed"
+
+    assert calls[0] == "plan" and calls[-2:] == ["review", "review"]
+    assert len(set(calls[1:-2])) == len(calls[1:-2]) == 2
+    assert all(role.startswith("experience-") for role in calls[1:-2])
+    assert len(reviews) == 2
+    assert reviews[1]["context"] == reviews[0]["context"]
+    rejection = reviews[1]["previous_validation"]
+    assert "patch expected old value does not match" in rejection["cause"]
+    assert (
+        reviews[0]["context"]["resume_content"]["experiences"][0]["items"][0]["id"]
+        in rejection["cause"]
+    )
+    reviewed = generation.review_context(json_flow.store, identifier)
+    item = reviewed["resume_content"]["experiences"][0]["items"][0]
+    original = reviews[0]["context"]["resume_content"]["experiences"][0]["items"][0]["text"]
+    assert item["text"] == (
+        "Contributed to the validation workflow." if corrects_patch else original
+    )
 
 
 @pytest.mark.parametrize("json_flow", [{"automatic_resume_author": True}], indirect=True)
