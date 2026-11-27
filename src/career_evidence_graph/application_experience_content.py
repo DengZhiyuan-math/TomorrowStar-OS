@@ -55,6 +55,8 @@ REVIEW_INSTRUCTIONS = (
     "contradictions and clarity. " + PADDING_RULE + "Patch out any such padding. "
     "Return a resume-content-patch/v1 text or links patch for "
     "small located changes, or return only affected experience IDs for substantial rewriting. "
+    "For every patch change, copy expected exactly from the target item's field in "
+    "resume_content. Use the writing plan and inferences only as evidence. "
     "Review the headline as job-specific career positioning supported by delivered facts; "
     "it must not invent employment, seniority, qualifications or proficiency. "
     "Keep protected human content, identity, education, references and attribution. "
@@ -116,6 +118,34 @@ def _headline(state, current, retained):
     return deepcopy(result)
 
 
+def _drop_unplanned_global_refs(plan):
+    """Headline, summary and skills keep only citations of planned experiences.
+
+    2026-11-26: 24 recorded writer plans were rejected, each costing a model retry,
+    because a summary or skill also cited a fact of an experience the plan left out.
+    The citation is dropped; an item left citing nothing is dropped with it.
+    """
+    facts = {ref for row in plan["assignments"] for ref in row.get("allowed_fact_refs", [])}
+    inferences = {
+        ref for row in plan["assignments"] for ref in row.get("allowed_inference_refs", [])
+    }
+
+    def keep(item):
+        if not isinstance(item, dict):
+            return True
+        cited = bool(item.get("fact_refs") or item.get("inference_refs"))
+        for key, allowed in (("fact_refs", facts), ("inference_refs", inferences)):
+            if isinstance(item.get(key), list):
+                item[key] = [ref for ref in item[key] if ref in allowed]
+        return not cited or bool(item.get("fact_refs") or item.get("inference_refs"))
+
+    for key in ("summary", "skills"):
+        if isinstance(plan.get(key), list):
+            plan[key] = [item for item in plan[key] if keep(item)]
+    if isinstance(plan.get("headline"), dict):
+        keep(plan["headline"])
+
+
 def configure(store, directory, state, proposed, *, main_writer_id=None):
     """Select and order only delivered canonical experiences and accepted inferences."""
     try:
@@ -152,6 +182,7 @@ def configure(store, directory, state, proposed, *, main_writer_id=None):
             assignment["assignment_revision"] = digest(
                 {key: value for key, value in assignment.items() if key != "assignment_revision"}
             )
+        _drop_unplanned_global_refs(plan)
         retained = _retained(state, plan)
         _headline(
             state,
@@ -252,6 +283,17 @@ def submit(directory, state, context, response, writer_id):
         for eid, fragment in state["fragments"].items()
     ):
         raise _invalid("每段经历须由独立写作者提交。")
+    if isinstance(response, dict) and isinstance(response.get("items"), list):
+        # 2026-11-24: a reference whose only difference is typography names its own.
+        from .application_resume_author import repaired_refs
+
+        response = deepcopy(response)
+        for item in response["items"]:
+            for kind in ("fact", "inference"):
+                refs = item.get(f"{kind}_refs") if isinstance(item, dict) else None
+                allowed = context["assignment"].get(f"allowed_{kind}_refs") or []
+                if isinstance(refs, list):
+                    item[f"{kind}_refs"] = repaired_refs(refs, set(allowed))[0]
     try:
         result = validate_fragment(response, context["assignment"])
     except (ValueError, TypeError) as exc:
@@ -600,20 +642,40 @@ def review(
         raise _invalid("此任务须由同一终审角色接续。")
     updated = deepcopy(state)
     content = output(updated)["resume_content"]
+    items = [item for scope in _global_scopes(content).values() for item in scope]
+    for experience in content["experiences"]:
+        items += experience["items"]
+    protected_scopes = set(state["payload"].get("retained_protected_scopes", []))
+    protected_ids = {
+        item["id"]
+        for scope, scope_items in {
+            **_global_scopes(content),
+            **{row["id"]: row["items"] for row in content["experiences"]},
+        }.items()
+        if scope in protected_scopes
+        for item in scope_items
+    }
+    editable = {
+        item["id"]
+        for item in items
+        if item["origin"] == "ai" and not item["protected"] and item["id"] not in protected_ids
+    }
+    if (
+        passed
+        and isinstance(content_patch, dict)
+        and isinstance(content_patch.get("changes"), list)
+    ):
+        # 2026-11-24: a passing reviewer polished two bullets the user had confirmed;
+        # confirmed wording stands, so those changes are dropped rather than the review.
+        kept = [
+            change
+            for change in content_patch["changes"]
+            if not isinstance(change, dict)
+            or change.get("item_id") in editable
+            or change.get("item_id") not in {item["id"] for item in items}
+        ]
+        content_patch = {**content_patch, "changes": kept} if kept else None
     if content_patch is not None:
-        items = [item for scope in _global_scopes(content).values() for item in scope]
-        for experience in content["experiences"]:
-            items += experience["items"]
-        protected_scopes = set(state["payload"].get("retained_protected_scopes", []))
-        protected_ids = {
-            item["id"]
-            for scope, scope_items in {
-                **_global_scopes(content),
-                **{row["id"]: row["items"] for row in content["experiences"]},
-            }.items()
-            if scope in protected_scopes
-            for item in scope_items
-        }
         # 2026-11-19 (Cisco): the reviewer copied another hash from its prompt as the
         # base revision. It reviews exactly this content and each change still checks
         # its old value, so the program supplies the revision itself.
@@ -626,9 +688,7 @@ def review(
                 allowed_targets=[
                     {"item_id": item["id"], "fields": ["text", "links"]}
                     for item in items
-                    if item["origin"] == "ai"
-                    and not item["protected"]
-                    and item["id"] not in protected_ids
+                    if item["id"] in editable
                 ],
             )
         except (ValueError, TypeError) as exc:

@@ -101,7 +101,9 @@ def test_a_changed_task_file_is_rejected(application, tmp_path):
     assert error.value.code == "flow_invalid"
 
 
-def test_loads_reuse_parsed_task_files_without_sharing_objects(application, tmp_path, monkeypatch):
+def test_loads_never_share_objects_and_saves_skip_unchanged_digests(
+    application, tmp_path, monkeypatch
+):
     # 2026-11-24: 761 MB of task files were parsed on every load and digested on
     # every save under the shared lock; the page's state read passed 30 s.
     import career_evidence_graph.application_flow as module
@@ -126,8 +128,6 @@ def test_loads_reuse_parsed_task_files_without_sharing_objects(application, tmp_
             assert second["tasks"][0]["job_description"] != "Unsaved change."
             digests.clear()
             flow._save(second)
-        task_reads = [path for path in reads if path != flow.path]
-        assert task_reads == []
         # An unchanged task keeps its revision without being digested again.
         assert json.loads(flow.path.read_text())["task_refs"][0]["revision"] == task["revision"]
         assert len(digests) < 2
@@ -137,5 +137,29 @@ def test_loads_reuse_parsed_task_files_without_sharing_objects(application, tmp_
             flow._save(state)
             assert state["tasks"][0]["revision"] != task["revision"]
             assert flow._load()["tasks"][0]["job_description"] == "Saved change."
+    finally:
+        flow.close()
+
+
+def test_a_shared_read_reparses_only_the_changed_task(application, tmp_path):
+    # 2026-11-24: one changed task re-read all 144 (868 MB) for each page read.
+    applications, job = application
+    flow = service(applications, tmp_path / "flow")
+    try:
+        flow.create(job["id"], job["revision"])
+        with applications.write_lock():
+            state = flow._load()
+            state["tasks"].append(
+                dict(state["tasks"][0], id="b" * 32, application_id="other-application")
+            )
+            flow._save(state)
+            before = flow._load_shared()
+            state = flow._load()
+            state["tasks"][0]["job_description"] = "Changed job description."
+            flow._save(state)
+            after = flow._load_shared()
+        assert after["tasks"][1] is before["tasks"][1]
+        assert after["tasks"][0] is not before["tasks"][0]
+        assert after["tasks"][0]["job_description"] == "Changed job description."
     finally:
         flow.close()

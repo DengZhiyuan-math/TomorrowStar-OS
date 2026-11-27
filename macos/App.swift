@@ -1046,7 +1046,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
                 fflush(stdout)
             }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 20) {
+        // 2026-11-27: the first flow load verifies every saved task file (27 s for
+        // ~380 jobs), so a 20 s limit stopped a healthy start.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 90) {
             if self.backend === process && self.address == nil {
                 self.stopBackend(reason: "startup_deadline")
                 self.failedStart()

@@ -31,7 +31,6 @@ REPORT_SCHEMA = {
             "enum": [
                 "ready_for_review",
                 "needs_user",
-                "account_required",
                 "posting_not_found",
                 "failed",
             ],
@@ -217,13 +216,13 @@ _FILL_RULES = """Fill every field of the application form, across its steps:
 
 Never click Submit, Apply, Send or any button that sends the application, and never
 press Return inside a form field. Do not sign in or create an account: if the
-application asks for one, stop and report account_required. Do not solve a CAPTCHA
-or verification: if one blocks the form, stop and report needs_user.
+application asks for one, stop and report needs_user naming the sign-in, so the user
+signs in and the fill continues. Do not solve a CAPTCHA or verification: if one
+blocks the form, stop and report needs_user.
 Do not change account settings or other sites.
 
 When every field you can answer is filled, leave the tab open on the form and stop.
 Report status ready_for_review (all required fields filled and files attached),
-account_required (a sign-in or account creation comes before the form),
 posting_not_found (the link no longer leads to this job: it was removed, closed, or
 opens a job list without it),
 needs_user (something only the user can do, or a required question with no

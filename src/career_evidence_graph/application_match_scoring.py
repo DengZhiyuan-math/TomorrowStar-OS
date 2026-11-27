@@ -396,7 +396,23 @@ def experience_reach(analysis, requirements):
 # skip_below a job is skipped, from manual_from on it is prepared for manual review,
 # and between them it proceeds automatically (2026-11-11: no approval band). The
 # lines default to 15 and 75; the 设置 page saves others (2026-11-16).
-def score_tier(score, *, needs_review=False, thresholds=None, reach=None, german=False):
+def score_tier(
+    score, *, needs_review=False, models=None, thresholds=None, reach=None, german=False
+):
+    if models and models.get("needs_review"):
+        # 2026-11-26 (user: relax checks): a model disagreement asks only when the two
+        # scores would place the job in different tiers.
+        needs_review = (
+            needs_review
+            or len(
+                {
+                    score_tier(models[key], thresholds=thresholds)
+                    for key in ("primary", "second")
+                    if (models.get(key) or {}).get("upper") is not None
+                }
+            )
+            > 1
+        )
     if german:
         return "skip"
     if score is None or score.get("upper") is None:

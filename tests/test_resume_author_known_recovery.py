@@ -159,6 +159,39 @@ def test_a_global_reference_with_an_extra_exp_prefix_is_corrected_only_when_uniq
     assert plan["skills"][0]["inference_refs"] == ["inf-1"]
 
 
+def test_a_global_reference_repeating_its_owner_is_corrected():
+    # 2026-11-24: four planner answers wrote exp-X::exp-X::fact for the delivered exp-X::fact.
+    from career_evidence_graph.application_resume_author import repaired_global_refs
+
+    plan = {
+        "assignments": [{"allowed_fact_refs": ["exp-a::user-07"], "allowed_inference_refs": []}],
+        "summary": [{"fact_refs": ["exp-a::exp-a::user-07", "exp-b::exp-b::user-07"]}],
+    }
+    assert repaired_global_refs(plan) == [{"from": "exp-a::exp-a::user-07", "to": "exp-a::user-07"}]
+    assert plan["summary"][0]["fact_refs"] == ["exp-a::user-07", "exp-b::exp-b::user-07"]
+
+
+def test_a_reference_differing_only_in_typography_names_the_delivered_one():
+    # 2026-11-24: the planner dropped exp- from exp-X::exp-X-human-cv-L87-05.
+    from career_evidence_graph.application_resume_author import repaired_refs
+
+    allowed = {"exp-a::exp-a-human-cv-L87-05", "exp-a::a-fact-1", "exp-c::a-fact-1"}
+    fixed, repairs = repaired_refs(
+        [
+            "exp-a::a-human-cv-L87-05",
+            " EXP-A::exp-a-human-cv-l87-05 ",
+            "human-cv-L87-05",
+            "a-fact-1",
+            "exp-a::a-fact-2",
+        ],
+        allowed,
+    )
+    assert fixed[:1] == ["exp-a::exp-a-human-cv-L87-05"]
+    # Ambiguous or unknown references are left for validation to refuse.
+    assert fixed[1:] == ["a-fact-1", "exp-a::a-fact-2"]
+    assert len(repairs) == 3
+
+
 def test_pipeline_resends_an_author_without_answer_after_the_wait(current_pipeline, monkeypatch):
     from career_evidence_graph import application_pipeline
 

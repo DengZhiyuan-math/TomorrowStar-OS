@@ -30,6 +30,17 @@ def efinancialcareers_job_key(url) -> str | None:
     return key[1] if key and key[0] == "efinancialcareers" else None
 
 
+def internal_apply(record: dict | None) -> bool:
+    """A read eFinancialCareers job that names no external application page is
+    applied for on eFinancialCareers itself (2026-11-27, user decision: skipped)."""
+    fields = (record or {}).get("documentary_fields") or {}
+    return bool(
+        efinancialcareers_job_key((record or {}).get("url"))
+        and fields.get("title")
+        and not fields.get("employer_apply_url")
+    )
+
+
 def read_efinancialcareers_job(url, *, read=None) -> dict:
     """One job-page read in the App's Chrome, as a job-source receipt."""
     job_id = efinancialcareers_job_key(url)

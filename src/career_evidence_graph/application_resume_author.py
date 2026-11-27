@@ -7,7 +7,12 @@ from copy import deepcopy
 from pathlib import Path
 
 from ._vendor import job_apply_store as helper
-from .application_resume_content import ContentPatch, validate_plan, writer_schema
+from .application_resume_content import (
+    ContentPatch,
+    PatchExpectedValueMismatch,
+    validate_plan,
+    writer_schema,
+)
 from .career_portal_data import PortalDataError
 from .codex_cli import run_codex_exec
 from .material_author import author_call, record_rejection
@@ -196,13 +201,55 @@ def repaired_experience_ids(choices, experience_ids):
     return [{"from": old, "to": new} for old, new in repairs.items()]
 
 
+def _ref_key(ref):
+    """A reference's identity without its typography: ``exp-`` prefixes, a repeated
+    owner, case and surrounding space (2026-11-24: the planner both added and dropped
+    ``exp-`` and repeated the owner, rejecting whole résumés)."""
+    parts = [part.strip().casefold().removeprefix("exp-") for part in ref.split("::")]
+    parts = [part for part in parts if part]
+    if not parts:
+        return None
+    owner, local = (parts[0], parts[-1]) if len(parts) > 1 else (None, parts[0])
+    if owner and local.startswith(owner + "-"):
+        local = local[len(owner) + 1 :]
+    return owner, local
+
+
+def repaired_refs(refs, allowed):
+    """Each reference that names exactly one allowed reference by its key, and the
+    corrections made; anything else is kept for validation to refuse."""
+    keys = {}
+    for ref in allowed:
+        if (key := _ref_key(ref)) is not None:
+            keys.setdefault(key, set()).add(ref)
+    fixed, repairs = [], []
+    for ref in refs:
+        if isinstance(ref, str) and ref not in allowed and (key := _ref_key(ref)):
+            names = keys.get(key, set())
+            if key[0] is None:
+                names = {
+                    name
+                    for (owner, local), group in keys.items()
+                    if key[1] in {local, f"{owner}-{local}"}
+                    for name in group
+                }
+            if len(names) == 1:
+                (name,) = names
+                repairs.append({"from": ref, "to": name})
+                ref = name
+        if not (isinstance(ref, str) and ref in fixed):
+            # Two spellings of one reference are one citation, not a duplicate.
+            fixed.append(ref)
+    return fixed, repairs
+
+
 def repaired_global_refs(plan):
     """Correct a global reference only when it names exactly one delivered reference.
 
-    A planner copied ``exp-X::exp-X-fact-0014`` for the delivered ``exp-X::X-fact-0014``
-    (the same experience's CV lines do carry the ``exp-`` prefix; 2026-11-04). Only that
-    extra prefix is removed, and only when the result is a reference of a chosen
-    experience; anything else still fails validation. Returns the corrections made.
+    2026-11-04 and 2026-11-24: the planner wrote ``exp-X::exp-X-fact``, ``exp-X::X-fact``
+    and ``exp-X::exp-X::fact`` for delivered references. Only typography differs;
+    a reference that matches no delivered one, or several, still fails validation.
+    Returns the corrections made.
     """
     allowed = {
         kind: {ref for row in plan["assignments"] for ref in row[f"allowed_{kind}_refs"]}
@@ -216,16 +263,8 @@ def repaired_global_refs(plan):
             refs = item.get(f"{kind}_refs") if isinstance(item, dict) else None
             if not isinstance(refs, list):
                 continue
-            fixed = []
-            for ref in refs:
-                if isinstance(ref, str) and ref not in allowed[kind] and "::" in ref:
-                    owner, local = ref.split("::", 1)
-                    candidate = f"{owner}::{local.removeprefix('exp-')}"
-                    if local.startswith("exp-") and candidate in allowed[kind]:
-                        repairs.append({"from": ref, "to": candidate})
-                        ref = candidate
-                fixed.append(ref)
-            item[f"{kind}_refs"] = fixed
+            item[f"{kind}_refs"], made = repaired_refs(refs, allowed[kind])
+            repairs += made
     return repairs
 
 
@@ -426,29 +465,35 @@ def _execute_content_generation(
             },
             "required": ["passed", "issues", "content_patch", "rewrite_experience_ids"],
         }
-        response, reviewer, call = _call(
-            store, identifier, "review", review, schema, runner, allow_calls, admit_call
-        )
-        try:
-            if not isinstance(response, dict) or set(response) != set(schema["required"]):
-                raise ValueError("review response fields do not match")
-            # Preserve one reviewer identity through local rewrites and patches; the
-            # generation keeps it as final_reviewer_id (2026-11-08: finnova's second review
-            # sent a new id and was refused).
-            reviewer = (
-                state.get("final_reviewer_id")
-                or state.get("review", {}).get("reviewer_id")
-                or reviewer
+        for attempt in range(2):
+            response, reviewer, call = _call(
+                store, identifier, "review", review, schema, runner, allow_calls, admit_call
             )
-            reviewed = generation.review_generation(
-                store,
-                identifier,
-                candidate_sha256=review["candidate_sha256"],
-                reviewer_id=reviewer,
-                **response,
-            )
-        except (PortalDataError, ValueError, TypeError, KeyError) as error:
-            _rejected(call, error)
+            try:
+                if not isinstance(response, dict) or set(response) != set(schema["required"]):
+                    raise ValueError("review response fields do not match")
+                # Preserve the independent reviewer identity across local rewrites.
+                reviewer = (
+                    state.get("final_reviewer_id")
+                    or state.get("review", {}).get("reviewer_id")
+                    or reviewer
+                )
+                reviewed = generation.review_generation(
+                    store,
+                    identifier,
+                    candidate_sha256=review["candidate_sha256"],
+                    reviewer_id=reviewer,
+                    **response,
+                )
+                break
+            except (PortalDataError, ValueError, TypeError, KeyError) as error:
+                if (
+                    attempt
+                    or not allow_calls
+                    or not isinstance(error.__cause__, PatchExpectedValueMismatch)
+                ):
+                    _rejected(call, error)
+                record_rejection(call, error)
         if reviewed.get("review", {}).get("passed"):
             return generation.adopt_generation(store, identifier)
         if not response.get("rewrite_experience_ids"):

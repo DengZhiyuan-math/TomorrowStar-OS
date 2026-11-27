@@ -109,3 +109,13 @@ def test_without_saved_lines_the_tiers_are_unchanged():
     assert score_tier({"upper": 15}) == "auto"
     assert score_tier({"upper": 75}) == "manual"
     assert score_tier({"upper": 50}, needs_review=True) == "approve"
+
+
+def test_a_model_disagreement_asks_only_when_the_tiers_differ():
+    from career_evidence_graph.application_match_scoring import score_tier
+
+    def models(first, second):
+        return {"needs_review": True, "primary": {"upper": first}, "second": {"upper": second}}
+
+    assert score_tier({"upper": 50}, models=models(40, 60)) == "auto"
+    assert score_tier({"upper": 72}, models=models(65, 80)) == "approve"

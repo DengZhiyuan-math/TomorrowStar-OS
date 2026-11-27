@@ -429,7 +429,7 @@
     items.sort((a, b) => (b.current - a.current) || (b.index - a.index));
     // 2026-11-08: jobs stopped by a fault or a site limit go to their own folder;
     // the rest are grouped by target company, then by match band, each with its colour.
-    const needsHandling = item => item.status === "analysis_failed" || item.status === "skipped" && !["low_match_score", "experience_shortfall", "german_required", "german_jd", "mail_intake_off", "flow_eligibility_required", "account_low_match", "awaiting_submit", "declined_by_user", "retry_fill"].includes(item.reason) && item.pipeline_context?.wait_reason !== "score_approval";
+    const needsHandling = item => item.status === "analysis_failed" || item.status === "skipped" && !["low_match_score", "experience_shortfall", "german_required", "nationality_required", "german_jd", "temporary_job", "mail_intake_off", "flow_eligibility_required", "account_low_match", "awaiting_submit", "declined_by_user", "retry_fill"].includes(item.reason) && item.pipeline_context?.wait_reason !== "score_approval";
     const groups = [["submit", "已填好 · 等你检查并提交"], ["target", "目标公司"], ["high", "高匹配 · 75 分以上"], ["good", "较高匹配 · 55–74"], ["fair", "中等匹配 · 40–54"], ["low", "较低匹配 · 40 以下"], ["unscored", "尚无匹配分"], ["mismatch", "硬性条件不满足"]].map(([key, label]) => ({ key, label, rows: [] }));
     const handling = [];
     let currentRow = null;
@@ -486,11 +486,14 @@
       : item.reason === "posting_closed" ? ["已停招", "withdrawn", "领英显示岗位已停止招聘"]
       : item.reason === "easy_apply_only" ? ["仅领英站内申请", "withdrawn", "只能用领英 Easy Apply，需要时请自己投递"]
       : item.reason === "indeed_apply_only" ? ["仅 Indeed 站内申请", "withdrawn", "只能用 Indeed Apply，需要时请自己投递"]
+      : item.reason === "efinancialcareers_apply_only" ? ["仅 eFinancialCareers 站内申请", "withdrawn", "只能在 eFinancialCareers 站内申请，需要时请自己投递"]
       : item.reason === "posting_not_found" ? ["岗位已找不到", "withdrawn", "原链接已失效或岗位已下架，已自动跳过"]
       : item.reason === "source_unavailable" ? ["未取得 JD", "candidate", `${sourceErrors[item.source_error_code] || "岗位页面没能读取"}，已自动跳过`]
       : item.reason === "low_match_score" ? ["匹配过低", "withdrawn", "匹配分低于自动跳过线，已自动跳过"]
       : item.reason === "mail_intake_off" ? ["邮件推荐已停用", "withdrawn", "已停用邮件推荐，此岗位移出队列；需要时可返回"]
       : item.reason === "german_jd" ? ["德文 JD", "withdrawn", "JD 用德文撰写，工作语言应为德语，匹配前已自动跳过"]
+      : item.reason === "temporary_job" ? ["临时岗位", "withdrawn", "合同工、实习或其他临时岗位，匹配前已自动跳过"]
+      : item.reason === "nationality_required" ? ["国籍不符", "withdrawn", item.mismatch?.length ? `不满足：${item.mismatch.join("；")}，已自动跳过` : "JD 要求的国籍与你记录的国籍不符，已自动跳过"]
       : item.reason === "german_required" ? ["需要德语", "withdrawn", "JD 把德语列为必需要求，高于你已记录的德语水平，已自动跳过"]
       : item.reason === "experience_shortfall" ? ["经验年限不足", "withdrawn", `JD 要求的工作年限明显高于你的经历，不算年限的匹配分${item.experience_reach == null ? "" : ` ${Math.round(item.experience_reach)}`} 不到 80，已自动跳过`]
       : item.reason === "account_low_match" ? ["需要账号·匹配不高", "withdrawn", "申请需要登录或注册，且匹配分低于 55，已自动跳过"]
@@ -1108,7 +1111,10 @@
       const explanation = explanationPanel(flow.active_explanation); explanation.id = "flow-explanation";
       explanation.querySelector("#flow-fit-details").open = fitOpen; current.append(explanation);
       if (flow.active_explanation.fresh === false) current.append(node("p", "flow-error", "岗位资料已变化，适配结论待核验；原分析和材料保留。"));
-      if (flow.active_explanation.qualification?.status === "conflict") current.append(node("p", "flow-error", "存在硬条件冲突，请展开岗位适配概览核对。"));
+      if (flow.active_explanation.qualification?.status === "conflict") {
+        const unmet = (flow.active_explanation.qualification.conditions || []).filter(row => row.status === "conflict").map(row => row.text).filter(Boolean);
+        current.append(node("p", "flow-error", unmet.length ? `不满足硬条件：${unmet.join("；")}` : "存在硬条件冲突，请展开岗位适配概览核对。"));
+      }
     }
     renderFinalPdf(task);
     if (task.codex_handoff_restart) {
@@ -1430,7 +1436,18 @@
     panel.append(columns);
     if (conflicts.length) {
       const alert = node("div", "flow-fit-conflicts"); alert.append(node("strong", "", qualification.status === "conflict" ? `${conflicts.length} 项硬条件冲突 · 需先处理` : `${conflicts.length} 项条件分支不符 · 资格按原组关系汇总`));
-      alert.append(node("span", "", `：${[...new Set(conflicts.map(topic))].join("、")}。展开完整依据核对。`)); panel.append(alert);
+      // 2026-11-26: name each condition and why it is not met, not only its topic.
+      const why = condition => {
+        const index = Number.isInteger(condition.requirement_index) ? condition.requirement_index : reasons.findIndex(reason => normalize(reason.text) === normalize(condition.text));
+        return reasons[index]?.explanation || condition.explanation || "";
+      };
+      const list = node("ul", "flow-fit-conflict-list");
+      for (const condition of conflicts) {
+        const row = node("li", "", condition.text || topic(condition));
+        if (why(condition)) row.append(node("span", "flow-fit-basis", `原因：${why(condition)}`));
+        list.append(row);
+      }
+      alert.append(list); panel.append(alert);
     }
     panel.append(node("p", "flow-fit-note", explanation.reasons?.some(reason => typeof reason.fit === "number") ? FIT_LEGEND : business ? `分数确定度 ${number(score?.coverage)}% 按固定组关系表示分数已确定程度，不表示每个原子事实都齐全；资料读取与简历覆盖均不改变背景分。` : "资料支持不等于资格已确认；待核对不代表不符合，可能需要核验引用或补充信息。"));
     const details = node("details", "flow-details flow-fit-details"); details.id = "flow-fit-details"; details.append(node("summary", "", "查看逐项 JD 分析、资格与完整依据"), explanationDetails(explanation, true)); panel.append(details);

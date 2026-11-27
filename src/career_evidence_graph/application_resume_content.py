@@ -657,6 +657,10 @@ class ContentPatch(Contract):
     changes: list[ItemChange] = Field(min_length=1)
 
 
+class PatchExpectedValueMismatch(ValueError):
+    """A patch quoted a different value from the reviewed item."""
+
+
 def apply_content_patch(base, patch, *, allowed_targets) -> dict:
     """Apply local text/link changes with revision and old-value preconditions.
 
@@ -685,7 +689,10 @@ def apply_content_patch(base, patch, *, allowed_targets) -> dict:
             raise ValueError("patch cannot change protected human content")
         values = change.model_dump(mode="json")
         if item[change.field] != values["expected"]:
-            raise ValueError("patch expected old value does not match")
+            raise PatchExpectedValueMismatch(
+                f"patch expected old value does not match for item {change.item_id!r}, "
+                f"field {change.field!r}; copy it exactly from resume_content"
+            )
         item[change.field] = values["value"]
     result = TypeAdapter(ResumeContentContract).validate_python(content).model_dump(mode="json")
     result["revision"] = content_revision(result)

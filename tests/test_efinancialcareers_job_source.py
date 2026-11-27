@@ -90,3 +90,16 @@ def test_indeed_match_mail_redirect_names_its_job():
     )
     jobs = {_canonical(value) for value in message["links"]} - {None}
     assert jobs == {"https://ch.indeed.com/viewjob?jk=24d27d6ff34defb3"}
+
+
+def test_only_a_read_job_without_an_external_page_is_internal_apply():
+    from career_evidence_graph.efinancialcareers_job_source import internal_apply
+
+    read = {"title": "Synthetic Engineer", "company": "Synthetic AG"}
+    assert internal_apply({"url": JOB, "documentary_fields": read})
+    external = read | {"employer_apply_url": "https://careers.example.test/42"}
+    assert not internal_apply({"url": JOB, "documentary_fields": external})
+    assert not internal_apply({"url": JOB, "documentary_fields": {}})
+    assert not internal_apply(
+        {"url": "https://careers.example.test/42", "documentary_fields": read}
+    )

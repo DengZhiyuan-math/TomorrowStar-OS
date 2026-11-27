@@ -179,6 +179,13 @@ def _quoted(quote, source):
     each sentence was exact but the quote was refused. Skipping a sentence is
     allowed; a reworded or partial sentence is not.
     """
+    from .quote_match import fold
+
+    # 2026-11-24: typography (apostrophes, dashes, case, spacing) never fails a quote.
+    return _literal_sentences(quote, source) or _literal_sentences(fold(quote)[0], fold(source)[0])
+
+
+def _literal_sentences(quote, source):
     if quote in source:
         return True
     start = 0
@@ -556,14 +563,23 @@ def _delivered_sources(fixed_inputs, sources):
     )
 
 
-def _aligned_quotes(row, eligible, application, brief=None):
-    """Pair each literal quote with the one listed source containing it.
+def _repair_fact_source_id(identifier, quote, texts):
+    """Recover a malformed career-library hash using the exact fact locator and quote."""
+    malformed = re.fullmatch(r"career-library:([0-9a-f]+):(facts/[^:]+)", identifier)
+    if malformed is None or len(malformed[1]) == 64 or not quote.strip():
+        return identifier
+    matches = [
+        source_id
+        for source_id, text in texts.items()
+        if source_id.startswith("career-library:")
+        and source_id.split(":", 2)[-1] == malformed[2]
+        and quote in text
+    ]
+    return matches[0] if len(matches) == 1 else identifier
 
-    Installed MC-11: the writer quoted the JD twice under one "jd" entry, once with
-    the job brief's normalized requirement wording, so the parallel lists no longer
-    lined up. Under "jd", a requirement's wording maps to its own literal JD excerpt;
-    one quote per source is kept; anything not paired exactly is left for validation.
-    """
+
+def _aligned_quotes(row, eligible, application, brief=None):
+    """Align model citations with verifiable references in the fixed sources."""
     excerpts = {
         requirement["text"].rstrip("."): requirement["jd_quote"]
         for group in (brief or {}).get("groups", [])
@@ -576,16 +592,32 @@ def _aligned_quotes(row, eligible, application, brief=None):
         for quote in row["source_quotes"]
     ]
     row = row | {"source_quotes": quotes}
-    if len(ids) == len(quotes):
+    if not ids or len(quotes) < len(ids):
         return row
     texts = {source["source_id"]: source["text"] for source in eligible}
     texts["jd"] = application["job_description"]
+    if len(ids) == len(quotes):
+        return row | {
+            "source_ids": [
+                identifier
+                if identifier in texts
+                else _repair_fact_source_id(identifier, quote, texts)
+                for identifier, quote in zip(ids, quotes, strict=True)
+            ]
+        }
     first = {}
     for quote in quotes:
-        owners = [identifier for identifier in ids if quote in texts.get(identifier, "")]
-        if len(owners) != 1:
+        if not quote.strip():
+            continue
+        owners = [
+            identifier
+            for identifier in ids
+            if identifier in texts and _quoted(quote, texts[identifier])
+        ]
+        if len(owners) > 1:
             return row
-        first.setdefault(owners[0], quote)
+        if owners:
+            first.setdefault(owners[0], quote)
     if set(first) != set(ids):
         return row
     return row | {"source_quotes": [first[identifier] for identifier in ids]}
@@ -826,7 +858,16 @@ def read_cover_letter_result(
             {key: value for key, value in row.items() if key not in {"origin", "protected"}}
             for row in draft["paragraphs"]
         ]
-        if generated != {"language": draft["language"], "paragraphs": projected} or any(
+        expected_draft = {"language": draft["language"], "paragraphs": projected}
+        if generated != expected_draft:
+            brief = fixed_inputs["analysis"].get("job_brief")
+            generated = generated | {
+                "paragraphs": [
+                    _aligned_quotes(row, eligible, application, brief)
+                    for row in generated["paragraphs"]
+                ]
+            }
+        if generated != expected_draft or any(
             row["origin"] != "ai" or row["protected"] for row in draft["paragraphs"]
         ):
             raise ValueError("letter draft differs from retained writer output")

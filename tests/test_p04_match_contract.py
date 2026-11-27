@@ -198,8 +198,6 @@ def test_missing_fact_keeps_interval_and_qualification_separate(canonical, tmp_p
     [
         # Native requirement_id and relation are bound by the program; the native
         # citation tests cover those redundant recorded fields separately.
-        ("expression_scope", "Use CEFR C2 with professional fluency.", "match_inference_invalid"),
-        ("expression_scope", "Delivered 987654 successful projects.", "match_inference_invalid"),
         ("calculation", {"kind": "invented"}, "match_model_invalid"),
     ],
 )
@@ -221,6 +219,33 @@ def test_invalid_inference_fails_without_publishing_a_score(
         )
     assert error.value.code == code
     assert not list((tmp_path / "invalid").rglob("analysis.json"))
+
+
+@pytest.mark.parametrize(
+    "wording", ["Use CEFR C2 with professional fluency.", "Delivered 987654 successful projects."]
+)
+def test_unverifiable_wording_is_dropped_without_failing_the_analysis(
+    canonical, tmp_path, monkeypatch, wording
+):
+    # 2026-11-24: one requirement's unsupported wording stopped the whole job.
+    transform_evaluation(
+        monkeypatch,
+        lambda output, context: output["requirements"][0]["inference"].update(
+            expression_scope=wording
+        ),
+    )
+    result, _ = run_case(
+        canonical,
+        tmp_path,
+        "wording",
+        [requirement("English communication")],
+        information=library_with(answer("English fluency", "professional")),
+        select=False,
+    )
+    row = result["requirements"][0]
+    assert row["inference"]["expression_scope"] == ""
+    assert wording not in json.dumps(result)
+    assert any("could not be verified" in note for note in result["limitations"])
 
 
 def test_selection_order_and_duplicate_source_references_do_not_change_background_score(

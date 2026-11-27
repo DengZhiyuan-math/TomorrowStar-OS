@@ -201,6 +201,29 @@ def written_in_german(text: str) -> bool:
     return german >= 30 and german > 2 * english
 
 
+# 2026-11-27 (user decision): contract, internship and other temporary jobs are excluded.
+_TEMPORARY_TYPES = frozenset({"contract", "contractor", "internship", "intern", "temporary"})
+_TEMPORARY_TITLE = re.compile(
+    r"\bintern(?:ship)?s?\b|\bpraktik(?:um|ant(?:in)?)\b|\bstagiaire\b|\bwerkstudent(?:in)?\b"
+    r"|\bworking student\b|\bcontractor\b|\bfreelance(?:r)?\b|\btemporary\b|\bbefristet\b"
+    r"|\bfixed[- ]term\b|\bcontract\b(?!\s+(?:manag|admin|analy|special|lawyer|counsel|negotiat))",
+    re.I,
+)
+
+
+def temporary_job(title: object, fields: dict | None = None) -> bool:
+    """A job the page types as contract, internship or temporary, or titles as one."""
+    fields = fields or {}
+    types = [fields.get("employmentType"), fields.get("employment_type")] + [
+        row.get("text")
+        for row in fields.get("criteria") or []
+        if isinstance(row, dict) and row.get("label") == "Employment type"
+    ]
+    if any(str(value or "").strip().casefold() in _TEMPORARY_TYPES for value in types):
+        return True
+    return bool(_TEMPORARY_TITLE.search(str(title or "")))
+
+
 def _language_requirement(sentence: str, language: str) -> str:
     names = {"French": r"French|法语", "German": r"German|德语"}[language]
     if not re.search(rf"\b(?:{names})\b|{names}", sentence, re.I):

@@ -54,6 +54,27 @@ def test_skip_append_return_keeps_original_job_intent_pdf_and_owner(single_worke
     assert returned["jobs"][0]["status"] != "cancelled"
 
 
+def test_skip_without_a_current_job_leaves_that_job(single_worker):
+    # 2026-11-26 (Axpo): a parked job refilled through Computer Use is not the
+    # Worker's current job; Submitted or Skip must still leave it.
+    service, first, _checks, _launches = single_worker
+    prepare(service, first)
+    service.request(
+        "skip-current", {"application_id": first["application_id"], "request_id": "park"}
+    )
+    service.request(
+        "skip-current", {"application_id": first["application_id"], "request_id": "submitted"}
+    )
+    assert service.store.load()["current_job_id"] is None
+    second = job(service, 2)
+    second["single_binding"] = {"task_id": "second-task"}
+    prepare(service, second)
+    with pytest.raises(PortalDataError, match="当前岗位已变化"):
+        service.request(
+            "skip-current", {"application_id": first["application_id"], "request_id": "stale"}
+        )
+
+
 def test_current_runner_and_dispatcher_ignore_retained_other_jobs(single_worker, monkeypatch):
     service, first, _checks, _launches = single_worker
     prepare(service, first)

@@ -518,35 +518,6 @@ def test_an_indeed_apply_job_leaves_the_queue_with_its_reason(queue_environment,
     assert application["status"] == "drafting" and "Indeed Apply" in application["next_action"]
 
 
-@pytest.mark.parametrize(("upper", "skipped"), [(40, True), (60, False)])
-def test_a_job_needing_an_account_goes_on_only_from_a_good_match(
-    queue_environment, monkeypatch, upper, skipped
-):
-    """2026-11-09: a sign-in leaves the automatic path; below 55 it is not worth it."""
-    from career_evidence_graph import application_pipeline
-
-    pipeline, flow, _intake, _worker, _reads, _fetches, _messages = queue_environment
-    score = {"lower": upper, "upper": upper, "coverage": 100, "eligibility": "not_specified"}
-    monkeypatch.setattr(application_pipeline, "combined_score", lambda *_: (dict(score), None))
-    monkeypatch.setattr(application_pipeline, "score_tier", lambda *_, **__: "auto")
-    checked = []
-
-    def check(url, directory, learned=()):
-        checked.append(url)
-        return {"status": "account" if len(checked) == 1 else "direct", "by": "page"}
-
-    pipeline.account_check = check
-    pipeline.start(request_id="accounts")
-    current = drive(pipeline, "filling")
-    first = current["items"][0]
-    assert first.get("account_check", {}).get("status") == "account"
-    if skipped:
-        assert first["status"] == "skipped" and first["reason"] == "account_low_match"
-        assert current["active_task_id"] != first["task_id"]
-    else:
-        assert current["active_task_id"] == first["task_id"]
-
-
 def test_a_high_value_job_waits_for_the_resume_plan_and_feedback_plans_again(
     queue_environment, monkeypatch
 ):
@@ -968,3 +939,39 @@ def test_with_mail_intake_off_the_queue_reads_no_mail_and_waits_for_added_jobs(
         pipeline._tick()
     assert reads == [] and fetches == [] and flow.tasks == {}
     assert pipeline.snapshot()["status"] == "waiting_for_mail" and waiting["items"] == []
+
+
+def test_an_efinancialcareers_internal_job_leaves_the_queue(queue_environment, monkeypatch):
+    from career_evidence_graph import efinancialcareers_job_source, job_listing_links
+
+    # 2026-11-27 (user decision): a job applied for on eFinancialCareers itself is skipped.
+    pipeline, flow, _intake, _worker, _reads, _fetches, _messages = queue_environment
+    monkeypatch.setattr(job_listing_links, "posting_status", lambda url, read=None: (None, None))
+    monkeypatch.setattr(
+        efinancialcareers_job_source,
+        "internal_apply",
+        lambda record: bool(record) and record["url"].rstrip("/").endswith("10000"),
+    )
+    pipeline.start(request_id="efc-apply")
+    filling = drive(pipeline, "filling")
+    skipped = [row for row in filling["items"] if row["status"] == "skipped"]
+    assert [row["reason"] for row in skipped] == ["efinancialcareers_apply_only"]
+    application = flow.applications.get_application(skipped[0]["application_id"])
+    assert application["status"] == "drafting" and "eFinancialCareers" in application["next_action"]
+
+
+def test_a_temporary_job_leaves_before_matching(queue_environment, monkeypatch):
+    from career_evidence_graph import application_pipeline
+
+    # 2026-11-27 (user decision): contract, internship and temporary jobs are excluded.
+    pipeline, flow, _intake, _worker, _reads, _fetches, _messages = queue_environment
+    kinds = [True]
+    monkeypatch.setattr(
+        application_pipeline,
+        "temporary_job",
+        lambda _title, _fields: kinds.pop(0) if kinds else False,
+    )
+    pipeline.start(request_id="temporary-job")
+    current = drive(pipeline, "filling")
+    skipped = [row for row in current["items"] if row["status"] == "skipped"]
+    assert [(row["reason"], row["task_id"]) for row in skipped] == [("temporary_job", None)]

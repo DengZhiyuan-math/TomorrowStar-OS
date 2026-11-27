@@ -173,6 +173,93 @@ def test_successfully_delivered_source_scope_is_validated_before_review(tmp_path
     assert "foreign-source" in json.loads(rejection.read_text())["reason"]
 
 
+def test_extra_jd_paraphrase_does_not_block_a_grounded_letter_or_its_readback(tmp_path):
+    app, fixed, sources = inputs()
+    app["job_description"] = (
+        "You will work on connecting internal systems. Help maintain accurate reports."
+    )
+    exact_quote = "Help maintain accurate reports."
+    value = output()
+    value["paragraphs"][0].update(
+        source_ids=["jd"], source_quotes=["Connect internal systems.", exact_quote]
+    )
+    calls = []
+
+    def answer(config, prompt, **options):
+        if phase(prompt) == "schema.json":
+            return result(value)
+        return writer(calls)(config, prompt, **options)
+
+    directory = tmp_path / "author"
+    material = generate_cover_letter(directory, app, fixed, sources=sources, runner=answer)
+    assert [stage for stage, _ in calls] == ["review-schema.json"]
+    assert material["content"]["paragraphs"][0]["source_quotes"] == [exact_quote]
+    repeated = generate_cover_letter(
+        directory, app, fixed, sources=sources, runner=lambda *_: pytest.fail("No replay")
+    )
+    assert repeated == material
+
+
+@pytest.mark.parametrize("jd_quote", ["Connect internal systems.", " "])
+def test_extra_quotes_cannot_replace_a_missing_source_anchor(tmp_path, jd_quote):
+    app, fixed, sources = inputs()
+    app["job_description"] = "You will work on connecting internal systems."
+    value = output()
+    value["paragraphs"][1].update(
+        source_ids=["fact-1", "jd"],
+        source_quotes=[
+            "Built Python services with the team.",
+            jd_quote,
+            "A different responsibility.",
+        ],
+    )
+
+    def answer(_config, prompt, **_options):
+        assert phase(prompt) == "schema.json"
+        return result(value)
+
+    with pytest.raises(PortalDataError) as caught:
+        generate_cover_letter(tmp_path / "bad", app, fixed, sources=sources, runner=answer)
+    assert caught.value.code == "letter_generation_failed"
+
+
+@pytest.mark.parametrize("case", ["unique", "ambiguous", "wrong_quote", "valid_hash"])
+def test_letter_repairs_a_malformed_source_hash_with_a_unique_exact_fact(tmp_path, case):
+    app, fixed, sources = inputs()
+    source = sources["items"][0]
+    source["source_id"] = f"career-library:{'a' * 64}:facts/service-reliability"
+    value = output()
+    paragraph = value["paragraphs"][1]
+    digest_length = 64 if case == "valid_hash" else 67
+    paragraph["source_ids"] = [f"career-library:{'c' * digest_length}:facts/service-reliability"]
+    if case == "ambiguous":
+        sources["items"].append(
+            source | {"source_id": f"career-library:{'b' * 64}:facts/service-reliability"}
+        )
+    if case == "wrong_quote":
+        paragraph["source_quotes"] = ["Built Rust services independently."]
+
+    def answer(config, prompt, **options):
+        if phase(prompt) == "schema.json":
+            return result(value)
+        return writer([])(config, prompt, **options)
+
+    directory = tmp_path / "author"
+    if case != "unique":
+        with pytest.raises(PortalDataError) as caught:
+            generate_cover_letter(directory, app, fixed, sources=sources, runner=answer)
+        assert caught.value.code == "letter_generation_failed"
+        return
+    material = generate_cover_letter(directory, app, fixed, sources=sources, runner=answer)
+    assert material["content"]["paragraphs"][1]["source_ids"] == [source["source_id"]]
+    assert (
+        generate_cover_letter(
+            directory, app, fixed, sources=sources, runner=lambda *_: pytest.fail("No replay")
+        )
+        == material
+    )
+
+
 @pytest.mark.parametrize("lost_stage", ["schema.json", "review-schema.json"])
 def test_a_letter_call_without_answer_is_resent_alone(tmp_path, lost_stage):
     """Model Call Record: a retry resends only the call that produced no answer."""

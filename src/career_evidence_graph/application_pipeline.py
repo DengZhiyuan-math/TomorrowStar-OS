@@ -9,7 +9,7 @@ import re
 import threading
 import time
 import traceback
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
 from copy import deepcopy
 from pathlib import Path
@@ -36,7 +36,7 @@ from .application_match_scoring import (
 )
 from .application_settings import score_thresholds
 from .career_portal_data import PortalDataError
-from .job_screening import job_country, screen_applications, written_in_german
+from .job_screening import job_country, screen_applications, temporary_job, written_in_german
 from .validation.hashing import record_digest as digest
 
 PROTOCOL = "application-pipeline/v1"
@@ -91,6 +91,15 @@ def _mismatch(eligibility):
     return [row["text"] for row in eligibility["conditions"] if row["status"] == "conflict"][:3]
 
 
+def _nationality_conflict(eligibility):
+    """A hard condition on nationality or citizenship that the saved facts do not meet."""
+    pattern = re.compile(r"\b(nationals?|nationality|citizens?|citizenship)\b", re.IGNORECASE)
+    return any(
+        row["status"] == "conflict" and pattern.search(row.get("text") or "")
+        for row in eligibility["conditions"]
+    )
+
+
 # Steps a program check may stop and one Continue re-enters.
 RESUMABLE_STEPS = frozenset({"matching", "generating_resume"})
 # How often a waiting Computer Use job checks for the company's confirmation mail.
@@ -102,10 +111,6 @@ RATE_LIMIT_RETRIES = 3
 # 2026-11-19 (user decision): a filled job waits for the user's Submit in its Chrome
 # tab while the queue fills the next one; at most this many filled jobs wait at once.
 SUBMIT_WAIT_LIMIT = 5
-# A job whose application needs an account goes on only from this match (2026-11-09).
-ACCOUNT_SCORE_FLOOR = 55
-# How long a finished match waits for its account check.
-ACCOUNT_CHECK_WAIT = 120
 # 2026-11-12 (user decision): a job whose researched yearly pay reaches this stops for
 # the user's review of the résumé plan, like a high match or a target company.
 HIGH_SALARY_CHF = 200_000
@@ -172,10 +177,7 @@ class ApplicationPipeline:
         # user's everyday Chrome instead of the isolated Worker browser.
         self.computer_use = computer_use
         self._computer_use_runs = {}
-        self._account_checks = {}
         self._salary_runs = {}
-        # The live App's application account check (2026-11-09); None in tests.
-        self.account_check = (computer_use or {}).get("account_check")
         self._confirmation_reads = {}
         # Automatic takeover is on but could not be configured at startup (MC-22).
         self.takeover_unavailable_reason = takeover_unavailable_reason
@@ -190,6 +192,7 @@ class ApplicationPipeline:
         self._runtime_error = ""
         self._refresh_entry = ContextVar("pipeline_paused_refresh_entry", default=None)
         self._preparation_serial = 0
+        self._paused_letter_retry = None
         self._lock_file = lock_path.open("a")
         try:
             fcntl.flock(self._lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -430,11 +433,16 @@ class ApplicationPipeline:
             "flow:recheck-material-consistency",
             "flow:recheck-resume-author",
         }:
-            with pipeline_http_entry(
-                self.flow,
-                lambda: self._check_material_branch_entry(
-                    payload,
-                    execution=letter or action == "flow:retry-material-consistency",
+            retry_letter = letter and payload["stage"] == "letter" and payload.get("retry") is True
+            with (
+                self._guard if retry_letter else nullcontext(),
+                pipeline_http_entry(
+                    self.flow,
+                    lambda: self._check_material_branch_entry(
+                        payload,
+                        execution=letter or action == "flow:retry-material-consistency",
+                    ),
+                    admit_letter_retry=self._admit_paused_letter_retry if retry_letter else None,
                 ),
             ):
                 yield
@@ -479,7 +487,7 @@ class ApplicationPipeline:
                 409,
             )
 
-    def preparation_allowed(self, task_id, *, refresh=None):
+    def preparation_allowed(self, task_id, *, refresh=None, letter_attempt=None):
         """Read preparation authority; Flow may already hold the application lock."""
         if not isinstance(task_id, str) or not task_id:
             return False
@@ -488,6 +496,13 @@ class ApplicationPipeline:
                 if not self._owner or self._closed.is_set() or self._runtime_error:
                     return False
                 state = self._load()
+                if letter_attempt is not None:
+                    return (
+                        state["control"] == "paused"
+                        and state.get("active_task_id") == task_id
+                        and self._paused_letter_retry
+                        == (state["id"], self._preparation_serial, task_id, letter_attempt)
+                    )
                 if not state.get("id") and not state["items"] and not state.get("active_task_id"):
                     return True
                 if (
@@ -531,6 +546,18 @@ class ApplicationPipeline:
         if entry["refresh"] is None:
             entry["refresh"] = refresh
         return refresh == entry["refresh"]
+
+    def _admit_paused_letter_retry(self, task_id, attempt_id):
+        # Flow calls this under the application lock, before making the attempt runnable.
+        state = self._load()
+        if state.get("active_task_id") != task_id or state["control"] != "paused":
+            return False
+        if (state.get("model_resend") or {}).get("task_id") == task_id:
+            # The explicit retry replaces a timed Continue that would resume the full job.
+            state.pop("model_resend")
+            self._save(state)
+        self._paused_letter_retry = (state["id"], self._preparation_serial, task_id, attempt_id)
+        return True
 
     def _check_material_branch_entry(self, payload, *, execution=False):
         # Flow invokes this while holding the application lock. Do not acquire
@@ -1724,6 +1751,7 @@ class ApplicationPipeline:
                     "low_match_score",
                     "experience_shortfall",
                     "german_required",
+                    "nationality_required",
                 }:
                     # Returning a low-score job is the user's decision to proceed.
                     target["score_decision"] = target.get("score_analysis_id")
@@ -2317,47 +2345,6 @@ class ApplicationPipeline:
         state.pop("plan_review", None)
         self._continue_author(state, payload["request_id"])
 
-    def _start_account_check(self, item, application):
-        """Check beside the match whether the application needs an account (2026-11-09)."""
-        check = self.account_check
-        key = item.get("recommendation_id")
-        if (
-            not check
-            or not application.get("url")
-            or item.get("account_check")
-            or (key in self._account_checks)
-        ):
-            return
-        from .application_account_check import learned_hosts
-
-        root = Path(self.flow.root)
-        run = {"result": None, "started": time.time()}
-        self._account_checks[key] = run
-
-        def work():
-            try:
-                run["result"] = check(
-                    application["url"],
-                    root / "account-checks" / digest(key)[:16],
-                    learned=learned_hosts(root / "account-hosts.json"),
-                )
-            except Exception as error:  # The fill still finds a sign-in wall.
-                run["result"] = {"status": "unclear", "by": "error", "error": type(error).__name__}
-
-        threading.Thread(target=work, name="account-check", daemon=True).start()
-
-    def _account_check_result(self, item):
-        """The job's saved check; None while a running check may still answer."""
-        if item.get("account_check"):
-            return item["account_check"]
-        run = self._account_checks.get(item.get("recommendation_id"))
-        if run is None:
-            return {"status": "unclear", "by": "not_checked"}
-        if run["result"] is None and time.time() - run["started"] < ACCOUNT_CHECK_WAIT:
-            return None
-        item["account_check"] = run["result"] or {"status": "unclear", "by": "timeout"}
-        return item["account_check"]
-
     def _target_job(self, item):
         try:
             application = self.flow.applications.get_application(item["application_id"])
@@ -2904,6 +2891,7 @@ class ApplicationPipeline:
         employer's page, and leaves as not found when that page says the job is gone.
         Returns the application to continue with, or None when the job was left.
         """
+        from .efinancialcareers_job_source import internal_apply
         from .indeed_job_source import apply_route
         from .job_listing_links import employer_url, posting_gone, posting_status
         from .linkedin_job_source import saved_posting
@@ -2927,6 +2915,8 @@ class ApplicationPipeline:
         if status is None:
             # An Indeed job's route was read with its page (2026-11-05).
             status = "indeed_apply" if apply_route(record) == "indeed_apply" else None
+        if status is None and internal_apply(record):
+            status = "efinancialcareers_apply"
         today = time.strftime("%Y-%m-%d")
         changes, reason = {}, None
         if status == "closed":
@@ -2947,6 +2937,12 @@ class ApplicationPipeline:
                 "next_action": "只能在 Indeed 站内申请（Indeed Apply），自动流程不能填写；"
                 "需要时请自己在 Indeed 投递。"
             }
+        elif status == "efinancialcareers_apply":
+            reason = "efinancialcareers_apply_only"
+            changes = {
+                "next_action": "只能在 eFinancialCareers 站内申请，自动流程跳过；"
+                "需要时请自己在 eFinancialCareers 投递。"
+            }
         elif status == "open" and listing == application["url"]:
             final = employer_url(target)
             if final:
@@ -2960,6 +2956,8 @@ class ApplicationPipeline:
         # stated or not; it leaves before matching.
         if reason is None and written_in_german(application.get("job_description")):
             reason = "german_jd"
+        if reason is None and temporary_job(application.get("role_title"), fields):
+            reason = "temporary_job"
         if changes:
             application = self.flow.applications.update_application(
                 application["id"], changes, application["revision"]
@@ -3500,6 +3498,14 @@ class ApplicationPipeline:
                     # Skip stops adoption, but the next job must not overlap an
                     # author call which is still held by the previous job.
                     return
+            task_id = state.get("active_task_id")
+            current_outcome = outcomes.get(task_id, {})
+            if (
+                current_outcome.get("paused_letter_retry")
+                and current_outcome["letter"] == "complete"
+                and self.flow.resume_letter_consistency(task_id)
+            ):
+                return
         if state.get("queue_mode") and state["status"] in {
             "reading_email",
             "selecting_job",
@@ -3644,27 +3650,13 @@ class ApplicationPipeline:
                     item.update(experience_reach=reach, german_required=german)
                     tier = item["score_tier"] = score_tier(
                         score,
-                        needs_review=bool(models and models["needs_review"]),
+                        models=models,
                         thresholds=score_thresholds(self.flow.root),
                         reach=reach,
                         german=german,
                     )
                 except (OSError, PortalDataError, KeyError, TypeError, ValueError):
                     pass
-            account = self._account_check_result(item)
-            if account is None:
-                return
-            if (
-                account.get("status") == "account"
-                and not decided
-                and (item.get("score") or {}).get("upper", 0) < ACCOUNT_SCORE_FLOOR
-                and not self._target_job(item)
-            ):
-                item["reason"] = "account_low_match"
-                state["active_task_id"] = item["task_id"]
-                self._leave_current(state, "account-low-match:" + item["task_id"])
-                self._save(state)
-                return
             if tier == "skip" and not decided:
                 reach = item.get("experience_reach")
                 item["reason"] = (
@@ -3752,7 +3744,6 @@ class ApplicationPipeline:
                 **({"fresh_job_brief": True} if item.pop("fresh_job_brief", False) else {}),
             )
             item["task_id"] = task["id"]
-            self._start_account_check(item, application)
             self._start_salary_research(item, application)
             item["status"] = "matching"
             self._save(state)
@@ -3784,7 +3775,7 @@ class ApplicationPipeline:
                 german_required=german,
                 score_tier=score_tier(
                     score,
-                    needs_review=bool(models and models["needs_review"]),
+                    models=models,
                     thresholds=score_thresholds(self.flow.root),
                     reach=reach,
                     german=german,
@@ -3800,6 +3791,17 @@ class ApplicationPipeline:
             item.pop("mismatch", None)
             if not eligible:
                 item["mismatch"] = _mismatch(eligibility)
+            if not eligible and _nationality_conflict(eligibility):
+                # 2026-11-26 (user decision, CERN): a job whose nationality condition the
+                # recorded nationality does not meet is skipped without asking.
+                item["reason"] = "nationality_required"
+                if state.get("queue_mode") and state.get("current_recommendation_id"):
+                    state["active_task_id"] = task["id"]
+                    self._leave_current(state, "nationality:" + task["id"])
+                else:
+                    item["status"] = "skipped"
+                self._save(state)
+                return
             if item["status"] == "needs_input":
                 state.update(
                     active_task_id=task["id"],
@@ -4278,23 +4280,6 @@ class ApplicationPipeline:
                 "已在 Chrome 填好申请表。请检查后由你最终提交，再点“我已提交”。",
             )
             self._park_for_submit(state)
-        elif report["status"] == "account_required":
-            # 2026-11-09: a sign-in wall leaves the automatic path; park the job, keep
-            # its page open in Chrome, remember the site, and go on with the next job.
-            from .application_account_check import learn_host
-
-            learn_host(
-                Path(self.flow.root) / "account-hosts.json", state["computer_use"].get("job_url")
-            )
-            item = next(
-                row
-                for row in state["items"]
-                if row.get("recommendation_id") == state.get("current_recommendation_id")
-            )
-            item.update(
-                reason="account_required", account_check={"status": "account", "by": "fill"}
-            )
-            self._leave_current(state, "account-required:" + state["computer_use"]["run_id"])
         elif report["status"] == "posting_not_found":
             # 2026-11-10 (user decision): a removed posting is set aside under its own
             # reason and the queue goes on without waiting for a click.

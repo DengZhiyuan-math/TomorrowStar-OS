@@ -530,3 +530,22 @@ def test_writer_context_output_schema_is_bound_to_its_assignment():
         "title": "Assignment Revision",
         "type": "string",
     }
+
+
+def test_global_items_drop_citations_of_unplanned_experiences():
+    from career_evidence_graph.application_experience_content import _drop_unplanned_global_refs
+
+    plan = {
+        "assignments": [{"allowed_fact_refs": ["a"], "allowed_inference_refs": []}],
+        "headline": {"fact_refs": ["a", "x"], "inference_refs": []},
+        "summary": [
+            {"id": "s1", "fact_refs": ["a", "x"], "inference_refs": []},
+            {"id": "s2", "fact_refs": ["x"], "inference_refs": []},
+        ],
+        "skills": [{"id": "k1", "fact_refs": [], "inference_refs": []}],
+    }
+    _drop_unplanned_global_refs(plan)
+    assert plan["headline"]["fact_refs"] == ["a"]
+    assert [item["id"] for item in plan["summary"]] == ["s1"]
+    assert plan["summary"][0]["fact_refs"] == ["a"]
+    assert [item["id"] for item in plan["skills"]] == ["k1"]

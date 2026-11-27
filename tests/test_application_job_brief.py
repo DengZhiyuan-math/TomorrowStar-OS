@@ -213,10 +213,7 @@ def test_joined_group_quote_still_rejects_a_passage_not_in_the_jd(tmp_path, appl
         ("Pythonic research.", "python"),
         ("Research pricing models.", "re search pricing models"),
         ("Research pricing models.", "research pricingmodels"),
-        ("We’re researching models.", "we're researching models."),
-        ("Research pricing models.", "research pricing models!"),
         ("Use Python or C++.", "use python and c++."),
-        ("Use Python.", "use Ｐｙｔｈｏｎ."),
         ("Research pricing models.", " \t\n"),
     ],
 )
@@ -766,6 +763,21 @@ def test_a_quote_that_only_drops_words_becomes_its_literal_line(quote, literal):
         assert _literal_jd_quote(quote, jd) == literal
 
 
+def test_a_typographic_apostrophe_names_the_jds_straight_one():
+    # 2026-11-24, UBS: "You’ll join" for the JD's "You'll join" rejected the brief.
+    # Typography never changes what a quote cites, so all of it is ignored.
+    from career_evidence_graph.application_job_brief import _literal_jd_quote
+
+    jd = 'You\'ll join the team.\nSay "hello" daily.\nUse Python 3 \u2013 daily.\nModels.'
+    assert _literal_jd_quote("use Ｐｙｔｈｏｎ 3 - daily.", jd) == "Use Python 3 \u2013 daily."
+    assert _literal_jd_quote("Models!", jd) == "Models"
+    assert _literal_jd_quote("YOU\u2019LL  JOIN\nTHE TEAM", jd) == "You'll join the team"
+    assert _literal_jd_quote("You’ll join the team.", jd) == "You'll join the team."
+    assert _literal_jd_quote("Say “hello” daily.", jd) == 'Say "hello" daily.'
+    with pytest.raises(PortalDataError):
+        _literal_jd_quote("You’d join the team.", jd)
+
+
 def test_plain_colon_quote_names_a_captured_double_brace_colon():
     # 2026-11-04: a LinkedIn capture renders "Label: duty" bullets as "Label{{:}} duty".
     from career_evidence_graph.application_job_brief import _literal_jd_quote
@@ -906,3 +918,25 @@ def test_a_requirement_repeated_in_a_later_plain_group_stays_in_the_first(
     assert [group["label"] for group in value["groups"]] == ["Business", "Methods"]
     texts = [row["text"] for row in brief_requirements(value)]
     assert texts.count("Validate risk") == 1
+
+
+def test_a_lightly_reworded_quote_names_the_one_close_jd_sentence():
+    # 2026-11-26, Thomson Reuters; 2026-11-18, DeepJudge.
+    from career_evidence_graph.application_job_brief import _literal_jd_quote
+
+    jd = (
+        "About the role:\nWe’re hiring engineers for a greenfield project. Decisions are open.\n"
+        "Be Innovative: You are empowered to try new approaches and learn new technologies."
+    )
+    assert _literal_jd_quote("You’re hiring engineers for a greenfield project.", jd) == (
+        "We’re hiring engineers for a greenfield project."
+    )
+    assert (
+        _literal_jd_quote(
+            "Be an Innovative: You are empowered to try new approaches and learn new technologies.",
+            jd,
+        )
+        == "Be Innovative: You are empowered to try new approaches and learn new technologies."
+    )
+    with pytest.raises(PortalDataError):
+        _literal_jd_quote("We’re hiring engineers for a legacy project.", jd)
